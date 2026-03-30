@@ -1,0 +1,17 @@
+{
+  "project": "liquiddom",
+  "version": "0.1.0",
+  "methodology": "wdd",
+  "wdd_version": "1.0",
+  "ai_tools": {
+    "primary": "claude-code",
+    "review": []
+  },
+  "conventions": {
+    "test_framework": "cargo test",
+    "lint": "cargo clippy",
+    "format": "cargo fmt"
+  },
+  "ward_prefix": "ward",
+  "ward_digits": 3
+}
