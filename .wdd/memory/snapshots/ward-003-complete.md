@@ -4,7 +4,7 @@
 Ward 1 started — 2026-03-30
 
 ## Current State
-Ward 3 COMPLETE. Phase 1 Rust+TS fundamenter på plads. 12 Rust tests + 5 TS tests = 17 total, 0 warnings.
+Ward 2 COMPLETE. `EntityRef`/`EntityRefMut` zero-copy accessors, 12/12 tests, 0 clippy warnings.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -29,5 +29,4 @@ Ward 3 COMPLETE. Phase 1 Rust+TS fundamenter på plads. 12 Rust tests + 5 TS tes
 _None yet_
 
 ## What Comes Next
-- Integration Spec 1: FFI Sync Protocol dokumentation
-- Ward 4: FFI Integration & Tick Event (TS/Rust — forbind delt hukommelse)
+- Ward 3: Phantom DOM Observer (TypeScript) eller næste Rust ward

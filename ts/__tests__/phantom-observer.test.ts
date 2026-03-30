@@ -1,0 +1,146 @@
+import { describe, it, expect } from "vitest";
+import { PhantomObserver, FLOATS_PER_ENTITY } from "../src/phantom-observer";
+
+/** Lightweight mock — only implements getBoundingClientRect */
+function mockElement(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): HTMLElement {
+  return {
+    getBoundingClientRect: () => ({
+      x,
+      y,
+      width,
+      height,
+      top: y,
+      left: x,
+      right: x + width,
+      bottom: y + height,
+      toJSON: () => {},
+    }),
+  } as unknown as HTMLElement;
+}
+
+describe("PhantomObserver", () => {
+  it("initializes with correct capacity", () => {
+    const observer = new PhantomObserver(10);
+    const buffer = observer.getBuffer();
+
+    // 10 entities × 8 floats = 80
+    expect(buffer).toBeInstanceOf(Float32Array);
+    expect(buffer.length).toBe(10 * FLOATS_PER_ENTITY);
+
+    // All zeros initially
+    for (let i = 0; i < buffer.length; i++) {
+      expect(buffer[i]).toBe(0);
+    }
+  });
+
+  it("observe assigns ids and writes rect", () => {
+    const observer = new PhantomObserver(10);
+    const el0 = mockElement(10, 20, 300, 150);
+    const el1 = mockElement(50, 60, 400, 200);
+
+    const id0 = observer.observe(el0);
+    const id1 = observer.observe(el1);
+
+    expect(id0).toBe(0);
+    expect(id1).toBe(1);
+
+    const buf = observer.getBuffer();
+
+    // Entity 0: offset 0
+    expect(buf[0]).toBe(10); // x
+    expect(buf[1]).toBe(20); // y
+    expect(buf[2]).toBe(300); // width
+    expect(buf[3]).toBe(150); // height
+
+    // Entity 1: offset 8
+    expect(buf[8]).toBe(50);
+    expect(buf[9]).toBe(60);
+    expect(buf[10]).toBe(400);
+    expect(buf[11]).toBe(200);
+  });
+
+  it("sync updates moved elements", () => {
+    const observer = new PhantomObserver(10);
+
+    // Start position
+    let currentX = 10;
+    let currentY = 20;
+    const el = {
+      getBoundingClientRect: () => ({
+        x: currentX,
+        y: currentY,
+        width: 100,
+        height: 50,
+        top: currentY,
+        left: currentX,
+        right: currentX + 100,
+        bottom: currentY + 50,
+        toJSON: () => {},
+      }),
+    } as unknown as HTMLElement;
+
+    observer.observe(el);
+    const buf = observer.getBuffer();
+    expect(buf[0]).toBe(10);
+    expect(buf[1]).toBe(20);
+
+    // "Move" the element
+    currentX = 999;
+    currentY = 888;
+
+    // Buffer should still have old values before sync
+    expect(buf[0]).toBe(10);
+    expect(buf[1]).toBe(20);
+
+    // After sync, buffer should reflect the new position
+    observer.sync();
+    expect(buf[0]).toBe(999);
+    expect(buf[1]).toBe(888);
+    expect(buf[2]).toBe(100); // width unchanged
+    expect(buf[3]).toBe(50); // height unchanged
+  });
+
+  it("unobserve frees id for reuse", () => {
+    const observer = new PhantomObserver(10);
+    const el0 = mockElement(1, 2, 3, 4);
+    const el1 = mockElement(5, 6, 7, 8);
+    const el2 = mockElement(9, 10, 11, 12);
+
+    const id0 = observer.observe(el0);
+    const id1 = observer.observe(el1);
+    expect(id0).toBe(0);
+    expect(id1).toBe(1);
+
+    // Free id 0
+    observer.unobserve(el0);
+
+    // Next observe should reuse id 0
+    const id2 = observer.observe(el2);
+    expect(id2).toBe(0);
+
+    // Verify el2's rect is now at slot 0
+    const buf = observer.getBuffer();
+    expect(buf[0]).toBe(9);
+    expect(buf[1]).toBe(10);
+    expect(buf[2]).toBe(11);
+    expect(buf[3]).toBe(12);
+  });
+
+  it("capacity limit throws", () => {
+    const observer = new PhantomObserver(2);
+    const el0 = mockElement(0, 0, 10, 10);
+    const el1 = mockElement(0, 0, 10, 10);
+    const el2 = mockElement(0, 0, 10, 10);
+
+    observer.observe(el0);
+    observer.observe(el1);
+
+    // Third observe should throw — capacity is 2
+    expect(() => observer.observe(el2)).toThrow();
+  });
+});
