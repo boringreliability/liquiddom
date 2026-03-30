@@ -4,7 +4,7 @@
 Ward 1 started — 2026-03-30
 
 ## Current State
-Ward 2 COMPLETE. `EntityRef`/`EntityRefMut` zero-copy accessors, 12/12 tests, 0 clippy warnings.
+Ward 1 COMPLETE. `EntityBuffer` struct med flat `Vec<f32>` buffer, 6/6 tests, 0 clippy warnings.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -29,4 +29,4 @@ Ward 2 COMPLETE. `EntityRef`/`EntityRefMut` zero-copy accessors, 12/12 tests, 0 
 _None yet_
 
 ## What Comes Next
-- Ward 3: Phantom DOM Observer (TypeScript) eller næste Rust ward
+- Ward 2: Buffer Mutation API — sikre read/write funktioner, apply external force, entity lifecycle
