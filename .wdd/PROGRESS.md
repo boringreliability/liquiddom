@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-10 of 25 Wards complete · 84 estimated tests · 0 blocked
+11 of 25 Wards complete · 84 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -18,7 +18,7 @@
 | 10 | Canvas Spline Renderer | 1 | ✅ Complete | 2026-03-31 |
 | 11 | The Illusion & Interaction State | 2 | ✅ Complete | 2026-03-31 |
 | 12 | Final Demo & API Wrapper | 2 | 🔨 Gold | - |
-| 13 | Instance-Based Runtime API | 4 | 📋 Planned | - |
+| 13 | Instance-Based Runtime API | 4 | ✅ Complete | 2026-03-31 |
 | 14 | Runtime Teardown and Idempotent Lifecycle | 5 | 📋 Planned | - |
 | 15 | Memory Bridge Encapsulation | 4 | 📋 Planned | - |
 | 16 | Capacity Correctness and Grow Semantics | 4 | 📋 Planned | - |

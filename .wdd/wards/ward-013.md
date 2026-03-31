@@ -3,12 +3,12 @@ ward: 13
 revision: null
 name: "Instance-Based Runtime API"
 epic: "runtime-hardening"
-status: "planned"
+status: "complete"
 dependencies: [12]
 layer: "typescript"
 estimated_tests: 4
 created: "2026-03-31"
-completed: null
+completed: "2026-03-31"
 ---
 # Ward 013: Instance-Based Runtime API
 
