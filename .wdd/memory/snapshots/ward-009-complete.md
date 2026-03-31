@@ -4,7 +4,7 @@
 Ward 1 started — 2026-03-30
 
 ## Current State
-Ward 9 COMPLETE. Pointer repulsion: Vec2 length/normalize, linear falloff F_repel, mousemove tracking. 24 Rust + 12 TS = 36 tests, 0 warnings. Visuelt verificeret: partikler viger fra cursor.
+Phase 2 COMPLETE. Physics→FFI bridge: EntityBody lazy creation, particle_data buffer, wireframe debugRender. 20 Rust + 12 TS = 32 tests, 0 warnings. Visuelt verificeret: soft body deformation ved 60 FPS.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -31,5 +31,5 @@ Ward 9 COMPLETE. Pointer repulsion: Vec2 length/normalize, linear falloff F_repe
 _None yet_
 
 ## What Comes Next
+- Ward 9: Collision & Repulsion (mus-interaktion, force falloff)
 - Phase 3: Liquid Rendering (WGPU)
-- Ward 10: WGPU Context Setup

@@ -32,7 +32,21 @@ async function main() {
   resizeCanvas();
   window.addEventListener("resize", resizeCanvas);
 
-  // 6. RAF loop
+  // 6. Pointer tracking
+  let pointerX = 0;
+  let pointerY = 0;
+  let pointerActive = false;
+
+  document.addEventListener("mousemove", (e) => {
+    pointerX = e.clientX;
+    pointerY = e.clientY;
+    pointerActive = true;
+  });
+  document.addEventListener("mouseleave", () => {
+    pointerActive = false;
+  });
+
+  // 7. RAF loop
   let lastTime = performance.now();
   let frameCount = 0;
   let fpsAccum = 0;
@@ -58,7 +72,7 @@ async function main() {
     observer.sync();
 
     // Call Rust tick (runs physics — dt is in ms, Rust converts to seconds)
-    core.tick(dt);
+    core.tick(dt, pointerX, pointerY, pointerActive);
 
     // Debug render: draw red boxes from WASM memory
     observer.debugRender(ctx);

@@ -13,6 +13,22 @@ impl Vec2 {
     pub fn zero() -> Self {
         Self { x: 0.0, y: 0.0 }
     }
+
+    pub fn length(&self) -> f32 {
+        (self.x * self.x + self.y * self.y).sqrt()
+    }
+
+    pub fn normalize(&self) -> Self {
+        let len = self.length();
+        if len < 1e-6 {
+            Self::zero()
+        } else {
+            Self {
+                x: self.x / len,
+                y: self.y / len,
+            }
+        }
+    }
 }
 
 impl std::ops::Add for Vec2 {
@@ -79,5 +95,34 @@ mod tests {
 
         // Identity: a + zero = a
         assert_eq!(a + Vec2::zero(), a);
+    }
+
+    // ── Ward 9: Length & Normalize ──
+
+    #[test]
+    fn test_vec2_length_and_normalize() {
+        // Classic 3-4-5 triangle
+        let v = Vec2::new(3.0, 4.0);
+        assert!((v.length() - 5.0).abs() < 0.001);
+
+        // Normalized vector has length 1
+        let n = v.normalize();
+        assert!((n.length() - 1.0).abs() < 0.001);
+        assert!((n.x - 0.6).abs() < 0.001);
+        assert!((n.y - 0.8).abs() < 0.001);
+
+        // Unit vector
+        let unit_x = Vec2::new(1.0, 0.0);
+        assert!((unit_x.length() - 1.0).abs() < 0.001);
+        assert_eq!(unit_x.normalize(), unit_x);
+
+        // Zero vector: length = 0, normalize returns zero (no NaN)
+        let z = Vec2::zero();
+        assert_eq!(z.length(), 0.0);
+        let nz = z.normalize();
+        assert_eq!(nz, Vec2::zero());
+        // Verify no NaN
+        assert!(!nz.x.is_nan());
+        assert!(!nz.y.is_nan());
     }
 }
