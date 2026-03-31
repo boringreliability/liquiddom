@@ -86,7 +86,7 @@ describe("FFI Integration", () => {
     core.free();
   });
 
-  it("rust tick mutates memory", () => {
+  it("rust tick mutates memory via physics", () => {
     const core = new wasm.LiquidCore(10);
     const ptr = core.ptr();
     const view = createView(ptr, 10);
@@ -94,17 +94,28 @@ describe("FFI Integration", () => {
     // Set up entity 0 with known values (width > 0 marks it as active)
     view[0] = 100.0; // x
     view[1] = 200.0; // y
-    view[2] = 50.0; // width (must be non-zero for tick to process)
+    view[2] = 50.0; // width
+    view[3] = 30.0; // height
 
-    // Verify initial state
-    expect(view[6]).toBe(0); // custom_param_1 starts at 0
-
-    // Call tick — Rust should mutate something to prove round-trip
+    // tick creates an EntityBody and runs physics
     core.tick(16.0);
 
-    // After tick, custom_param_1 (index 6) of entity 0 should be mutated
-    // (The spec says: "tilføje 1.0 til custom_param_1 for at bevise at det virker")
-    expect(view[6]).not.toBe(0);
+    // particle_data should now have non-zero values for entity 0
+    const particlePtr = core.particle_ptr();
+    expect(particlePtr).toBeGreaterThan(0);
+
+    // 16 particles × 2 floats = 32 floats per body
+    const particleView = new Float32Array(wasmMemory.buffer, particlePtr, 32);
+
+    // After physics, particles should have positions (not all zeros)
+    let hasNonZero = false;
+    for (let i = 0; i < 32; i++) {
+      if (particleView[i] !== 0) {
+        hasNonZero = true;
+        break;
+      }
+    }
+    expect(hasNonZero).toBe(true);
 
     core.free();
   });
@@ -133,6 +144,131 @@ describe("FFI Integration", () => {
     // New slots should be zero-initialized
     const lastEntityOffset = 19 * FLOATS_PER_ENTITY;
     expect(viewAfter[lastEntityOffset]).toBe(0);
+
+    core.free();
+  });
+});
+
+// ── Ward 8: Physics FFI Bridge tests ──
+
+const PARTICLES_PER_BODY = 16;
+const PARTICLE_FLOATS_PER_BODY = PARTICLES_PER_BODY * 2; // x,y per particle
+
+describe("Physics FFI Bridge", () => {
+  it("tick creates bodies on demand", () => {
+    const core = new wasm.LiquidCore(10);
+    const ptr = core.ptr();
+    const view = createView(ptr, 10);
+
+    // Entity 0 is inactive (width = 0)
+    // Entity 2 is active
+    const offset2 = 2 * FLOATS_PER_ENTITY;
+    view[offset2] = 50.0; // x
+    view[offset2 + 1] = 60.0; // y
+    view[offset2 + 2] = 120.0; // width
+    view[offset2 + 3] = 80.0; // height
+
+    core.tick(16.0);
+
+    // Entity 2's particles should be populated
+    const particlePtr = core.particle_ptr();
+    const allParticles = new Float32Array(
+      wasmMemory.buffer,
+      particlePtr,
+      10 * PARTICLE_FLOATS_PER_BODY,
+    );
+
+    // Entity 0 (inactive) — particle data should be all zeros
+    let entity0HasData = false;
+    for (let i = 0; i < PARTICLE_FLOATS_PER_BODY; i++) {
+      if (allParticles[i] !== 0) {
+        entity0HasData = true;
+        break;
+      }
+    }
+    expect(entity0HasData).toBe(false);
+
+    // Entity 2 (active) — particle data should have values
+    const e2Offset = 2 * PARTICLE_FLOATS_PER_BODY;
+    let entity2HasData = false;
+    for (let i = 0; i < PARTICLE_FLOATS_PER_BODY; i++) {
+      if (allParticles[e2Offset + i] !== 0) {
+        entity2HasData = true;
+        break;
+      }
+    }
+    expect(entity2HasData).toBe(true);
+
+    core.free();
+  });
+
+  it("tick updates particle data with valid coordinates", () => {
+    const core = new wasm.LiquidCore(10);
+    const ptr = core.ptr();
+    const view = createView(ptr, 10);
+
+    // Place entity 0 at (100, 200) with size 80x60
+    view[0] = 100.0;
+    view[1] = 200.0;
+    view[2] = 80.0;
+    view[3] = 60.0;
+
+    // Run several ticks so particles converge toward target
+    for (let i = 0; i < 60; i++) {
+      core.tick(16.0);
+    }
+
+    // Read particle data
+    const particlePtr = core.particle_ptr();
+    const particles = new Float32Array(
+      wasmMemory.buffer,
+      particlePtr,
+      PARTICLE_FLOATS_PER_BODY,
+    );
+
+    // After many ticks, particles should have converged near the element's position.
+    // First particle's rest is (0,0) relative, so global target = (100, 200).
+    // Allow generous tolerance since Euler integration oscillates.
+    const p0x = particles[0];
+    const p0y = particles[1];
+    expect(p0x).toBeGreaterThan(50); // Should be near 100
+    expect(p0x).toBeLessThan(150);
+    expect(p0y).toBeGreaterThan(150); // Should be near 200
+    expect(p0y).toBeLessThan(250);
+
+    core.free();
+  });
+
+  it("grow resizes physics structures", () => {
+    const core = new wasm.LiquidCore(4);
+
+    // Write an active entity
+    const view = createView(core.ptr(), 4);
+    view[0] = 10.0;
+    view[1] = 20.0;
+    view[2] = 50.0;
+    view[3] = 50.0;
+
+    core.tick(16.0);
+
+    // Grow
+    core.grow(20);
+    expect(core.capacity()).toBe(20);
+
+    // particle_ptr should be valid and cover 20 bodies
+    const particlePtr = core.particle_ptr();
+    expect(particlePtr).toBeGreaterThan(0);
+
+    const allParticles = new Float32Array(
+      wasmMemory.buffer,
+      particlePtr,
+      20 * PARTICLE_FLOATS_PER_BODY,
+    );
+
+    // New slots (entity 19) should be zero
+    const lastOffset = 19 * PARTICLE_FLOATS_PER_BODY;
+    expect(allParticles[lastOffset]).toBe(0);
+    expect(allParticles[lastOffset + 1]).toBe(0);
 
     core.free();
   });

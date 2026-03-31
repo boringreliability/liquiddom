@@ -9,10 +9,11 @@ async function main() {
   const capacity = 64;
   const core = new LiquidCore(capacity);
 
-  // 3. Create PhantomObserver backed by WASM memory
+  // 3. Create PhantomObserver backed by WASM memory (entity + particle buffers)
   const observer = new PhantomObserver(capacity, {
     memory: wasm.memory,
     ptr: core.ptr(),
+    particlePtr: core.particle_ptr(),
   });
 
   // 4. Observe all [data-liquid] elements
@@ -56,7 +57,7 @@ async function main() {
     // Sync DOM positions → WASM buffer
     observer.sync();
 
-    // Call Rust tick (dummy mutation for now)
+    // Call Rust tick (runs physics — dt is in ms, Rust converts to seconds)
     core.tick(dt);
 
     // Debug render: draw red boxes from WASM memory

@@ -1,13 +1,19 @@
 /** Must match Rust FLOATS_PER_ENTITY in src/buffer.rs */
 export const FLOATS_PER_ENTITY = 8;
 
+/** Must match Rust PARTICLES_PER_BODY in src/api.rs */
+export const PARTICLES_PER_BODY = 16;
+const PARTICLE_FLOATS_PER_BODY = PARTICLES_PER_BODY * 2;
+
 export interface WasmMemorySource {
   memory: WebAssembly.Memory;
   ptr: number;
+  particlePtr?: number;
 }
 
 export class PhantomObserver {
   private buffer: Float32Array;
+  private particleBuffer: Float32Array | null = null;
   private readonly capacity: number;
   private readonly elementToId: WeakMap<HTMLElement, number> = new WeakMap();
   private readonly idToElement: Map<number, HTMLElement> = new Map();
@@ -17,8 +23,8 @@ export class PhantomObserver {
 
   /**
    * @param capacity - Max number of entities
-   * @param wasmSource - If provided, creates a view into WASM linear memory
-   *                     instead of allocating a local Float32Array.
+   * @param wasmSource - If provided, creates views into WASM linear memory
+   *                     instead of allocating local Float32Arrays.
    */
   constructor(capacity: number, wasmSource?: WasmMemorySource) {
     this.capacity = capacity;
@@ -30,6 +36,13 @@ export class PhantomObserver {
         wasmSource.ptr,
         capacity * FLOATS_PER_ENTITY,
       );
+      if (wasmSource.particlePtr !== undefined) {
+        this.particleBuffer = new Float32Array(
+          wasmSource.memory.buffer,
+          wasmSource.particlePtr,
+          capacity * PARTICLE_FLOATS_PER_BODY,
+        );
+      }
     } else {
       this.buffer = new Float32Array(capacity * FLOATS_PER_ENTITY);
     }
@@ -40,8 +53,8 @@ export class PhantomObserver {
   }
 
   /**
-   * Re-create the Float32Array view after a grow() call invalidates
-   * the underlying ArrayBuffer. Must be called with the new pointer.
+   * Re-create Float32Array views after a grow() call invalidates
+   * the underlying ArrayBuffer. Must be called with new pointers.
    */
   rebindBuffer(wasmSource: WasmMemorySource, newCapacity: number): void {
     this.wasmSource = wasmSource;
@@ -50,6 +63,13 @@ export class PhantomObserver {
       wasmSource.ptr,
       newCapacity * FLOATS_PER_ENTITY,
     );
+    if (wasmSource.particlePtr !== undefined) {
+      this.particleBuffer = new Float32Array(
+        wasmSource.memory.buffer,
+        wasmSource.particlePtr,
+        newCapacity * PARTICLE_FLOATS_PER_BODY,
+      );
+    }
   }
 
   observe(el: HTMLElement, liquidType?: number): number {
@@ -106,8 +126,8 @@ export class PhantomObserver {
   }
 
   /**
-   * Debug visualization: draw active entities as red rectangles on a canvas.
-   * Call this inside a requestAnimationFrame loop with a 2D canvas context.
+   * Debug visualization: draw soft body wireframes from particle data.
+   * Falls back to strokeRect if no particle buffer is available.
    */
   debugRender(ctx: CanvasRenderingContext2D): void {
     ctx.save();
@@ -115,12 +135,29 @@ export class PhantomObserver {
     ctx.lineWidth = 2;
 
     for (const [id] of this.idToElement) {
-      const offset = id * FLOATS_PER_ENTITY;
-      const x = this.buffer[offset];
-      const y = this.buffer[offset + 1];
-      const w = this.buffer[offset + 2];
-      const h = this.buffer[offset + 3];
-      ctx.strokeRect(x, y, w, h);
+      if (this.particleBuffer) {
+        // Draw wireframe from particle positions
+        const offset = id * PARTICLE_FLOATS_PER_BODY;
+        ctx.beginPath();
+        ctx.moveTo(
+          this.particleBuffer[offset],
+          this.particleBuffer[offset + 1],
+        );
+        for (let j = 1; j < PARTICLES_PER_BODY; j++) {
+          const idx = offset + j * 2;
+          ctx.lineTo(this.particleBuffer[idx], this.particleBuffer[idx + 1]);
+        }
+        ctx.closePath();
+        ctx.stroke();
+      } else {
+        // Fallback: draw bounding rect from entity buffer
+        const offset = id * FLOATS_PER_ENTITY;
+        const x = this.buffer[offset];
+        const y = this.buffer[offset + 1];
+        const w = this.buffer[offset + 2];
+        const h = this.buffer[offset + 3];
+        ctx.strokeRect(x, y, w, h);
+      }
     }
 
     ctx.restore();
