@@ -4,7 +4,7 @@
 Ward 1 started — 2026-03-30
 
 ## Current State
-Ward 6 COMPLETE. Vec2, Particle, EntityBody med perimeter-distribution. 16 Rust + 9 TS = 25 tests, 0 warnings.
+Phase 1 COMPLETE. FFI bridge etableret — TS skriver direkte i Rust heap via delt Float32Array. 12 Rust + 9 TS = 21 tests, 0 warnings.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -31,5 +31,5 @@ Ward 6 COMPLETE. Vec2, Particle, EntityBody med perimeter-distribution. 16 Rust 
 _None yet_
 
 ## What Comes Next
-- Ward 7: Mass-Spring-Damper Kernel (Hookes lov, F = -kx - cv)
-- Ward 8: Collision & Repulsion (mus-interaktion)
+- Phase 2: The Physics Engine
+- Ward 5: Particle/Spring Data Structures (Rust)
