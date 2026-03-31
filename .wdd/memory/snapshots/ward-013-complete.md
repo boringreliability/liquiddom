@@ -4,7 +4,7 @@
 Ward 1 started — 2026-03-30
 
 ## Current State
-Ward 13 COMPLETE. Instance-based API: LiquidDOM.create() → isolated instance with destroy(), idempotent observe, lifecycle guards. 24 Rust + 24 TS = 48 tests.
+Ward 11 COMPLETE. The Illusion: canvas bagved DOM, hover tracking via WeakMap→FFI buffer, farveskift på hover. 24 Rust + 15 TS = 39 tests. Tekst svæver ovenpå bløde væskeblobs.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -31,6 +31,4 @@ Ward 13 COMPLETE. Instance-based API: LiquidDOM.create() → isolated instance w
 _None yet_
 
 ## What Comes Next
-- Ward 014: Runtime Teardown hardening (idempotent lifecycle)
-- Ward 015: Memory Bridge Encapsulation
-- Ward 016: Capacity Correctness
+- Ward 12: Final Demo & Polish

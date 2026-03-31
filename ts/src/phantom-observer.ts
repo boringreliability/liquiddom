@@ -96,6 +96,10 @@ export class PhantomObserver {
   }
 
   observe(el: HTMLElement, liquidType?: number): number {
+    // Idempotent: if already observed, return existing ID
+    const existingId = this.elementToId.get(el);
+    if (existingId !== undefined) return existingId;
+
     const id =
       this.availableIds.length > 0
         ? this.availableIds.pop()!
