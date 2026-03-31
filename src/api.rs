@@ -53,8 +53,9 @@ impl LiquidCore {
 
     /// Called by requestAnimationFrame each frame.
     /// dt_ms is in milliseconds — converted to seconds internally.
-    pub fn tick(&mut self, dt_ms: f32) {
+    pub fn tick(&mut self, dt_ms: f32, pointer_x: f32, pointer_y: f32, pointer_active: bool) {
         let dt = dt_ms / 1000.0;
+        let pointer_pos = Vec2::new(pointer_x, pointer_y);
 
         for i in 0..self.buffer.capacity() {
             let slice = self.buffer.entity_slice(i);
@@ -78,7 +79,7 @@ impl LiquidCore {
             body.base_pos = Vec2::new(x, y);
 
             // Run physics (hardcoded tension/damping for now)
-            body.tick(dt, 100.0, 5.0);
+            body.tick(dt, 100.0, 5.0, pointer_pos, pointer_active);
 
             // Write particle positions to flat buffer (pos is global after physics)
             let offset = i * PARTICLE_FLOATS_PER_BODY;

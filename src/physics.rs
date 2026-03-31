@@ -30,8 +30,19 @@ impl Particle {
 impl EntityBody {
     /// Advance physics by one timestep using mass-spring-damper model.
     /// F = -tension * displacement - damping * velocity (Hooke's law)
+    /// Optional pointer repulsion when pointer_active is true.
     /// Euler integration with mass = 1.0.
-    pub fn tick(&mut self, dt: f32, tension: f32, damping: f32) {
+    pub fn tick(
+        &mut self,
+        dt: f32,
+        tension: f32,
+        damping: f32,
+        pointer_pos: Vec2,
+        pointer_active: bool,
+    ) {
+        const REPULSION_RADIUS: f32 = 100.0;
+        const REPULSION_STRENGTH: f32 = 5000.0;
+
         for particle in &mut self.particles {
             // 1. Target position = element's DOM position + particle's rest offset
             let target_pos = self.base_pos + particle.local_rest;
@@ -46,9 +57,20 @@ impl EntityBody {
             let f_damping = particle.velocity * -damping;
 
             // 5. Total force (mass = 1.0, so acceleration = force)
-            let f_total = f_spring + f_damping;
+            let mut f_total = f_spring + f_damping;
 
-            // 6. Euler integration: velocity first, then position
+            // 6. Pointer repulsion (before integration)
+            if pointer_active {
+                let to_particle = particle.pos - pointer_pos;
+                let dist = to_particle.length();
+                if dist < REPULSION_RADIUS && dist > 0.001 {
+                    let falloff = 1.0 - (dist / REPULSION_RADIUS);
+                    let f_repel = to_particle.normalize() * (REPULSION_STRENGTH * falloff);
+                    f_total += f_repel;
+                }
+            }
+
+            // 7. Euler integration: velocity first, then position
             particle.velocity += f_total * dt;
             particle.pos += particle.velocity * dt;
         }
@@ -169,7 +191,7 @@ mod tests {
         let initial_x = body.particles[0].pos.x;
 
         // tick with strong spring, moderate damping
-        body.tick(0.016, 100.0, 5.0); // ~60fps, k=100, c=5
+        body.tick(0.016, 100.0, 5.0, Vec2::zero(), false); // ~60fps, k=100, c=5
 
         // After tick, particle should have moved toward rest (x=0)
         let after_x = body.particles[0].pos.x;
@@ -198,7 +220,7 @@ mod tests {
         let initial_vx = body.particles[0].velocity.x;
 
         // tick with zero spring (no spring pull), strong damping
-        body.tick(0.016, 0.0, 50.0);
+        body.tick(0.016, 0.0, 50.0, Vec2::zero(), false);
 
         // Velocity should be reduced by damping
         let after_vx = body.particles[0].velocity.x;
@@ -221,7 +243,7 @@ mod tests {
 
         // Particles are still at their old positions (local_rest relative to old base)
         // After tick, spring should start pulling them toward new target
-        body.tick(0.016, 100.0, 5.0);
+        body.tick(0.016, 100.0, 5.0, Vec2::zero(), false);
 
         // Particle 0: target = base_pos + local_rest = (200, 0) + (0, 0) = (200, 0)
         // It was at (0, 0), so spring pulls it right
@@ -250,7 +272,7 @@ mod tests {
             .map(|p| (p.pos, p.velocity))
             .collect();
 
-        body.tick(0.016, 100.0, 5.0);
+        body.tick(0.016, 100.0, 5.0, Vec2::zero(), false);
 
         for (i, p) in body.particles.iter().enumerate() {
             assert_eq!(
@@ -264,5 +286,58 @@ mod tests {
                 i,
             );
         }
+    }
+
+    // ── Ward 9: Pointer Repulsion tests ──
+
+    #[test]
+    fn test_pointer_repels_particles() {
+        let mut body = EntityBody::new_rect(100.0, 100.0, 4);
+        // Place body at origin, so particle 0 is at (0,0)
+        // Put pointer at (10, 0) — within radius=100, very close
+
+        let pointer = Vec2::new(10.0, 0.0);
+        body.tick(0.016, 100.0, 5.0, pointer, true);
+
+        // Particle 0 at (0,0) should be pushed AWAY from pointer (to the left, negative x)
+        assert!(
+            body.particles[0].velocity.x < 0.0,
+            "particle should be repelled away from pointer, velocity.x = {}",
+            body.particles[0].velocity.x,
+        );
+    }
+
+    #[test]
+    fn test_pointer_inactive_does_not_repel() {
+        let mut body = EntityBody::new_rect(100.0, 100.0, 4);
+        // Pointer right on top of particle 0, but inactive
+        let pointer = Vec2::new(1.0, 0.0);
+
+        body.tick(0.016, 100.0, 5.0, pointer, false);
+
+        // With pointer inactive, particle at rest should stay at rest
+        // (spring force = 0 since pos == target, damping = 0 since v == 0)
+        assert_eq!(
+            body.particles[0].velocity,
+            Vec2::zero(),
+            "inactive pointer should not affect particles",
+        );
+    }
+
+    #[test]
+    fn test_pointer_outside_radius_does_not_repel() {
+        let mut body = EntityBody::new_rect(100.0, 100.0, 4);
+        // Pointer far away (500 units away, radius = 100)
+        let pointer = Vec2::new(500.0, 500.0);
+
+        body.tick(0.016, 100.0, 5.0, pointer, true);
+
+        // Particle 0 at (0,0) is 707 units from pointer — well outside radius
+        // Only spring force matters, and at rest it's zero
+        assert_eq!(
+            body.particles[0].velocity,
+            Vec2::zero(),
+            "pointer outside radius should not affect particles",
+        );
     }
 }

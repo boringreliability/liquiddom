@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-7 of 8 Wards complete · 32 estimated tests · 0 blocked
+8 of 9 Wards complete · 36 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -14,6 +14,7 @@
 | 6 | Particle & Spring Data Structures | 4 | ✅ Complete | 2026-03-31 |
 | 7 | Mass-Spring-Damper Kernel | 4 | ✅ Complete | 2026-03-31 |
 | 8 | Physics to FFI Bridge | 3 | ✅ Complete | 2026-03-31 |
+| 9 | Pointer Repulsion | 4 | ✅ Complete | 2026-03-31 |
 
 ## Test Summary
-- Estimated total: 32
+- Estimated total: 36
