@@ -1,21 +1,55 @@
 /** Must match Rust FLOATS_PER_ENTITY in src/buffer.rs */
 export const FLOATS_PER_ENTITY = 8;
 
+export interface WasmMemorySource {
+  memory: WebAssembly.Memory;
+  ptr: number;
+}
+
 export class PhantomObserver {
-  private readonly buffer: Float32Array;
+  private buffer: Float32Array;
   private readonly capacity: number;
   private readonly elementToId: WeakMap<HTMLElement, number> = new WeakMap();
   private readonly idToElement: Map<number, HTMLElement> = new Map();
   private readonly availableIds: number[] = [];
   private nextId = 0;
+  private wasmSource: WasmMemorySource | null;
 
-  constructor(capacity: number) {
+  /**
+   * @param capacity - Max number of entities
+   * @param wasmSource - If provided, creates a view into WASM linear memory
+   *                     instead of allocating a local Float32Array.
+   */
+  constructor(capacity: number, wasmSource?: WasmMemorySource) {
     this.capacity = capacity;
-    this.buffer = new Float32Array(capacity * FLOATS_PER_ENTITY);
+    this.wasmSource = wasmSource ?? null;
+
+    if (wasmSource) {
+      this.buffer = new Float32Array(
+        wasmSource.memory.buffer,
+        wasmSource.ptr,
+        capacity * FLOATS_PER_ENTITY,
+      );
+    } else {
+      this.buffer = new Float32Array(capacity * FLOATS_PER_ENTITY);
+    }
   }
 
   getBuffer(): Float32Array {
     return this.buffer;
+  }
+
+  /**
+   * Re-create the Float32Array view after a grow() call invalidates
+   * the underlying ArrayBuffer. Must be called with the new pointer.
+   */
+  rebindBuffer(wasmSource: WasmMemorySource, newCapacity: number): void {
+    this.wasmSource = wasmSource;
+    this.buffer = new Float32Array(
+      wasmSource.memory.buffer,
+      wasmSource.ptr,
+      newCapacity * FLOATS_PER_ENTITY,
+    );
   }
 
   observe(el: HTMLElement, liquidType?: number): number {
@@ -69,5 +103,26 @@ export class PhantomObserver {
       this.buffer[offset + 2] = rect.width;
       this.buffer[offset + 3] = rect.height;
     }
+  }
+
+  /**
+   * Debug visualization: draw active entities as red rectangles on a canvas.
+   * Call this inside a requestAnimationFrame loop with a 2D canvas context.
+   */
+  debugRender(ctx: CanvasRenderingContext2D): void {
+    ctx.save();
+    ctx.strokeStyle = "rgba(255, 0, 0, 0.5)";
+    ctx.lineWidth = 2;
+
+    for (const [id] of this.idToElement) {
+      const offset = id * FLOATS_PER_ENTITY;
+      const x = this.buffer[offset];
+      const y = this.buffer[offset + 1];
+      const w = this.buffer[offset + 2];
+      const h = this.buffer[offset + 3];
+      ctx.strokeRect(x, y, w, h);
+    }
+
+    ctx.restore();
   }
 }

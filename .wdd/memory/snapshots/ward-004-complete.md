@@ -4,7 +4,7 @@
 Ward 1 started — 2026-03-30
 
 ## Current State
-Phase 1 COMPLETE. FFI bridge etableret — TS skriver direkte i Rust heap via delt Float32Array. 12 Rust + 9 TS = 21 tests, 0 warnings.
+Ward 3 COMPLETE. Phase 1 Rust+TS fundamenter på plads. 12 Rust tests + 5 TS tests = 17 total, 0 warnings.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -12,9 +12,7 @@ Phase 1 COMPLETE. FFI bridge etableret — TS skriver direkte i Rust heap via de
 | Flat `Vec<f32>` buffer, 8 floats per entity | 32-byte alignment, zero-copy til JS Float32Array, ingen GC | W1 |
 | Ingen wasm_bindgen i Ward 1 | Ren Rust-kerne først, FFI tilføjes i Ward 4 | W1 |
 | `Vec::resize` til grow | Bevarer data, nul-initialiserer ny plads, ingen manuell kopi | W1 |
-| Pointer invalideres ved grow | JS SKAL re-fetche ptr() efter grow — løst via rebindBuffer() | W1/W4 |
-| PhantomObserver dual-mode | Lokal Float32Array eller WASM memory view via WasmMemorySource | W4 |
-| tick() aktiverer på width!=0 | Zero-cost "alive" convention, ingen ekstra bookkeeping | W4 |
+| Pointer invalideres ved grow | JS SKAL re-fetche ptr() efter grow — constraint for Ward 4 | W1 |
 
 ## Active Constraints
 - Rust er DOM-blind og Farve-blind (kun matematik)
@@ -31,5 +29,5 @@ Phase 1 COMPLETE. FFI bridge etableret — TS skriver direkte i Rust heap via de
 _None yet_
 
 ## What Comes Next
-- Phase 2: The Physics Engine
-- Ward 5: Particle/Spring Data Structures (Rust)
+- Integration Spec 1: FFI Sync Protocol dokumentation
+- Ward 4: FFI Integration & Tick Event (TS/Rust — forbind delt hukommelse)
