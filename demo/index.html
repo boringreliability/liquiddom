@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Liquid DOM — Visual FFI Proof</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 40px;
+      overflow: hidden;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      opacity: 0.6;
+      font-weight: 300;
+    }
+
+    .elements {
+      display: flex;
+      gap: 30px;
+      align-items: center;
+    }
+
+    button.demo-btn {
+      padding: 16px 32px;
+      font-size: 1.1rem;
+      border: 2px solid #e94560;
+      background: transparent;
+      color: #e94560;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    button.demo-btn:hover {
+      background: rgba(233, 69, 96, 0.15);
+    }
+
+    .card {
+      width: 180px;
+      height: 120px;
+      background: linear-gradient(135deg, #0f3460, #16213e);
+      border: 1px solid #533483;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.9rem;
+      color: #a8a8d8;
+    }
+
+    /* Animated element — bounces left-right to prove tracking */
+    .bouncer {
+      padding: 16px 24px;
+      background: #533483;
+      color: #fff;
+      border-radius: 8px;
+      font-size: 1rem;
+      animation: bounce 2s ease-in-out infinite alternate;
+    }
+
+    @keyframes bounce {
+      from { transform: translateX(-80px); }
+      to   { transform: translateX(80px); }
+    }
+
+    #liquid-canvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    .fps {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      font-size: 0.8rem;
+      color: #0f0;
+      font-family: monospace;
+      z-index: 10000;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>Liquid DOM — Ward 5: Visual FFI Proof</h1>
+
+  <div class="elements">
+    <button class="demo-btn" data-liquid>Button A</button>
+    <div class="card" data-liquid>Static Card</div>
+    <button class="demo-btn" data-liquid>Button B</button>
+  </div>
+
+  <div class="bouncer" data-liquid>Animated Element</div>
+
+  <canvas id="liquid-canvas"></canvas>
+  <div class="fps" id="fps">-- FPS</div>
+
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

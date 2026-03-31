@@ -4,6 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "dev": "wasm-pack build --target web --out-dir pkg && vite --config demo/vite.config.ts demo",
+    "build:wasm": "wasm-pack build --target web --out-dir pkg",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -14,6 +16,7 @@
   "devDependencies": {
     "@types/node": "^25.5.0",
     "typescript": "^6.0.2",
+    "vite": "^8.0.3",
     "vitest": "^4.1.2"
   }
 }
