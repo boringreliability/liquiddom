@@ -4,7 +4,7 @@
 Ward 1 started — 2026-03-30
 
 ## Current State
-Ward 7 COMPLETE. Hookes lov med Euler-integration. 20 Rust + 9 TS = 29 tests, 0 warnings.
+Ward 6 COMPLETE. Vec2, Particle, EntityBody med perimeter-distribution. 16 Rust + 9 TS = 25 tests, 0 warnings.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -31,4 +31,5 @@ Ward 7 COMPLETE. Hookes lov med Euler-integration. 20 Rust + 9 TS = 29 tests, 0 
 _None yet_
 
 ## What Comes Next
-- Ward 8: Collision & Repulsion (mus-interaktion, force falloff)
+- Ward 7: Mass-Spring-Damper Kernel (Hookes lov, F = -kx - cv)
+- Ward 8: Collision & Repulsion (mus-interaktion)

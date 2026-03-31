@@ -45,6 +45,13 @@ impl std::ops::Mul<f32> for Vec2 {
     }
 }
 
+impl std::ops::AddAssign for Vec2 {
+    fn add_assign(&mut self, rhs: Self) {
+        self.x += rhs.x;
+        self.y += rhs.y;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
