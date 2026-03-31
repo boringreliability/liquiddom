@@ -3,81 +3,160 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Liquid DOM — The Illusion</title>
+  <title>Liquid DOM — The Fluid Web</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;500;800&display=swap');
+
+    :root {
+      --bg-color: #0b0914;
+      --text-main: #f0e6ff;
+      --text-muted: #8a7aab;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
 
     body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #1a1a2e;
-      color: #eee;
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
       min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 40px;
-      overflow: hidden;
+      overflow-x: hidden;
+      padding: 2rem;
     }
 
-    h1 {
-      font-size: 1.4rem;
-      opacity: 0.6;
-      font-weight: 300;
-    }
-
-    .elements {
-      display: flex;
-      gap: 30px;
-      align-items: center;
-    }
-
-    /* The Illusion: DOM elements are transparent — Canvas paints behind them */
     [data-liquid] {
       background: transparent !important;
       border: none !important;
-      position: relative;
-      z-index: 1;
-    }
-
-    button.demo-btn {
-      padding: 16px 32px;
-      font-size: 1.1rem;
-      color: #fff;
+      outline: none !important;
       cursor: pointer;
+      position: relative;
+      user-select: none;
+      -webkit-user-select: none;
     }
 
-    .card {
-      width: 180px;
-      height: 120px;
+    /* --- LAYOUT & COMPONENTS --- */
+
+    nav {
       display: flex;
+      justify-content: space-between;
       align-items: center;
-      justify-content: center;
-      font-size: 0.9rem;
-      color: #e0e0ff;
+      max-width: 1200px;
+      margin: 0 auto 4rem auto;
     }
 
-    /* Animated element — bounces left-right to prove tracking */
-    .bouncer {
-      padding: 16px 24px;
-      color: #fff;
+    .logo {
+      font-weight: 800;
+      font-size: 1.5rem;
+      letter-spacing: -1px;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 1rem;
+    }
+
+    .nav-links button {
+      color: var(--text-main);
+      font-weight: 500;
       font-size: 1rem;
-      animation: bounce 2s ease-in-out infinite alternate;
+      padding: 0.75rem 1.5rem;
+      font-family: inherit;
     }
 
-    @keyframes bounce {
-      from { transform: translateX(-80px); }
-      to   { transform: translateX(80px); }
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8rem;
     }
 
-    #liquid-canvas {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      pointer-events: none;
-      z-index: -1;
+    /* Hero Section */
+    .hero {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2rem;
+      padding: 4rem 0;
+    }
+
+    .hero h1 {
+      font-size: 5rem;
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -3px;
+      max-width: 800px;
+      z-index: 10;
+    }
+
+    .hero p {
+      font-size: 1.2rem;
+      color: var(--text-muted);
+      max-width: 600px;
+      z-index: 10;
+    }
+
+    .cta-button {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: #fff;
+      padding: 1.5rem 4rem;
+      font-family: inherit;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-top: 2rem;
+    }
+
+    /* Bento Box Feature Grid */
+    .bento-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 2rem;
+    }
+
+    .bento-card {
+      padding: 3rem 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      color: var(--text-main);
+    }
+
+    .bento-card h3 {
+      font-size: 1.5rem;
+      font-weight: 800;
+    }
+
+    .bento-card p {
+      color: #bfaee3;
+      line-height: 1.6;
+    }
+
+    /* Animation Showcase */
+    .animation-showcase {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 300px;
+      position: relative;
+    }
+
+    .orbiting-element {
+      padding: 2rem 3rem;
+      font-weight: 800;
+      color: white;
+      font-size: 1.2rem;
+      animation: orbit 6s ease-in-out infinite alternate;
+    }
+
+    @keyframes orbit {
+      0% { transform: translate(-200px, -50px) rotate(-10deg); }
+      100% { transform: translate(200px, 50px) rotate(10deg); }
     }
 
     .fps {
@@ -93,17 +172,44 @@
   </style>
 </head>
 <body>
-  <h1>Liquid DOM — The Illusion</h1>
 
-  <div class="elements">
-    <button class="demo-btn" data-liquid>Button A</button>
-    <div class="card" data-liquid>Static Card</div>
-    <button class="demo-btn" data-liquid>Button B</button>
-  </div>
+  <nav>
+    <div class="logo">V-SPLAT ENGINE</div>
+    <div class="nav-links">
+      <button data-liquid>Documentation</button>
+      <button data-liquid>GitHub</button>
+    </div>
+  </nav>
 
-  <div class="bouncer" data-liquid>Animated Element</div>
+  <main>
+    <section class="hero">
+      <h1>THE WEB IS NO LONGER RIGID.</h1>
+      <p>Liquid DOM transforms static HTML bounding boxes into living, breathing soft-body physics using WebAssembly and Rust.</p>
+      <button class="cta-button" data-liquid>FEEL THE FLUID</button>
+    </section>
 
-  <canvas id="liquid-canvas"></canvas>
+    <section class="bento-grid">
+      <div class="bento-card" data-liquid>
+        <h3>Zero-Copy FFI</h3>
+        <p>JavaScript and Rust share the same memory buffer. No JSON parsing, no serialization overhead. Just raw performance.</p>
+      </div>
+      <div class="bento-card" data-liquid>
+        <h3>Hooke's Law</h3>
+        <p>Every element is modeled as a mass-spring-damper system. Drag your mouse across this card to see the physics engine push back.</p>
+      </div>
+      <div class="bento-card" data-liquid>
+        <h3>Accessible</h3>
+        <p>It's still just HTML. Screen readers can read it. You can tab to it. It just looks like liquid magic underneath.</p>
+      </div>
+    </section>
+
+    <section class="animation-showcase">
+      <div class="orbiting-element" data-liquid>
+        I AM TRACKED LIVE
+      </div>
+    </section>
+  </main>
+
   <div class="fps" id="fps">-- FPS</div>
 
   <script type="module" src="./main.ts"></script>

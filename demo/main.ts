@@ -1,89 +1,40 @@
-import init, { LiquidCore } from "../pkg/liquiddom.js";
-import { PhantomObserver } from "../ts/src/phantom-observer.js";
+import { LiquidDOM } from "../ts/src/index";
 
-async function main() {
-  // 1. Initialize WASM
-  const wasm = await init();
-
-  // 2. Create LiquidCore (Rust-side buffer)
-  const capacity = 64;
-  const core = new LiquidCore(capacity);
-
-  // 3. Create PhantomObserver backed by WASM memory (entity + particle buffers)
-  const observer = new PhantomObserver(capacity, {
-    memory: wasm.memory,
-    ptr: core.ptr(),
-    particlePtr: core.particle_ptr(),
-  });
-
-  // 4. Observe all [data-liquid] elements
-  const elements = document.querySelectorAll<HTMLElement>("[data-liquid]");
-  elements.forEach((el) => observer.observe(el));
-
-  // 5. Setup canvas
-  const canvas = document.getElementById("liquid-canvas") as HTMLCanvasElement;
-  const ctx = canvas.getContext("2d")!;
-  const fpsEl = document.getElementById("fps")!;
-
-  function resizeCanvas() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+async function bootstrap() {
+  try {
+    await LiquidDOM.init({
+      capacity: 64,
+      autoObserve: true,
+      canvasZIndex: -1,
+      colorDefault: "rgba(15, 52, 96, 0.8)",
+      colorHover: "rgba(233, 69, 96, 0.9)",
+    });
+    console.log("[LiquidDOM] Flowing!");
+  } catch (err) {
+    console.error("Failed to initialize Liquid DOM:", err);
   }
-  resizeCanvas();
-  window.addEventListener("resize", resizeCanvas);
+}
 
-  // 6. Pointer tracking
-  let pointerX = 0;
-  let pointerY = 0;
-  let pointerActive = false;
+bootstrap();
 
-  document.addEventListener("mousemove", (e) => {
-    pointerX = e.clientX;
-    pointerY = e.clientY;
-    pointerActive = true;
-  });
-  document.addEventListener("mouseleave", () => {
-    pointerActive = false;
-  });
-
-  // 7. RAF loop
+// FPS counter (independent of LiquidDOM)
+const fpsEl = document.getElementById("fps");
+if (fpsEl) {
   let lastTime = performance.now();
   let frameCount = 0;
   let fpsAccum = 0;
 
-  function loop(now: number) {
+  function fpsLoop(now: number) {
     const dt = now - lastTime;
     lastTime = now;
-
-    // FPS counter (update every 30 frames)
     frameCount++;
     fpsAccum += dt;
     if (frameCount >= 30) {
-      const avgFps = 1000 / (fpsAccum / frameCount);
-      fpsEl.textContent = `${avgFps.toFixed(0)} FPS`;
+      fpsEl!.textContent = `${(1000 / (fpsAccum / frameCount)).toFixed(0)} FPS`;
       frameCount = 0;
       fpsAccum = 0;
     }
-
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Sync DOM positions → WASM buffer
-    observer.sync();
-
-    // Call Rust tick (runs physics — dt is in ms, Rust converts to seconds)
-    core.tick(dt, pointerX, pointerY, pointerActive);
-
-    // Render soft body blobs from WASM particle data
-    observer.render(ctx);
-
-    requestAnimationFrame(loop);
+    requestAnimationFrame(fpsLoop);
   }
-
-  requestAnimationFrame(loop);
-  console.log(
-    `[LiquidDOM] Initialized: ${elements.length} elements tracked, capacity ${capacity}`,
-  );
+  requestAnimationFrame(fpsLoop);
 }
-
-main();

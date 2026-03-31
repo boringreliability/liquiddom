@@ -5,8 +5,14 @@ export const FLOATS_PER_ENTITY = 8;
 export const PARTICLES_PER_BODY = 16;
 const PARTICLE_FLOATS_PER_BODY = PARTICLES_PER_BODY * 2;
 
-const FILL_DEFAULT = "rgba(83, 52, 131, 0.8)";
-const FILL_HOVER = "rgba(120, 80, 180, 0.9)";
+const DEFAULT_COLOR = "rgba(83, 52, 131, 0.8)";
+const DEFAULT_COLOR_HOVER = "rgba(120, 80, 180, 0.9)";
+
+export interface PhantomObserverOptions {
+  wasmSource?: WasmMemorySource;
+  colorDefault?: string;
+  colorHover?: string;
+}
 
 export interface WasmMemorySource {
   memory: WebAssembly.Memory;
@@ -32,14 +38,19 @@ export class PhantomObserver {
   private readonly hoverState: WeakMap<HTMLElement, boolean> = new WeakMap();
   private readonly listeners: WeakMap<HTMLElement, ElementListeners> =
     new WeakMap();
+  private readonly colorDefault: string;
+  private readonly colorHover: string;
 
   /**
    * @param capacity - Max number of entities
-   * @param wasmSource - If provided, creates views into WASM linear memory
-   *                     instead of allocating local Float32Arrays.
+   * @param options - Optional WASM source and color configuration
    */
-  constructor(capacity: number, wasmSource?: WasmMemorySource) {
+  constructor(capacity: number, options?: PhantomObserverOptions) {
     this.capacity = capacity;
+    this.colorDefault = options?.colorDefault ?? DEFAULT_COLOR;
+    this.colorHover = options?.colorHover ?? DEFAULT_COLOR_HOVER;
+
+    const wasmSource = options?.wasmSource;
     this.wasmSource = wasmSource ?? null;
 
     if (wasmSource) {
@@ -166,7 +177,7 @@ export class PhantomObserver {
       // Read interaction_state for hover visual feedback
       const entityOffset = id * FLOATS_PER_ENTITY;
       const isHover = this.buffer[entityOffset + 4] === 1.0;
-      ctx.fillStyle = isHover ? FILL_HOVER : FILL_DEFAULT;
+      ctx.fillStyle = isHover ? this.colorHover : this.colorDefault;
 
       if (this.particleBuffer) {
         const offset = id * PARTICLE_FLOATS_PER_BODY;
