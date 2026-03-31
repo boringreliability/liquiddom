@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-8 of 9 Wards complete · 36 estimated tests · 0 blocked
+9 of 10 Wards complete · 37 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -15,6 +15,7 @@
 | 7 | Mass-Spring-Damper Kernel | 4 | ✅ Complete | 2026-03-31 |
 | 8 | Physics to FFI Bridge | 3 | ✅ Complete | 2026-03-31 |
 | 9 | Pointer Repulsion | 4 | ✅ Complete | 2026-03-31 |
+| 10 | Canvas Spline Renderer | 1 | ✅ Complete | 2026-03-31 |
 
 ## Test Summary
-- Estimated total: 36
+- Estimated total: 37

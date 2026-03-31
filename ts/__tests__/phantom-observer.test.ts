@@ -143,4 +143,26 @@ describe("PhantomObserver", () => {
     // Third observe should throw — capacity is 2
     expect(() => observer.observe(el2)).toThrow();
   });
+
+  it("render executes without errors", () => {
+    const observer = new PhantomObserver(10);
+    const el = mockElement(10, 20, 100, 50);
+    observer.observe(el);
+
+    // Mock CanvasRenderingContext2D with no-op methods
+    const ctx = {
+      save: () => {},
+      restore: () => {},
+      fillRect: () => {},
+      beginPath: () => {},
+      moveTo: () => {},
+      quadraticCurveTo: () => {},
+      closePath: () => {},
+      fill: () => {},
+      fillStyle: "",
+    } as unknown as CanvasRenderingContext2D;
+
+    // Should not throw (fallback mode — no particleBuffer)
+    expect(() => observer.render(ctx)).not.toThrow();
+  });
 });

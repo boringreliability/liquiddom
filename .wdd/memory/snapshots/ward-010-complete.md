@@ -4,7 +4,7 @@
 Ward 1 started — 2026-03-30
 
 ## Current State
-Ward 10 COMPLETE. Canvas spline renderer: midpoint quadratic curves, fyldte lilla blobs. 24 Rust + 13 TS = 37 tests. Visuelt verificeret: bløde organiske væskedråber med pointer-repulsion.
+Ward 9 COMPLETE. Pointer repulsion: Vec2 length/normalize, linear falloff F_repel, mousemove tracking. 24 Rust + 12 TS = 36 tests, 0 warnings. Visuelt verificeret: partikler viger fra cursor.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -31,6 +31,5 @@ Ward 10 COMPLETE. Canvas spline renderer: midpoint quadratic curves, fyldte lill
 _None yet_
 
 ## What Comes Next
-- Ward 11: Theming & Dynamic Styling
-- Ward 12: Canvas Overlay Manager
-- Ward 13: Final Demo
+- Phase 3: Liquid Rendering (WGPU)
+- Ward 10: WGPU Context Setup
