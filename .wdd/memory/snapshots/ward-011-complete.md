@@ -4,7 +4,7 @@
 Ward 1 started — 2026-03-30
 
 ## Current State
-Ward 11 COMPLETE. The Illusion: canvas bagved DOM, hover tracking via WeakMap→FFI buffer, farveskift på hover. 24 Rust + 15 TS = 39 tests. Tekst svæver ovenpå bløde væskeblobs.
+Ward 10 COMPLETE. Canvas spline renderer: midpoint quadratic curves, fyldte lilla blobs. 24 Rust + 13 TS = 37 tests. Visuelt verificeret: bløde organiske væskedråber med pointer-repulsion.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -31,4 +31,6 @@ Ward 11 COMPLETE. The Illusion: canvas bagved DOM, hover tracking via WeakMap→
 _None yet_
 
 ## What Comes Next
-- Ward 12: Final Demo & Polish
+- Ward 11: Theming & Dynamic Styling
+- Ward 12: Canvas Overlay Manager
+- Ward 13: Final Demo

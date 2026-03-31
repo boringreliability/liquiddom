@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-9 of 10 Wards complete · 37 estimated tests · 0 blocked
+10 of 11 Wards complete · 39 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -16,6 +16,7 @@
 | 8 | Physics to FFI Bridge | 3 | ✅ Complete | 2026-03-31 |
 | 9 | Pointer Repulsion | 4 | ✅ Complete | 2026-03-31 |
 | 10 | Canvas Spline Renderer | 1 | ✅ Complete | 2026-03-31 |
+| 11 | The Illusion & Interaction State | 2 | ✅ Complete | 2026-03-31 |
 
 ## Test Summary
-- Estimated total: 37
+- Estimated total: 39
