@@ -4,7 +4,7 @@
 Ward 1 started — 2026-03-30
 
 ## Current State
-Phase 2 COMPLETE. Physics→FFI bridge: EntityBody lazy creation, particle_data buffer, wireframe debugRender. 20 Rust + 12 TS = 32 tests, 0 warnings. Visuelt verificeret: soft body deformation ved 60 FPS.
+Ward 7 COMPLETE. Hookes lov med Euler-integration. 20 Rust + 9 TS = 29 tests, 0 warnings.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -31,5 +31,4 @@ Phase 2 COMPLETE. Physics→FFI bridge: EntityBody lazy creation, particle_data 
 _None yet_
 
 ## What Comes Next
-- Ward 9: Collision & Repulsion (mus-interaktion, force falloff)
-- Phase 3: Liquid Rendering (WGPU)
+- Ward 8: Collision & Repulsion (mus-interaktion, force falloff)

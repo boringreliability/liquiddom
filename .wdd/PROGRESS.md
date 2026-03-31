@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-6 of 7 Wards complete · 29 estimated tests · 0 blocked
+7 of 8 Wards complete · 32 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -13,6 +13,7 @@
 | 5 | Visual FFI Proof | 0 | 🔨 Gold | - |
 | 6 | Particle & Spring Data Structures | 4 | ✅ Complete | 2026-03-31 |
 | 7 | Mass-Spring-Damper Kernel | 4 | ✅ Complete | 2026-03-31 |
+| 8 | Physics to FFI Bridge | 3 | ✅ Complete | 2026-03-31 |
 
 ## Test Summary
-- Estimated total: 29
+- Estimated total: 32

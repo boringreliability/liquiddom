@@ -1,10 +1,20 @@
 use wasm_bindgen::prelude::*;
 use crate::buffer::EntityBuffer;
+use crate::math::Vec2;
+use crate::physics::EntityBody;
+
+/// Number of particles per soft body (4 per edge of the rectangle).
+pub const PARTICLES_PER_BODY: usize = 16;
+
+/// Floats per body in particle_data: x,y per particle = PARTICLES_PER_BODY * 2.
+const PARTICLE_FLOATS_PER_BODY: usize = PARTICLES_PER_BODY * 2;
 
 /// The public WASM API. TypeScript interacts exclusively through this struct.
 #[wasm_bindgen]
 pub struct LiquidCore {
     buffer: EntityBuffer,
+    bodies: Vec<Option<EntityBody>>,
+    particle_data: Vec<f32>,
 }
 
 #[wasm_bindgen]
@@ -13,12 +23,19 @@ impl LiquidCore {
     pub fn new(capacity: usize) -> Self {
         Self {
             buffer: EntityBuffer::new(capacity),
+            bodies: (0..capacity).map(|_| None).collect(),
+            particle_data: vec![0.0; capacity * PARTICLE_FLOATS_PER_BODY],
         }
     }
 
-    /// Returns the byte offset of the buffer within WASM linear memory.
+    /// Returns the byte offset of the entity buffer within WASM linear memory.
     pub fn ptr(&self) -> *const f32 {
         self.buffer.ptr()
+    }
+
+    /// Returns the byte offset of the particle data buffer within WASM linear memory.
+    pub fn particle_ptr(&self) -> *const f32 {
+        self.particle_data.as_ptr()
     }
 
     /// Current capacity in entities.
@@ -26,20 +43,49 @@ impl LiquidCore {
         self.buffer.capacity()
     }
 
-    /// Grow the buffer. TS must re-create its Float32Array view after this call.
+    /// Grow the buffer. TS must re-create its Float32Array views after this call.
     pub fn grow(&mut self, new_capacity: usize) {
         self.buffer.grow(new_capacity);
+        self.bodies.resize_with(new_capacity, || None);
+        self.particle_data
+            .resize(new_capacity * PARTICLE_FLOATS_PER_BODY, 0.0);
     }
 
     /// Called by requestAnimationFrame each frame.
-    /// For now: dummy mutation — adds dt_ms to custom_param_1 (index 6) of
-    /// every entity that has a non-zero width (i.e. is "alive").
+    /// dt_ms is in milliseconds — converted to seconds internally.
     pub fn tick(&mut self, dt_ms: f32) {
+        let dt = dt_ms / 1000.0;
+
         for i in 0..self.buffer.capacity() {
-            let slice = self.buffer.entity_slice_mut(i);
-            // Only touch entities with non-zero width (considered active)
-            if slice[2] != 0.0 {
-                slice[6] += dt_ms; // custom_param_1 += dt
+            let slice = self.buffer.entity_slice(i);
+            let w = slice[2];
+            let h = slice[3];
+
+            if w == 0.0 {
+                // Entity not active — skip
+                continue;
+            }
+
+            let x = slice[0];
+            let y = slice[1];
+
+            // Lazily create body on first encounter
+            let body = self.bodies[i].get_or_insert_with(|| {
+                EntityBody::new_rect(w, h, PARTICLES_PER_BODY)
+            });
+
+            // DOM state is king — update base_pos from buffer
+            body.base_pos = Vec2::new(x, y);
+
+            // Run physics (hardcoded tension/damping for now)
+            body.tick(dt, 100.0, 5.0);
+
+            // Write particle positions to flat buffer (pos is global after physics)
+            let offset = i * PARTICLE_FLOATS_PER_BODY;
+            for (j, particle) in body.particles.iter().enumerate() {
+                let idx = offset + j * 2;
+                self.particle_data[idx] = particle.pos.x;
+                self.particle_data[idx + 1] = particle.pos.y;
             }
         }
     }
