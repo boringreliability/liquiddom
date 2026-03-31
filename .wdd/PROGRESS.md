@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-10 of 11 Wards complete · 39 estimated tests · 0 blocked
+10 of 25 Wards complete · 84 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -17,6 +17,20 @@
 | 9 | Pointer Repulsion | 4 | ✅ Complete | 2026-03-31 |
 | 10 | Canvas Spline Renderer | 1 | ✅ Complete | 2026-03-31 |
 | 11 | The Illusion & Interaction State | 2 | ✅ Complete | 2026-03-31 |
+| 12 | Final Demo & API Wrapper | 2 | 🔨 Gold | - |
+| 13 | Instance-Based Runtime API | 4 | 📋 Planned | - |
+| 14 | Runtime Teardown and Idempotent Lifecycle | 5 | 📋 Planned | - |
+| 15 | Memory Bridge Encapsulation | 4 | 📋 Planned | - |
+| 16 | Capacity Correctness and Grow Semantics | 4 | 📋 Planned | - |
+| 17 | Hidden-Tab, Large-dt, and Pause/Resume Controls | 4 | 📋 Planned | - |
+| 18 | High-DPI Canvas and Viewport Culling | 3 | 📋 Planned | - |
+| 19 | Reduced Motion, Focus State, and Touch Parity | 4 | 📋 Planned | - |
+| 20 | Container-Scoped Rendering Mode | 3 | 📋 Planned | - |
+| 21 | Dynamic Observation Strategy | 3 | 📋 Planned | - |
+| 22 | Physics Stabilization Layer | 4 | 📋 Planned | - |
+| 23 | Configurable Materials and Runtime Options | 3 | 📋 Planned | - |
+| 24 | Packaging, Exports, and NPM-Ready Distribution | 2 | 📋 Planned | - |
+| 25 | WDD Reconciliation and Project Hygiene Pass | 0 | 📋 Planned | - |
 
 ## Test Summary
-- Estimated total: 39
+- Estimated total: 84
