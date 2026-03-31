@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { PhantomObserver, FLOATS_PER_ENTITY } from "../src/phantom-observer";
 
-/** Lightweight mock — only implements getBoundingClientRect */
+/** Lightweight mock with no-op event listeners */
 function mockElement(
   x: number,
   y: number,
@@ -10,16 +10,12 @@ function mockElement(
 ): HTMLElement {
   return {
     getBoundingClientRect: () => ({
-      x,
-      y,
-      width,
-      height,
-      top: y,
-      left: x,
-      right: x + width,
-      bottom: y + height,
+      x, y, width, height,
+      top: y, left: x, right: x + width, bottom: y + height,
       toJSON: () => {},
     }),
+    addEventListener: () => {},
+    removeEventListener: () => {},
   } as unknown as HTMLElement;
 }
 
@@ -82,6 +78,8 @@ describe("PhantomObserver", () => {
         bottom: currentY + 50,
         toJSON: () => {},
       }),
+      addEventListener: () => {},
+      removeEventListener: () => {},
     } as unknown as HTMLElement;
 
     observer.observe(el);
@@ -164,5 +162,74 @@ describe("PhantomObserver", () => {
 
     // Should not throw (fallback mode — no particleBuffer)
     expect(() => observer.render(ctx)).not.toThrow();
+  });
+
+  // ── Ward 11: Interaction State tests ──
+
+  /** Mock element with event listener support for hover simulation */
+  function mockInteractiveElement(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+  ): HTMLElement {
+    const listeners: Record<string, Set<EventListener>> = {};
+    return {
+      getBoundingClientRect: () => ({
+        x, y, width, height,
+        top: y, left: x, right: x + width, bottom: y + height,
+        toJSON: () => {},
+      }),
+      addEventListener: (type: string, fn: EventListener) => {
+        if (!listeners[type]) listeners[type] = new Set();
+        listeners[type].add(fn);
+      },
+      removeEventListener: (type: string, fn: EventListener) => {
+        listeners[type]?.delete(fn);
+      },
+      dispatchEvent: (event: Event) => {
+        listeners[event.type]?.forEach((fn) => fn(event));
+        return true;
+      },
+    } as unknown as HTMLElement;
+  }
+
+  it("hover updates interaction_state", () => {
+    const observer = new PhantomObserver(10);
+    const el = mockInteractiveElement(10, 20, 100, 50);
+
+    const id = observer.observe(el);
+    const buf = observer.getBuffer();
+    const stateIndex = id * FLOATS_PER_ENTITY + 4;
+
+    // Initially 0 (default)
+    expect(buf[stateIndex]).toBe(0);
+
+    // Simulate mouseenter
+    el.dispatchEvent(new Event("mouseenter"));
+
+    // Sync to flush hover state to buffer
+    observer.sync();
+
+    expect(buf[stateIndex]).toBe(1.0);
+  });
+
+  it("mouseleave resets interaction_state", () => {
+    const observer = new PhantomObserver(10);
+    const el = mockInteractiveElement(10, 20, 100, 50);
+
+    const id = observer.observe(el);
+    const buf = observer.getBuffer();
+    const stateIndex = id * FLOATS_PER_ENTITY + 4;
+
+    // Hover on
+    el.dispatchEvent(new Event("mouseenter"));
+    observer.sync();
+    expect(buf[stateIndex]).toBe(1.0);
+
+    // Hover off
+    el.dispatchEvent(new Event("mouseleave"));
+    observer.sync();
+    expect(buf[stateIndex]).toBe(0.0);
   });
 });

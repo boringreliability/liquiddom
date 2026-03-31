@@ -5,10 +5,19 @@ export const FLOATS_PER_ENTITY = 8;
 export const PARTICLES_PER_BODY = 16;
 const PARTICLE_FLOATS_PER_BODY = PARTICLES_PER_BODY * 2;
 
+const FILL_DEFAULT = "rgba(83, 52, 131, 0.8)";
+const FILL_HOVER = "rgba(120, 80, 180, 0.9)";
+
 export interface WasmMemorySource {
   memory: WebAssembly.Memory;
   ptr: number;
   particlePtr?: number;
+}
+
+/** Stored listener refs for clean removal in unobserve() */
+interface ElementListeners {
+  mouseenter: EventListener;
+  mouseleave: EventListener;
 }
 
 export class PhantomObserver {
@@ -20,6 +29,9 @@ export class PhantomObserver {
   private readonly availableIds: number[] = [];
   private nextId = 0;
   private wasmSource: WasmMemorySource | null;
+  private readonly hoverState: WeakMap<HTMLElement, boolean> = new WeakMap();
+  private readonly listeners: WeakMap<HTMLElement, ElementListeners> =
+    new WeakMap();
 
   /**
    * @param capacity - Max number of entities
@@ -86,6 +98,14 @@ export class PhantomObserver {
 
     this.elementToId.set(el, id);
     this.idToElement.set(id, el);
+    this.hoverState.set(el, false);
+
+    // Bind hover listeners (store refs for cleanup)
+    const onEnter = () => this.hoverState.set(el, true);
+    const onLeave = () => this.hoverState.set(el, false);
+    el.addEventListener("mouseenter", onEnter);
+    el.addEventListener("mouseleave", onLeave);
+    this.listeners.set(el, { mouseenter: onEnter, mouseleave: onLeave });
 
     const offset = id * FLOATS_PER_ENTITY;
     const rect = el.getBoundingClientRect();
@@ -105,12 +125,21 @@ export class PhantomObserver {
     const id = this.elementToId.get(el);
     if (id === undefined) return;
 
+    // Clean up event listeners
+    const ls = this.listeners.get(el);
+    if (ls) {
+      el.removeEventListener("mouseenter", ls.mouseenter);
+      el.removeEventListener("mouseleave", ls.mouseleave);
+      this.listeners.delete(el);
+    }
+
     // Zero out the slot
     const offset = id * FLOATS_PER_ENTITY;
     this.buffer.fill(0, offset, offset + FLOATS_PER_ENTITY);
 
     this.elementToId.delete(el);
     this.idToElement.delete(id);
+    this.hoverState.delete(el);
     this.availableIds.push(id);
   }
 
@@ -122,6 +151,7 @@ export class PhantomObserver {
       this.buffer[offset + 1] = rect.y;
       this.buffer[offset + 2] = rect.width;
       this.buffer[offset + 3] = rect.height;
+      this.buffer[offset + 4] = this.hoverState.get(el) ? 1.0 : 0.0;
     }
   }
 
@@ -131,9 +161,13 @@ export class PhantomObserver {
    */
   render(ctx: CanvasRenderingContext2D): void {
     ctx.save();
-    ctx.fillStyle = "rgba(83, 52, 131, 0.8)";
 
     for (const [id] of this.idToElement) {
+      // Read interaction_state for hover visual feedback
+      const entityOffset = id * FLOATS_PER_ENTITY;
+      const isHover = this.buffer[entityOffset + 4] === 1.0;
+      ctx.fillStyle = isHover ? FILL_HOVER : FILL_DEFAULT;
+
       if (this.particleBuffer) {
         const offset = id * PARTICLE_FLOATS_PER_BODY;
         const n = PARTICLES_PER_BODY;
