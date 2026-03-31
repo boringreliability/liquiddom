@@ -74,8 +74,8 @@ async function main() {
     // Call Rust tick (runs physics — dt is in ms, Rust converts to seconds)
     core.tick(dt, pointerX, pointerY, pointerActive);
 
-    // Debug render: draw red boxes from WASM memory
-    observer.debugRender(ctx);
+    // Render soft body blobs from WASM particle data
+    observer.render(ctx);
 
     requestAnimationFrame(loop);
   }

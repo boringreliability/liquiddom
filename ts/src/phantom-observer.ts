@@ -126,37 +126,57 @@ export class PhantomObserver {
   }
 
   /**
-   * Debug visualization: draw soft body wireframes from particle data.
-   * Falls back to strokeRect if no particle buffer is available.
+   * Render soft body blobs using midpoint quadratic curves.
+   * Falls back to filled rect if no particle buffer is available.
    */
-  debugRender(ctx: CanvasRenderingContext2D): void {
+  render(ctx: CanvasRenderingContext2D): void {
     ctx.save();
-    ctx.strokeStyle = "rgba(255, 0, 0, 0.5)";
-    ctx.lineWidth = 2;
+    ctx.fillStyle = "rgba(83, 52, 131, 0.8)";
 
     for (const [id] of this.idToElement) {
       if (this.particleBuffer) {
-        // Draw wireframe from particle positions
         const offset = id * PARTICLE_FLOATS_PER_BODY;
+        const n = PARTICLES_PER_BODY;
+
+        // Get last and first particle for the starting midpoint
+        const lastX = this.particleBuffer[offset + (n - 1) * 2];
+        const lastY = this.particleBuffer[offset + (n - 1) * 2 + 1];
+        const firstX = this.particleBuffer[offset];
+        const firstY = this.particleBuffer[offset + 1];
+
+        const startX = (lastX + firstX) / 2;
+        const startY = (lastY + firstY) / 2;
+
         ctx.beginPath();
-        ctx.moveTo(
-          this.particleBuffer[offset],
-          this.particleBuffer[offset + 1],
-        );
-        for (let j = 1; j < PARTICLES_PER_BODY; j++) {
-          const idx = offset + j * 2;
-          ctx.lineTo(this.particleBuffer[idx], this.particleBuffer[idx + 1]);
+        ctx.moveTo(startX, startY);
+
+        // Midpoint quadratic curve through all particles
+        for (let i = 0; i < n; i++) {
+          const nextI = (i + 1) % n;
+          const currIdx = offset + i * 2;
+          const nextIdx = offset + nextI * 2;
+
+          const currX = this.particleBuffer[currIdx];
+          const currY = this.particleBuffer[currIdx + 1];
+          const nextX = this.particleBuffer[nextIdx];
+          const nextY = this.particleBuffer[nextIdx + 1];
+
+          const midX = (currX + nextX) / 2;
+          const midY = (currY + nextY) / 2;
+
+          ctx.quadraticCurveTo(currX, currY, midX, midY);
         }
+
         ctx.closePath();
-        ctx.stroke();
+        ctx.fill();
       } else {
-        // Fallback: draw bounding rect from entity buffer
+        // Fallback: filled rect from entity buffer
         const offset = id * FLOATS_PER_ENTITY;
         const x = this.buffer[offset];
         const y = this.buffer[offset + 1];
         const w = this.buffer[offset + 2];
         const h = this.buffer[offset + 3];
-        ctx.strokeRect(x, y, w, h);
+        ctx.fillRect(x, y, w, h);
       }
     }
 
