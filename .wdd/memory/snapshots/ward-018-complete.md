@@ -4,7 +4,7 @@
 Ward 1 started — 2026-03-30
 
 ## Current State
-Ward 18 COMPLETE. DPR-aware canvas (setTransform), AABB viewport culling, zero-size entity skip. 24 Rust + 43 TS = 67 tests.
+Ward 17 COMPLETE. Pause/resume, dt clamping (max 50ms), visibility-aware auto-pause. 24 Rust + 40 TS = 64 tests.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -31,5 +31,6 @@ Ward 18 COMPLETE. DPR-aware canvas (setTransform), AABB viewport culling, zero-s
 _None yet_
 
 ## What Comes Next
+- Ward 018: High-DPI Canvas and Viewport Culling
 - Ward 019: Reduced Motion, Focus State, and Touch Parity
 - Ward 020: Container-Scoped Rendering Mode

@@ -232,4 +232,64 @@ describe("PhantomObserver", () => {
     observer.sync();
     expect(buf[stateIndex]).toBe(0.0);
   });
+
+  // ── Ward 018: Viewport Culling ──
+
+  it("zero-width entity not rendered", () => {
+    const observer = new PhantomObserver(4);
+
+    const normal = mockElement(10, 20, 100, 50);
+    const zeroWidth = mockElement(10, 20, 0, 50);
+
+    observer.observe(normal);
+    observer.observe(zeroWidth);
+    observer.sync();
+
+    let fillCalls = 0;
+    const ctx = {
+      save: () => {},
+      restore: () => {},
+      fillStyle: "",
+      fillRect: () => { fillCalls++; },
+      beginPath: () => {},
+      moveTo: () => {},
+      quadraticCurveTo: () => {},
+      closePath: () => {},
+      fill: () => { fillCalls++; },
+    } as unknown as CanvasRenderingContext2D;
+
+    observer.render(ctx, { viewportWidth: 800, viewportHeight: 600, cullMargin: 100 });
+
+    // Only the normal element should complete a fill — zero-width skipped
+    expect(fillCalls).toBe(1);
+  });
+
+  it("offscreen entity skipped in render", () => {
+    const observer = new PhantomObserver(4);
+
+    const onScreen = mockElement(100, 100, 200, 100);
+    const offScreen = mockElement(99999, 99999, 100, 50);
+
+    observer.observe(onScreen);
+    observer.observe(offScreen);
+    observer.sync();
+
+    let fillCalls = 0;
+    const ctx = {
+      save: () => {},
+      restore: () => {},
+      fillStyle: "",
+      fillRect: () => { fillCalls++; },
+      beginPath: () => {},
+      moveTo: () => {},
+      quadraticCurveTo: () => {},
+      closePath: () => {},
+      fill: () => { fillCalls++; },
+    } as unknown as CanvasRenderingContext2D;
+
+    observer.render(ctx, { viewportWidth: 800, viewportHeight: 600, cullMargin: 100 });
+
+    // Only the on-screen element should render
+    expect(fillCalls).toBe(1);
+  });
 });

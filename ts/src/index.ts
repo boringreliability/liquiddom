@@ -92,10 +92,13 @@ export class LiquidDOM {
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseleave", onMouseLeave);
 
-    // 6. Resize handler (per-instance)
+    // 6. Resize handler with DPR scaling (per-instance)
     const onResize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      const dpr = window.devicePixelRatio || 1;
+      const cssWidth = window.innerWidth;
+      const cssHeight = window.innerHeight;
+      canvas.width = cssWidth * dpr;
+      canvas.height = cssHeight * dpr;
     };
     onResize();
     window.addEventListener("resize", onResize);
@@ -119,10 +122,16 @@ export class LiquidDOM {
         // dt clamping — prevents physics explosion after tab sleep or debugger pause
         const dt = Math.min(rawDt, maxDt);
 
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const dpr = window.devicePixelRatio || 1;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
         observer.sync();
         core!.tick(dt, pointerX, pointerY, pointerActive);
-        observer.render(ctx);
+        observer.render(ctx, {
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+          cullMargin: 100,
+        });
 
         animationId = requestAnimationFrame(loop);
       };
