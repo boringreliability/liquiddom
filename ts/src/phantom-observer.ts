@@ -136,6 +136,15 @@ export class PhantomObserver {
     return id;
   }
 
+  /** Unobserve all tracked elements. Used by runtime destroy(). */
+  unobserveAll(): void {
+    // Collect elements first — unobserve mutates idToElement
+    const elements = [...this.idToElement.values()];
+    for (const el of elements) {
+      this.unobserve(el);
+    }
+  }
+
   unobserve(el: HTMLElement): void {
     const id = this.elementToId.get(el);
     if (id === undefined) return;

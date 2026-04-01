@@ -146,4 +146,82 @@ describe("LiquidDOM Instance API", () => {
     const id2 = instance.observe(el);
     expect(id1).toBe(id2);
   });
+
+  // ── Ward 014: Teardown hardening ──
+
+  it("destroy unobserves all tracked elements", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
+
+    // Track listener removal via spy
+    const removals: string[] = [];
+    function makeEl() {
+      const el = document.createElement("div");
+      el.getBoundingClientRect = () => ({
+        x: 0, y: 0, width: 50, height: 50,
+        top: 0, left: 0, right: 50, bottom: 50,
+        toJSON: () => {},
+      });
+      const origRemove = el.removeEventListener.bind(el);
+      el.removeEventListener = (type: string, ...args: unknown[]) => {
+        removals.push(type);
+        return (origRemove as Function)(type, ...args);
+      };
+      return el;
+    }
+
+    const el1 = makeEl();
+    const el2 = makeEl();
+    instance.observe(el1);
+    instance.observe(el2);
+
+    instance.destroy();
+
+    // Each element should have had mouseenter + mouseleave removed
+    const enterRemovals = removals.filter((t) => t === "mouseenter");
+    const leaveRemovals = removals.filter((t) => t === "mouseleave");
+    expect(enterRemovals.length).toBe(2);
+    expect(leaveRemovals.length).toBe(2);
+  });
+
+  it("create-destroy-create cycle works cleanly", async () => {
+    // First instance
+    const instance1 = await LiquidDOM.create({ capacity: 8 });
+    expect(document.querySelectorAll("canvas").length).toBe(1);
+
+    instance1.destroy();
+    expect(document.querySelectorAll("canvas").length).toBe(0);
+
+    // Second instance — must work without interference from the first
+    const instance2 = await LiquidDOM.create({ capacity: 8 });
+    expect(document.querySelectorAll("canvas").length).toBe(1);
+
+    // Second instance is fully functional
+    const el = document.createElement("div");
+    el.getBoundingClientRect = () => ({
+      x: 10, y: 20, width: 100, height: 50,
+      top: 20, left: 10, right: 110, bottom: 70,
+      toJSON: () => {},
+    });
+    const id = instance2.observe(el);
+    expect(typeof id).toBe("number");
+
+    instance2.destroy();
+    expect(document.querySelectorAll("canvas").length).toBe(0);
+  });
+
+  it("unobserve after destroy is silent no-op", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
+
+    const el = document.createElement("div");
+    el.getBoundingClientRect = () => ({
+      x: 0, y: 0, width: 50, height: 50,
+      top: 0, left: 0, right: 50, bottom: 50,
+      toJSON: () => {},
+    });
+    instance.observe(el);
+    instance.destroy();
+
+    // Should not throw
+    expect(() => instance.unobserve(el)).not.toThrow();
+  });
 });

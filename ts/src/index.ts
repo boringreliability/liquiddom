@@ -134,14 +134,24 @@ export class LiquidDOM {
         if (destroyed) return;
         destroyed = true;
 
+        // 1. Stop render loop
         if (animationId) {
           cancelAnimationFrame(animationId);
           animationId = 0;
         }
-        canvas.remove();
+
+        // 2. Unobserve all tracked elements (removes per-element listeners)
+        observer.unobserveAll();
+
+        // 3. Remove document/window listeners
         document.removeEventListener("mousemove", onMouseMove);
         document.removeEventListener("mouseleave", onMouseLeave);
         window.removeEventListener("resize", onResize);
+
+        // 4. Remove canvas from DOM
+        canvas.remove();
+
+        // 5. Free WASM core
         if (core) {
           core.free();
           core = null;

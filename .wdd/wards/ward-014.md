@@ -3,12 +3,12 @@ ward: 14
 revision: null
 name: "Runtime Teardown and Idempotent Lifecycle"
 epic: "runtime-hardening"
-status: "planned"
+status: "complete"
 dependencies: [13]
 layer: "typescript"
 estimated_tests: 5
 created: "2026-03-31"
-completed: null
+completed: "2026-04-01"
 ---
 # Ward 014: Runtime Teardown and Idempotent Lifecycle
 
