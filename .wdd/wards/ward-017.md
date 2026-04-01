@@ -3,12 +3,12 @@ ward: 17
 revision: null
 name: "Hidden-Tab, Large-dt, and Pause/Resume Controls"
 epic: "runtime-resilience"
-status: "planned"
+status: "complete"
 dependencies: [14]
 layer: "typescript"
 estimated_tests: 4
 created: "2026-03-31"
-completed: null
+completed: "2026-04-01"
 ---
 # Ward 017: Hidden-Tab, Large-dt, and Pause/Resume Controls
 

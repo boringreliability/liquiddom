@@ -4,7 +4,7 @@
 Ward 1 started — 2026-03-30
 
 ## Current State
-Ward 17 COMPLETE. Pause/resume, dt clamping (max 50ms), visibility-aware auto-pause. 24 Rust + 40 TS = 64 tests.
+Ward 16 COMPLETE. P0 Runtime Hardening done. Instance API, destroy, bridge, grow — all coordinated. 24 Rust + 36 TS = 60 tests.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -31,6 +31,6 @@ Ward 17 COMPLETE. Pause/resume, dt clamping (max 50ms), visibility-aware auto-pa
 _None yet_
 
 ## What Comes Next
+- Ward 017: Hidden-Tab, Large-dt, and Pause/Resume
 - Ward 018: High-DPI Canvas and Viewport Culling
 - Ward 019: Reduced Motion, Focus State, and Touch Parity
-- Ward 020: Container-Scoped Rendering Mode
