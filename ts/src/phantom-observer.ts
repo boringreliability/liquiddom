@@ -157,13 +157,38 @@ export class PhantomObserver {
   /**
    * Render soft body blobs using midpoint quadratic curves.
    * Falls back to filled rect if no particle buffer is available.
+   * Optional viewport info enables culling of off-screen entities.
    */
-  render(ctx: CanvasRenderingContext2D): void {
+  render(
+    ctx: CanvasRenderingContext2D,
+    viewport?: { viewportWidth: number; viewportHeight: number; cullMargin: number },
+  ): void {
     ctx.save();
 
     for (const [id] of this.idToElement) {
-      // Read interaction_state for hover visual feedback
       const entityOffset = id * FLOATS_PER_ENTITY;
+      const x = this.buffer[entityOffset];
+      const y = this.buffer[entityOffset + 1];
+      const w = this.buffer[entityOffset + 2];
+      const h = this.buffer[entityOffset + 3];
+
+      // Skip zero-sized entities
+      if (w === 0 || h === 0) continue;
+
+      // Viewport culling: skip entities fully outside viewport + margin
+      if (viewport) {
+        const m = viewport.cullMargin;
+        if (
+          x + w < -m ||
+          y + h < -m ||
+          x > viewport.viewportWidth + m ||
+          y > viewport.viewportHeight + m
+        ) {
+          continue;
+        }
+      }
+
+      // Read interaction_state for hover visual feedback
       const isHover = this.buffer[entityOffset + 4] === 1.0;
       ctx.fillStyle = isHover ? this.colorHover : this.colorDefault;
 
@@ -171,7 +196,6 @@ export class PhantomObserver {
         const offset = id * PARTICLE_FLOATS_PER_BODY;
         const n = PARTICLES_PER_BODY;
 
-        // Get last and first particle for the starting midpoint
         const lastX = this.particleBuffer[offset + (n - 1) * 2];
         const lastY = this.particleBuffer[offset + (n - 1) * 2 + 1];
         const firstX = this.particleBuffer[offset];
@@ -183,7 +207,6 @@ export class PhantomObserver {
         ctx.beginPath();
         ctx.moveTo(startX, startY);
 
-        // Midpoint quadratic curve through all particles
         for (let i = 0; i < n; i++) {
           const nextI = (i + 1) % n;
           const currIdx = offset + i * 2;
@@ -203,12 +226,6 @@ export class PhantomObserver {
         ctx.closePath();
         ctx.fill();
       } else {
-        // Fallback: filled rect from entity buffer
-        const offset = id * FLOATS_PER_ENTITY;
-        const x = this.buffer[offset];
-        const y = this.buffer[offset + 1];
-        const w = this.buffer[offset + 2];
-        const h = this.buffer[offset + 3];
         ctx.fillRect(x, y, w, h);
       }
     }

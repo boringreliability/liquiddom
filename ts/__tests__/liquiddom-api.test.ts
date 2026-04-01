@@ -365,4 +365,32 @@ describe("LiquidDOM Instance API", () => {
       configurable: true,
     });
   });
+
+  // ── Ward 018: High-DPI ──
+
+  it("canvas dimensions scaled by DPR", async () => {
+    Object.defineProperty(window, "devicePixelRatio", {
+      value: 2, writable: true, configurable: true,
+    });
+    Object.defineProperty(window, "innerWidth", {
+      value: 800, writable: true, configurable: true,
+    });
+    Object.defineProperty(window, "innerHeight", {
+      value: 600, writable: true, configurable: true,
+    });
+
+    const instance = await LiquidDOM.create({ capacity: 4 });
+
+    const canvas = document.querySelector("canvas")!;
+    expect(canvas.width).toBe(800 * 2);
+    expect(canvas.height).toBe(600 * 2);
+    expect(canvas.style.width).toBe("100vw");
+    expect(canvas.style.height).toBe("100vh");
+
+    instance.destroy();
+
+    Object.defineProperty(window, "devicePixelRatio", {
+      value: 1, writable: true, configurable: true,
+    });
+  });
 });

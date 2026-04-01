@@ -3,12 +3,12 @@ ward: 18
 revision: null
 name: "High-DPI Canvas and Viewport Culling"
 epic: "runtime-resilience"
-status: "planned"
+status: "complete"
 dependencies: [17]
 layer: "typescript"
 estimated_tests: 3
 created: "2026-03-31"
-completed: null
+completed: "2026-04-01"
 ---
 # Ward 018: High-DPI Canvas and Viewport Culling
 
