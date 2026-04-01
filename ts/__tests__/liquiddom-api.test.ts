@@ -4,6 +4,15 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { LiquidDOM } from "../src/index";
 
+// jsdom doesn't provide ResizeObserver — minimal polyfill for tests
+if (typeof globalThis.ResizeObserver === "undefined") {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+}
+
 describe("LiquidDOM Instance API", () => {
   beforeEach(() => {
     // Clean up DOM from previous tests
@@ -452,6 +461,84 @@ describe("LiquidDOM Instance API", () => {
     document.dispatchEvent(new PointerEvent("pointerleave"));
 
     expect(instance.pointerActive).toBe(false);
+
+    instance.destroy();
+  });
+
+  // ── Ward 020: Container-Scoped Rendering ──
+
+  it("container mode renders inside element", async () => {
+    const container = document.createElement("div");
+    Object.defineProperty(container, "clientWidth", { value: 400, configurable: true });
+    Object.defineProperty(container, "clientHeight", { value: 300, configurable: true });
+    document.body.appendChild(container);
+
+    const instance = await LiquidDOM.create({
+      capacity: 8,
+      container,
+    });
+
+    // Canvas should be inside the container, not body directly
+    const canvas = container.querySelector("canvas");
+    expect(canvas).not.toBeNull();
+
+    // Body should NOT have a direct canvas child (it's inside container)
+    const bodyCanvases = Array.from(document.body.children).filter(
+      (el) => el.tagName === "CANVAS",
+    );
+    expect(bodyCanvases.length).toBe(0);
+
+    // Canvas backing store should be container-sized * DPR
+    const dpr = window.devicePixelRatio || 1;
+    expect(canvas!.width).toBe(400 * dpr);
+    expect(canvas!.height).toBe(300 * dpr);
+
+    instance.destroy();
+
+    // Canvas should be removed from container after destroy
+    expect(container.querySelector("canvas")).toBeNull();
+  });
+
+  it("fullscreen mode still works (no container)", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8 });
+
+    // Canvas should be directly in body
+    const canvas = document.querySelector("body > canvas") as HTMLCanvasElement | null;
+    expect(canvas).not.toBeNull();
+    expect(canvas!.style.position).toBe("fixed");
+
+    instance.destroy();
+    expect(document.querySelector("canvas")).toBeNull();
+  });
+
+  it("container mode transforms pointer coordinates", async () => {
+    const container = document.createElement("div");
+    Object.defineProperty(container, "clientWidth", { value: 400, configurable: true });
+    Object.defineProperty(container, "clientHeight", { value: 300, configurable: true });
+    // Container is offset 50px from page origin
+    container.getBoundingClientRect = () => ({
+      x: 50, y: 100, width: 400, height: 300,
+      top: 100, left: 50, right: 450, bottom: 400,
+      toJSON: () => {},
+    });
+    document.body.appendChild(container);
+
+    const instance = await LiquidDOM.create({
+      capacity: 8,
+      container,
+      autoObserve: false,
+    });
+
+    // Simulate pointermove at page coords (150, 250)
+    // Container-relative should be (100, 150)
+    document.dispatchEvent(new PointerEvent("pointermove", {
+      clientX: 150,
+      clientY: 250,
+    }));
+
+    // Expose pointer coords for verification
+    expect(instance.pointerX).toBe(100); // 150 - 50 (container left)
+    expect(instance.pointerY).toBe(150); // 250 - 100 (container top)
 
     instance.destroy();
   });
