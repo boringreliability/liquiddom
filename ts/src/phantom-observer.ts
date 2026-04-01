@@ -9,15 +9,10 @@ const DEFAULT_COLOR = "rgba(83, 52, 131, 0.8)";
 const DEFAULT_COLOR_HOVER = "rgba(120, 80, 180, 0.9)";
 
 export interface PhantomObserverOptions {
-  wasmSource?: WasmMemorySource;
+  entityView?: Float32Array;
+  particleView?: Float32Array;
   colorDefault?: string;
   colorHover?: string;
-}
-
-export interface WasmMemorySource {
-  memory: WebAssembly.Memory;
-  ptr: number;
-  particlePtr?: number;
 }
 
 /** Stored listener refs for clean removal in unobserve() */
@@ -34,7 +29,6 @@ export class PhantomObserver {
   private readonly idToElement: Map<number, HTMLElement> = new Map();
   private readonly availableIds: number[] = [];
   private nextId = 0;
-  private wasmSource: WasmMemorySource | null;
   private readonly hoverState: WeakMap<HTMLElement, boolean> = new WeakMap();
   private readonly listeners: WeakMap<HTMLElement, ElementListeners> =
     new WeakMap();
@@ -49,50 +43,18 @@ export class PhantomObserver {
     this.capacity = capacity;
     this.colorDefault = options?.colorDefault ?? DEFAULT_COLOR;
     this.colorHover = options?.colorHover ?? DEFAULT_COLOR_HOVER;
-
-    const wasmSource = options?.wasmSource;
-    this.wasmSource = wasmSource ?? null;
-
-    if (wasmSource) {
-      this.buffer = new Float32Array(
-        wasmSource.memory.buffer,
-        wasmSource.ptr,
-        capacity * FLOATS_PER_ENTITY,
-      );
-      if (wasmSource.particlePtr !== undefined) {
-        this.particleBuffer = new Float32Array(
-          wasmSource.memory.buffer,
-          wasmSource.particlePtr,
-          capacity * PARTICLE_FLOATS_PER_BODY,
-        );
-      }
-    } else {
-      this.buffer = new Float32Array(capacity * FLOATS_PER_ENTITY);
-    }
+    this.buffer = options?.entityView ?? new Float32Array(capacity * FLOATS_PER_ENTITY);
+    this.particleBuffer = options?.particleView ?? null;
   }
 
   getBuffer(): Float32Array {
     return this.buffer;
   }
 
-  /**
-   * Re-create Float32Array views after a grow() call invalidates
-   * the underlying ArrayBuffer. Must be called with new pointers.
-   */
-  rebindBuffer(wasmSource: WasmMemorySource, newCapacity: number): void {
-    this.wasmSource = wasmSource;
-    this.buffer = new Float32Array(
-      wasmSource.memory.buffer,
-      wasmSource.ptr,
-      newCapacity * FLOATS_PER_ENTITY,
-    );
-    if (wasmSource.particlePtr !== undefined) {
-      this.particleBuffer = new Float32Array(
-        wasmSource.memory.buffer,
-        wasmSource.particlePtr,
-        newCapacity * PARTICLE_FLOATS_PER_BODY,
-      );
-    }
+  /** Update views after WasmBridge rebind. Called by the bridge owner, not by observer itself. */
+  setViews(entityView: Float32Array, particleView: Float32Array | null): void {
+    this.buffer = entityView;
+    this.particleBuffer = particleView;
   }
 
   observe(el: HTMLElement, liquidType?: number): number {
