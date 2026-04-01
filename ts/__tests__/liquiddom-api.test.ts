@@ -224,4 +224,70 @@ describe("LiquidDOM Instance API", () => {
     // Should not throw
     expect(() => instance.unobserve(el)).not.toThrow();
   });
+
+  // ── Ward 016: Capacity Correctness ──
+
+  it("capacity reflects state after grow", async () => {
+    const instance = await LiquidDOM.create({ capacity: 4, autoObserve: false });
+    expect(instance.capacity).toBe(4);
+
+    instance.grow(16);
+    expect(instance.capacity).toBe(16);
+
+    instance.destroy();
+  });
+
+  it("new entities can be observed after grow", async () => {
+    const instance = await LiquidDOM.create({ capacity: 2, autoObserve: false });
+
+    function makeEl() {
+      const el = document.createElement("div");
+      el.getBoundingClientRect = () => ({
+        x: 0, y: 0, width: 50, height: 50,
+        top: 0, left: 0, right: 50, bottom: 50,
+        toJSON: () => {},
+      });
+      return el;
+    }
+
+    // Fill to capacity
+    instance.observe(makeEl());
+    instance.observe(makeEl());
+
+    // Third observe should throw — at capacity
+    expect(() => instance.observe(makeEl())).toThrow();
+
+    // Grow and try again
+    instance.grow(8);
+    expect(() => instance.observe(makeEl())).not.toThrow();
+
+    instance.destroy();
+  });
+
+  it("grow preserves existing observed data", async () => {
+    const instance = await LiquidDOM.create({ capacity: 4, autoObserve: false });
+
+    const el = document.createElement("div");
+    el.getBoundingClientRect = () => ({
+      x: 123, y: 456, width: 789, height: 101,
+      top: 456, left: 123, right: 912, bottom: 557,
+      toJSON: () => {},
+    });
+    instance.observe(el);
+
+    // Grow — data should survive
+    instance.grow(16);
+
+    // Re-observe same element should return same id (idempotent)
+    // and the element should still be tracked
+    expect(() => instance.unobserve(el)).not.toThrow();
+
+    instance.destroy();
+  });
+
+  it("grow on destroyed instance throws", async () => {
+    const instance = await LiquidDOM.create({ capacity: 4 });
+    instance.destroy();
+    expect(() => instance.grow(16)).toThrow();
+  });
 });

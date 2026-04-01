@@ -3,12 +3,12 @@ ward: 16
 revision: null
 name: "Capacity Correctness and Grow Semantics"
 epic: "runtime-hardening"
-status: "planned"
+status: "complete"
 dependencies: [15]
 layer: "both"
 estimated_tests: 4
 created: "2026-03-31"
-completed: null
+completed: "2026-04-01"
 ---
 # Ward 016: Capacity Correctness and Grow Semantics
 

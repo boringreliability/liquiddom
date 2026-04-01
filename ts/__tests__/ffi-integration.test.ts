@@ -380,4 +380,24 @@ describe("WasmBridge", () => {
 
     core.free();
   });
+
+  // ── Ward 016: Capacity alignment ──
+
+  it("Rust and TS capacity aligned after grow", () => {
+    const core = new wasm.LiquidCore(4);
+    const bridge = new WasmBridge(wasmMemory, core, 4);
+
+    expect(bridge.capacity).toBe(4);
+    expect(core.capacity()).toBe(4);
+
+    // Coordinated grow
+    core.grow(32);
+    bridge.rebind(32);
+
+    expect(bridge.capacity).toBe(32);
+    expect(core.capacity()).toBe(32);
+    expect(bridge.entityView().length).toBe(32 * FLOATS_PER_ENTITY);
+
+    core.free();
+  });
 });
