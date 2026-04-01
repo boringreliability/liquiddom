@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-16 of 25 Wards complete · 84 estimated tests · 0 blocked
+17 of 25 Wards complete · 84 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -24,7 +24,7 @@
 | 16 | Capacity Correctness and Grow Semantics | 4 | ✅ Complete | 2026-04-01 |
 | 17 | Hidden-Tab, Large-dt, and Pause/Resume Controls | 4 | ✅ Complete | 2026-04-01 |
 | 18 | High-DPI Canvas and Viewport Culling | 3 | ✅ Complete | 2026-04-01 |
-| 19 | Reduced Motion, Focus State, and Touch Parity | 4 | 📋 Planned | - |
+| 19 | Reduced Motion, Focus State, and Touch Parity | 4 | ✅ Complete | 2026-04-01 |
 | 20 | Container-Scoped Rendering Mode | 3 | 📋 Planned | - |
 | 21 | Dynamic Observation Strategy | 3 | 📋 Planned | - |
 | 22 | Physics Stabilization Layer | 4 | 📋 Planned | - |

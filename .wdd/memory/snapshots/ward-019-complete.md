@@ -4,7 +4,7 @@
 Ward 1 started — 2026-03-30
 
 ## Current State
-Ward 19 COMPLETE. Reduced motion (dt=0), focus/blur state, pointer events replacing mouse. 24 Rust + 47 TS = 71 tests.
+Ward 18 COMPLETE. DPR-aware canvas (setTransform), AABB viewport culling, zero-size entity skip. 24 Rust + 43 TS = 67 tests.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -31,5 +31,5 @@ Ward 19 COMPLETE. Reduced motion (dt=0), focus/blur state, pointer events replac
 _None yet_
 
 ## What Comes Next
+- Ward 019: Reduced Motion, Focus State, and Touch Parity
 - Ward 020: Container-Scoped Rendering Mode
-- Ward 021: Dynamic Observation Strategy
