@@ -4,7 +4,7 @@
 Ward 1 started — 2026-03-30
 
 ## Current State
-Ward 16 COMPLETE. P0 Runtime Hardening done. Instance API, destroy, bridge, grow — all coordinated. 24 Rust + 36 TS = 60 tests.
+Ward 15 COMPLETE. WasmBridge encapsulates all pointer/view management. PhantomObserver has zero WASM knowledge. 24 Rust + 31 TS = 55 tests.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -31,6 +31,5 @@ Ward 16 COMPLETE. P0 Runtime Hardening done. Instance API, destroy, bridge, grow
 _None yet_
 
 ## What Comes Next
+- Ward 016: Capacity Correctness and Grow Semantics
 - Ward 017: Hidden-Tab, Large-dt, and Pause/Resume
-- Ward 018: High-DPI Canvas and Viewport Culling
-- Ward 019: Reduced Motion, Focus State, and Touch Parity

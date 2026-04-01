@@ -24,7 +24,7 @@ interface ElementListeners {
 export class PhantomObserver {
   private buffer: Float32Array;
   private particleBuffer: Float32Array | null = null;
-  private readonly capacity: number;
+  private _capacity: number;
   private readonly elementToId: WeakMap<HTMLElement, number> = new WeakMap();
   private readonly idToElement: Map<number, HTMLElement> = new Map();
   private readonly availableIds: number[] = [];
@@ -40,21 +40,34 @@ export class PhantomObserver {
    * @param options - Optional WASM source and color configuration
    */
   constructor(capacity: number, options?: PhantomObserverOptions) {
-    this.capacity = capacity;
+    this._capacity = capacity;
     this.colorDefault = options?.colorDefault ?? DEFAULT_COLOR;
     this.colorHover = options?.colorHover ?? DEFAULT_COLOR_HOVER;
     this.buffer = options?.entityView ?? new Float32Array(capacity * FLOATS_PER_ENTITY);
     this.particleBuffer = options?.particleView ?? null;
   }
 
+  get capacity(): number {
+    return this._capacity;
+  }
+
   getBuffer(): Float32Array {
     return this.buffer;
   }
 
-  /** Update views after WasmBridge rebind. Called by the bridge owner, not by observer itself. */
-  setViews(entityView: Float32Array, particleView: Float32Array | null): void {
+  /** Update views and capacity after WasmBridge rebind. */
+  setViews(entityView: Float32Array, particleView: Float32Array | null, newCapacity: number): void {
     this.buffer = entityView;
     this.particleBuffer = particleView;
+    this._capacity = newCapacity;
+  }
+
+  /** Grow in mock mode (no WASM). Creates a larger local buffer, copies old data. */
+  growLocal(newCapacity: number): void {
+    const newBuffer = new Float32Array(newCapacity * FLOATS_PER_ENTITY);
+    newBuffer.set(this.buffer);
+    this.buffer = newBuffer;
+    this._capacity = newCapacity;
   }
 
   observe(el: HTMLElement, liquidType?: number): number {
@@ -67,9 +80,9 @@ export class PhantomObserver {
         ? this.availableIds.pop()!
         : this.nextId++;
 
-    if (id >= this.capacity) {
+    if (id >= this._capacity) {
       throw new Error(
-        `PhantomObserver capacity exceeded: ${this.capacity} elements max`,
+        `PhantomObserver capacity exceeded: ${this._capacity} elements max`,
       );
     }
 

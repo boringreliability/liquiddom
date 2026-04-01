@@ -10,8 +10,10 @@ export interface LiquidOptions {
 }
 
 export interface LiquidDOMInstance {
+  readonly capacity: number;
   observe(el: HTMLElement, liquidType?: number): number;
   unobserve(el: HTMLElement): void;
+  grow(newCapacity: number): void;
   destroy(): void;
 }
 
@@ -115,6 +117,10 @@ export class LiquidDOM {
     let destroyed = false;
 
     const instance: LiquidDOMInstance = {
+      get capacity(): number {
+        return observer.capacity;
+      },
+
       observe(el: HTMLElement, liquidType?: number): number {
         if (destroyed) {
           throw new Error("Cannot observe on a destroyed LiquidDOM instance");
@@ -125,6 +131,27 @@ export class LiquidDOM {
       unobserve(el: HTMLElement): void {
         if (destroyed) return;
         observer.unobserve(el);
+      },
+
+      grow(newCapacity: number): void {
+        if (destroyed) {
+          throw new Error("Cannot grow a destroyed LiquidDOM instance");
+        }
+        if (newCapacity <= observer.capacity) {
+          throw new Error(
+            `newCapacity (${newCapacity}) must be greater than current capacity (${observer.capacity})`,
+          );
+        }
+
+        if (core && bridge) {
+          // WASM mode: coordinated grow
+          core.grow(newCapacity);
+          bridge.rebind(newCapacity);
+          observer.setViews(bridge.entityView(), bridge.particleView(), newCapacity);
+        } else {
+          // Mock mode: local buffer grow
+          observer.growLocal(newCapacity);
+        }
       },
 
       destroy(): void {
