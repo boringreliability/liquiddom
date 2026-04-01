@@ -1,4 +1,5 @@
 import { PhantomObserver } from "./phantom-observer";
+import { WasmBridge, WasmCore } from "./wasm-bridge";
 
 export interface LiquidOptions {
   capacity?: number;
@@ -14,13 +15,10 @@ export interface LiquidDOMInstance {
   destroy(): void;
 }
 
-type WasmInit = typeof import("../../pkg/liquiddom.js").default;
-type LiquidCoreClass = typeof import("../../pkg/liquiddom.js").LiquidCore;
-
 export class LiquidDOM {
   /**
    * Create an isolated LiquidDOM runtime instance.
-   * Each instance owns its own canvas, observer, WASM core, and RAF loop.
+   * Each instance owns its own canvas, observer, WASM bridge, and RAF loop.
    */
   static async create(options?: LiquidOptions): Promise<LiquidDOMInstance> {
     const capacity = options?.capacity ?? 128;
@@ -38,27 +36,26 @@ export class LiquidDOM {
     canvas.style.zIndex = String(canvasZIndex);
     document.body.appendChild(canvas);
 
-    // 2. Try to initialize WASM (may fail in test environments)
-    let core: InstanceType<LiquidCoreClass> | null = null;
-    let wasmMemory: WebAssembly.Memory | null = null;
+    // 2. Try to initialize WASM + bridge (may fail in test environments)
+    let core: WasmCore | null = null;
+    let bridge: WasmBridge | null = null;
 
     try {
       const wasmModule = await import("../../pkg/liquiddom.js");
-      const initWasm: WasmInit = wasmModule.default;
+      const initWasm = wasmModule.default;
       const exports = await initWasm();
-      wasmMemory = exports.memory;
       core = new wasmModule.LiquidCore(capacity);
+      bridge = new WasmBridge(exports.memory, core, capacity);
     } catch {
       // WASM not available (e.g. test environment) — run in mock mode
     }
 
-    // 3. Create PhantomObserver (WASM-backed or mock) with theme colors
+    // 3. Create PhantomObserver — bridge provides views, or mock mode
     const observer = new PhantomObserver(capacity, {
       colorDefault: options?.colorDefault,
       colorHover: options?.colorHover,
-      wasmSource: core && wasmMemory
-        ? { memory: wasmMemory, ptr: core.ptr(), particlePtr: core.particle_ptr() }
-        : undefined,
+      entityView: bridge?.entityView(),
+      particleView: bridge?.particleView(),
     });
 
     // 4. Auto-observe [data-liquid] elements

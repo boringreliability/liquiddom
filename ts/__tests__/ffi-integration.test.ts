@@ -273,3 +273,111 @@ describe("Physics FFI Bridge", () => {
     core.free();
   });
 });
+
+// ── Ward 15: WasmBridge tests ──
+
+import { WasmBridge } from "../src/wasm-bridge";
+import { PhantomObserver } from "../src/phantom-observer";
+
+describe("WasmBridge", () => {
+  it("creates valid views", () => {
+    const core = new wasm.LiquidCore(10);
+    const bridge = new WasmBridge(wasmMemory, core, 10);
+
+    const entityView = bridge.entityView();
+    expect(entityView).toBeInstanceOf(Float32Array);
+    expect(entityView.length).toBe(10 * FLOATS_PER_ENTITY);
+
+    const particleView = bridge.particleView();
+    expect(particleView).toBeInstanceOf(Float32Array);
+    expect(particleView.length).toBe(10 * PARTICLES_PER_BODY * 2);
+
+    expect(bridge.capacity).toBe(10);
+
+    core.free();
+  });
+
+  it("rebinds after grow", () => {
+    const core = new wasm.LiquidCore(4);
+    const bridge = new WasmBridge(wasmMemory, core, 4);
+
+    const viewBefore = bridge.entityView();
+    expect(viewBefore.length).toBe(4 * FLOATS_PER_ENTITY);
+
+    // Write data before grow
+    viewBefore[0] = 42.0;
+
+    // Grow via core
+    core.grow(20);
+    bridge.rebind(20);
+
+    const viewAfter = bridge.entityView();
+    expect(viewAfter.length).toBe(20 * FLOATS_PER_ENTITY);
+    expect(bridge.capacity).toBe(20);
+
+    // Old data survives
+    expect(viewAfter[0]).toBe(42.0);
+
+    core.free();
+  });
+
+  it("detects stale views after buffer change", () => {
+    const core = new wasm.LiquidCore(4);
+    const bridge = new WasmBridge(wasmMemory, core, 4);
+
+    expect(bridge.isStale()).toBe(false);
+
+    // Capture buffer ref before grow
+    const bufferBefore = wasmMemory.buffer;
+
+    // Grow significantly to increase chance of buffer relocation
+    core.grow(10000);
+
+    if (wasmMemory.buffer !== bufferBefore) {
+      // Buffer was relocated — bridge MUST detect staleness
+      expect(bridge.isStale()).toBe(true);
+    }
+    // Either way, rebind resolves it
+    bridge.rebind(10000);
+    expect(bridge.isStale()).toBe(false);
+    expect(bridge.capacity).toBe(10000);
+
+    core.free();
+  });
+
+  it("PhantomObserver works with bridge-provided views", () => {
+    const core = new wasm.LiquidCore(10);
+    const bridge = new WasmBridge(wasmMemory, core, 10);
+
+    // Construct observer with views from bridge (not raw pointers)
+    const observer = new PhantomObserver(10, {
+      entityView: bridge.entityView(),
+      particleView: bridge.particleView(),
+    });
+
+    // Mock element
+    const el = {
+      getBoundingClientRect: () => ({
+        x: 50, y: 60, width: 200, height: 100,
+        top: 60, left: 50, right: 250, bottom: 160,
+        toJSON: () => {},
+      }),
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    } as unknown as HTMLElement;
+
+    const id = observer.observe(el);
+    expect(id).toBe(0);
+
+    observer.sync();
+
+    // Verify data landed in bridge's entity view (same underlying memory)
+    const view = bridge.entityView();
+    expect(view[0]).toBe(50); // x
+    expect(view[1]).toBe(60); // y
+    expect(view[2]).toBe(200); // width
+    expect(view[3]).toBe(100); // height
+
+    core.free();
+  });
+});

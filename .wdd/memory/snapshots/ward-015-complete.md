@@ -4,7 +4,7 @@
 Ward 1 started — 2026-03-30
 
 ## Current State
-Ward 15 COMPLETE. WasmBridge encapsulates all pointer/view management. PhantomObserver has zero WASM knowledge. 24 Rust + 31 TS = 55 tests.
+Ward 14 COMPLETE. Full teardown: destroy() unobserves all elements via normal channel, removes canvas/listeners/RAF, frees WASM. Idempotent, guarded. 24 Rust + 27 TS = 51 tests.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -31,5 +31,6 @@ Ward 15 COMPLETE. WasmBridge encapsulates all pointer/view management. PhantomOb
 _None yet_
 
 ## What Comes Next
+- Ward 015: Memory Bridge Encapsulation
 - Ward 016: Capacity Correctness and Grow Semantics
 - Ward 017: Hidden-Tab, Large-dt, and Pause/Resume
