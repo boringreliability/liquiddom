@@ -8,11 +8,14 @@ export interface LiquidOptions {
   colorDefault?: string;
   colorHover?: string;
   maxDt?: number;
+  forceReducedMotion?: boolean;
 }
 
 export interface LiquidDOMInstance {
   readonly capacity: number;
   readonly isPaused: boolean;
+  readonly isReducedMotion: boolean;
+  readonly pointerActive: boolean;
   observe(el: HTMLElement, liquidType?: number): number;
   unobserve(el: HTMLElement): void;
   grow(newCapacity: number): void;
@@ -75,22 +78,39 @@ export class LiquidDOM {
       elements.forEach((el) => observer.observe(el));
     }
 
-    // 5. Pointer tracking (per-instance, frozen during pause)
+    // 5. Reduced motion detection
+    let reducedMotion = false;
+    let motionQuery: MediaQueryList | null = null;
+
+    if (options?.forceReducedMotion !== undefined) {
+      reducedMotion = options.forceReducedMotion;
+    } else if (typeof window.matchMedia === "function") {
+      motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+      reducedMotion = motionQuery.matches;
+    }
+
+    const onMotionChange = (e: MediaQueryListEvent) => {
+      if (options?.forceReducedMotion !== undefined) return;
+      reducedMotion = e.matches;
+    };
+    motionQuery?.addEventListener("change", onMotionChange);
+
+    // 6. Pointer tracking via Pointer Events (per-instance, frozen during pause)
     let pointerX = 0;
     let pointerY = 0;
     let pointerActive = false;
 
-    const onMouseMove = (e: MouseEvent) => {
+    const onPointerMove = (e: PointerEvent) => {
       pointerX = e.clientX;
       pointerY = e.clientY;
       pointerActive = true;
     };
-    const onMouseLeave = () => {
+    const onPointerLeave = () => {
       pointerActive = false;
     };
 
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseleave", onMouseLeave);
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerleave", onPointerLeave);
 
     // 6. Resize handler with DPR scaling (per-instance)
     const onResize = () => {
@@ -126,7 +146,10 @@ export class LiquidDOM {
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
         observer.sync();
-        core!.tick(dt, pointerX, pointerY, pointerActive);
+        // When reduced motion is active, pass dt=0 so physics forces are zero
+        // and entities remain at rest positions
+        const physicsDt = reducedMotion ? 0 : dt;
+        core!.tick(physicsDt, pointerX, pointerY, pointerActive && !reducedMotion);
         observer.render(ctx, {
           viewportWidth: window.innerWidth,
           viewportHeight: window.innerHeight,
@@ -162,6 +185,14 @@ export class LiquidDOM {
 
       get isPaused(): boolean {
         return paused;
+      },
+
+      get isReducedMotion(): boolean {
+        return reducedMotion;
+      },
+
+      get pointerActive(): boolean {
+        return pointerActive;
       },
 
       observe(el: HTMLElement, liquidType?: number): number {
@@ -226,9 +257,10 @@ export class LiquidDOM {
         observer.unobserveAll();
 
         // 3. Remove all listeners
-        document.removeEventListener("mousemove", onMouseMove);
-        document.removeEventListener("mouseleave", onMouseLeave);
+        document.removeEventListener("pointermove", onPointerMove);
+        document.removeEventListener("pointerleave", onPointerLeave);
         document.removeEventListener("visibilitychange", onVisibilityChange);
+        motionQuery?.removeEventListener("change", onMotionChange);
         window.removeEventListener("resize", onResize);
 
         // 4. Remove canvas from DOM

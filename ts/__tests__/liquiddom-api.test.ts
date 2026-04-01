@@ -393,4 +393,66 @@ describe("LiquidDOM Instance API", () => {
       value: 1, writable: true, configurable: true,
     });
   });
+
+  // ── Ward 019: Reduced Motion, Focus, Touch ──
+
+  it("reduced motion config disables physics", async () => {
+    const instance = await LiquidDOM.create({
+      capacity: 8,
+      forceReducedMotion: true,
+    });
+
+    expect(instance.isReducedMotion).toBe(true);
+
+    instance.destroy();
+  });
+
+  it("forceReducedMotion false overrides OS reduced-motion", async () => {
+    // Mock matchMedia to report reduced motion
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes("reduce"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      onchange: null,
+      dispatchEvent: () => true,
+    })) as typeof window.matchMedia;
+
+    const instance = await LiquidDOM.create({
+      capacity: 8,
+      forceReducedMotion: false,
+    });
+
+    // OS says reduce, but explicit false overrides
+    expect(instance.isReducedMotion).toBe(false);
+
+    instance.destroy();
+    window.matchMedia = originalMatchMedia;
+  });
+
+  it("pointer events update internal pointer state", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8 });
+
+    // Pointer state should be exposed for verification
+    expect(instance.pointerActive).toBe(false);
+
+    // Simulate pointermove (touch type)
+    document.dispatchEvent(new PointerEvent("pointermove", {
+      clientX: 100,
+      clientY: 200,
+      pointerType: "touch",
+    }));
+
+    expect(instance.pointerActive).toBe(true);
+
+    // Simulate pointerleave
+    document.dispatchEvent(new PointerEvent("pointerleave"));
+
+    expect(instance.pointerActive).toBe(false);
+
+    instance.destroy();
+  });
 });

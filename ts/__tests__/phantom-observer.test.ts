@@ -292,4 +292,29 @@ describe("PhantomObserver", () => {
     // Only the on-screen element should render
     expect(fillCalls).toBe(1);
   });
+
+  // ── Ward 019: Focus State ──
+
+  it("focus triggers interaction_state", () => {
+    const observer = new PhantomObserver(10);
+    const el = mockInteractiveElement(10, 20, 100, 50);
+
+    const id = observer.observe(el);
+    const buf = observer.getBuffer();
+    const stateIndex = id * FLOATS_PER_ENTITY + 4;
+
+    // Initially idle
+    observer.sync();
+    expect(buf[stateIndex]).toBe(0);
+
+    // Simulate focus
+    el.dispatchEvent(new Event("focus"));
+    observer.sync();
+    expect(buf[stateIndex]).toBe(2.0); // 2.0 = focused
+
+    // Simulate blur — reverts to idle
+    el.dispatchEvent(new Event("blur"));
+    observer.sync();
+    expect(buf[stateIndex]).toBe(0);
+  });
 });

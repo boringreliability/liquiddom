@@ -19,6 +19,8 @@ export interface PhantomObserverOptions {
 interface ElementListeners {
   mouseenter: EventListener;
   mouseleave: EventListener;
+  focus: EventListener;
+  blur: EventListener;
 }
 
 export class PhantomObserver {
@@ -30,6 +32,7 @@ export class PhantomObserver {
   private readonly availableIds: number[] = [];
   private nextId = 0;
   private readonly hoverState: WeakMap<HTMLElement, boolean> = new WeakMap();
+  private readonly focusState: WeakMap<HTMLElement, boolean> = new WeakMap();
   private readonly listeners: WeakMap<HTMLElement, ElementListeners> =
     new WeakMap();
   private readonly colorDefault: string;
@@ -89,13 +92,23 @@ export class PhantomObserver {
     this.elementToId.set(el, id);
     this.idToElement.set(id, el);
     this.hoverState.set(el, false);
+    this.focusState.set(el, false);
 
-    // Bind hover listeners (store refs for cleanup)
+    // Bind interaction listeners (store refs for cleanup)
     const onEnter = () => this.hoverState.set(el, true);
     const onLeave = () => this.hoverState.set(el, false);
+    const onFocus = () => this.focusState.set(el, true);
+    const onBlur = () => this.focusState.set(el, false);
     el.addEventListener("mouseenter", onEnter);
     el.addEventListener("mouseleave", onLeave);
-    this.listeners.set(el, { mouseenter: onEnter, mouseleave: onLeave });
+    el.addEventListener("focus", onFocus);
+    el.addEventListener("blur", onBlur);
+    this.listeners.set(el, {
+      mouseenter: onEnter,
+      mouseleave: onLeave,
+      focus: onFocus,
+      blur: onBlur,
+    });
 
     const offset = id * FLOATS_PER_ENTITY;
     const rect = el.getBoundingClientRect();
@@ -129,6 +142,8 @@ export class PhantomObserver {
     if (ls) {
       el.removeEventListener("mouseenter", ls.mouseenter);
       el.removeEventListener("mouseleave", ls.mouseleave);
+      el.removeEventListener("focus", ls.focus);
+      el.removeEventListener("blur", ls.blur);
       this.listeners.delete(el);
     }
 
@@ -139,6 +154,7 @@ export class PhantomObserver {
     this.elementToId.delete(el);
     this.idToElement.delete(id);
     this.hoverState.delete(el);
+    this.focusState.delete(el);
     this.availableIds.push(id);
   }
 
@@ -150,7 +166,15 @@ export class PhantomObserver {
       this.buffer[offset + 1] = rect.y;
       this.buffer[offset + 2] = rect.width;
       this.buffer[offset + 3] = rect.height;
-      this.buffer[offset + 4] = this.hoverState.get(el) ? 1.0 : 0.0;
+      // interaction_state: 0.0 = idle, 1.0 = hover, 2.0 = focused
+      // Focus takes priority over hover (keyboard a11y > pointer feedback)
+      if (this.focusState.get(el)) {
+        this.buffer[offset + 4] = 2.0;
+      } else if (this.hoverState.get(el)) {
+        this.buffer[offset + 4] = 1.0;
+      } else {
+        this.buffer[offset + 4] = 0.0;
+      }
     }
   }
 
