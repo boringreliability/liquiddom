@@ -290,4 +290,79 @@ describe("LiquidDOM Instance API", () => {
     instance.destroy();
     expect(() => instance.grow(16)).toThrow();
   });
+
+  // ── Ward 017: Pause/Resume & dt clamping ──
+
+  it("pause stops loop and sets isPaused", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8 });
+
+    expect(instance.isPaused).toBe(false);
+
+    instance.pause();
+    expect(instance.isPaused).toBe(true);
+
+    // Idempotent — double pause is safe
+    expect(() => instance.pause()).not.toThrow();
+    expect(instance.isPaused).toBe(true);
+
+    instance.destroy();
+  });
+
+  it("resume restarts after pause", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8 });
+
+    instance.pause();
+    expect(instance.isPaused).toBe(true);
+
+    instance.resume();
+    expect(instance.isPaused).toBe(false);
+
+    // Idempotent — double resume is safe
+    expect(() => instance.resume()).not.toThrow();
+    expect(instance.isPaused).toBe(false);
+
+    instance.destroy();
+  });
+
+  it("pause and resume on destroyed instance are no-ops", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8 });
+    instance.destroy();
+
+    // Should not throw — destroyed guards handle it
+    expect(() => instance.pause()).not.toThrow();
+    expect(() => instance.resume()).not.toThrow();
+  });
+
+  it("visibility hidden triggers pause", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8 });
+
+    // Simulate tab going hidden
+    Object.defineProperty(document, "visibilityState", {
+      value: "hidden",
+      writable: true,
+      configurable: true,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    expect(instance.isPaused).toBe(true);
+
+    // Simulate tab becoming visible
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      writable: true,
+      configurable: true,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    expect(instance.isPaused).toBe(false);
+
+    instance.destroy();
+
+    // Reset for other tests
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      writable: true,
+      configurable: true,
+    });
+  });
 });

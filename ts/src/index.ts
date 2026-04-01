@@ -7,15 +7,22 @@ export interface LiquidOptions {
   canvasZIndex?: number;
   colorDefault?: string;
   colorHover?: string;
+  maxDt?: number;
 }
 
 export interface LiquidDOMInstance {
   readonly capacity: number;
+  readonly isPaused: boolean;
   observe(el: HTMLElement, liquidType?: number): number;
   unobserve(el: HTMLElement): void;
   grow(newCapacity: number): void;
+  pause(): void;
+  resume(): void;
   destroy(): void;
 }
+
+/** Default maximum dt in milliseconds. Prevents physics explosion after tab sleep. */
+const DEFAULT_MAX_DT = 50;
 
 export class LiquidDOM {
   /**
@@ -26,6 +33,7 @@ export class LiquidDOM {
     const capacity = options?.capacity ?? 128;
     const autoObserve = options?.autoObserve ?? true;
     const canvasZIndex = options?.canvasZIndex ?? -1;
+    const maxDt = Math.max(1, options?.maxDt ?? DEFAULT_MAX_DT);
 
     // 1. Inject fullscreen canvas
     const canvas = document.createElement("canvas");
@@ -67,7 +75,7 @@ export class LiquidDOM {
       elements.forEach((el) => observer.observe(el));
     }
 
-    // 5. Pointer tracking (per-instance)
+    // 5. Pointer tracking (per-instance, frozen during pause)
     let pointerX = 0;
     let pointerY = 0;
     let pointerActive = false;
@@ -92,15 +100,24 @@ export class LiquidDOM {
     onResize();
     window.addEventListener("resize", onResize);
 
-    // 7. RAF loop (per-instance, only if we have WASM + canvas context)
+    // 7. RAF loop state (per-instance)
     let animationId = 0;
+    let paused = false;
+    let destroyed = false;
+    let lastTime = performance.now();
     const ctx = canvas.getContext("2d");
-    if (ctx && core) {
-      let lastTime = performance.now();
+
+    function startLoop() {
+      if (!ctx || !core) return;
 
       const loop = (now: number) => {
-        const dt = now - lastTime;
+        if (paused || destroyed) return;
+
+        const rawDt = now - lastTime;
         lastTime = now;
+
+        // dt clamping — prevents physics explosion after tab sleep or debugger pause
+        const dt = Math.min(rawDt, maxDt);
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         observer.sync();
@@ -113,12 +130,29 @@ export class LiquidDOM {
       animationId = requestAnimationFrame(loop);
     }
 
-    // 8. Build instance — all state is closure-captured, zero global/static state
-    let destroyed = false;
+    startLoop();
 
+    // 8. Visibility handler (per-instance) — auto pause/resume on tab hide/show
+    // Note: references `instance` before declaration — safe because the callback
+    // only fires asynchronously after `instance` is fully constructed below.
+    const onVisibilityChange = () => {
+      if (destroyed) return;
+      if (document.visibilityState === "hidden") {
+        instance.pause();
+      } else {
+        instance.resume();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    // 9. Build instance
     const instance: LiquidDOMInstance = {
       get capacity(): number {
         return observer.capacity;
+      },
+
+      get isPaused(): boolean {
+        return paused;
       },
 
       observe(el: HTMLElement, liquidType?: number): number {
@@ -144,14 +178,29 @@ export class LiquidDOM {
         }
 
         if (core && bridge) {
-          // WASM mode: coordinated grow
           core.grow(newCapacity);
           bridge.rebind(newCapacity);
           observer.setViews(bridge.entityView(), bridge.particleView(), newCapacity);
         } else {
-          // Mock mode: local buffer grow
           observer.growLocal(newCapacity);
         }
+      },
+
+      pause(): void {
+        if (destroyed || paused) return;
+        paused = true;
+        if (animationId) {
+          cancelAnimationFrame(animationId);
+          animationId = 0;
+        }
+      },
+
+      resume(): void {
+        if (destroyed || !paused) return;
+        paused = false;
+        // Reset timestamp so first frame sees dt ≈ 0, not the wall-clock gap
+        lastTime = performance.now();
+        startLoop();
       },
 
       destroy(): void {
@@ -164,12 +213,13 @@ export class LiquidDOM {
           animationId = 0;
         }
 
-        // 2. Unobserve all tracked elements (removes per-element listeners)
+        // 2. Unobserve all tracked elements
         observer.unobserveAll();
 
-        // 3. Remove document/window listeners
+        // 3. Remove all listeners
         document.removeEventListener("mousemove", onMouseMove);
         document.removeEventListener("mouseleave", onMouseLeave);
+        document.removeEventListener("visibilitychange", onVisibilityChange);
         window.removeEventListener("resize", onResize);
 
         // 4. Remove canvas from DOM
