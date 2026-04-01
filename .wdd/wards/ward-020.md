@@ -3,12 +3,12 @@ ward: 20
 revision: null
 name: "Container-Scoped Rendering Mode"
 epic: "runtime-resilience"
-status: "planned"
+status: "complete"
 dependencies: [13]
 layer: "typescript"
 estimated_tests: 3
 created: "2026-03-31"
-completed: null
+completed: "2026-04-01"
 ---
 # Ward 020: Container-Scoped Rendering Mode
 

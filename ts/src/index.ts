@@ -9,6 +9,7 @@ export interface LiquidOptions {
   colorHover?: string;
   maxDt?: number;
   forceReducedMotion?: boolean;
+  container?: HTMLElement;
 }
 
 export interface LiquidDOMInstance {
@@ -16,6 +17,8 @@ export interface LiquidDOMInstance {
   readonly isPaused: boolean;
   readonly isReducedMotion: boolean;
   readonly pointerActive: boolean;
+  readonly pointerX: number;
+  readonly pointerY: number;
   observe(el: HTMLElement, liquidType?: number): number;
   unobserve(el: HTMLElement): void;
   grow(newCapacity: number): void;
@@ -24,32 +27,42 @@ export interface LiquidDOMInstance {
   destroy(): void;
 }
 
-/** Default maximum dt in milliseconds. Prevents physics explosion after tab sleep. */
+/** Default maximum dt in milliseconds. */
 const DEFAULT_MAX_DT = 50;
 
 export class LiquidDOM {
-  /**
-   * Create an isolated LiquidDOM runtime instance.
-   * Each instance owns its own canvas, observer, WASM bridge, and RAF loop.
-   */
   static async create(options?: LiquidOptions): Promise<LiquidDOMInstance> {
     const capacity = options?.capacity ?? 128;
     const autoObserve = options?.autoObserve ?? true;
     const canvasZIndex = options?.canvasZIndex ?? -1;
     const maxDt = Math.max(1, options?.maxDt ?? DEFAULT_MAX_DT);
+    const container = options?.container;
+    const isContainerMode = !!container;
 
-    // 1. Inject fullscreen canvas
+    // 1. Create and mount canvas
     const canvas = document.createElement("canvas");
-    canvas.style.position = "fixed";
-    canvas.style.top = "0";
-    canvas.style.left = "0";
-    canvas.style.width = "100vw";
-    canvas.style.height = "100vh";
     canvas.style.pointerEvents = "none";
     canvas.style.zIndex = String(canvasZIndex);
-    document.body.appendChild(canvas);
 
-    // 2. Try to initialize WASM + bridge (may fail in test environments)
+    if (isContainerMode) {
+      // Container mode: position absolute inside container
+      canvas.style.position = "absolute";
+      canvas.style.top = "0";
+      canvas.style.left = "0";
+      canvas.style.width = "100%";
+      canvas.style.height = "100%";
+      container.appendChild(canvas);
+    } else {
+      // Fullscreen mode: fixed, covers viewport
+      canvas.style.position = "fixed";
+      canvas.style.top = "0";
+      canvas.style.left = "0";
+      canvas.style.width = "100vw";
+      canvas.style.height = "100vh";
+      document.body.appendChild(canvas);
+    }
+
+    // 2. Try to initialize WASM + bridge
     let core: WasmCore | null = null;
     let bridge: WasmBridge | null = null;
 
@@ -60,10 +73,10 @@ export class LiquidDOM {
       core = new wasmModule.LiquidCore(capacity);
       bridge = new WasmBridge(exports.memory, core, capacity);
     } catch {
-      // WASM not available (e.g. test environment) — run in mock mode
+      // WASM not available — mock mode
     }
 
-    // 3. Create PhantomObserver — bridge provides views, or mock mode
+    // 3. Create PhantomObserver
     const observer = new PhantomObserver(capacity, {
       colorDefault: options?.colorDefault,
       colorHover: options?.colorHover,
@@ -73,8 +86,9 @@ export class LiquidDOM {
 
     // 4. Auto-observe [data-liquid] elements
     if (autoObserve) {
+      const searchRoot = container ?? document;
       const elements =
-        document.querySelectorAll<HTMLElement>("[data-liquid]");
+        searchRoot.querySelectorAll<HTMLElement>("[data-liquid]");
       elements.forEach((el) => observer.observe(el));
     }
 
@@ -95,14 +109,23 @@ export class LiquidDOM {
     };
     motionQuery?.addEventListener("change", onMotionChange);
 
-    // 6. Pointer tracking via Pointer Events (per-instance, frozen during pause)
+    // 6. Pointer tracking with container-relative coordinate transform
     let pointerX = 0;
     let pointerY = 0;
     let pointerActive = false;
+    // Container rect cached per frame to avoid layout thrashing
+    let containerRect: DOMRect | null = null;
 
     const onPointerMove = (e: PointerEvent) => {
-      pointerX = e.clientX;
-      pointerY = e.clientY;
+      if (isContainerMode) {
+        // Use cached rect if available, otherwise read fresh
+        const rect = containerRect ?? container.getBoundingClientRect();
+        pointerX = e.clientX - rect.left;
+        pointerY = e.clientY - rect.top;
+      } else {
+        pointerX = e.clientX;
+        pointerY = e.clientY;
+      }
       pointerActive = true;
     };
     const onPointerLeave = () => {
@@ -112,23 +135,43 @@ export class LiquidDOM {
     document.addEventListener("pointermove", onPointerMove);
     document.addEventListener("pointerleave", onPointerLeave);
 
-    // 6. Resize handler with DPR scaling (per-instance)
-    const onResize = () => {
-      const dpr = window.devicePixelRatio || 1;
-      const cssWidth = window.innerWidth;
-      const cssHeight = window.innerHeight;
-      canvas.width = cssWidth * dpr;
-      canvas.height = cssHeight * dpr;
-    };
-    onResize();
-    window.addEventListener("resize", onResize);
+    // 7. Resize handling — container uses ResizeObserver, fullscreen uses window
+    let resizeObserver: ResizeObserver | null = null;
 
-    // 7. RAF loop state (per-instance)
+    function resizeCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      if (isContainerMode) {
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+      } else {
+        canvas.width = window.innerWidth * dpr;
+        canvas.height = window.innerHeight * dpr;
+      }
+    }
+    resizeCanvas();
+
+    if (isContainerMode) {
+      resizeObserver = new ResizeObserver(() => resizeCanvas());
+      resizeObserver.observe(container);
+    } else {
+      window.addEventListener("resize", resizeCanvas);
+    }
+
+    // 8. RAF loop
     let animationId = 0;
     let paused = false;
     let destroyed = false;
     let lastTime = performance.now();
     const ctx = canvas.getContext("2d");
+
+    function getViewportSize(): { w: number; h: number } {
+      if (isContainerMode) {
+        return { w: container.clientWidth, h: container.clientHeight };
+      }
+      return { w: window.innerWidth, h: window.innerHeight };
+    }
 
     function startLoop() {
       if (!ctx || !core) return;
@@ -138,21 +181,24 @@ export class LiquidDOM {
 
         const rawDt = now - lastTime;
         lastTime = now;
-
-        // dt clamping — prevents physics explosion after tab sleep or debugger pause
         const dt = Math.min(rawDt, maxDt);
 
+        // Cache container rect once per frame for pointer coordinate transform
+        if (isContainerMode) {
+          containerRect = container.getBoundingClientRect();
+        }
+
         const dpr = window.devicePixelRatio || 1;
+        const vp = getViewportSize();
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+        ctx.clearRect(0, 0, vp.w, vp.h);
         observer.sync();
-        // When reduced motion is active, pass dt=0 so physics forces are zero
-        // and entities remain at rest positions
+
         const physicsDt = reducedMotion ? 0 : dt;
         core!.tick(physicsDt, pointerX, pointerY, pointerActive && !reducedMotion);
         observer.render(ctx, {
-          viewportWidth: window.innerWidth,
-          viewportHeight: window.innerHeight,
+          viewportWidth: vp.w,
+          viewportHeight: vp.h,
           cullMargin: 100,
         });
 
@@ -164,9 +210,7 @@ export class LiquidDOM {
 
     startLoop();
 
-    // 8. Visibility handler (per-instance) — auto pause/resume on tab hide/show
-    // Note: references `instance` before declaration — safe because the callback
-    // only fires asynchronously after `instance` is fully constructed below.
+    // 9. Visibility handler
     const onVisibilityChange = () => {
       if (destroyed) return;
       if (document.visibilityState === "hidden") {
@@ -177,7 +221,7 @@ export class LiquidDOM {
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
 
-    // 9. Build instance
+    // 10. Build instance
     const instance: LiquidDOMInstance = {
       get capacity(): number {
         return observer.capacity;
@@ -193,6 +237,14 @@ export class LiquidDOM {
 
       get pointerActive(): boolean {
         return pointerActive;
+      },
+
+      get pointerX(): number {
+        return pointerX;
+      },
+
+      get pointerY(): number {
+        return pointerY;
       },
 
       observe(el: HTMLElement, liquidType?: number): number {
@@ -238,7 +290,6 @@ export class LiquidDOM {
       resume(): void {
         if (destroyed || !paused) return;
         paused = false;
-        // Reset timestamp so first frame sees dt ≈ 0, not the wall-clock gap
         lastTime = performance.now();
         startLoop();
       },
@@ -247,26 +298,26 @@ export class LiquidDOM {
         if (destroyed) return;
         destroyed = true;
 
-        // 1. Stop render loop
         if (animationId) {
           cancelAnimationFrame(animationId);
           animationId = 0;
         }
 
-        // 2. Unobserve all tracked elements
         observer.unobserveAll();
 
-        // 3. Remove all listeners
         document.removeEventListener("pointermove", onPointerMove);
         document.removeEventListener("pointerleave", onPointerLeave);
         document.removeEventListener("visibilitychange", onVisibilityChange);
         motionQuery?.removeEventListener("change", onMotionChange);
-        window.removeEventListener("resize", onResize);
 
-        // 4. Remove canvas from DOM
+        if (resizeObserver) {
+          resizeObserver.disconnect();
+        } else {
+          window.removeEventListener("resize", resizeCanvas);
+        }
+
         canvas.remove();
 
-        // 5. Free WASM core
         if (core) {
           core.free();
           core = null;

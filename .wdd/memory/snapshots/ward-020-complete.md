@@ -4,7 +4,7 @@
 Ward 1 started — 2026-03-30
 
 ## Current State
-Ward 20 COMPLETE. P1 Runtime Resilience done. Container-scoped rendering, DPR, culling, pause/resume, reduced motion. 24 Rust + 50 TS = 74 tests.
+Ward 19 COMPLETE. Reduced motion (dt=0), focus/blur state, pointer events replacing mouse. 24 Rust + 47 TS = 71 tests.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -31,6 +31,5 @@ Ward 20 COMPLETE. P1 Runtime Resilience done. Container-scoped rendering, DPR, c
 _None yet_
 
 ## What Comes Next
+- Ward 020: Container-Scoped Rendering Mode
 - Ward 021: Dynamic Observation Strategy
-- Ward 022: Physics Stabilization Layer
-- Ward 023: Configurable Materials and Runtime Options
