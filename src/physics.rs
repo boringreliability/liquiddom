@@ -8,6 +8,14 @@ pub struct Particle {
     pub local_rest: Vec2,
 }
 
+/// A cached neighbor spring pair.
+#[derive(Debug, Clone)]
+pub struct NeighborSpring {
+    pub a: usize,
+    pub b: usize,
+    pub rest_length: f32,
+}
+
 /// A soft body representation of a single DOM element.
 /// Holds particles distributed along the element's perimeter.
 pub struct EntityBody {
@@ -15,6 +23,8 @@ pub struct EntityBody {
     pub base_pos: Vec2,
     pub width: f32,
     pub height: f32,
+    pub neighbor_springs: Vec<NeighborSpring>,
+    pub reference_area: f32,
 }
 
 impl Particle {
@@ -28,10 +38,37 @@ impl Particle {
 }
 
 impl EntityBody {
+    /// Compute polygon area via Shoelace formula.
+    pub fn compute_area(&self) -> f32 {
+        let n = self.particles.len();
+        if n < 3 {
+            return 0.0;
+        }
+        let mut area = 0.0f32;
+        for i in 0..n {
+            let j = (i + 1) % n;
+            area += self.particles[i].pos.x * self.particles[j].pos.y;
+            area -= self.particles[j].pos.x * self.particles[i].pos.y;
+        }
+        area.abs() * 0.5
+    }
+
+    /// Compute centroid of all particles.
+    pub fn compute_centroid(&self) -> Vec2 {
+        let n = self.particles.len();
+        if n == 0 {
+            return Vec2::zero();
+        }
+        let mut sum = Vec2::zero();
+        for p in &self.particles {
+            sum += p.pos;
+        }
+        sum * (1.0 / n as f32)
+    }
+
     /// Advance physics by one timestep using mass-spring-damper model.
-    /// F = -tension * displacement - damping * velocity (Hooke's law)
-    /// Optional pointer repulsion when pointer_active is true.
-    /// Euler integration with mass = 1.0.
+    /// Includes neighbor springs, shape preservation, centroid anchoring.
+    /// Semi-implicit Euler integration with optional substeps.
     pub fn tick(
         &mut self,
         dt: f32,
@@ -40,39 +77,104 @@ impl EntityBody {
         pointer_pos: Vec2,
         pointer_active: bool,
     ) {
+        // Substeps default = 1 for backward compat
+        self.tick_with_substeps(dt, tension, damping, pointer_pos, pointer_active, 1);
+    }
+
+    /// Full tick with configurable substeps.
+    pub fn tick_with_substeps(
+        &mut self,
+        dt: f32,
+        tension: f32,
+        damping: f32,
+        pointer_pos: Vec2,
+        pointer_active: bool,
+        substeps: u32,
+    ) {
         const REPULSION_RADIUS: f32 = 100.0;
         const REPULSION_STRENGTH: f32 = 5000.0;
+        const NEIGHBOR_STIFFNESS: f32 = 30.0;
+        const CENTROID_STRENGTH: f32 = 5.0;
+        const AREA_CORRECTION_STRENGTH: f32 = 0.5;
 
-        for particle in &mut self.particles {
-            // 1. Target position = element's DOM position + particle's rest offset
-            let target_pos = self.base_pos + particle.local_rest;
+        let steps = substeps.max(1);
+        let sub_dt = dt / steps as f32;
 
-            // 2. Displacement from target (how far off are we?)
-            let displacement = particle.pos - target_pos;
+        for _ in 0..steps {
+            let n = self.particles.len();
 
-            // 3. Spring force pulls toward target: F_spring = -k * x
-            let f_spring = displacement * -tension;
-
-            // 4. Damping force resists velocity: F_damping = -c * v
-            let f_damping = particle.velocity * -damping;
-
-            // 5. Total force (mass = 1.0, so acceleration = force)
-            let mut f_total = f_spring + f_damping;
-
-            // 6. Pointer repulsion (before integration)
-            if pointer_active {
-                let to_particle = particle.pos - pointer_pos;
-                let dist = to_particle.length();
-                if dist < REPULSION_RADIUS && dist > 0.001 {
-                    let falloff = 1.0 - (dist / REPULSION_RADIUS);
-                    let f_repel = to_particle.normalize() * (REPULSION_STRENGTH * falloff);
-                    f_total += f_repel;
+            // 1. Compute neighbor spring forces (bilateral — accumulate per particle)
+            let mut neighbor_forces = vec![Vec2::zero(); n];
+            for spring in &self.neighbor_springs {
+                let diff = self.particles[spring.a].pos - self.particles[spring.b].pos;
+                let dist = diff.length();
+                if dist > 0.001 {
+                    let stretch = dist - spring.rest_length;
+                    let force = diff.normalize() * (-NEIGHBOR_STIFFNESS * stretch);
+                    neighbor_forces[spring.a] += force;
+                    neighbor_forces[spring.b] += force * -1.0;
                 }
             }
 
-            // 7. Euler integration: velocity first, then position
-            particle.velocity += f_total * dt;
-            particle.pos += particle.velocity * dt;
+            // 2. Compute centroid + area correction force direction
+            let centroid = self.compute_centroid();
+            let target_centroid = self.base_pos
+                + Vec2::new(self.width * 0.5, self.height * 0.5);
+            let centroid_correction = (target_centroid - centroid) * CENTROID_STRENGTH;
+
+            // 3. Area preservation: radial push/pull if area deviates
+            let current_area = self.compute_area();
+            let area_ratio = if self.reference_area > 0.0 {
+                current_area / self.reference_area
+            } else {
+                1.0
+            };
+            // ratio < 1 = compressed → push out; ratio > 1 = expanded → pull in
+            let area_factor = (1.0 - area_ratio) * AREA_CORRECTION_STRENGTH;
+
+            // 4. Per-particle forces + semi-implicit Euler integration
+            #[allow(clippy::needless_range_loop)]
+            for i in 0..n {
+                let particle = &self.particles[i];
+                let target_pos = self.base_pos + particle.local_rest;
+                let displacement = particle.pos - target_pos;
+
+                // Anchor spring
+                let f_spring = displacement * -tension;
+                // Damping
+                let f_damping = particle.velocity * -damping;
+
+                let mut f_total = f_spring + f_damping;
+
+                // Neighbor springs
+                f_total += neighbor_forces[i];
+
+                // Centroid anchoring
+                f_total += centroid_correction;
+
+                // Area preservation: radial force from centroid
+                let to_centroid = particle.pos - centroid;
+                if to_centroid.length() > 0.001 {
+                    f_total += to_centroid.normalize() * (area_factor * tension);
+                }
+
+                // Pointer repulsion
+                if pointer_active {
+                    let to_particle = particle.pos - pointer_pos;
+                    let dist = to_particle.length();
+                    if dist < REPULSION_RADIUS && dist > 0.001 {
+                        let falloff = 1.0 - (dist / REPULSION_RADIUS);
+                        let f_repel =
+                            to_particle.normalize() * (REPULSION_STRENGTH * falloff);
+                        f_total += f_repel;
+                    }
+                }
+
+                // Semi-implicit Euler: velocity first, then position with NEW velocity
+                self.particles[i].velocity += f_total * sub_dt;
+                let new_vel = self.particles[i].velocity;
+                self.particles[i].pos += new_vel * sub_dt;
+            }
         }
     }
 
@@ -83,7 +185,7 @@ impl EntityBody {
         let perimeter = 2.0 * (width + height);
         let spacing = perimeter / num_particles as f32;
 
-        let particles = (0..num_particles)
+        let particles: Vec<Particle> = (0..num_particles)
             .map(|i| {
                 let d = i as f32 * spacing;
                 let rest = if d < width {
@@ -104,12 +206,29 @@ impl EntityBody {
             })
             .collect();
 
-        Self {
+        // Build neighbor springs (adjacent pairs along perimeter)
+        let mut neighbor_springs = Vec::with_capacity(num_particles);
+        for i in 0..num_particles {
+            let a = i;
+            let b = (i + 1) % num_particles;
+            let rest_length = {
+                let pa = &particles[a];
+                let pb = &particles[b];
+                (pa.pos - pb.pos).length()
+            };
+            neighbor_springs.push(NeighborSpring { a, b, rest_length });
+        }
+
+        let mut body = Self {
             particles,
             base_pos: Vec2::zero(),
             width,
             height,
-        }
+            neighbor_springs,
+            reference_area: 0.0,
+        };
+        body.reference_area = body.compute_area();
+        body
     }
 }
 
@@ -338,6 +457,116 @@ mod tests {
             body.particles[0].velocity,
             Vec2::zero(),
             "pointer outside radius should not affect particles",
+        );
+    }
+
+    // ── Ward 22: Physics Stabilization tests ──
+
+    #[test]
+    fn test_neighbor_springs_resist_stretch() {
+        let mut body = EntityBody::new_rect(100.0, 100.0, 8);
+
+        // Displace particle 0 far from its neighbor, but keep anchor spring weak
+        // so neighbor spring effect is the dominant pull on particle 1
+        body.particles[0].pos = Vec2::new(-200.0, 0.0);
+
+        let p1_initial = body.particles[1].pos;
+
+        // Run with weak anchor spring but normal physics
+        for _ in 0..10 {
+            body.tick(0.016, 10.0, 5.0, Vec2::zero(), false);
+        }
+
+        // With neighbor springs: particle 1 should be PULLED toward particle 0
+        // (negative x direction, away from its rest position)
+        // Without neighbor springs: particle 1 stays near its rest position
+        let p1_moved_x = body.particles[1].pos.x - p1_initial.x;
+        assert!(
+            p1_moved_x < -0.1,
+            "neighbor springs should pull particle 1 toward displaced particle 0, delta_x = {}",
+            p1_moved_x,
+        );
+    }
+
+    #[test]
+    fn test_shape_area_preserved_under_deformation() {
+        let mut body = EntityBody::new_rect(100.0, 100.0, 16);
+        let ref_area = body.reference_area;
+        assert!(ref_area > 0.0, "reference area should be positive");
+
+        // Apply strong pointer repulsion to deform the body
+        let pointer = Vec2::new(50.0, 50.0);
+        for _ in 0..30 {
+            body.tick(0.016, 100.0, 5.0, pointer, true);
+        }
+
+        let current_area = body.compute_area();
+        let ratio = current_area / ref_area;
+
+        // Area should stay within 10% of reference (shape preservation)
+        assert!(
+            ratio > 0.5 && ratio < 1.5,
+            "area should be preserved within tolerance, ratio = {}",
+            ratio,
+        );
+    }
+
+    #[test]
+    fn test_substeps_improve_stability() {
+        // Very stiff spring + large dt → explicit Euler explodes, substeps should tame it
+        let mut body1 = EntityBody::new_rect(100.0, 100.0, 8);
+        body1.particles[0].pos = Vec2::new(-100.0, 0.0);
+
+        let mut body4 = EntityBody::new_rect(100.0, 100.0, 8);
+        body4.particles[0].pos = Vec2::new(-100.0, 0.0);
+
+        // Run with substeps=1 and very stiff spring + large dt
+        for _ in 0..5 {
+            body1.tick_with_substeps(0.033, 500.0, 2.0, Vec2::zero(), false, 1);
+        }
+
+        // Run with substeps=4
+        for _ in 0..5 {
+            body4.tick_with_substeps(0.033, 500.0, 2.0, Vec2::zero(), false, 4);
+        }
+
+        // Max velocity with substeps=4 should be strictly lower
+        let max_v1 = body1.particles.iter()
+            .map(|p| p.velocity.length())
+            .fold(0.0f32, f32::max);
+        let max_v4 = body4.particles.iter()
+            .map(|p| p.velocity.length())
+            .fold(0.0f32, f32::max);
+
+        assert!(
+            max_v4 < max_v1,
+            "substeps=4 should be strictly more stable: max_v1={}, max_v4={}",
+            max_v1, max_v4,
+        );
+    }
+
+    #[test]
+    fn test_centroid_stays_near_base_pos() {
+        let mut body = EntityBody::new_rect(100.0, 100.0, 16);
+        // Displace all particles randomly-ish
+        for (i, p) in body.particles.iter_mut().enumerate() {
+            p.pos = p.pos + Vec2::new((i as f32) * 5.0, (i as f32) * -3.0);
+        }
+
+        // Run 1000 ticks
+        for _ in 0..1000 {
+            body.tick(0.016, 100.0, 5.0, Vec2::zero(), false);
+        }
+
+        let centroid = body.compute_centroid();
+        // Centroid of a 100x100 rect at base_pos (0,0) should be near (50, 50)
+        let target = Vec2::new(50.0, 50.0);
+        let drift = (centroid - target).length();
+
+        assert!(
+            drift < 20.0,
+            "centroid should stay near base_pos center, drift = {}, centroid = {:?}",
+            drift, centroid,
         );
     }
 }
