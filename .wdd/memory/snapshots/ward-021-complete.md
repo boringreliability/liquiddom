@@ -4,7 +4,7 @@
 Ward 1 started — 2026-03-30
 
 ## Current State
-Ward 21 COMPLETE. MutationObserver auto-discovery, descendant scanning, idempotent. 24 Rust + 53 TS = 77 tests.
+Ward 20 COMPLETE. P1 Runtime Resilience done. Container-scoped rendering, DPR, culling, pause/resume, reduced motion. 24 Rust + 50 TS = 74 tests.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -31,6 +31,6 @@ Ward 21 COMPLETE. MutationObserver auto-discovery, descendant scanning, idempote
 _None yet_
 
 ## What Comes Next
+- Ward 021: Dynamic Observation Strategy
 - Ward 022: Physics Stabilization Layer
 - Ward 023: Configurable Materials and Runtime Options
-- Ward 024: Packaging, Exports, and NPM-Ready Distribution

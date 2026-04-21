@@ -542,4 +542,78 @@ describe("LiquidDOM Instance API", () => {
 
     instance.destroy();
   });
+
+  // ── Ward 021: Dynamic Observation ──
+
+  it("dynamically added element gets observed via autoDiscover", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
+
+    instance.autoDiscover();
+
+    // Dynamically add a [data-liquid] element
+    const el = document.createElement("div");
+    el.setAttribute("data-liquid", "");
+    el.getBoundingClientRect = () => ({
+      x: 10, y: 20, width: 100, height: 50,
+      top: 20, left: 10, right: 110, bottom: 70,
+      toJSON: () => {},
+    });
+    document.body.appendChild(el);
+
+    // MutationObserver fires asynchronously — wait a microtask
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Element should now be observed — unobserve should not throw
+    expect(() => instance.unobserve(el)).not.toThrow();
+
+    instance.destroy();
+  });
+
+  it("removed element cleaned up by autoDiscover", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
+
+    // Manually observe an element
+    const el = document.createElement("div");
+    el.setAttribute("data-liquid", "");
+    el.getBoundingClientRect = () => ({
+      x: 10, y: 20, width: 100, height: 50,
+      top: 20, left: 10, right: 110, bottom: 70,
+      toJSON: () => {},
+    });
+    document.body.appendChild(el);
+    instance.observe(el);
+
+    instance.autoDiscover();
+
+    // Remove the element from DOM
+    el.remove();
+
+    // Wait for MutationObserver
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Element should have been unobserved — re-observe should get id 0 (slot reused)
+    document.body.appendChild(el);
+    const id = instance.observe(el);
+    expect(id).toBe(0);
+
+    instance.destroy();
+  });
+
+  it("explicit API works independently of autoDiscover", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
+
+    // No autoDiscover — explicit observe/unobserve still works
+    const el = document.createElement("div");
+    el.getBoundingClientRect = () => ({
+      x: 10, y: 20, width: 100, height: 50,
+      top: 20, left: 10, right: 110, bottom: 70,
+      toJSON: () => {},
+    });
+
+    const id = instance.observe(el);
+    expect(typeof id).toBe("number");
+    expect(() => instance.unobserve(el)).not.toThrow();
+
+    instance.destroy();
+  });
 });

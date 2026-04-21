@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-18 of 25 Wards complete · 84 estimated tests · 0 blocked
+19 of 25 Wards complete · 84 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -26,7 +26,7 @@
 | 18 | High-DPI Canvas and Viewport Culling | 3 | ✅ Complete | 2026-04-01 |
 | 19 | Reduced Motion, Focus State, and Touch Parity | 4 | ✅ Complete | 2026-04-01 |
 | 20 | Container-Scoped Rendering Mode | 3 | ✅ Complete | 2026-04-01 |
-| 21 | Dynamic Observation Strategy | 3 | 📋 Planned | - |
+| 21 | Dynamic Observation Strategy | 3 | ✅ Complete | 2026-04-21 |
 | 22 | Physics Stabilization Layer | 4 | 📋 Planned | - |
 | 23 | Configurable Materials and Runtime Options | 3 | 📋 Planned | - |
 | 24 | Packaging, Exports, and NPM-Ready Distribution | 2 | 📋 Planned | - |
