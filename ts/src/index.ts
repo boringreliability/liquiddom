@@ -24,6 +24,8 @@ export interface LiquidDOMInstance {
   grow(newCapacity: number): void;
   pause(): void;
   resume(): void;
+  autoDiscover(root?: Element): void;
+  stopAutoDiscover(): void;
   destroy(): void;
 }
 
@@ -159,10 +161,11 @@ export class LiquidDOM {
       window.addEventListener("resize", resizeCanvas);
     }
 
-    // 8. RAF loop
+    // 8. RAF loop + MutationObserver state
     let animationId = 0;
     let paused = false;
     let destroyed = false;
+    let mutationObserver: MutationObserver | null = null;
     let lastTime = performance.now();
     const ctx = canvas.getContext("2d");
 
@@ -278,6 +281,46 @@ export class LiquidDOM {
         }
       },
 
+      autoDiscover(root?: Element): void {
+        if (destroyed) return;
+        if (mutationObserver) return; // Already active
+
+        const searchRoot = root ?? container ?? document.body;
+        mutationObserver = new MutationObserver((mutations) => {
+          for (const mutation of mutations) {
+            // Handle added nodes
+            for (const node of mutation.addedNodes) {
+              if (node instanceof HTMLElement) {
+                if (node.hasAttribute("data-liquid")) {
+                  observer.observe(node);
+                }
+                // Also check descendants
+                const children = node.querySelectorAll<HTMLElement>("[data-liquid]");
+                children.forEach((child) => observer.observe(child));
+              }
+            }
+            // Handle removed nodes
+            for (const node of mutation.removedNodes) {
+              if (node instanceof HTMLElement) {
+                if (node.hasAttribute("data-liquid")) {
+                  observer.unobserve(node);
+                }
+                const children = node.querySelectorAll<HTMLElement>("[data-liquid]");
+                children.forEach((child) => observer.unobserve(child));
+              }
+            }
+          }
+        });
+        mutationObserver.observe(searchRoot, { childList: true, subtree: true });
+      },
+
+      stopAutoDiscover(): void {
+        if (mutationObserver) {
+          mutationObserver.disconnect();
+          mutationObserver = null;
+        }
+      },
+
       pause(): void {
         if (destroyed || paused) return;
         paused = true;
@@ -301,6 +344,12 @@ export class LiquidDOM {
         if (animationId) {
           cancelAnimationFrame(animationId);
           animationId = 0;
+        }
+
+        // Stop auto-discovery if active
+        if (mutationObserver) {
+          mutationObserver.disconnect();
+          mutationObserver = null;
         }
 
         observer.unobserveAll();
