@@ -3,12 +3,12 @@ ward: 25
 revision: null
 name: "WDD Reconciliation and Project Hygiene Pass"
 epic: "library-maturity"
-status: "planned"
+status: "complete"
 dependencies: [24]
 layer: "both"
 estimated_tests: 0
 created: "2026-03-31"
-completed: null
+completed: "2026-04-22"
 ---
 # Ward 025: WDD Reconciliation and Project Hygiene Pass
 

@@ -3,12 +3,12 @@ ward: 12
 revision: null
 name: "Final Demo & API Wrapper"
 epic: "theming-visuals"
-status: "gold"
+status: "complete"
 dependencies: [11]
 layer: "typescript"
 estimated_tests: 2
 created: "2026-03-31"
-completed: null
+completed: "2026-04-22"
 ---
 # Ward 012: Final Demo & API Wrapper
 
