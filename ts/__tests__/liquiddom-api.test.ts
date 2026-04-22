@@ -718,3 +718,76 @@ describe("Package metadata", () => {
     expect(pkg.files).toContain("dist/");
   });
 });
+
+// ── Ward 026: Scroll-Aware Base Position ──
+
+describe("Scroll-Aware Physics", () => {
+  beforeEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+  });
+
+  it("scroll pauses physics", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8 });
+
+    expect(instance.isScrolling).toBe(false);
+
+    // Simulate scroll event
+    window.dispatchEvent(new Event("scroll"));
+
+    expect(instance.isScrolling).toBe(true);
+    // Physics should be paused during scroll (but NOT isPaused — that's user-level pause)
+
+    instance.destroy();
+  });
+
+  it("scroll end triggers snap after idle timeout", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
+
+    const el = document.createElement("div");
+    let rectX = 100;
+    el.setAttribute("data-liquid", "");
+    el.getBoundingClientRect = () => ({
+      x: rectX, y: 50, width: 200, height: 100,
+      top: 50, left: rectX, right: rectX + 200, bottom: 150,
+      toJSON: () => {},
+    });
+    document.body.appendChild(el);
+    instance.observe(el);
+
+    // Simulate scroll
+    window.dispatchEvent(new Event("scroll"));
+    expect(instance.isScrolling).toBe(true);
+
+    // "Move" the element (simulates scroll displacement)
+    rectX = 300;
+
+    // Wait for idle timeout (100ms + buffer)
+    await new Promise((r) => setTimeout(r, 150));
+
+    // Scroll should have ended, isScrolling back to false
+    expect(instance.isScrolling).toBe(false);
+
+    instance.destroy();
+  });
+
+  it("particles converge after snap", async () => {
+    // This test verifies the contract: after scroll ends,
+    // physics resumes and particles should converge to new positions.
+    // In jsdom (no WASM), we verify the state flags are correct.
+    const instance = await LiquidDOM.create({ capacity: 8 });
+
+    // Scroll → wait for idle → verify resumed
+    window.dispatchEvent(new Event("scroll"));
+    expect(instance.isScrolling).toBe(true);
+
+    await new Promise((r) => setTimeout(r, 150));
+
+    // Physics should be resumed (isScrolling false, isPaused false)
+    expect(instance.isScrolling).toBe(false);
+    expect(instance.isPaused).toBe(false);
+
+    instance.destroy();
+  });
+});
