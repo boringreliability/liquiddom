@@ -81,6 +81,7 @@ export interface LiquidDOMInstance {
   readonly capacity: number;
   readonly isPaused: boolean;
   readonly isReducedMotion: boolean;
+  readonly isScrolling: boolean;
   readonly pointerActive: boolean;
   readonly pointerX: number;
   readonly pointerY: number;
@@ -207,7 +208,28 @@ export class LiquidDOM {
     document.addEventListener("pointermove", onPointerMove);
     document.addEventListener("pointerleave", onPointerLeave);
 
-    // 7. Resize handling — container uses ResizeObserver, fullscreen uses window
+    // 7. Scroll-aware physics: pause substeps during scroll, snap on idle
+    let scrolling = false;
+    let scrollIdleTimer: ReturnType<typeof setTimeout> | null = null;
+    const SCROLL_IDLE_MS = 100;
+
+    const onScroll = () => {
+      scrolling = true;
+      if (scrollIdleTimer !== null) clearTimeout(scrollIdleTimer);
+      scrollIdleTimer = setTimeout(() => {
+        scrolling = false;
+        // Snap: sync will pick up new getBoundingClientRect values on next frame
+        observer.sync();
+      }, SCROLL_IDLE_MS);
+    };
+
+    // Listen on window (captures page scroll) + container if scoped
+    window.addEventListener("scroll", onScroll, { passive: true, capture: true });
+    if (isContainerMode) {
+      container.addEventListener("scroll", onScroll, { passive: true });
+    }
+
+    // 8. Resize handling — container uses ResizeObserver, fullscreen uses window
     let resizeObserver: ResizeObserver | null = null;
 
     function resizeCanvas() {
@@ -265,9 +287,13 @@ export class LiquidDOM {
         const vp = getViewportSize();
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, vp.w, vp.h);
-        observer.sync();
+        // Skip sync during scroll — positions are stale mid-scroll
+        if (!scrolling) {
+          observer.sync();
+        }
 
-        const physicsDt = reducedMotion ? 0 : dt;
+        // Skip physics during scroll — render last known state only
+        const physicsDt = (reducedMotion || scrolling) ? 0 : dt;
         core!.tick(
           physicsDt,
           pointerX,
@@ -314,6 +340,10 @@ export class LiquidDOM {
 
       get isReducedMotion(): boolean {
         return reducedMotion;
+      },
+
+      get isScrolling(): boolean {
+        return scrolling;
       },
 
       get pointerActive(): boolean {
@@ -431,6 +461,16 @@ export class LiquidDOM {
         }
 
         observer.unobserveAll();
+
+        // Clear scroll timer
+        if (scrollIdleTimer !== null) {
+          clearTimeout(scrollIdleTimer);
+          scrollIdleTimer = null;
+        }
+        window.removeEventListener("scroll", onScroll, { capture: true } as EventListenerOptions);
+        if (isContainerMode) {
+          container.removeEventListener("scroll", onScroll);
+        }
 
         document.removeEventListener("pointermove", onPointerMove);
         document.removeEventListener("pointerleave", onPointerLeave);

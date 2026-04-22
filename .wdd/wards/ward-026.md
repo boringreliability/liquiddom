@@ -3,12 +3,12 @@ ward: 26
 revision: null
 name: "Scroll-Aware Base Position"
 epic: "real-world-illusion"
-status: "planned"
+status: "complete"
 dependencies: [14, 17, 20, 23]
 layer: "typescript"
 estimated_tests: 3
 created: "2026-04-22"
-completed: null
+completed: "2026-04-22"
 ---
 # Ward 026: Scroll-Aware Base Position
 
