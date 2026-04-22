@@ -3,12 +3,12 @@ ward: 5
 revision: null
 name: "Visual FFI Proof"
 epic: "state-ffi"
-status: "gold"
+status: "complete"
 dependencies: [4]
 layer: "both"
 estimated_tests: 0
 created: "2026-03-31"
-completed: null
+completed: "2026-04-22"
 ---
 # Ward 005: Visual FFI Proof
 

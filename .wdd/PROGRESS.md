@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-22 of 25 Wards complete · 84 estimated tests · 0 blocked
+25 of 25 Wards complete · 84 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -10,14 +10,14 @@
 | 2 | Buffer Mutation API | 6 | ✅ Complete | 2026-03-30 |
 | 3 | Phantom DOM Observer | 5 | ✅ Complete | 2026-03-30 |
 | 4 | FFI Integration & Tick Event | 4 | ✅ Complete | 2026-03-31 |
-| 5 | Visual FFI Proof | 0 | 🔨 Gold | - |
+| 5 | Visual FFI Proof | 0 | ✅ Complete | 2026-04-22 |
 | 6 | Particle & Spring Data Structures | 4 | ✅ Complete | 2026-03-31 |
 | 7 | Mass-Spring-Damper Kernel | 4 | ✅ Complete | 2026-03-31 |
 | 8 | Physics to FFI Bridge | 3 | ✅ Complete | 2026-03-31 |
 | 9 | Pointer Repulsion | 4 | ✅ Complete | 2026-03-31 |
 | 10 | Canvas Spline Renderer | 1 | ✅ Complete | 2026-03-31 |
 | 11 | The Illusion & Interaction State | 2 | ✅ Complete | 2026-03-31 |
-| 12 | Final Demo & API Wrapper | 2 | 🔨 Gold | - |
+| 12 | Final Demo & API Wrapper | 2 | ✅ Complete | 2026-04-22 |
 | 13 | Instance-Based Runtime API | 4 | ✅ Complete | 2026-03-31 |
 | 14 | Runtime Teardown and Idempotent Lifecycle | 5 | ✅ Complete | 2026-04-01 |
 | 15 | Memory Bridge Encapsulation | 4 | ✅ Complete | 2026-04-01 |
@@ -30,7 +30,7 @@
 | 22 | Physics Stabilization Layer | 4 | ✅ Complete | 2026-04-21 |
 | 23 | Configurable Materials and Runtime Options | 3 | ✅ Complete | 2026-04-22 |
 | 24 | Packaging, Exports, and NPM-Ready Distribution | 2 | ✅ Complete | 2026-04-22 |
-| 25 | WDD Reconciliation and Project Hygiene Pass | 0 | 📋 Planned | - |
+| 25 | WDD Reconciliation and Project Hygiene Pass | 0 | ✅ Complete | 2026-04-22 |
 
 ## Test Summary
 - Estimated total: 84
