@@ -1,20 +1,38 @@
 {
   "name": "liquiddom",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "version": "0.1.0",
+  "description": "WASM-driven fluid dynamics on web elements via hidden canvas",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "pkg/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "dev": "wasm-pack build --target web --out-dir pkg && vite --config demo/vite.config.ts demo",
     "build:wasm": "wasm-pack build --target web --out-dir pkg",
+    "build:ts": "tsc -p tsconfig.build.json",
+    "build": "npm run build:wasm && npm run build:ts",
+    "prepublishOnly": "npm run build",
+    "dev": "npm run build:wasm && vite --config demo/vite.config.ts demo",
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "keywords": [],
+  "keywords": ["wasm", "webassembly", "physics", "canvas", "liquid", "animation"],
   "author": "",
-  "license": "ISC",
-  "type": "commonjs",
+  "license": "MIT",
   "devDependencies": {
     "@types/node": "^25.5.0",
+    "jsdom": "^29.0.1",
     "typescript": "^6.0.2",
     "vite": "^8.0.3",
     "vitest": "^4.1.2"
