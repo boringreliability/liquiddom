@@ -666,4 +666,55 @@ describe("LiquidDOM Instance API", () => {
 
     instance.destroy();
   });
+
+  // ── Ward 024: Package Exports ──
+
+  it("package exports resolve correctly", async () => {
+    // Verify that the main entry exports the expected public API
+    const mod = await import("../src/index");
+
+    // LiquidDOM class
+    expect(mod.LiquidDOM).toBeDefined();
+    expect(typeof mod.LiquidDOM.create).toBe("function");
+
+    // Presets
+    expect(mod.presets).toBeDefined();
+    expect(mod.presets.goo).toBeDefined();
+    expect(mod.presets.jelly).toBeDefined();
+    expect(mod.presets.firm).toBeDefined();
+  });
+
+  it("internal modules are not leaked via main export", async () => {
+    const mod = await import("../src/index");
+    const keys = Object.keys(mod);
+
+    // Only intentional exports should be present
+    expect(keys).toContain("LiquidDOM");
+    expect(keys).toContain("presets");
+
+    // Internal types should NOT be exported as runtime values
+    expect(keys).not.toContain("PhantomObserver");
+    expect(keys).not.toContain("WasmBridge");
+    expect(keys).not.toContain("DEFAULT_PHYSICS");
+    expect(keys).not.toContain("validatePhysicsConfig");
+  });
+});
+
+describe("Package metadata", () => {
+  it("package.json has correct ESM config", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve, dirname } = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    const pkgPath = resolve(__dirname, "../../package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+
+    expect(pkg.type).toBe("module");
+    expect(pkg.exports).toBeDefined();
+    expect(pkg.exports["."]).toBeDefined();
+    expect(pkg.exports["."].types).toBeDefined();
+    expect(pkg.exports["."].import).toBeDefined();
+    expect(pkg.files).toContain("dist/");
+  });
 });

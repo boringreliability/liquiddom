@@ -4,7 +4,7 @@
 Ward 1 started — 2026-03-30
 
 ## Current State
-Ward 24 COMPLETE. NPM-ready: ESM-first, exports map, declarations, build pipeline. 28 Rust + 59 TS = 87 tests.
+Ward 23 COMPLETE. Configurable physics: LiquidPhysicsConfig, presets (goo/jelly/firm), validation. Config flows TS→Rust via tick(). 28 Rust + 56 TS = 84 tests.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -31,4 +31,5 @@ Ward 24 COMPLETE. NPM-ready: ESM-first, exports map, declarations, build pipelin
 _None yet_
 
 ## What Comes Next
-- Ward 025: WDD Reconciliation and Project Hygiene Pass (final ward)
+- Ward 024: Packaging, Exports, and NPM-Ready Distribution
+- Ward 025: WDD Reconciliation and Project Hygiene Pass
