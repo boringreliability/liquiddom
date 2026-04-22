@@ -616,4 +616,54 @@ describe("LiquidDOM Instance API", () => {
 
     instance.destroy();
   });
+
+  // ── Ward 023: Configurable Materials ──
+
+  it("preset creates expected frozen config", async () => {
+    const { presets } = await import("../src/index");
+
+    expect(presets.jelly).toBeDefined();
+    expect(presets.jelly.tension).toBeGreaterThan(0);
+    expect(presets.jelly.damping).toBeGreaterThan(0);
+    expect(presets.goo.damping!).toBeGreaterThan(presets.firm.damping!);
+
+    // Presets should be frozen
+    expect(Object.isFrozen(presets.jelly)).toBe(true);
+    expect(Object.isFrozen(presets.goo)).toBe(true);
+    expect(Object.isFrozen(presets.firm)).toBe(true);
+  });
+
+  it("config validated at init", async () => {
+    // Negative tension
+    await expect(
+      LiquidDOM.create({ capacity: 4, physics: { tension: -1 } }),
+    ).rejects.toThrow(TypeError);
+
+    // NaN damping
+    await expect(
+      LiquidDOM.create({ capacity: 4, physics: { damping: NaN } }),
+    ).rejects.toThrow(TypeError);
+
+    // particleCount < 3
+    await expect(
+      LiquidDOM.create({ capacity: 4, physics: { particleCount: 1 } }),
+    ).rejects.toThrow(TypeError);
+
+    // substeps < 1
+    await expect(
+      LiquidDOM.create({ capacity: 4, physics: { substeps: 0 } }),
+    ).rejects.toThrow(TypeError);
+  });
+
+  it("custom physics config is accepted", async () => {
+    const instance = await LiquidDOM.create({
+      capacity: 8,
+      physics: { tension: 200, damping: 10, substeps: 2 },
+    });
+
+    // Should not throw — valid config
+    expect(instance.capacity).toBe(8);
+
+    instance.destroy();
+  });
 });

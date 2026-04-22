@@ -1,6 +1,16 @@
 import { PhantomObserver } from "./phantom-observer";
 import { WasmBridge, WasmCore } from "./wasm-bridge";
 
+export interface LiquidPhysicsConfig {
+  tension?: number;
+  damping?: number;
+  repulsionRadius?: number;
+  repulsionStrength?: number;
+  particleCount?: number;
+  substeps?: number;
+  neighborSpringK?: number;
+}
+
 export interface LiquidOptions {
   capacity?: number;
   autoObserve?: boolean;
@@ -10,6 +20,61 @@ export interface LiquidOptions {
   maxDt?: number;
   forceReducedMotion?: boolean;
   container?: HTMLElement;
+  physics?: LiquidPhysicsConfig;
+}
+
+const DEFAULT_PHYSICS: Required<LiquidPhysicsConfig> = {
+  tension: 100,
+  damping: 5,
+  repulsionRadius: 100,
+  repulsionStrength: 5000,
+  particleCount: 16,
+  substeps: 1,
+  neighborSpringK: 30,
+};
+
+export const presets = {
+  goo: Object.freeze<LiquidPhysicsConfig>({
+    tension: 40,
+    damping: 12,
+    repulsionRadius: 120,
+    repulsionStrength: 6000,
+    substeps: 1,
+    neighborSpringK: 15,
+  }),
+  jelly: Object.freeze<LiquidPhysicsConfig>({
+    tension: 80,
+    damping: 4,
+    repulsionRadius: 100,
+    repulsionStrength: 5000,
+    substeps: 2,
+    neighborSpringK: 25,
+  }),
+  firm: Object.freeze<LiquidPhysicsConfig>({
+    tension: 200,
+    damping: 8,
+    repulsionRadius: 80,
+    repulsionStrength: 4000,
+    substeps: 4,
+    neighborSpringK: 50,
+  }),
+};
+
+function validatePhysicsConfig(cfg: LiquidPhysicsConfig): void {
+  const checks: [string, unknown, (v: number) => boolean][] = [
+    ["tension", cfg.tension, (v) => Number.isFinite(v) && v >= 0],
+    ["damping", cfg.damping, (v) => Number.isFinite(v) && v >= 0],
+    ["repulsionRadius", cfg.repulsionRadius, (v) => Number.isFinite(v) && v >= 0],
+    ["repulsionStrength", cfg.repulsionStrength, (v) => Number.isFinite(v) && v >= 0],
+    ["neighborSpringK", cfg.neighborSpringK, (v) => Number.isFinite(v) && v >= 0],
+    ["particleCount", cfg.particleCount, (v) => Number.isInteger(v) && v >= 3],
+    ["substeps", cfg.substeps, (v) => Number.isInteger(v) && v >= 1],
+  ];
+  for (const [name, value, validate] of checks) {
+    if (value !== undefined && !validate(value as number)) {
+      throw new TypeError(`Invalid physics config: ${name} = ${value}`);
+    }
+  }
 }
 
 export interface LiquidDOMInstance {
@@ -40,6 +105,11 @@ export class LiquidDOM {
     const maxDt = Math.max(1, options?.maxDt ?? DEFAULT_MAX_DT);
     const container = options?.container;
     const isContainerMode = !!container;
+
+    // Validate and merge physics config
+    const userPhysics = options?.physics ?? {};
+    validatePhysicsConfig(userPhysics);
+    const physics: Required<LiquidPhysicsConfig> = { ...DEFAULT_PHYSICS, ...userPhysics };
 
     // 1. Create and mount canvas
     const canvas = document.createElement("canvas");
@@ -198,7 +268,15 @@ export class LiquidDOM {
         observer.sync();
 
         const physicsDt = reducedMotion ? 0 : dt;
-        core!.tick(physicsDt, pointerX, pointerY, pointerActive && !reducedMotion);
+        core!.tick(
+          physicsDt,
+          pointerX,
+          pointerY,
+          pointerActive && !reducedMotion,
+          physics.tension,
+          physics.damping,
+          physics.substeps,
+        );
         observer.render(ctx, {
           viewportWidth: vp.w,
           viewportHeight: vp.h,

@@ -4,7 +4,7 @@
 Ward 1 started — 2026-03-30
 
 ## Current State
-Ward 23 COMPLETE. Configurable physics: LiquidPhysicsConfig, presets (goo/jelly/firm), validation. Config flows TS→Rust via tick(). 28 Rust + 56 TS = 84 tests.
+Ward 22 COMPLETE. Physics stabilized: neighbor springs, Shoelace area preservation, centroid anchoring, semi-implicit Euler with substeps. 28 Rust + 53 TS = 81 tests.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -31,5 +31,6 @@ Ward 23 COMPLETE. Configurable physics: LiquidPhysicsConfig, presets (goo/jelly/
 _None yet_
 
 ## What Comes Next
+- Ward 023: Configurable Materials and Runtime Options
 - Ward 024: Packaging, Exports, and NPM-Ready Distribution
 - Ward 025: WDD Reconciliation and Project Hygiene Pass
