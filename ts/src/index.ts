@@ -287,13 +287,9 @@ export class LiquidDOM {
         const vp = getViewportSize();
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, vp.w, vp.h);
-        // Skip sync during scroll — positions are stale mid-scroll
-        if (!scrolling) {
-          observer.sync();
-        }
+        observer.sync();
 
-        // Skip physics during scroll — render last known state only
-        const physicsDt = (reducedMotion || scrolling) ? 0 : dt;
+        const physicsDt = reducedMotion ? 0 : dt;
         core!.tick(
           physicsDt,
           pointerX,
