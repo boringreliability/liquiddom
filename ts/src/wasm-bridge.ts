@@ -8,7 +8,7 @@ export interface WasmCore {
   particle_ptr(): number;
   capacity(): number;
   grow(newCapacity: number): void;
-  tick(dt: number, px: number, py: number, active: boolean): void;
+  tick(dt: number, px: number, py: number, active: boolean, tension: number, damping: number, substeps: number): void;
   free(): void;
 }
 

@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-20 of 25 Wards complete · 84 estimated tests · 0 blocked
+21 of 25 Wards complete · 84 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -28,7 +28,7 @@
 | 20 | Container-Scoped Rendering Mode | 3 | ✅ Complete | 2026-04-01 |
 | 21 | Dynamic Observation Strategy | 3 | ✅ Complete | 2026-04-21 |
 | 22 | Physics Stabilization Layer | 4 | ✅ Complete | 2026-04-21 |
-| 23 | Configurable Materials and Runtime Options | 3 | 📋 Planned | - |
+| 23 | Configurable Materials and Runtime Options | 3 | ✅ Complete | 2026-04-22 |
 | 24 | Packaging, Exports, and NPM-Ready Distribution | 2 | 📋 Planned | - |
 | 25 | WDD Reconciliation and Project Hygiene Pass | 0 | 📋 Planned | - |
 

@@ -53,7 +53,18 @@ impl LiquidCore {
 
     /// Called by requestAnimationFrame each frame.
     /// dt_ms is in milliseconds — converted to seconds internally.
-    pub fn tick(&mut self, dt_ms: f32, pointer_x: f32, pointer_y: f32, pointer_active: bool) {
+    /// tension, damping, substeps are physics config parameters from TS.
+    #[allow(clippy::too_many_arguments)]
+    pub fn tick(
+        &mut self,
+        dt_ms: f32,
+        pointer_x: f32,
+        pointer_y: f32,
+        pointer_active: bool,
+        tension: f32,
+        damping: f32,
+        substeps: u32,
+    ) {
         let dt = dt_ms / 1000.0;
         let pointer_pos = Vec2::new(pointer_x, pointer_y);
 
@@ -78,8 +89,8 @@ impl LiquidCore {
             // DOM state is king — update base_pos from buffer
             body.base_pos = Vec2::new(x, y);
 
-            // Run physics (hardcoded tension/damping for now)
-            body.tick(dt, 100.0, 5.0, pointer_pos, pointer_active);
+            // Run physics with configurable parameters
+            body.tick_with_substeps(dt, tension, damping, pointer_pos, pointer_active, substeps);
 
             // Write particle positions to flat buffer (pos is global after physics)
             let offset = i * PARTICLE_FLOATS_PER_BODY;

@@ -3,12 +3,12 @@ ward: 23
 revision: null
 name: "Configurable Materials and Runtime Options"
 epic: "library-maturity"
-status: "planned"
+status: "complete"
 dependencies: [22]
 layer: "both"
 estimated_tests: 3
 created: "2026-03-31"
-completed: null
+completed: "2026-04-22"
 ---
 # Ward 023: Configurable Materials and Runtime Options
 
