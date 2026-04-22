@@ -21,6 +21,7 @@ pub struct NeighborSpring {
 pub struct EntityBody {
     pub particles: Vec<Particle>,
     pub base_pos: Vec2,
+    pub prev_base_pos: Vec2,
     pub width: f32,
     pub height: f32,
     pub neighbor_springs: Vec<NeighborSpring>,
@@ -96,6 +97,17 @@ impl EntityBody {
         const NEIGHBOR_STIFFNESS: f32 = 30.0;
         const CENTROID_STRENGTH: f32 = 5.0;
         const AREA_CORRECTION_STRENGTH: f32 = 0.5;
+
+        // Rigid translation: when base_pos changes, teleport all particles
+        // by the same delta so they follow the DOM element instantly.
+        // Springs only handle deformation, not translation.
+        let delta = self.base_pos - self.prev_base_pos;
+        if delta.x != 0.0 || delta.y != 0.0 {
+            for particle in &mut self.particles {
+                particle.pos += delta;
+            }
+            self.prev_base_pos = self.base_pos;
+        }
 
         let steps = substeps.max(1);
         let sub_dt = dt / steps as f32;
@@ -222,6 +234,7 @@ impl EntityBody {
         let mut body = Self {
             particles,
             base_pos: Vec2::zero(),
+            prev_base_pos: Vec2::zero(),
             width,
             height,
             neighbor_springs,
@@ -352,28 +365,22 @@ mod tests {
     }
 
     #[test]
-    fn test_base_pos_movement_drags_particles() {
-        // Simulate DOM element moving: base_pos shifts, particles lag behind
+    fn test_base_pos_movement_teleports_particles() {
+        // Rigid translation: when base_pos changes, particles teleport with it
         let mut body = EntityBody::new_rect(100.0, 100.0, 4);
-        // Initially everything at rest
+
+        let p0_before = body.particles[0].pos;
 
         // "Move" the DOM element 200px to the right
         body.base_pos = Vec2::new(200.0, 0.0);
 
-        // Particles are still at their old positions (local_rest relative to old base)
-        // After tick, spring should start pulling them toward new target
+        // After tick, particles should have been teleported by the delta
         body.tick(0.016, 100.0, 5.0, Vec2::zero(), false);
 
-        // Particle 0: target = base_pos + local_rest = (200, 0) + (0, 0) = (200, 0)
-        // It was at (0, 0), so spring pulls it right
+        // Particle 0 was at local_rest (0,0), now should be near (200, 0)
         assert!(
-            body.particles[0].velocity.x > 0.0,
-            "particle should be pulled toward new base_pos, velocity.x = {}",
-            body.particles[0].velocity.x,
-        );
-        assert!(
-            body.particles[0].pos.x > 0.0,
-            "particle should have moved toward new base_pos, pos.x = {}",
+            (body.particles[0].pos.x - (p0_before.x + 200.0)).abs() < 5.0,
+            "particle should teleport with base_pos, pos.x = {}",
             body.particles[0].pos.x,
         );
     }
