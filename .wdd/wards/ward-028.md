@@ -4,7 +4,7 @@ revision: null
 name: "Transparent Background Compatibility"
 epic: "real-world-illusion"
 status: "planned"
-dependencies: [23]
+dependencies: [18, 23]
 layer: "typescript"
 estimated_tests: 2
 created: "2026-04-22"

@@ -4,7 +4,7 @@ revision: null
 name: "Position Tween Primitive"
 epic: "interaction-primitives"
 status: "planned"
-dependencies: [29]
+dependencies: [13, 29]
 layer: "both"
 estimated_tests: 3
 created: "2026-04-22"

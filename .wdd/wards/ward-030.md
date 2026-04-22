@@ -4,7 +4,7 @@ revision: null
 name: "Dragable Interaction Primitive"
 epic: "interaction-primitives"
 status: "planned"
-dependencies: [29]
+dependencies: [13, 19, 29]
 layer: "both"
 estimated_tests: 4
 created: "2026-04-22"

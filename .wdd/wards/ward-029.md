@@ -4,7 +4,7 @@ revision: null
 name: "Liquid Type Dispatch Architecture"
 epic: "interaction-primitives"
 status: "planned"
-dependencies: [23]
+dependencies: [22, 23]
 layer: "rust"
 estimated_tests: 4
 created: "2026-04-22"

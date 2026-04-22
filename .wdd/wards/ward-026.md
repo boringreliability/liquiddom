@@ -4,7 +4,7 @@ revision: null
 name: "Scroll-Aware Base Position"
 epic: "real-world-illusion"
 status: "planned"
-dependencies: [23]
+dependencies: [14, 17, 20, 23]
 layer: "typescript"
 estimated_tests: 3
 created: "2026-04-22"
