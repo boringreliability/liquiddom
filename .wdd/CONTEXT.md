@@ -43,8 +43,6 @@ All 25 wards COMPLETE. 28 Rust + 59 TS = 87 tests. 0 clippy warnings, 0 TS error
 - Reduced motion still runs RAF loop (sync/render active, physics frozen)
 
 ## What Comes Next
-Project complete. Future work could include:
-- WebGPU rendering (replace Canvas 2D)
-- Multi-pointer support (multi-touch)
-- CSS custom property integration for theming
-- Server-side pre-render support
+- Epic 07: Real-World Illusion (W26-W28) — scroll, coordinates, backgrounds
+- Epic 08: Interaction Primitives (W29-W32) — dispatch, drag, impulse, tween
+- Epic 09: Demo Scenes (W33-W34) — dragable cards, scroll hero
