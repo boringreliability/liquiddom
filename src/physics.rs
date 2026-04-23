@@ -27,6 +27,24 @@ pub fn dispatch_strategy(liquid_type: f32) -> PhysicsStrategy {
     }
 }
 
+/// Dragged strategy — centroid targets drag position instead of base_pos.
+pub fn strategy_dragged(
+    body: &mut EntityBody,
+    dt: f32,
+    tension: f32,
+    damping: f32,
+    drag_target: Vec2,
+    pointer_active: bool,
+    substeps: u32,
+) {
+    // Override centroid target to drag position
+    let saved_base = body.base_pos;
+    // Shift base_pos so centroid target becomes drag_target - (w/2, h/2)
+    body.base_pos = drag_target - Vec2::new(body.width * 0.5, body.height * 0.5);
+    body.run_physics(dt, tension, damping, Vec2::zero(), pointer_active, substeps);
+    body.base_pos = saved_base;
+}
+
 /// Default physics strategy — exact Ward 22 behavior.
 /// Neighbor springs, shape preservation, centroid anchoring, semi-implicit Euler.
 pub fn strategy_default(
@@ -693,5 +711,32 @@ mod tests {
         assert_eq!(dispatch_strategy(3.0), PhysicsStrategy::Dragged);
         assert_eq!(dispatch_strategy(4.0), PhysicsStrategy::Shake);
         assert_eq!(dispatch_strategy(5.0), PhysicsStrategy::Tween);
+    }
+
+    // ── Ward 30: Dragged Strategy tests ──
+
+    #[test]
+    fn test_strategy_dragged_pulls_toward_target() {
+        let mut body = EntityBody::new_rect(100.0, 100.0, 8);
+        // Body at origin, drag target at (300, 200)
+        let drag_target = Vec2::new(300.0, 200.0);
+
+        let centroid_before = body.compute_centroid();
+
+        // Run dragged strategy
+        for _ in 0..30 {
+            strategy_dragged(&mut body, 0.016, 100.0, 5.0, drag_target, false, 1);
+        }
+
+        let centroid_after = body.compute_centroid();
+
+        // Centroid should have moved toward drag_target
+        let dist_before = (centroid_before - drag_target).length();
+        let dist_after = (centroid_after - drag_target).length();
+        assert!(
+            dist_after < dist_before,
+            "centroid should move toward drag target: before={}, after={}",
+            dist_before, dist_after,
+        );
     }
 }

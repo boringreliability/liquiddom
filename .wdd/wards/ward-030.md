@@ -3,12 +3,12 @@ ward: 30
 revision: null
 name: "Dragable Interaction Primitive"
 epic: "interaction-primitives"
-status: "planned"
+status: "complete"
 dependencies: [13, 19, 29]
 layer: "both"
 estimated_tests: 4
 created: "2026-04-22"
-completed: null
+completed: "2026-04-23"
 ---
 # Ward 030: Dragable Interaction Primitive
 
