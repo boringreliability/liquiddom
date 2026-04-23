@@ -91,6 +91,12 @@ export interface LiquidDOMInstance {
   observe(el: HTMLElement, liquidType?: number): number;
   unobserve(el: HTMLElement): void;
   grow(newCapacity: number): void;
+  tween(element: HTMLElement, options: {
+    toX: number;
+    toY: number;
+    duration: number;
+    easing?: "linear" | "ease-out";
+  }): { cancel(): void };
   impulse(element: HTMLElement, options?: {
     direction?: [number, number];
     magnitude?: number;
@@ -389,6 +395,57 @@ export class LiquidDOM {
       unobserve(el: HTMLElement): void {
         if (destroyed) return;
         observer.unobserve(el);
+      },
+
+      tween(element: HTMLElement, opts: {
+        toX: number;
+        toY: number;
+        duration: number;
+        easing?: "linear" | "ease-out";
+      }): { cancel(): void } {
+        if (destroyed) {
+          throw new Error("Cannot tween on a destroyed LiquidDOM instance");
+        }
+        const id = observer.getEntityId(element);
+        if (id === undefined) {
+          throw new Error("Element is not observed by this LiquidDOM instance");
+        }
+
+        const buf = observer.getBuffer();
+        const off = id * 8;
+        const startX = buf[off];
+        const startY = buf[off + 1];
+        const { toX, toY, duration } = opts;
+        const easingFn = opts.easing === "ease-out"
+          ? (t: number) => 1 - (1 - t) * (1 - t)
+          : (t: number) => t; // linear
+
+        const startTime = performance.now();
+        let cancelled = false;
+
+        const intervalId = setInterval(() => {
+          if (cancelled || destroyed) {
+            clearInterval(intervalId);
+            return;
+          }
+          const elapsed = performance.now() - startTime;
+          const rawT = Math.min(elapsed / duration, 1);
+          const t = easingFn(rawT);
+
+          buf[off] = startX + (toX - startX) * t;
+          buf[off + 1] = startY + (toY - startY) * t;
+
+          if (rawT >= 1) {
+            clearInterval(intervalId);
+          }
+        }, 16);
+
+        return {
+          cancel() {
+            cancelled = true;
+            clearInterval(intervalId);
+          },
+        };
       },
 
       impulse(element: HTMLElement, options?: {
