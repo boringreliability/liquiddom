@@ -3,12 +3,12 @@ ward: 28
 revision: null
 name: "Transparent Background Compatibility"
 epic: "real-world-illusion"
-status: "planned"
+status: "complete"
 dependencies: [18, 23]
 layer: "typescript"
 estimated_tests: 2
 created: "2026-04-22"
-completed: null
+completed: "2026-04-23"
 ---
 # Ward 028: Transparent Background Compatibility
 

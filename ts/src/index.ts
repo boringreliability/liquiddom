@@ -20,6 +20,7 @@ export interface LiquidOptions {
   maxDt?: number;
   forceReducedMotion?: boolean;
   container?: HTMLElement;
+  preserveBackgrounds?: boolean;
   physics?: LiquidPhysicsConfig;
 }
 
@@ -85,6 +86,7 @@ export interface LiquidDOMInstance {
   readonly pointerActive: boolean;
   readonly pointerX: number;
   readonly pointerY: number;
+  readonly preserveBackgrounds: boolean;
   getBuffer(): Float32Array | null;
   observe(el: HTMLElement, liquidType?: number): number;
   unobserve(el: HTMLElement): void;
@@ -107,6 +109,7 @@ export class LiquidDOM {
     const maxDt = Math.max(1, options?.maxDt ?? DEFAULT_MAX_DT);
     const container = options?.container;
     const isContainerMode = !!container;
+    const preserveBg = options?.preserveBackgrounds ?? false;
 
     // Validate and merge physics config
     const userPhysics = options?.physics ?? {};
@@ -311,6 +314,7 @@ export class LiquidDOM {
           viewportWidth: vp.w,
           viewportHeight: vp.h,
           cullMargin: 100,
+          preserveBackgrounds: preserveBg,
         });
 
         animationId = requestAnimationFrame(loop);
@@ -352,6 +356,10 @@ export class LiquidDOM {
 
       get pointerActive(): boolean {
         return pointerActive;
+      },
+
+      get preserveBackgrounds(): boolean {
+        return preserveBg;
       },
 
       getBuffer(): Float32Array | null {
