@@ -193,7 +193,12 @@ export class PhantomObserver {
    */
   render(
     ctx: CanvasRenderingContext2D,
-    viewport?: { viewportWidth: number; viewportHeight: number; cullMargin: number },
+    viewport?: {
+      viewportWidth: number;
+      viewportHeight: number;
+      cullMargin: number;
+      preserveBackgrounds?: boolean;
+    },
   ): void {
     ctx.save();
 
@@ -223,6 +228,20 @@ export class PhantomObserver {
       // Read interaction_state for hover visual feedback
       const isHover = this.buffer[entityOffset + 4] === 1.0;
       ctx.fillStyle = isHover ? this.colorHover : this.colorDefault;
+
+      // Clip rendering to exclude element rect if preserveBackgrounds is on
+      const clipping = viewport?.preserveBackgrounds === true;
+      if (clipping) {
+        ctx.save();
+        ctx.beginPath();
+        // Full viewport rect
+        const vw = viewport!.viewportWidth;
+        const vh = viewport!.viewportHeight;
+        ctx.rect(0, 0, vw, vh);
+        // Inverse: cut out the element rect
+        ctx.rect(x, y, w, h);
+        ctx.clip("evenodd");
+      }
 
       if (this.particleBuffer) {
         const offset = id * PARTICLE_FLOATS_PER_BODY;
@@ -259,6 +278,10 @@ export class PhantomObserver {
         ctx.fill();
       } else {
         ctx.fillRect(x, y, w, h);
+      }
+
+      if (clipping) {
+        ctx.restore();
       }
     }
 

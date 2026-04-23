@@ -924,3 +924,32 @@ describe("Coordinate System", () => {
     instance.destroy();
   });
 });
+
+// ── Ward 028: Transparent Background Compatibility ──
+
+describe("Transparent Background Compatibility", () => {
+  beforeEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+  });
+
+  it("preserveBackgrounds defaults to false", async () => {
+    const instance = await LiquidDOM.create({ capacity: 4 });
+
+    expect(instance.preserveBackgrounds).toBe(false);
+
+    instance.destroy();
+  });
+
+  it("preserveBackgrounds true is accepted and stored", async () => {
+    const instance = await LiquidDOM.create({
+      capacity: 4,
+      preserveBackgrounds: true,
+    });
+
+    expect(instance.preserveBackgrounds).toBe(true);
+
+    instance.destroy();
+  });
+});
