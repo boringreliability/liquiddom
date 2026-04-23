@@ -3,12 +3,12 @@ ward: 33
 revision: null
 name: "Dragable Cards Scene"
 epic: "demo-scenes"
-status: "planned"
+status: "complete"
 dependencies: [30]
 layer: "typescript"
 estimated_tests: 1
 created: "2026-04-22"
-completed: null
+completed: "2026-04-23"
 ---
 # Ward 033: Dragable Cards Scene
 

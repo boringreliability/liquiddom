@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LiquidDOM — Dragable Cards</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;500;800&display=swap');
+
+    :root {
+      --bg: #0b0914;
+      --card-text: #f0e6ff;
+      --card-sub: #6a5a8a;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--card-text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 3rem 2rem;
+      gap: 3rem;
+    }
+
+    h1 {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -1px;
+      opacity: 0.7;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2rem;
+      max-width: 900px;
+      width: 100%;
+    }
+
+    @media (max-width: 700px) {
+      .grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    [data-liquid] {
+      background: transparent !important;
+      border: none !important;
+      outline: none !important;
+      cursor: grab;
+      user-select: none;
+      -webkit-user-select: none;
+      position: relative;
+      z-index: 1;
+    }
+
+    [data-liquid]:active {
+      cursor: grabbing;
+    }
+
+    .card {
+      padding: 2.5rem 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      min-height: 150px;
+    }
+
+    .card h3 {
+      font-size: 1.3rem;
+      font-weight: 800;
+    }
+
+    .card .sub {
+      font-size: 0.85rem;
+      color: var(--card-sub);
+      font-weight: 300;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <h1>LiquidDOM — Dragable Cards</h1>
+
+  <div class="grid">
+    <div class="card" data-liquid><h3>Card 1</h3><span class="sub">drag me.</span></div>
+    <div class="card" data-liquid><h3>Card 2</h3><span class="sub">drag me.</span></div>
+    <div class="card" data-liquid><h3>Card 3</h3><span class="sub">drag me.</span></div>
+    <div class="card" data-liquid><h3>Card 4</h3><span class="sub">drag me.</span></div>
+    <div class="card" data-liquid><h3>Card 5</h3><span class="sub">drag me.</span></div>
+    <div class="card" data-liquid><h3>Card 6</h3><span class="sub">drag me.</span></div>
+    <div class="card" data-liquid><h3>Card 7</h3><span class="sub">drag me.</span></div>
+    <div class="card" data-liquid><h3>Card 8</h3><span class="sub">drag me.</span></div>
+    <div class="card" data-liquid><h3>Card 9</h3><span class="sub">drag me.</span></div>
+  </div>
+
+  <script type="module" src="./dragable-cards.ts"></script>
+</body>
+</html>
