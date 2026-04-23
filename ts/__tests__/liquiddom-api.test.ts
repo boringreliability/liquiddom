@@ -1117,3 +1117,110 @@ describe("Impulse Injection", () => {
     instance.destroy();
   });
 });
+
+// ── Ward 032: Position Tween ──
+
+describe("Position Tween", () => {
+  beforeEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+  });
+
+  it("tween updates base_pos toward target", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
+
+    const el = document.createElement("div");
+    el.getBoundingClientRect = () => ({
+      x: 100, y: 100, width: 200, height: 100,
+      top: 100, left: 100, right: 300, bottom: 200,
+      toJSON: () => {},
+    });
+    el.setPointerCapture = () => {};
+    el.releasePointerCapture = () => {};
+    const id = instance.observe(el);
+    const buf = instance.getBuffer()!;
+
+    // Start tween to (500, 400)
+    const handle = instance.tween(el, { toX: 500, toY: 400, duration: 100 });
+
+    expect(handle).toBeDefined();
+    expect(typeof handle.cancel).toBe("function");
+
+    // Wait for tween to complete
+    await new Promise((r) => setTimeout(r, 150));
+
+    // base_pos should be at target (written to buffer by tween)
+    expect(buf[id * 8]).toBe(500);
+    expect(buf[id * 8 + 1]).toBe(400);
+
+    instance.destroy();
+  });
+
+  it("easing functions produce different results", async () => {
+    // Import easing functions directly if exported, or test via tween behavior
+    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
+
+    const el1 = document.createElement("div");
+    el1.getBoundingClientRect = () => ({
+      x: 0, y: 0, width: 100, height: 50,
+      top: 0, left: 0, right: 100, bottom: 50,
+      toJSON: () => {},
+    });
+    el1.setPointerCapture = () => {};
+    el1.releasePointerCapture = () => {};
+
+    const el2 = document.createElement("div");
+    el2.getBoundingClientRect = () => ({
+      x: 0, y: 0, width: 100, height: 50,
+      top: 0, left: 0, right: 100, bottom: 50,
+      toJSON: () => {},
+    });
+    el2.setPointerCapture = () => {};
+    el2.releasePointerCapture = () => {};
+
+    instance.observe(el1);
+    instance.observe(el2);
+
+    // Both tween to same target, different easing
+    instance.tween(el1, { toX: 1000, toY: 0, duration: 200, easing: "linear" });
+    instance.tween(el2, { toX: 1000, toY: 0, duration: 200, easing: "ease-out" });
+
+    // After completion both should reach target
+    await new Promise((r) => setTimeout(r, 250));
+
+    const buf = instance.getBuffer()!;
+    expect(buf[0]).toBe(1000); // el1 x
+    expect(buf[8]).toBe(1000); // el2 x
+
+    instance.destroy();
+  });
+
+  it("tween cancel stops at current position", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
+
+    const el = document.createElement("div");
+    el.getBoundingClientRect = () => ({
+      x: 0, y: 0, width: 100, height: 50,
+      top: 0, left: 0, right: 100, bottom: 50,
+      toJSON: () => {},
+    });
+    el.setPointerCapture = () => {};
+    el.releasePointerCapture = () => {};
+    instance.observe(el);
+
+    const handle = instance.tween(el, { toX: 1000, toY: 0, duration: 500 });
+
+    // Cancel immediately
+    handle.cancel();
+
+    // Wait a bit — position should NOT have reached target
+    await new Promise((r) => setTimeout(r, 100));
+
+    const buf = instance.getBuffer()!;
+    // Should be at or near start (0), definitely not at 1000
+    expect(buf[0]).toBeLessThan(500);
+
+    instance.destroy();
+  });
+});

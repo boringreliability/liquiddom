@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-31 of 34 Wards complete · 109 estimated tests · 0 blocked
+32 of 34 Wards complete · 109 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -37,7 +37,7 @@
 | 29 | Liquid Type Dispatch Architecture | 4 | ✅ Complete | 2026-04-23 |
 | 30 | Dragable Interaction Primitive | 4 | ✅ Complete | 2026-04-23 |
 | 31 | Impulse Injection Primitive | 3 | ✅ Complete | 2026-04-23 |
-| 32 | Position Tween Primitive | 3 | 📋 Planned | - |
+| 32 | Position Tween Primitive | 3 | ✅ Complete | 2026-04-23 |
 | 33 | Dragable Cards Scene | 1 | 📋 Planned | - |
 | 34 | Scroll-Responsive Hero Scene | 1 | 📋 Planned | - |
 
