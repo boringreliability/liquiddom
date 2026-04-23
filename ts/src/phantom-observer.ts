@@ -63,6 +63,11 @@ export class PhantomObserver {
     return this.buffer;
   }
 
+  /** Get entity ID for an observed element, or undefined if not observed. */
+  getEntityId(el: HTMLElement): number | undefined {
+    return this.elementToId.get(el);
+  }
+
   /** Update views and capacity after WasmBridge rebind. */
   setViews(entityView: Float32Array, particleView: Float32Array | null, newCapacity: number): void {
     this.buffer = entityView;

@@ -1042,3 +1042,78 @@ describe("Dragable Interaction", () => {
     instance.destroy();
   });
 });
+
+// ── Ward 031: Impulse Injection ──
+
+describe("Impulse Injection", () => {
+  beforeEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+  });
+
+  it("impulse sets shake state in buffer", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
+
+    const el = document.createElement("div");
+    el.getBoundingClientRect = () => ({
+      x: 100, y: 100, width: 200, height: 100,
+      top: 100, left: 100, right: 300, bottom: 200,
+      toJSON: () => {},
+    });
+    el.setPointerCapture = () => {};
+    el.releasePointerCapture = () => {};
+
+    const id = instance.observe(el);
+    const buf = instance.getBuffer()!;
+
+    // liquid_type starts at Default
+    expect(buf[id * 8 + 5]).toBe(0);
+
+    // Apply impulse
+    instance.impulse(el, { direction: [1, 0], magnitude: 50, duration: 300 });
+
+    // liquid_type should be Shake (4.0) and impulse_vx should be set
+    expect(buf[id * 8 + 5]).toBe(4.0);
+    expect(buf[id * 8 + 6]).not.toBe(0); // impulse_vx
+
+    instance.destroy();
+  });
+
+  it("impulse on unobserved element throws", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
+
+    const el = document.createElement("div");
+
+    expect(() => instance.impulse(el)).toThrow();
+
+    instance.destroy();
+  });
+
+  it("impulse auto-resets to default after duration", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
+
+    const el = document.createElement("div");
+    el.getBoundingClientRect = () => ({
+      x: 100, y: 100, width: 200, height: 100,
+      top: 100, left: 100, right: 300, bottom: 200,
+      toJSON: () => {},
+    });
+    el.setPointerCapture = () => {};
+    el.releasePointerCapture = () => {};
+
+    const id = instance.observe(el);
+    const buf = instance.getBuffer()!;
+
+    instance.impulse(el, { duration: 50 });
+    expect(buf[id * 8 + 5]).toBe(4.0);
+
+    // Wait for duration + buffer
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Should have auto-reset to Default
+    expect(buf[id * 8 + 5]).toBe(0.0);
+
+    instance.destroy();
+  });
+});
