@@ -91,6 +91,11 @@ export interface LiquidDOMInstance {
   observe(el: HTMLElement, liquidType?: number): number;
   unobserve(el: HTMLElement): void;
   grow(newCapacity: number): void;
+  impulse(element: HTMLElement, options?: {
+    direction?: [number, number];
+    magnitude?: number;
+    duration?: number;
+  }): void;
   pause(): void;
   resume(): void;
   autoDiscover(root?: Element): void;
@@ -384,6 +389,37 @@ export class LiquidDOM {
       unobserve(el: HTMLElement): void {
         if (destroyed) return;
         observer.unobserve(el);
+      },
+
+      impulse(element: HTMLElement, options?: {
+        direction?: [number, number];
+        magnitude?: number;
+        duration?: number;
+      }): void {
+        if (destroyed) {
+          throw new Error("Cannot impulse on a destroyed LiquidDOM instance");
+        }
+        const id = observer.getEntityId(element);
+        if (id === undefined) {
+          throw new Error("Element is not observed by this LiquidDOM instance");
+        }
+
+        const [dx, dy] = options?.direction ?? [1, 0];
+        const mag = options?.magnitude ?? 10;
+        const dur = options?.duration ?? 300;
+
+        const buf = observer.getBuffer();
+        const off = id * 8;
+        buf[off + 5] = 4.0; // liquid_type = Shake
+        buf[off + 6] = dx * mag; // impulse_vx
+        buf[off + 7] = dy * mag; // impulse_vy
+
+        // Auto-reset after duration
+        setTimeout(() => {
+          buf[off + 5] = 0.0; // Default
+          buf[off + 6] = 0.0;
+          buf[off + 7] = 0.0;
+        }, dur);
       },
 
       grow(newCapacity: number): void {

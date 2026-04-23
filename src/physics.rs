@@ -45,6 +45,28 @@ pub fn strategy_dragged(
     body.base_pos = saved_base;
 }
 
+/// Shake strategy — applies impulse force on top of normal physics.
+/// impulse_vx/vy are the current frame's impulse (decay handled by TS timer).
+pub fn strategy_shake(
+    body: &mut EntityBody,
+    dt: f32,
+    tension: f32,
+    damping: f32,
+    impulse_vx: f32,
+    impulse_vy: f32,
+    pointer_pos: Vec2,
+    pointer_active: bool,
+    substeps: u32,
+) {
+    // Add impulse force to all particles before running normal physics
+    let impulse = Vec2::new(impulse_vx, impulse_vy);
+    for particle in &mut body.particles {
+        particle.velocity += impulse * dt;
+    }
+    // Run normal physics on top (springs pull back to rest)
+    body.run_physics(dt, tension, damping, pointer_pos, pointer_active, substeps);
+}
+
 /// Default physics strategy — exact Ward 22 behavior.
 /// Neighbor springs, shape preservation, centroid anchoring, semi-implicit Euler.
 pub fn strategy_default(
@@ -737,6 +759,55 @@ mod tests {
             dist_after < dist_before,
             "centroid should move toward drag target: before={}, after={}",
             dist_before, dist_after,
+        );
+    }
+
+    // ── Ward 31: Impulse/Shake Strategy tests ──
+
+    #[test]
+    fn test_shake_adds_velocity() {
+        let mut body = EntityBody::new_rect(100.0, 100.0, 8);
+
+        // All particles start at rest
+        let vel_before: f32 = body.particles.iter()
+            .map(|p| p.velocity.length())
+            .sum();
+        assert_eq!(vel_before, 0.0);
+
+        // Apply shake with impulse force
+        strategy_shake(&mut body, 0.016, 100.0, 5.0, 500.0, 0.0, Vec2::zero(), false, 1);
+
+        // Particles should now have velocity
+        let vel_after: f32 = body.particles.iter()
+            .map(|p| p.velocity.length())
+            .sum();
+        assert!(
+            vel_after > 0.0,
+            "shake should add velocity, total velocity = {}",
+            vel_after,
+        );
+    }
+
+    #[test]
+    fn test_shake_returns_to_rest() {
+        let mut body = EntityBody::new_rect(100.0, 100.0, 8);
+
+        // Apply one impulse
+        strategy_shake(&mut body, 0.016, 100.0, 5.0, 200.0, 0.0, Vec2::zero(), false, 1);
+
+        // Then run default physics for many frames (impulse gone, springs pull back)
+        for _ in 0..500 {
+            body.run_physics(0.016, 100.0, 5.0, Vec2::zero(), false, 1);
+        }
+
+        // Should be back near rest
+        let centroid = body.compute_centroid();
+        let target = Vec2::new(50.0, 50.0);
+        let drift = (centroid - target).length();
+        assert!(
+            drift < 10.0,
+            "after shake + settle, centroid should be near rest, drift = {}",
+            drift,
         );
     }
 }

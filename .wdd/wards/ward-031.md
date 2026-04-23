@@ -3,12 +3,12 @@ ward: 31
 revision: null
 name: "Impulse Injection Primitive"
 epic: "interaction-primitives"
-status: "planned"
+status: "complete"
 dependencies: [13, 29]
 layer: "both"
 estimated_tests: 3
 created: "2026-04-22"
-completed: null
+completed: "2026-04-23"
 ---
 # Ward 031: Impulse Injection Primitive
 
