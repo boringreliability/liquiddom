@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-28 of 34 Wards complete · 109 estimated tests · 0 blocked
+29 of 34 Wards complete · 109 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -34,7 +34,7 @@
 | 26 | Scroll-Aware Base Position | 3 | ✅ Complete | 2026-04-22 |
 | 27 | Coordinate System Unification | 4 | ✅ Complete | 2026-04-23 |
 | 28 | Transparent Background Compatibility | 2 | ✅ Complete | 2026-04-23 |
-| 29 | Liquid Type Dispatch Architecture | 4 | 📋 Planned | - |
+| 29 | Liquid Type Dispatch Architecture | 4 | ✅ Complete | 2026-04-23 |
 | 30 | Dragable Interaction Primitive | 4 | 📋 Planned | - |
 | 31 | Impulse Injection Primitive | 3 | 📋 Planned | - |
 | 32 | Position Tween Primitive | 3 | 📋 Planned | - |
