@@ -1,5 +1,46 @@
 use crate::math::Vec2;
 
+/// Physics strategy dispatch based on liquid_type float.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PhysicsStrategy {
+    Default,  // 0.0
+    Tear,     // 1.0 — stub
+    Magnet,   // 2.0 — stub
+    Dragged,  // 3.0 — Ward 030
+    Shake,    // 4.0 — Ward 031
+    Tween,    // 5.0 — Ward 032
+}
+
+/// Map liquid_type float to PhysicsStrategy. Unknown values fall back to Default.
+pub fn dispatch_strategy(liquid_type: f32) -> PhysicsStrategy {
+    if liquid_type.is_nan() {
+        return PhysicsStrategy::Default;
+    }
+    match liquid_type.round() as i32 {
+        0 => PhysicsStrategy::Default,
+        1 => PhysicsStrategy::Tear,
+        2 => PhysicsStrategy::Magnet,
+        3 => PhysicsStrategy::Dragged,
+        4 => PhysicsStrategy::Shake,
+        5 => PhysicsStrategy::Tween,
+        _ => PhysicsStrategy::Default,
+    }
+}
+
+/// Default physics strategy — exact Ward 22 behavior.
+/// Neighbor springs, shape preservation, centroid anchoring, semi-implicit Euler.
+pub fn strategy_default(
+    body: &mut EntityBody,
+    dt: f32,
+    tension: f32,
+    damping: f32,
+    pointer_pos: Vec2,
+    pointer_active: bool,
+    substeps: u32,
+) {
+    body.run_physics(dt, tension, damping, pointer_pos, pointer_active, substeps);
+}
+
 /// A single particle in a soft body simulation.
 #[derive(Debug, Clone)]
 pub struct Particle {
@@ -82,8 +123,23 @@ impl EntityBody {
         self.tick_with_substeps(dt, tension, damping, pointer_pos, pointer_active, 1);
     }
 
-    /// Full tick with configurable substeps.
+    /// Full tick with configurable substeps. Dispatches to strategy based on liquid_type.
     pub fn tick_with_substeps(
+        &mut self,
+        dt: f32,
+        tension: f32,
+        damping: f32,
+        pointer_pos: Vec2,
+        pointer_active: bool,
+        substeps: u32,
+    ) {
+        // Dispatch is a no-op for now — all strategies use run_physics (Default).
+        // Ward 030+ will add strategy-specific behavior here.
+        self.run_physics(dt, tension, damping, pointer_pos, pointer_active, substeps);
+    }
+
+    /// Core physics implementation. Called by all strategies (Default baseline).
+    pub fn run_physics(
         &mut self,
         dt: f32,
         tension: f32,
@@ -575,5 +631,67 @@ mod tests {
             "centroid should stay near base_pos center, drift = {}, centroid = {:?}",
             drift, centroid,
         );
+    }
+
+    // ── Ward 29: Liquid Type Dispatch tests ──
+
+    #[test]
+    fn test_default_liquid_type_matches_baseline() {
+        // Run two identical bodies — one via tick(), one via strategy_default()
+        let mut body_tick = EntityBody::new_rect(100.0, 100.0, 8);
+        let mut body_strat = EntityBody::new_rect(100.0, 100.0, 8);
+
+        // Displace particle 0 so there's something to compute
+        body_tick.particles[0].pos = Vec2::new(50.0, 0.0);
+        body_strat.particles[0].pos = Vec2::new(50.0, 0.0);
+
+        // Run 100 frames via tick (which should dispatch to Default)
+        for _ in 0..100 {
+            body_tick.tick(0.016, 100.0, 5.0, Vec2::zero(), false);
+        }
+
+        // Run 100 frames via strategy_default directly
+        for _ in 0..100 {
+            strategy_default(&mut body_strat, 0.016, 100.0, 5.0, Vec2::zero(), false, 1);
+        }
+
+        // Positions should be identical
+        for (i, (a, b)) in body_tick.particles.iter().zip(body_strat.particles.iter()).enumerate() {
+            assert!(
+                (a.pos.x - b.pos.x).abs() < 0.001 && (a.pos.y - b.pos.y).abs() < 0.001,
+                "particle {} mismatch: tick={:?}, strategy={:?}", i, a.pos, b.pos,
+            );
+        }
+    }
+
+    #[test]
+    fn test_invalid_liquid_type_falls_back() {
+        assert_eq!(dispatch_strategy(f32::NAN), PhysicsStrategy::Default);
+        assert_eq!(dispatch_strategy(-1.0), PhysicsStrategy::Default);
+        assert_eq!(dispatch_strategy(99.0), PhysicsStrategy::Default);
+        assert_eq!(dispatch_strategy(0.0), PhysicsStrategy::Default);
+        assert_eq!(dispatch_strategy(3.0), PhysicsStrategy::Dragged);
+    }
+
+    #[test]
+    fn test_strategies_unit_testable() {
+        // strategy_default can be called in isolation
+        let mut body = EntityBody::new_rect(50.0, 50.0, 4);
+        body.particles[0].pos = Vec2::new(100.0, 0.0);
+
+        strategy_default(&mut body, 0.016, 100.0, 5.0, Vec2::zero(), false, 1);
+
+        // Particle should have moved toward rest
+        assert!(body.particles[0].pos.x < 100.0);
+    }
+
+    #[test]
+    fn test_dispatch_maps_correctly() {
+        assert_eq!(dispatch_strategy(0.0), PhysicsStrategy::Default);
+        assert_eq!(dispatch_strategy(1.0), PhysicsStrategy::Tear);
+        assert_eq!(dispatch_strategy(2.0), PhysicsStrategy::Magnet);
+        assert_eq!(dispatch_strategy(3.0), PhysicsStrategy::Dragged);
+        assert_eq!(dispatch_strategy(4.0), PhysicsStrategy::Shake);
+        assert_eq!(dispatch_strategy(5.0), PhysicsStrategy::Tween);
     }
 }

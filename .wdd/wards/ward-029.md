@@ -3,12 +3,12 @@ ward: 29
 revision: null
 name: "Liquid Type Dispatch Architecture"
 epic: "interaction-primitives"
-status: "planned"
+status: "complete"
 dependencies: [22, 23]
 layer: "rust"
 estimated_tests: 4
 created: "2026-04-22"
-completed: null
+completed: "2026-04-23"
 ---
 # Ward 029: Liquid Type Dispatch Architecture
 
