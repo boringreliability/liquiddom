@@ -21,6 +21,9 @@ interface ElementListeners {
   mouseleave: EventListener;
   focus: EventListener;
   blur: EventListener;
+  pointerdown: EventListener;
+  pointerup: EventListener;
+  pointercancel: EventListener;
 }
 
 export class PhantomObserver {
@@ -107,15 +110,48 @@ export class PhantomObserver {
     const onLeave = () => this.hoverState.set(el, false);
     const onFocus = () => this.focusState.set(el, true);
     const onBlur = () => this.focusState.set(el, false);
+
+    // Drag listeners — set liquid_type in buffer
+    const onPointerDown = (e: Event) => {
+      const pe = e as PointerEvent;
+      const eid = this.elementToId.get(el);
+      if (eid === undefined) return;
+      const off = eid * FLOATS_PER_ENTITY;
+      this.buffer[off + 5] = 3.0; // liquid_type = Dragged
+      this.buffer[off + 6] = pe.clientX - this.coordOffsetX; // drag_target_x
+      this.buffer[off + 7] = pe.clientY - this.coordOffsetY; // drag_target_y
+      if (typeof el.setPointerCapture === "function") {
+        el.setPointerCapture(pe.pointerId);
+      }
+    };
+    const onPointerUp = (e: Event) => {
+      const pe = e as PointerEvent;
+      const eid = this.elementToId.get(el);
+      if (eid === undefined) return;
+      const off = eid * FLOATS_PER_ENTITY;
+      this.buffer[off + 5] = 0.0; // liquid_type = Default
+      this.buffer[off + 6] = 0.0;
+      this.buffer[off + 7] = 0.0;
+      if (typeof el.releasePointerCapture === "function") {
+        el.releasePointerCapture(pe.pointerId);
+      }
+    };
+
     el.addEventListener("mouseenter", onEnter);
     el.addEventListener("mouseleave", onLeave);
     el.addEventListener("focus", onFocus);
     el.addEventListener("blur", onBlur);
+    el.addEventListener("pointerdown", onPointerDown);
+    el.addEventListener("pointerup", onPointerUp);
+    el.addEventListener("pointercancel", onPointerUp); // same handler
     this.listeners.set(el, {
       mouseenter: onEnter,
       mouseleave: onLeave,
       focus: onFocus,
       blur: onBlur,
+      pointerdown: onPointerDown,
+      pointerup: onPointerUp,
+      pointercancel: onPointerUp,
     });
 
     const offset = id * FLOATS_PER_ENTITY;
@@ -152,6 +188,9 @@ export class PhantomObserver {
       el.removeEventListener("mouseleave", ls.mouseleave);
       el.removeEventListener("focus", ls.focus);
       el.removeEventListener("blur", ls.blur);
+      el.removeEventListener("pointerdown", ls.pointerdown);
+      el.removeEventListener("pointerup", ls.pointerup);
+      el.removeEventListener("pointercancel", ls.pointercancel);
       this.listeners.delete(el);
     }
 
