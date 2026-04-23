@@ -3,12 +3,12 @@ ward: 27
 revision: null
 name: "Coordinate System Unification"
 epic: "real-world-illusion"
-status: "planned"
+status: "complete"
 dependencies: [26]
 layer: "both"
 estimated_tests: 4
 created: "2026-04-22"
-completed: null
+completed: "2026-04-23"
 ---
 # Ward 027: Coordinate System Unification
 

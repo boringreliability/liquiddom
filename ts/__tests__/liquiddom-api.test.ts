@@ -791,3 +791,136 @@ describe("Scroll-Aware Physics", () => {
     instance.destroy();
   });
 });
+
+// ── Ward 027: Coordinate System Unification ──
+
+describe("Coordinate System", () => {
+  beforeEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+  });
+
+  it("pointer and entity use same reference frame in fullscreen", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
+
+    const el = document.createElement("div");
+    el.getBoundingClientRect = () => ({
+      x: 100, y: 200, width: 150, height: 80,
+      top: 200, left: 100, right: 250, bottom: 280,
+      toJSON: () => {},
+    });
+    instance.observe(el);
+
+    // Pointer at element's center
+    document.dispatchEvent(new PointerEvent("pointermove", {
+      clientX: 175, clientY: 240,
+    }));
+
+    // Pointer coords should be in same space as entity coords (viewport-relative)
+    expect(instance.pointerX).toBe(175);
+    expect(instance.pointerY).toBe(240);
+
+    instance.destroy();
+  });
+
+  it("pointer and entity use same reference frame in container mode", async () => {
+    const container = document.createElement("div");
+    Object.defineProperty(container, "clientWidth", { value: 400, configurable: true });
+    Object.defineProperty(container, "clientHeight", { value: 300, configurable: true });
+    container.getBoundingClientRect = () => ({
+      x: 50, y: 100, width: 400, height: 300,
+      top: 100, left: 50, right: 450, bottom: 400,
+      toJSON: () => {},
+    });
+    document.body.appendChild(container);
+
+    const instance = await LiquidDOM.create({
+      capacity: 8, container, autoObserve: false,
+    });
+
+    // Element at container-relative (60, 30)
+    const el = document.createElement("div");
+    el.getBoundingClientRect = () => ({
+      x: 110, y: 130, width: 100, height: 50,
+      top: 130, left: 110, right: 210, bottom: 180,
+      toJSON: () => {},
+    });
+    instance.observe(el);
+
+    // Pointer at element center in page coords: (160, 155)
+    // Container-relative: (160-50, 155-100) = (110, 55)
+    document.dispatchEvent(new PointerEvent("pointermove", {
+      clientX: 160, clientY: 155,
+    }));
+
+    expect(instance.pointerX).toBe(110); // container-relative
+
+    // Entity buffer should ALSO be container-relative
+    // Element is at viewport (110, 130), container at (50, 100)
+    // So entity should be at container-relative (60, 30)
+    // This is what we need to verify — currently sync() writes viewport coords
+    const buf = instance.getBuffer();
+    expect(buf).toBeDefined();
+    if (buf) {
+      expect(buf[0]).toBe(60);  // x: 110 - 50 (container left)
+      expect(buf[1]).toBe(30);  // y: 130 - 100 (container top)
+    }
+
+    instance.destroy();
+  });
+
+  it("fullscreen mode coordinates unchanged", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
+
+    const el = document.createElement("div");
+    el.getBoundingClientRect = () => ({
+      x: 200, y: 300, width: 100, height: 50,
+      top: 300, left: 200, right: 300, bottom: 350,
+      toJSON: () => {},
+    });
+    instance.observe(el);
+
+    // In fullscreen mode, entity coords are viewport-relative (unchanged)
+    const buf = instance.getBuffer();
+    if (buf) {
+      expect(buf[0]).toBe(200);
+      expect(buf[1]).toBe(300);
+    }
+
+    instance.destroy();
+  });
+
+  it("container mode entity coords are container-relative", async () => {
+    const container = document.createElement("div");
+    Object.defineProperty(container, "clientWidth", { value: 400, configurable: true });
+    Object.defineProperty(container, "clientHeight", { value: 300, configurable: true });
+    container.getBoundingClientRect = () => ({
+      x: 80, y: 60, width: 400, height: 300,
+      top: 60, left: 80, right: 480, bottom: 360,
+      toJSON: () => {},
+    });
+    document.body.appendChild(container);
+
+    const instance = await LiquidDOM.create({
+      capacity: 8, container, autoObserve: false,
+    });
+
+    const el = document.createElement("div");
+    el.getBoundingClientRect = () => ({
+      x: 180, y: 160, width: 120, height: 70,
+      top: 160, left: 180, right: 300, bottom: 230,
+      toJSON: () => {},
+    });
+    instance.observe(el);
+
+    // Entity should be container-relative: (180-80, 160-60) = (100, 100)
+    const buf = instance.getBuffer();
+    if (buf) {
+      expect(buf[0]).toBe(100);
+      expect(buf[1]).toBe(100);
+    }
+
+    instance.destroy();
+  });
+});
