@@ -85,6 +85,7 @@ export interface LiquidDOMInstance {
   readonly pointerActive: boolean;
   readonly pointerX: number;
   readonly pointerY: number;
+  getBuffer(): Float32Array | null;
   observe(el: HTMLElement, liquidType?: number): number;
   unobserve(el: HTMLElement): void;
   grow(newCapacity: number): void;
@@ -156,6 +157,12 @@ export class LiquidDOM {
       entityView: bridge?.entityView(),
       particleView: bridge?.particleView(),
     });
+
+    // 3b. Set initial coord offset for container mode
+    if (isContainerMode) {
+      const rect = container.getBoundingClientRect();
+      observer.setCoordOffset(rect.left, rect.top);
+    }
 
     // 4. Auto-observe [data-liquid] elements
     if (autoObserve) {
@@ -278,9 +285,10 @@ export class LiquidDOM {
         lastTime = now;
         const dt = Math.min(rawDt, maxDt);
 
-        // Cache container rect once per frame for pointer coordinate transform
+        // Cache container rect once per frame for coordinate transform
         if (isContainerMode) {
           containerRect = container.getBoundingClientRect();
+          observer.setCoordOffset(containerRect.left, containerRect.top);
         }
 
         const dpr = window.devicePixelRatio || 1;
@@ -344,6 +352,10 @@ export class LiquidDOM {
 
       get pointerActive(): boolean {
         return pointerActive;
+      },
+
+      getBuffer(): Float32Array | null {
+        return observer.getBuffer();
       },
 
       get pointerX(): number {

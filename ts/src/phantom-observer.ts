@@ -37,6 +37,8 @@ export class PhantomObserver {
     new WeakMap();
   private readonly colorDefault: string;
   private readonly colorHover: string;
+  private coordOffsetX = 0;
+  private coordOffsetY = 0;
 
   /**
    * @param capacity - Max number of entities
@@ -63,6 +65,12 @@ export class PhantomObserver {
     this.buffer = entityView;
     this.particleBuffer = particleView;
     this._capacity = newCapacity;
+  }
+
+  /** Set coordinate offset for container mode. Subtracted from getBoundingClientRect in sync(). */
+  setCoordOffset(x: number, y: number): void {
+    this.coordOffsetX = x;
+    this.coordOffsetY = y;
   }
 
   /** Grow in mock mode (no WASM). Creates a larger local buffer, copies old data. */
@@ -112,8 +120,8 @@ export class PhantomObserver {
 
     const offset = id * FLOATS_PER_ENTITY;
     const rect = el.getBoundingClientRect();
-    this.buffer[offset] = rect.x;
-    this.buffer[offset + 1] = rect.y;
+    this.buffer[offset] = rect.x - this.coordOffsetX;
+    this.buffer[offset + 1] = rect.y - this.coordOffsetY;
     this.buffer[offset + 2] = rect.width;
     this.buffer[offset + 3] = rect.height;
     this.buffer[offset + 4] = 0; // interaction_state: default
@@ -162,8 +170,8 @@ export class PhantomObserver {
     for (const [id, el] of this.idToElement) {
       const offset = id * FLOATS_PER_ENTITY;
       const rect = el.getBoundingClientRect();
-      this.buffer[offset] = rect.x;
-      this.buffer[offset + 1] = rect.y;
+      this.buffer[offset] = rect.x - this.coordOffsetX;
+      this.buffer[offset + 1] = rect.y - this.coordOffsetY;
       this.buffer[offset + 2] = rect.width;
       this.buffer[offset + 3] = rect.height;
       // interaction_state: 0.0 = idle, 1.0 = hover, 2.0 = focused
