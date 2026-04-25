@@ -3,12 +3,12 @@ ward: 34
 revision: null
 name: "Scroll-Responsive Hero Scene"
 epic: "demo-scenes"
-status: "planned"
+status: "complete"
 dependencies: [26]
 layer: "typescript"
 estimated_tests: 1
 created: "2026-04-22"
-completed: null
+completed: "2026-04-25"
 ---
 # Ward 034: Scroll-Responsive Hero Scene
 

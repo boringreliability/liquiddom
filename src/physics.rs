@@ -47,6 +47,7 @@ pub fn strategy_dragged(
 
 /// Shake strategy — applies impulse force on top of normal physics.
 /// impulse_vx/vy are the current frame's impulse (decay handled by TS timer).
+#[allow(clippy::too_many_arguments)]
 pub fn strategy_shake(
     body: &mut EntityBody,
     dt: f32,
@@ -107,6 +108,7 @@ pub struct EntityBody {
     pub height: f32,
     pub neighbor_springs: Vec<NeighborSpring>,
     pub reference_area: f32,
+    pub skip_rigid_translation: bool,
 }
 
 impl Particle {
@@ -196,11 +198,13 @@ impl EntityBody {
 
         // Rigid translation: when base_pos changes, teleport all particles
         // by the same delta so they follow the DOM element instantly.
-        // Springs only handle deformation, not translation.
+        // Skipped during drag — springs pull particles naturally for squish effect.
         let delta = self.base_pos - self.prev_base_pos;
         if delta.x != 0.0 || delta.y != 0.0 {
-            for particle in &mut self.particles {
-                particle.pos += delta;
+            if !self.skip_rigid_translation {
+                for particle in &mut self.particles {
+                    particle.pos += delta;
+                }
             }
             self.prev_base_pos = self.base_pos;
         }
@@ -335,6 +339,7 @@ impl EntityBody {
             height,
             neighbor_springs,
             reference_area: 0.0,
+            skip_rigid_translation: false,
         };
         body.reference_area = body.compute_area();
         body

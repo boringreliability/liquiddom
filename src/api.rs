@@ -1,7 +1,7 @@
 use wasm_bindgen::prelude::*;
 use crate::buffer::EntityBuffer;
 use crate::math::Vec2;
-use crate::physics::EntityBody;
+use crate::physics::{EntityBody, dispatch_strategy, PhysicsStrategy, strategy_shake};
 
 /// Number of particles per soft body (4 per edge of the rectangle).
 pub const PARTICLES_PER_BODY: usize = 16;
@@ -89,8 +89,29 @@ impl LiquidCore {
             // DOM state is king — update base_pos from buffer
             body.base_pos = Vec2::new(x, y);
 
-            // Run physics with configurable parameters
-            body.tick_with_substeps(dt, tension, damping, pointer_pos, pointer_active, substeps);
+            // Dispatch physics strategy based on liquid_type
+            let liquid_type = slice[5];
+            let strategy = dispatch_strategy(liquid_type);
+
+            // During drag, skip rigid translation so particles lag behind with squish
+            body.skip_rigid_translation = strategy == PhysicsStrategy::Dragged;
+
+            match strategy {
+                PhysicsStrategy::Dragged => {
+                    // DOM element moves with pointer, sync() updates base_pos.
+                    // skip_rigid_translation is set above — springs create squish.
+                    body.run_physics(dt, tension, damping, pointer_pos, pointer_active, substeps);
+                }
+                PhysicsStrategy::Shake => {
+                    let impulse_vx = slice[6];
+                    let impulse_vy = slice[7];
+                    strategy_shake(body, dt, tension, damping, impulse_vx, impulse_vy, pointer_pos, pointer_active, substeps);
+                }
+                _ => {
+                    // Default, Tear, Magnet, Tween — all use default physics
+                    body.tick_with_substeps(dt, tension, damping, pointer_pos, pointer_active, substeps);
+                }
+            }
 
             // Write particle positions to flat buffer (pos is global after physics)
             let offset = i * PARTICLE_FLOATS_PER_BODY;
