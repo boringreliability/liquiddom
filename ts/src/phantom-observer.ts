@@ -22,6 +22,7 @@ interface ElementListeners {
   focus: EventListener;
   blur: EventListener;
   pointerdown: EventListener;
+  pointermove: EventListener;
   pointerup: EventListener;
   pointercancel: EventListener;
 }
@@ -116,27 +117,59 @@ export class PhantomObserver {
     const onFocus = () => this.focusState.set(el, true);
     const onBlur = () => this.focusState.set(el, false);
 
-    // Drag listeners — set liquid_type in buffer
+    // Drag listeners — move DOM element with pointer, blob follows via sync()
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+    let dragging = false;
+
     const onPointerDown = (e: Event) => {
       const pe = e as PointerEvent;
       const eid = this.elementToId.get(el);
       if (eid === undefined) return;
-      const off = eid * FLOATS_PER_ENTITY;
-      this.buffer[off + 5] = 3.0; // liquid_type = Dragged
-      this.buffer[off + 6] = pe.clientX - this.coordOffsetX; // drag_target_x
-      this.buffer[off + 7] = pe.clientY - this.coordOffsetY; // drag_target_y
+      dragging = true;
+      // Signal to Rust: skip rigid translation, let springs create squish
+      this.buffer[eid * FLOATS_PER_ENTITY + 5] = 3.0; // liquid_type = Dragged
+      const rect = el.getBoundingClientRect();
+      dragStartX = rect.left;
+      dragStartY = rect.top;
+      dragOffsetX = pe.clientX - rect.left;
+      dragOffsetY = pe.clientY - rect.top;
+      el.style.position = "fixed";
+      el.style.left = `${rect.left}px`;
+      el.style.top = `${rect.top}px`;
+      el.style.width = `${rect.width}px`;
+      el.style.height = `${rect.height}px`;
+      el.style.margin = "0";
+      el.style.zIndex = "1000";
       if (typeof el.setPointerCapture === "function") {
         el.setPointerCapture(pe.pointerId);
       }
     };
-    const onPointerUp = (e: Event) => {
+    const onPointerMove = (e: Event) => {
+      if (!dragging) return;
       const pe = e as PointerEvent;
+      el.style.left = `${pe.clientX - dragOffsetX}px`;
+      el.style.top = `${pe.clientY - dragOffsetY}px`;
+    };
+    const onPointerUp = (e: Event) => {
+      if (!dragging) return;
+      dragging = false;
+      const pe = e as PointerEvent;
+      // Reset liquid_type so rigid translation resumes
       const eid = this.elementToId.get(el);
-      if (eid === undefined) return;
-      const off = eid * FLOATS_PER_ENTITY;
-      this.buffer[off + 5] = 0.0; // liquid_type = Default
-      this.buffer[off + 6] = 0.0;
-      this.buffer[off + 7] = 0.0;
+      if (eid !== undefined) {
+        this.buffer[eid * FLOATS_PER_ENTITY + 5] = 0.0; // Default
+      }
+      // Snap back to original position
+      el.style.position = "";
+      el.style.left = "";
+      el.style.top = "";
+      el.style.width = "";
+      el.style.height = "";
+      el.style.margin = "";
+      el.style.zIndex = "";
       if (typeof el.releasePointerCapture === "function") {
         el.releasePointerCapture(pe.pointerId);
       }
@@ -147,6 +180,7 @@ export class PhantomObserver {
     el.addEventListener("focus", onFocus);
     el.addEventListener("blur", onBlur);
     el.addEventListener("pointerdown", onPointerDown);
+    el.addEventListener("pointermove", onPointerMove);
     el.addEventListener("pointerup", onPointerUp);
     el.addEventListener("pointercancel", onPointerUp); // same handler
     this.listeners.set(el, {
@@ -155,6 +189,7 @@ export class PhantomObserver {
       focus: onFocus,
       blur: onBlur,
       pointerdown: onPointerDown,
+      pointermove: onPointerMove,
       pointerup: onPointerUp,
       pointercancel: onPointerUp,
     });
@@ -194,6 +229,7 @@ export class PhantomObserver {
       el.removeEventListener("focus", ls.focus);
       el.removeEventListener("blur", ls.blur);
       el.removeEventListener("pointerdown", ls.pointerdown);
+      el.removeEventListener("pointermove", ls.pointermove);
       el.removeEventListener("pointerup", ls.pointerup);
       el.removeEventListener("pointercancel", ls.pointercancel);
       this.listeners.delete(el);

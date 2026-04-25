@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LiquidDOM — Scroll-Responsive Hero</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;500;800&display=swap');
+
+    :root {
+      --bg: #0b0914;
+      --text: #f0e6ff;
+      --muted: #6a5a8a;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    [data-liquid] {
+      background: transparent !important;
+      border: none !important;
+      outline: none !important;
+      position: relative;
+      z-index: 1;
+    }
+
+    .spacer {
+      height: 60vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 1.2rem;
+      font-weight: 300;
+    }
+
+    .spacer.top { flex-direction: column; gap: 1rem; }
+    .spacer.top h1 {
+      font-size: 2.5rem;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -2px;
+    }
+
+    .hero-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3rem;
+      padding: 4rem 2rem;
+    }
+
+    .hero-row {
+      display: flex;
+      gap: 2rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      max-width: 1000px;
+      width: 100%;
+    }
+
+    .hero-block {
+      width: 280px;
+      height: 220px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      color: var(--text);
+    }
+
+    .hero-block h2 {
+      font-size: 1.5rem;
+      font-weight: 800;
+    }
+
+    .hero-block p {
+      font-size: 0.9rem;
+      color: var(--muted);
+      text-align: center;
+      max-width: 220px;
+      line-height: 1.5;
+    }
+
+    .hero-block.wide {
+      width: 580px;
+      height: 180px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="spacer top">
+    <h1>Scroll-Responsive Hero</h1>
+    <span>Scroll down to see elements respond</span>
+  </div>
+
+  <section class="hero-section">
+    <div class="hero-row">
+      <div class="hero-block" data-liquid>
+        <h2>Alive</h2>
+        <p>Elements breathe when scroll settles. Physics resumes organically.</p>
+      </div>
+      <div class="hero-block" data-liquid>
+        <h2>Smooth</h2>
+        <p>No jank during fast scroll. Blobs follow DOM elements instantly.</p>
+      </div>
+      <div class="hero-block" data-liquid>
+        <h2>Aware</h2>
+        <p>Scroll-guard detects idle state and snaps positions cleanly.</p>
+      </div>
+    </div>
+
+    <div class="hero-row">
+      <div class="hero-block wide" data-liquid>
+        <h2>Built with Rust + WASM</h2>
+        <p>Zero-copy FFI. 16 particles per element. Semi-implicit Euler with neighbor springs.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="spacer">Keep scrolling...</div>
+
+  <section class="hero-section">
+    <div class="hero-row">
+      <div class="hero-block" data-liquid>
+        <h2>Accessible</h2>
+        <p>Still just HTML. Screen readers work. Tab navigation works.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="spacer">End of demo.</div>
+
+  <script type="module" src="./scroll-hero.ts"></script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-33 of 34 Wards complete · 109 estimated tests · 0 blocked
+34 of 35 Wards complete · 121 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -39,7 +39,8 @@
 | 31 | Impulse Injection Primitive | 3 | ✅ Complete | 2026-04-23 |
 | 32 | Position Tween Primitive | 3 | ✅ Complete | 2026-04-23 |
 | 33 | Dragable Cards Scene | 1 | ✅ Complete | 2026-04-23 |
-| 34 | Scroll-Responsive Hero Scene | 1 | 📋 Planned | - |
+| 34 | Scroll-Responsive Hero Scene | 1 | ✅ Complete | 2026-04-25 |
+| 35 | Demo Hardening, Runtime Truth, and Showcase Polish | 12 | 📋 Planned | - |
 
 ## Test Summary
-- Estimated total: 109
+- Estimated total: 121

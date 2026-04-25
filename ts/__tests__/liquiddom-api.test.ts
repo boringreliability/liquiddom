@@ -963,36 +963,33 @@ describe("Dragable Interaction", () => {
     }
   });
 
-  it("pointerdown activates dragged state in buffer", async () => {
+  it("pointerdown moves element to fixed position", async () => {
     const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
 
     const el = document.createElement("div");
-    el.setAttribute("data-liquid", "");
     el.getBoundingClientRect = () => ({
       x: 100, y: 100, width: 200, height: 100,
       top: 100, left: 100, right: 300, bottom: 200,
       toJSON: () => {},
     });
-    // jsdom needs setPointerCapture/releasePointerCapture stubs
     el.setPointerCapture = () => {};
     el.releasePointerCapture = () => {};
+    document.body.appendChild(el);
 
-    const id = instance.observe(el);
-    const buf = instance.getBuffer()!;
-
-    // liquid_type starts at Default (0.0)
-    expect(buf[id * 8 + 5]).toBe(0);
+    instance.observe(el);
 
     // Simulate pointerdown
-    el.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 1 }));
+    el.dispatchEvent(new PointerEvent("pointerdown", {
+      pointerId: 1, clientX: 150, clientY: 130,
+    }));
 
-    // liquid_type should now be Dragged (3.0)
-    expect(buf[id * 8 + 5]).toBe(3.0);
+    // Element should be positioned fixed for dragging
+    expect(el.style.position).toBe("fixed");
 
     instance.destroy();
   });
 
-  it("pointerup resets to default", async () => {
+  it("pointerup resets element position", async () => {
     const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
 
     const el = document.createElement("div");
@@ -1003,22 +1000,23 @@ describe("Dragable Interaction", () => {
     });
     el.setPointerCapture = () => {};
     el.releasePointerCapture = () => {};
+    document.body.appendChild(el);
 
-    const id = instance.observe(el);
-    const buf = instance.getBuffer()!;
+    instance.observe(el);
 
-    // Drag start
-    el.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 1 }));
-    expect(buf[id * 8 + 5]).toBe(3.0);
+    // Drag start + end
+    el.dispatchEvent(new PointerEvent("pointerdown", {
+      pointerId: 1, clientX: 150, clientY: 130,
+    }));
+    expect(el.style.position).toBe("fixed");
 
-    // Drag end
     el.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1 }));
-    expect(buf[id * 8 + 5]).toBe(0.0);
+    expect(el.style.position).toBe("");
 
     instance.destroy();
   });
 
-  it("pointercancel also resets drag state", async () => {
+  it("pointercancel also resets element position", async () => {
     const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
 
     const el = document.createElement("div");
@@ -1029,15 +1027,17 @@ describe("Dragable Interaction", () => {
     });
     el.setPointerCapture = () => {};
     el.releasePointerCapture = () => {};
+    document.body.appendChild(el);
 
-    const id = instance.observe(el);
-    const buf = instance.getBuffer()!;
+    instance.observe(el);
 
-    el.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 1 }));
-    expect(buf[id * 8 + 5]).toBe(3.0);
+    el.dispatchEvent(new PointerEvent("pointerdown", {
+      pointerId: 1, clientX: 150, clientY: 130,
+    }));
+    expect(el.style.position).toBe("fixed");
 
     el.dispatchEvent(new PointerEvent("pointercancel", { pointerId: 1 }));
-    expect(buf[id * 8 + 5]).toBe(0.0);
+    expect(el.style.position).toBe("");
 
     instance.destroy();
   });

@@ -3,167 +3,249 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Liquid DOM — The Fluid Web</title>
+  <title>Liquid DOM — Everything Flows</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;500;800&display=swap');
 
     :root {
-      --bg-color: #0b0914;
-      --text-main: #f0e6ff;
-      --text-muted: #8a7aab;
+      --bg: #0a0a12;
+      --text: #f0e6ff;
+      --muted: #7a6a9a;
+      --accent: #e94560;
     }
 
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
       font-family: 'Inter', sans-serif;
-      background-color: var(--bg-color);
-      color: var(--text-main);
-      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
       overflow-x: hidden;
-      padding: 2rem;
     }
 
     [data-liquid] {
       background: transparent !important;
       border: none !important;
       outline: none !important;
-      cursor: pointer;
       position: relative;
       user-select: none;
       -webkit-user-select: none;
     }
 
-    /* --- LAYOUT & COMPONENTS --- */
-
+    /* ── NAV ── */
     nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      max-width: 1200px;
-      margin: 0 auto 4rem auto;
+      padding: 1.5rem 3rem;
     }
 
     .logo {
       font-weight: 800;
-      font-size: 1.5rem;
-      letter-spacing: -1px;
+      font-size: 1.2rem;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      opacity: 0.6;
     }
 
-    .nav-links {
-      display: flex;
-      gap: 1rem;
-    }
+    .nav-links { display: flex; gap: 0.5rem; }
 
-    .nav-links button {
-      color: var(--text-main);
+    .nav-btn {
+      color: var(--text);
+      font: inherit;
+      font-size: 0.9rem;
       font-weight: 500;
-      font-size: 1rem;
-      padding: 0.75rem 1.5rem;
-      font-family: inherit;
+      padding: 0.6rem 1.2rem;
+      cursor: pointer;
     }
 
-    main {
-      max-width: 1200px;
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      gap: 8rem;
-    }
-
-    /* Hero Section */
+    /* ── HERO ── */
     .hero {
-      text-align: center;
+      min-height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 6rem 2rem;
       gap: 2rem;
-      padding: 4rem 0;
     }
 
+    .hero-blob {
+      width: 500px;
+      height: 280px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.5rem;
+      cursor: grab;
+    }
+
+    .hero-blob:active { cursor: grabbing; }
+
     .hero h1 {
-      font-size: 5rem;
+      font-size: clamp(2.5rem, 6vw, 5rem);
       font-weight: 800;
-      line-height: 1.1;
+      line-height: 1.05;
       letter-spacing: -3px;
-      max-width: 800px;
-      z-index: 10;
     }
 
     .hero p {
-      font-size: 1.2rem;
-      color: var(--text-muted);
-      max-width: 600px;
-      z-index: 10;
-    }
-
-    .cta-button {
-      font-size: 1.5rem;
-      font-weight: 800;
-      color: #fff;
-      padding: 1.5rem 4rem;
-      font-family: inherit;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      margin-top: 2rem;
-    }
-
-    /* Bento Box Feature Grid */
-    .bento-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 2rem;
-    }
-
-    .bento-card {
-      padding: 3rem 2rem;
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-      color: var(--text-main);
-    }
-
-    .bento-card h3 {
-      font-size: 1.5rem;
-      font-weight: 800;
-    }
-
-    .bento-card p {
-      color: #bfaee3;
+      font-size: 1.1rem;
+      color: var(--muted);
+      max-width: 500px;
       line-height: 1.6;
     }
 
-    /* Animation Showcase */
-    .animation-showcase {
+    .hero-hint {
+      font-size: 0.8rem;
+      color: var(--muted);
+      opacity: 0.5;
+      margin-top: 1rem;
+    }
+
+    /* ── SHAKE BUTTONS ── */
+    .shake-section {
+      padding: 6rem 2rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3rem;
+    }
+
+    .shake-section h2 {
+      font-size: 1.8rem;
+      font-weight: 800;
+      letter-spacing: -1px;
+      opacity: 0.7;
+    }
+
+    .shake-row {
+      display: flex;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .shake-btn {
+      font: inherit;
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: #fff;
+      padding: 1.2rem 2.5rem;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    /* ── DRAG CARDS ── */
+    .drag-section {
+      padding: 6rem 2rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3rem;
+    }
+
+    .drag-section h2 {
+      font-size: 1.8rem;
+      font-weight: 800;
+      letter-spacing: -1px;
+      opacity: 0.7;
+    }
+
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1.5rem;
+      max-width: 1000px;
+      width: 100%;
+    }
+
+    .drag-card {
+      padding: 2.5rem 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      min-height: 140px;
+      cursor: grab;
+    }
+
+    .drag-card:active { cursor: grabbing; }
+
+    .drag-card h3 {
+      font-size: 1.3rem;
+      font-weight: 800;
+    }
+
+    .drag-card .hint {
+      font-size: 0.8rem;
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    /* ── FEATURE STRIP ── */
+    .feature-strip {
+      padding: 6rem 2rem;
+      display: flex;
+      gap: 2rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .feature-pill {
+      padding: 1.5rem 3rem;
+      font-weight: 800;
+      font-size: 1rem;
+      color: var(--text);
+      white-space: nowrap;
+    }
+
+    /* ── LIVE TRACKED ── */
+    .live-section {
+      padding: 4rem 2rem;
       display: flex;
       justify-content: center;
       align-items: center;
-      height: 300px;
-      position: relative;
+      min-height: 300px;
     }
 
-    .orbiting-element {
-      padding: 2rem 3rem;
+    .orbiter {
+      padding: 2rem 4rem;
       font-weight: 800;
-      color: white;
-      font-size: 1.2rem;
-      animation: orbit 6s ease-in-out infinite alternate;
+      font-size: 1.3rem;
+      color: #fff;
+      animation: float 5s ease-in-out infinite alternate;
     }
 
-    @keyframes orbit {
-      0% { transform: translate(-200px, -50px) rotate(-10deg); }
-      100% { transform: translate(200px, 50px) rotate(10deg); }
+    @keyframes float {
+      0% { transform: translate(-150px, -30px) rotate(-5deg); }
+      50% { transform: translate(100px, 40px) rotate(3deg); }
+      100% { transform: translate(-50px, -20px) rotate(-2deg); }
+    }
+
+    /* ── FOOTER ── */
+    .footer {
+      padding: 4rem 2rem;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+      opacity: 0.5;
     }
 
     .fps {
       position: fixed;
       top: 10px;
       right: 10px;
-      font-size: 0.8rem;
+      font-size: 0.75rem;
       color: #0f0;
       font-family: monospace;
       z-index: 10000;
@@ -174,44 +256,85 @@
 <body>
 
   <nav>
-    <div class="logo">V-SPLAT ENGINE</div>
+    <div class="logo">Liquid DOM</div>
     <div class="nav-links">
-      <button data-liquid>Documentation</button>
-      <button data-liquid>GitHub</button>
+      <button class="nav-btn" data-liquid>Docs</button>
+      <button class="nav-btn" data-liquid>GitHub</button>
+      <button class="nav-btn" data-liquid>NPM</button>
     </div>
   </nav>
 
-  <main>
-    <section class="hero">
-      <h1>THE WEB IS NO LONGER RIGID.</h1>
-      <p>Liquid DOM transforms static HTML bounding boxes into living, breathing soft-body physics using WebAssembly and Rust.</p>
-      <button class="cta-button" data-liquid>FEEL THE FLUID</button>
-    </section>
+  <!-- HERO: Draggable breathing blob -->
+  <section class="hero">
+    <div class="hero-blob" data-liquid>
+      <h1>Everything<br>Flows.</h1>
+      <p>Soft-body physics on real HTML elements. Zero-copy WASM. 60 FPS. Try dragging this.</p>
+    </div>
+    <span class="hero-hint">move your mouse anywhere</span>
+  </section>
 
-    <section class="bento-grid">
-      <div class="bento-card" data-liquid>
+  <!-- IMPULSE DEMO: Click to shake -->
+  <section class="shake-section">
+    <h2>Click to feel the impulse</h2>
+    <div class="shake-row">
+      <button class="shake-btn" data-liquid data-shake="soft">Soft Pulse</button>
+      <button class="shake-btn" data-liquid data-shake="hard">Hard Shake</button>
+      <button class="shake-btn" data-liquid data-shake="bounce">Bounce</button>
+    </div>
+  </section>
+
+  <!-- DRAG DEMO: Cards -->
+  <section class="drag-section">
+    <h2>Drag the cards</h2>
+    <div class="card-grid">
+      <div class="drag-card" data-liquid>
         <h3>Zero-Copy FFI</h3>
-        <p>JavaScript and Rust share the same memory buffer. No JSON parsing, no serialization overhead. Just raw performance.</p>
+        <span class="hint">grab me</span>
       </div>
-      <div class="bento-card" data-liquid>
+      <div class="drag-card" data-liquid>
         <h3>Hooke's Law</h3>
-        <p>Every element is modeled as a mass-spring-damper system. Drag your mouse across this card to see the physics engine push back.</p>
+        <span class="hint">grab me</span>
       </div>
-      <div class="bento-card" data-liquid>
+      <div class="drag-card" data-liquid>
+        <h3>16 Particles</h3>
+        <span class="hint">grab me</span>
+      </div>
+      <div class="drag-card" data-liquid>
+        <h3>Neighbor Springs</h3>
+        <span class="hint">grab me</span>
+      </div>
+      <div class="drag-card" data-liquid>
+        <h3>Shape Preservation</h3>
+        <span class="hint">grab me</span>
+      </div>
+      <div class="drag-card" data-liquid>
         <h3>Accessible</h3>
-        <p>It's still just HTML. Screen readers can read it. You can tab to it. It just looks like liquid magic underneath.</p>
+        <span class="hint">grab me</span>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <section class="animation-showcase">
-      <div class="orbiting-element" data-liquid>
-        I AM TRACKED LIVE
-      </div>
-    </section>
-  </main>
+  <!-- FEATURE PILLS: Hover playground -->
+  <section class="feature-strip">
+    <div class="feature-pill" data-liquid>Rust</div>
+    <div class="feature-pill" data-liquid>WebAssembly</div>
+    <div class="feature-pill" data-liquid>Canvas 2D</div>
+    <div class="feature-pill" data-liquid>Pointer Events</div>
+    <div class="feature-pill" data-liquid>Reduced Motion</div>
+    <div class="feature-pill" data-liquid>Container Mode</div>
+  </section>
+
+  <!-- LIVE TRACKED: CSS animated element -->
+  <section class="live-section">
+    <div class="orbiter" data-liquid>I AM TRACKED LIVE</div>
+  </section>
+
+  <footer class="footer">
+    Liquid DOM — 34 wards, 112 tests, 0 compromises.<br>
+    Built with Rust, TypeScript, and obsessive attention to detail.
+  </footer>
 
   <div class="fps" id="fps">-- FPS</div>
-
   <script type="module" src="./main.ts"></script>
 </body>
 </html>

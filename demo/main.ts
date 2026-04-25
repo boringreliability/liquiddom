@@ -1,4 +1,4 @@
-import { LiquidDOM } from "../ts/src/index";
+import { LiquidDOM, presets } from "../ts/src/index";
 
 async function bootstrap() {
   try {
@@ -6,10 +6,35 @@ async function bootstrap() {
       capacity: 64,
       autoObserve: true,
       canvasZIndex: -1,
-      colorDefault: "rgba(15, 52, 96, 0.8)",
-      colorHover: "rgba(233, 69, 96, 0.9)",
+      colorDefault: "rgba(15, 52, 96, 0.75)",
+      colorHover: "rgba(233, 69, 96, 0.85)",
+      physics: {
+        ...presets.jelly,
+        tension: 60,
+        damping: 4,
+        substeps: 2,
+      },
     });
-    console.log("[LiquidDOM] Flowing!", liquid);
+
+    // Wire up impulse buttons
+    document.querySelectorAll<HTMLElement>("[data-shake]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const type = btn.getAttribute("data-shake");
+        switch (type) {
+          case "soft":
+            liquid.impulse(btn, { direction: [0, -1], magnitude: 30, duration: 400 });
+            break;
+          case "hard":
+            liquid.impulse(btn, { direction: [1, 0], magnitude: 80, duration: 200 });
+            break;
+          case "bounce":
+            liquid.impulse(btn, { direction: [0, 1], magnitude: 60, duration: 500 });
+            break;
+        }
+      });
+    });
+
+    console.log("[LiquidDOM] Everything flows.");
   } catch (err) {
     console.error("Failed to initialize Liquid DOM:", err);
   }
@@ -17,7 +42,7 @@ async function bootstrap() {
 
 bootstrap();
 
-// FPS counter (independent of LiquidDOM)
+// FPS counter
 const fpsEl = document.getElementById("fps");
 if (fpsEl) {
   let lastTime = performance.now();
