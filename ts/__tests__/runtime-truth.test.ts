@@ -260,6 +260,6 @@ describe("Runtime Truth", () => {
     expect(keys).not.toContain("PhantomObserver");
     expect(keys).not.toContain("WasmBridge");
     expect(keys).not.toContain("DEFAULT_PHYSICS");
-    expect(keys).not.toContain("validatePhysicsConfig");
+    // Ward 049: validatePhysicsConfig intentionally exported as `@internal`.
   });
 });

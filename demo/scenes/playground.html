@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Liquid DOM — Visual Playground</title>
+  <style>
+    :root {
+      --bg: #0a0a12;
+      --text: #f0e6ff;
+      --muted: #7a6a9a;
+      --accent: #e94560;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    header {
+      padding: 1.5rem 2rem;
+      border-bottom: 1px solid #1a1a2a;
+    }
+    header h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    header p {
+      color: var(--muted);
+      font-size: 0.875rem;
+      margin-top: 0.25rem;
+    }
+    header a { color: var(--accent); text-decoration: none; }
+    main {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 4rem;
+      padding: 6rem 4rem;
+      place-items: center;
+      min-height: calc(100vh - 80px);
+    }
+    @media (max-width: 720px) {
+      main {
+        grid-template-columns: 1fr;
+        grid-template-rows: repeat(4, auto);
+        padding: 3rem 1.5rem;
+        gap: 2.5rem;
+      }
+    }
+    [data-liquid] {
+      background: transparent !important;
+      border: none !important;
+      outline: none !important;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 1rem;
+      cursor: default;
+      position: relative;
+    }
+    .pill {
+      width: 200px;
+      height: 60px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .circle {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .rect {
+      width: 160px;
+      height: 80px;
+      border-radius: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .rounded {
+      width: 220px;
+      height: 140px;
+      border-radius: 16px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #tweak-mount {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      width: 280px;
+      max-height: calc(100vh - 2rem);
+      overflow-y: auto;
+      z-index: 100;
+    }
+    @media (max-width: 720px) {
+      #tweak-mount {
+        right: 0; left: 0; bottom: 0; top: auto;
+        width: 100%;
+        max-height: 50vh;
+        border-top: 1px solid #1a1a2a;
+        background: var(--bg);
+      }
+      #tweak-mount[data-collapsed="true"] {
+        max-height: 3rem;
+        overflow: hidden;
+      }
+    }
+    #pane-toggle {
+      display: none;
+      position: fixed;
+      top: 1rem; right: 1rem;
+      z-index: 101;
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
+      font-size: 0.875rem;
+    }
+    @media (max-width: 720px) {
+      #pane-toggle { display: block; }
+    }
+    #toast {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      background: var(--accent);
+      color: white;
+      padding: 0.75rem 1.5rem;
+      border-radius: 4px;
+      font-size: 0.875rem;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 200ms ease;
+      z-index: 200;
+    }
+    #toast[data-visible="true"] { opacity: 1; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Liquid DOM — Visual Playground</h1>
+    <p>Tweak every physics parameter live. <a href="../index.html">← back to demos</a></p>
+  </header>
+
+  <main>
+    <button class="pill" data-liquid>Pill button</button>
+    <div class="circle" data-liquid>Circle</div>
+    <div class="rect" data-liquid>Rectangle</div>
+    <div class="rounded" data-liquid>Rounded card</div>
+  </main>
+
+  <button id="pane-toggle" aria-label="Toggle controls">Controls</button>
+  <div id="tweak-mount"></div>
+  <div id="toast"></div>
+
+  <script type="module" src="./playground.ts"></script>
+</body>
+</html>
