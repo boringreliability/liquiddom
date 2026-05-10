@@ -44,18 +44,19 @@ The package is published as ESM (`dist/`) plus the wasm-pack output (`pkg/`). En
 
 A single flat `Float32Array` in WASM memory is the only data channel. Two views:
 
-1. **Entity buffer** — 8 floats per entity (`FLOATS_PER_ENTITY = 8`):
+1. **Entity buffer** — 9 floats per entity (`FLOATS_PER_ENTITY = 9`):
 
-   | Index | Field             | Owner           |
-   |-------|-------------------|-----------------|
-   | 0     | x (DOM left)      | TS writes       |
-   | 1     | y (DOM top)       | TS writes       |
-   | 2     | w                 | TS writes       |
-   | 3     | h                 | TS writes       |
-   | 4     | (state flags)     | TS              |
-   | 5     | `liquid_type`     | TS writes       |
-   | 6     | `impulse_vx`      | TS writes       |
-   | 7     | `impulse_vy`      | TS writes       |
+   | Index | Field               | Owner                            |
+   |-------|---------------------|----------------------------------|
+   | 0     | x (DOM left)        | TS writes                        |
+   | 1     | y (DOM top)         | TS writes                        |
+   | 2     | w                   | TS writes                        |
+   | 3     | h                   | TS writes                        |
+   | 4     | `interaction_state` | TS writes (idle/hover/focused)   |
+   | 5     | `liquid_type`       | TS writes                        |
+   | 6     | `impulse_vx`        | TS writes                        |
+   | 7     | `impulse_vy`        | TS writes                        |
+   | 8     | `border_radius_px`  | TS writes (on observe + resize)  |
 
    `w == 0` means "slot inactive" — Rust skips that entity in `tick()`.
 

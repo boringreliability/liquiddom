@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-35 of 55 Wards complete · 183 estimated tests · 0 blocked
+36 of 55 Wards complete · 192 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -47,7 +47,7 @@
 | 039 | Metaball Fusion Shader | 2 | 📋 Planned | - |
 | 040 | Background Refraction Sampling | 2 | 📋 Planned | - |
 | 041 | Canvas2D Fallback & Feature Detection | 3 | 📋 Planned | - |
-| 042 | Border-Radius Aware Rest Shape | 5 | 📋 Planned | - |
+| 0425 | Border-Radius Aware Rest Shape | 14 | ✅ Complete | 2026-05-10 |
 | 043 | FreeDrop Entity Type & Buffer Extension | 4 | 📋 Planned | - |
 | 044 | Impulse-Triggered Droplet Spawning | 3 | 📋 Planned | - |
 | 045 | Droplet Culling & Lifetime Management | 3 | 📋 Planned | - |
@@ -63,4 +63,4 @@
 | 055 | Smooth Scroll-Snap Interpolation | 3 | 📋 Planned | - |
 
 ## Test Summary
-- Estimated total: 183
+- Estimated total: 192

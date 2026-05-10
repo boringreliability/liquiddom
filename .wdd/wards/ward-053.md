@@ -16,7 +16,8 @@ completed: null
 Close the documented limitation: `preserveBackgrounds: true` currently clips to a rectangular element rect. Use the resolved border-radius from W42 to clip the canvas region to a rounded rect, so pill and circular buttons no longer leak particles outside their visible bounds.
 
 ## Inputs
-- W42 resolved border-radius value per entity
+- Resolved border-radius read from `buffer[id * FLOATS_PER_ENTITY + 8]` (written by W42 on observe and on resize)
+- Entity buffer slot[8] (`border_radius_px`, established by W42)
 - Existing `preserveBackgrounds` clip code path in `PhantomObserver.render()`
 
 ## Outputs

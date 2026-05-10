@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { LiquidDOM } from "../src/index";
+import { FLOATS_PER_ENTITY } from "../src/phantom-observer";
 
 // jsdom doesn't provide ResizeObserver — minimal polyfill for tests
 if (typeof globalThis.ResizeObserver === "undefined") {
@@ -1191,7 +1192,7 @@ describe("Position Tween", () => {
 
     const buf = instance.getBuffer()!;
     expect(buf[0]).toBe(1000); // el1 x
-    expect(buf[8]).toBe(1000); // el2 x
+    expect(buf[FLOATS_PER_ENTITY]).toBe(1000); // el2 x
 
     instance.destroy();
   });

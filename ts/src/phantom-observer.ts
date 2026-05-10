@@ -1,5 +1,7 @@
+import { parseBorderRadius } from "./border-radius";
+
 /** Must match Rust FLOATS_PER_ENTITY in src/buffer.rs */
-export const FLOATS_PER_ENTITY = 8;
+export const FLOATS_PER_ENTITY = 9;
 
 /** Must match Rust PARTICLES_PER_BODY in src/api.rs */
 export const PARTICLES_PER_BODY = 16;
@@ -43,6 +45,7 @@ export class PhantomObserver {
   private readonly colorHover: string;
   private coordOffsetX = 0;
   private coordOffsetY = 0;
+  private resizeObserver: ResizeObserver | null = null;
 
   /**
    * @param capacity - Max number of entities
@@ -54,6 +57,24 @@ export class PhantomObserver {
     this.colorHover = options?.colorHover ?? DEFAULT_COLOR_HOVER;
     this.buffer = options?.entityView ?? new Float32Array(capacity * FLOATS_PER_ENTITY);
     this.particleBuffer = options?.particleView ?? null;
+
+    // Ward 042 §6: single shared ResizeObserver for border-radius refresh.
+    // Lazy: only construct when ResizeObserver is available (browsers + the
+    // ControllableResizeObserver test mock).
+    if (typeof ResizeObserver !== "undefined") {
+      this.resizeObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const el = entry.target as HTMLElement;
+          const id = this.elementToId.get(el);
+          if (id === undefined) continue;
+          const w = entry.contentRect.width;
+          const h = entry.contentRect.height;
+          const styleSrc = typeof window !== "undefined" ? window.getComputedStyle(el) : null;
+          const raw = styleSrc?.borderRadius ?? "";
+          this.buffer[id * FLOATS_PER_ENTITY + 8] = parseBorderRadius(raw, w, h);
+        }
+      });
+    }
   }
 
   get capacity(): number {
@@ -205,6 +226,15 @@ export class PhantomObserver {
     this.buffer[offset + 6] = 0; // custom_param_1
     this.buffer[offset + 7] = 0; // reserved
 
+    // Ward 042 §2: resolve border-radius once on observe.
+    const rawBr = typeof window !== "undefined"
+      ? window.getComputedStyle(el).borderRadius
+      : "";
+    this.buffer[offset + 8] = parseBorderRadius(rawBr, rect.width, rect.height);
+
+    // Ward 042 §6: subscribe to resize for radius refresh.
+    this.resizeObserver?.observe(el);
+
     return id;
   }
 
@@ -234,6 +264,9 @@ export class PhantomObserver {
       el.removeEventListener("pointercancel", ls.pointercancel);
       this.listeners.delete(el);
     }
+
+    // Ward 042 §6: unsubscribe from resize.
+    this.resizeObserver?.unobserve(el);
 
     // Zero out the slot
     const offset = id * FLOATS_PER_ENTITY;

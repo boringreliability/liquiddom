@@ -83,10 +83,14 @@ impl LiquidCore {
 
             let x = slice[0];
             let y = slice[1];
+            let border_radius = slice[8];
 
-            // Lazily create body on first encounter
+            // Lazily create body on first encounter using the border-radius
+            // value TS wrote on observe/resize (Ward 042). Slot[8] changes
+            // after construction do NOT rebuild the body — re-observe is
+            // required to update the rest shape (spec §5).
             let body = self.bodies[i].get_or_insert_with(|| {
-                EntityBody::new_rect(w, h, PARTICLES_PER_BODY)
+                EntityBody::new_rounded_rect(w, h, border_radius, PARTICLES_PER_BODY)
             });
 
             // DOM state is king — update base_pos from buffer

@@ -53,11 +53,11 @@ describe("PhantomObserver", () => {
     expect(buf[2]).toBe(300); // width
     expect(buf[3]).toBe(150); // height
 
-    // Entity 1: offset 8
-    expect(buf[8]).toBe(50);
-    expect(buf[9]).toBe(60);
-    expect(buf[10]).toBe(400);
-    expect(buf[11]).toBe(200);
+    // Entity 1: offset FLOATS_PER_ENTITY
+    expect(buf[FLOATS_PER_ENTITY + 0]).toBe(50);
+    expect(buf[FLOATS_PER_ENTITY + 1]).toBe(60);
+    expect(buf[FLOATS_PER_ENTITY + 2]).toBe(400);
+    expect(buf[FLOATS_PER_ENTITY + 3]).toBe(200);
   });
 
   it("sync updates moved elements", () => {
