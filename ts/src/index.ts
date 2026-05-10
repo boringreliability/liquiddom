@@ -1,4 +1,4 @@
-import { PhantomObserver } from "./phantom-observer";
+import { FLOATS_PER_ENTITY, PhantomObserver } from "./phantom-observer";
 import { WasmBridge, WasmCore } from "./wasm-bridge";
 
 export interface LiquidPhysicsConfig {
@@ -418,7 +418,7 @@ export class LiquidDOM {
         }
 
         const buf = observer.getBuffer();
-        const off = id * 8;
+        const off = id * FLOATS_PER_ENTITY;
         const startX = buf[off];
         const startY = buf[off + 1];
         const { toX, toY, duration } = opts;
@@ -472,7 +472,7 @@ export class LiquidDOM {
         const dur = options?.duration ?? 300;
 
         const buf = observer.getBuffer();
-        const off = id * 8;
+        const off = id * FLOATS_PER_ENTITY;
         buf[off + 5] = 4.0; // liquid_type = Shake
         buf[off + 6] = dx * mag; // impulse_vx
         buf[off + 7] = dy * mag; // impulse_vy

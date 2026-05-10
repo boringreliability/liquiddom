@@ -1,9 +1,9 @@
 /// Number of f32 values per entity in the flat buffer.
-/// Layout: [x, y, width, height, interaction_state, liquid_type, custom_param_1, reserved]
-pub const FLOATS_PER_ENTITY: usize = 8;
+/// Layout: [x, y, width, height, interaction_state, liquid_type, custom_param_1, reserved, border_radius_px]
+pub const FLOATS_PER_ENTITY: usize = 9;
 
 /// A flat f32 buffer for sharing entity data with JavaScript via WASM memory.
-/// Each entity occupies exactly 8 floats (32 bytes).
+/// Each entity occupies exactly FLOATS_PER_ENTITY (9) floats (36 bytes).
 pub struct EntityBuffer {
     data: Vec<f32>,
     entity_capacity: usize,
@@ -51,13 +51,13 @@ impl EntityBuffer {
         self.entity_capacity = new_capacity;
     }
 
-    /// Get an immutable slice of 8 floats for entity `id`.
+    /// Get an immutable slice of FLOATS_PER_ENTITY floats for entity `id`.
     pub fn entity_slice(&self, id: usize) -> &[f32] {
         let start = id * FLOATS_PER_ENTITY;
         &self.data[start..start + FLOATS_PER_ENTITY]
     }
 
-    /// Get a mutable slice of 8 floats for entity `id`.
+    /// Get a mutable slice of FLOATS_PER_ENTITY floats for entity `id`.
     pub fn entity_slice_mut(&mut self, id: usize) -> &mut [f32] {
         let start = id * FLOATS_PER_ENTITY;
         &mut self.data[start..start + FLOATS_PER_ENTITY]
@@ -71,15 +71,15 @@ mod tests {
     #[test]
     fn test_new_allocates_correct_capacity() {
         let buf = EntityBuffer::new(100);
-        // 100 entities × 8 floats = 800 floats in the buffer
-        assert_eq!(buf.len(), 800);
+        // 100 entities × FLOATS_PER_ENTITY (9) floats = 900 floats in the buffer
+        assert_eq!(buf.len(), 100 * FLOATS_PER_ENTITY);
         assert_eq!(buf.capacity(), 100);
     }
 
     #[test]
     fn test_initial_values_are_zero() {
         let buf = EntityBuffer::new(10);
-        // All 80 floats should be 0.0
+        // All 10 * FLOATS_PER_ENTITY floats should be 0.0
         for i in 0..10 {
             let slice = buf.entity_slice(i);
             assert_eq!(slice.len(), FLOATS_PER_ENTITY);
@@ -152,7 +152,7 @@ mod tests {
         buf.grow(50);
 
         assert_eq!(buf.capacity(), 50);
-        assert_eq!(buf.len(), 400); // 50 × 8
+        assert_eq!(buf.len(), 50 * FLOATS_PER_ENTITY); // 50 × FLOATS_PER_ENTITY
 
         // Verify old data survived the grow
         let slice = buf.entity_slice(3);
@@ -172,5 +172,24 @@ mod tests {
         let mut buf = EntityBuffer::new(100);
         // Attempting to shrink should panic
         buf.grow(50);
+    }
+
+    // ── Ward 042: Border-Radius Aware Rest Shape ──
+
+    /// Ward 042 test #8: entity buffer layout is 9 floats per entity.
+    /// FLOATS_PER_ENTITY bumps from 8 to 9 to add slot[8] = border_radius_px.
+    /// Verifies BOTH the immutable and mutable slice accessors return 9 floats (M4).
+    #[test]
+    fn test_w42_entity_buffer_layout_is_9_floats() {
+        assert_eq!(FLOATS_PER_ENTITY, 9);
+
+        let mut buf = EntityBuffer::new(100);
+        assert_eq!(buf.len(), 100 * FLOATS_PER_ENTITY);
+
+        let slice = buf.entity_slice(0);
+        assert_eq!(slice.len(), 9);
+
+        let slice_mut = buf.entity_slice_mut(0);
+        assert_eq!(slice_mut.len(), 9);
     }
 }

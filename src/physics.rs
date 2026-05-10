@@ -289,7 +289,55 @@ impl EntityBody {
     /// Create a new body by distributing `num_particles` evenly along
     /// the perimeter of a rectangle (width × height).
     /// Starts at top-left corner, walks clockwise.
+    /// Construct a rectangular soft body. Backwards-compatible wrapper around
+    /// `new_rounded_rect(w, h, 0.0, count)`. Byte-identical to the legacy
+    /// implementation via direct delegation (Ward 042 spec §3).
     pub fn new_rect(width: f32, height: f32, num_particles: usize) -> Self {
+        Self::new_rounded_rect(width, height, 0.0, num_particles)
+    }
+
+    /// Canonical constructor (Ward 042). For `r > 0` distributes particles
+    /// around the rounded perimeter; for `r <= 0` or NaN delegates to
+    /// `new_rect_inner` for byte-identity with the legacy rectangle.
+    ///
+    /// Guard is NaN-safe: an explicit `r.is_nan()` check is required because
+    /// `r <= 0.0` returns `false` for NaN. Spec §3.
+    pub fn new_rounded_rect(width: f32, height: f32, r: f32, num_particles: usize) -> Self {
+        if r.is_nan() || r <= 0.0 {
+            return Self::new_rect_inner(width, height, num_particles);
+        }
+
+        let particle_positions = rounded_rect_perimeter_points(width, height, r, num_particles);
+        let particles: Vec<Particle> = particle_positions
+            .iter()
+            .map(|&pos| Particle::new(pos, pos))
+            .collect();
+
+        let mut neighbor_springs = Vec::with_capacity(num_particles);
+        for i in 0..num_particles {
+            let a = i;
+            let b = (i + 1) % num_particles;
+            let rest_length = (particles[a].pos - particles[b].pos).length();
+            neighbor_springs.push(NeighborSpring { a, b, rest_length });
+        }
+
+        let mut body = Self {
+            particles,
+            base_pos: Vec2::zero(),
+            prev_base_pos: Vec2::zero(),
+            width,
+            height,
+            neighbor_springs,
+            reference_area: 0.0,
+            skip_rigid_translation: false,
+        };
+        body.reference_area = body.compute_area();
+        body
+    }
+
+    /// Legacy rectangle constructor body. Private — callers use `new_rect`
+    /// which delegates here for byte-identity guarantee.
+    fn new_rect_inner(width: f32, height: f32, num_particles: usize) -> Self {
         let perimeter = 2.0 * (width + height);
         let spacing = perimeter / num_particles as f32;
 
@@ -314,16 +362,11 @@ impl EntityBody {
             })
             .collect();
 
-        // Build neighbor springs (adjacent pairs along perimeter)
         let mut neighbor_springs = Vec::with_capacity(num_particles);
         for i in 0..num_particles {
             let a = i;
             let b = (i + 1) % num_particles;
-            let rest_length = {
-                let pa = &particles[a];
-                let pb = &particles[b];
-                (pa.pos - pb.pos).length()
-            };
+            let rest_length = (particles[a].pos - particles[b].pos).length();
             neighbor_springs.push(NeighborSpring { a, b, rest_length });
         }
 
@@ -340,6 +383,162 @@ impl EntityBody {
         body.reference_area = body.compute_area();
         body
     }
+}
+
+/// Distribute `count` points around a rounded-rect perimeter weighted by
+/// arc length. Per-segment counts computed via spec §4: floor each proportional
+/// value, distribute remainder one point at a time in fixed order
+/// (arc[0]=TR, arc[1]=BR, arc[2]=BL, arc[3]=TL, edge_top, edge_right,
+/// edge_bottom, edge_left, then loop).
+///
+/// Points within each segment are placed at CENTERED offsets `(j + 0.5) * L / n`
+/// so no point lands exactly on a segment boundary — this avoids classifier
+/// ambiguity in test #5 and gives clean visual distribution.
+pub fn rounded_rect_perimeter_points(w: f32, h: f32, r: f32, count: usize) -> Vec<Vec2> {
+    let r_clamped = r.min(w.min(h) / 2.0).max(0.0);
+
+    if r_clamped <= 0.0 {
+        // Degenerate to evenly-spaced rectangle perimeter.
+        // (Used internally; r=0 callers normally go through new_rect_inner.)
+        let perim = 2.0 * (w + h);
+        let spacing = perim / count as f32;
+        return (0..count)
+            .map(|i| {
+                let d = i as f32 * spacing;
+                if d < w {
+                    Vec2::new(d, 0.0)
+                } else if d < w + h {
+                    Vec2::new(w, d - w)
+                } else if d < 2.0 * w + h {
+                    Vec2::new(w - (d - w - h), h)
+                } else {
+                    Vec2::new(0.0, h - (d - 2.0 * w - h))
+                }
+            })
+            .collect();
+    }
+
+    let arc_len = std::f32::consts::FRAC_PI_2 * r_clamped; // π*r/2 per arc
+    let edge_h_len = w - 2.0 * r_clamped;
+    let edge_v_len = h - 2.0 * r_clamped;
+    let perimeter = 4.0 * arc_len + 2.0 * edge_h_len + 2.0 * edge_v_len;
+
+    let count_f = count as f32;
+    let n_arc_f = count_f * arc_len / perimeter;
+    let n_edge_h_f = count_f * edge_h_len / perimeter;
+    let n_edge_v_f = count_f * edge_v_len / perimeter;
+
+    // Indexing: [arc_TR, arc_BR, arc_BL, arc_TL, edge_top, edge_right, edge_bottom, edge_left]
+    let mut counts: [usize; 8] = [
+        n_arc_f.floor() as usize,
+        n_arc_f.floor() as usize,
+        n_arc_f.floor() as usize,
+        n_arc_f.floor() as usize,
+        n_edge_h_f.floor() as usize,
+        n_edge_v_f.floor() as usize,
+        n_edge_h_f.floor() as usize,
+        n_edge_v_f.floor() as usize,
+    ];
+
+    let total_floor: usize = counts.iter().sum();
+    let mut remainder = count.saturating_sub(total_floor);
+
+    // Symmetry-preserving remainder distribution (Ward 042 r5 §4):
+    //   1. Groups of 4 → all four arcs simultaneously.
+    //   2. Pair → top + bottom (h-edge pair).
+    //   3. Pair → right + left (v-edge pair).
+    //   4. Singleton → arc[0] (deterministic tiebreaker for odd remainders).
+    // Preserves bilateral and 4-fold symmetry whenever the remainder permits.
+    while remainder >= 4 {
+        counts[0] += 1; // TR
+        counts[1] += 1; // BR
+        counts[2] += 1; // BL
+        counts[3] += 1; // TL
+        remainder -= 4;
+    }
+    if remainder >= 2 {
+        counts[4] += 1; // top
+        counts[6] += 1; // bottom
+        remainder -= 2;
+    }
+    if remainder >= 2 {
+        counts[5] += 1; // right
+        counts[7] += 1; // left
+        remainder -= 2;
+    }
+    if remainder == 1 {
+        counts[0] += 1;
+    }
+
+    let n_tr = counts[0];
+    let n_br = counts[1];
+    let n_bl = counts[2];
+    let n_tl = counts[3];
+    let n_top = counts[4];
+    let n_right = counts[5];
+    let n_bottom = counts[6];
+    let n_left = counts[7];
+
+    let mut points: Vec<Vec2> = Vec::with_capacity(count);
+
+    // Top edge: (r, 0) → (w-r, 0), x increases.
+    for j in 0..n_top {
+        let frac = (j as f32 + 0.5) / n_top as f32;
+        points.push(Vec2::new(r_clamped + frac * edge_h_len, 0.0));
+    }
+    // TR arc: center (w-r, r), angle -π/2 → 0.
+    for j in 0..n_tr {
+        let frac = (j as f32 + 0.5) / n_tr as f32;
+        let angle = -std::f32::consts::FRAC_PI_2 + frac * std::f32::consts::FRAC_PI_2;
+        points.push(Vec2::new(
+            w - r_clamped + r_clamped * angle.cos(),
+            r_clamped + r_clamped * angle.sin(),
+        ));
+    }
+    // Right edge: (w, r) → (w, h-r), y increases.
+    for j in 0..n_right {
+        let frac = (j as f32 + 0.5) / n_right as f32;
+        points.push(Vec2::new(w, r_clamped + frac * edge_v_len));
+    }
+    // BR arc: center (w-r, h-r), angle 0 → π/2.
+    for j in 0..n_br {
+        let frac = (j as f32 + 0.5) / n_br as f32;
+        let angle = frac * std::f32::consts::FRAC_PI_2;
+        points.push(Vec2::new(
+            w - r_clamped + r_clamped * angle.cos(),
+            h - r_clamped + r_clamped * angle.sin(),
+        ));
+    }
+    // Bottom edge: (w-r, h) → (r, h), x decreases.
+    for j in 0..n_bottom {
+        let frac = (j as f32 + 0.5) / n_bottom as f32;
+        points.push(Vec2::new(w - r_clamped - frac * edge_h_len, h));
+    }
+    // BL arc: center (r, h-r), angle π/2 → π.
+    for j in 0..n_bl {
+        let frac = (j as f32 + 0.5) / n_bl as f32;
+        let angle = std::f32::consts::FRAC_PI_2 + frac * std::f32::consts::FRAC_PI_2;
+        points.push(Vec2::new(
+            r_clamped + r_clamped * angle.cos(),
+            h - r_clamped + r_clamped * angle.sin(),
+        ));
+    }
+    // Left edge: (0, h-r) → (0, r), y decreases.
+    for j in 0..n_left {
+        let frac = (j as f32 + 0.5) / n_left as f32;
+        points.push(Vec2::new(0.0, h - r_clamped - frac * edge_v_len));
+    }
+    // TL arc: center (r, r), angle π → 3π/2.
+    for j in 0..n_tl {
+        let frac = (j as f32 + 0.5) / n_tl as f32;
+        let angle = std::f32::consts::PI + frac * std::f32::consts::FRAC_PI_2;
+        points.push(Vec2::new(
+            r_clamped + r_clamped * angle.cos(),
+            r_clamped + r_clamped * angle.sin(),
+        ));
+    }
+
+    points
 }
 
 #[cfg(test)]
@@ -809,6 +1008,197 @@ mod tests {
             drift < 10.0,
             "after shake + settle, centroid should be near rest, drift = {}",
             drift,
+        );
+    }
+
+    // ── Ward 042: Border-Radius Aware Rest Shape ──
+
+    /// Ward 042 test #1: rounded_rect returns exactly `count` points.
+    #[test]
+    fn test_w42_rounded_rect_returns_exact_count() {
+        let points = rounded_rect_perimeter_points(100.0, 50.0, 10.0, 16);
+        assert_eq!(points.len(), 16);
+    }
+
+    /// Ward 042 test #2: r=0 byte-identical to current new_rect (zero tolerance).
+    /// Verifies all particle fields AND neighbor_springs structure.
+    #[test]
+    fn test_w42_rounded_rect_zero_radius_byte_identical_to_new_rect() {
+        let rounded = EntityBody::new_rounded_rect(100.0, 50.0, 0.0, 16);
+        let rect = EntityBody::new_rect(100.0, 50.0, 16);
+
+        assert_eq!(rounded.particles.len(), rect.particles.len());
+        for (a, b) in rounded.particles.iter().zip(rect.particles.iter()) {
+            assert_eq!(a.pos, b.pos);
+            assert_eq!(a.local_rest, b.local_rest);
+            assert_eq!(a.velocity, b.velocity);
+        }
+
+        // Spec §3 byte-identity requires springs match too (S4).
+        assert_eq!(rounded.neighbor_springs.len(), rect.neighbor_springs.len());
+        for (a, b) in rounded.neighbor_springs.iter().zip(rect.neighbor_springs.iter()) {
+            assert_eq!(a.a, b.a);
+            assert_eq!(a.b, b.b);
+            assert_eq!(a.rest_length, b.rest_length);
+        }
+    }
+
+    /// Ward 042 test #3: pill (r = h/2) is mirror-symmetric about both axes.
+    /// Tolerance 1e-3 matches project convention for f32 trig output (S3).
+    #[test]
+    fn test_w42_rounded_rect_pill_is_symmetric() {
+        let points = rounded_rect_perimeter_points(100.0, 50.0, 25.0, 16);
+        // Center of element rect is (50, 25). Each point should have a mirror
+        // counterpart across x=50 and y=25 within tolerance.
+        let cx = 50.0_f32;
+        let cy = 25.0_f32;
+        let tol = 1e-3_f32;
+
+        for p in &points {
+            // Find a point that mirrors p across x=cx
+            let mirror_x = Vec2::new(2.0 * cx - p.x, p.y);
+            let has_x_mirror = points.iter().any(|q| (q.x - mirror_x.x).abs() < tol && (q.y - mirror_x.y).abs() < tol);
+            assert!(has_x_mirror, "no x-axis mirror for point {:?}", p);
+
+            // Find a point that mirrors p across y=cy
+            let mirror_y = Vec2::new(p.x, 2.0 * cy - p.y);
+            let has_y_mirror = points.iter().any(|q| (q.x - mirror_y.x).abs() < tol && (q.y - mirror_y.y).abs() < tol);
+            assert!(has_y_mirror, "no y-axis mirror for point {:?}", p);
+        }
+    }
+
+    /// Ward 042 test #4: oversized r is clamped to min(w,h)/2.
+    #[test]
+    fn test_w42_rounded_rect_clamps_oversized_radius() {
+        let huge = rounded_rect_perimeter_points(100.0, 50.0, 999.0, 16);
+        let clamped = rounded_rect_perimeter_points(100.0, 50.0, 25.0, 16);
+        assert_eq!(huge, clamped);
+    }
+
+    /// Ward 042 test #5: deterministic remainder distribution per spec §4.
+    /// Pre-computed for 100×50, r=10, count=16:
+    /// per-segment counts = [arc0=1, arc1=1, arc2=1, arc3=1, edge_top=5,
+    /// edge_right=2, edge_bottom=4, edge_left=1] (sum = 16).
+    /// We assert the geometry matches this distribution by counting points
+    /// in each segment region.
+    #[test]
+    fn test_w42_rounded_rect_remainder_distribution_matches_spec() {
+        let points = rounded_rect_perimeter_points(100.0, 50.0, 10.0, 16);
+        assert_eq!(points.len(), 16);
+
+        let r = 10.0_f32;
+        let w = 100.0_f32;
+        let h = 50.0_f32;
+        let tol = 1e-3_f32;
+
+        // Helper: classify each point into one of 8 segments by region.
+        // Edges run between corner anchors at (r,0), (w-r,0), (w,r), (w,h-r),
+        // (w-r,h), (r,h), (0,h-r), (0,r).
+        let mut counts = [0u32; 8]; // 0..3 arcs, 4=top, 5=right, 6=bottom, 7=left
+
+        for p in &points {
+            let on_top_edge = p.y.abs() < tol && p.x > r - tol && p.x < w - r + tol;
+            let on_right_edge = (p.x - w).abs() < tol && p.y > r - tol && p.y < h - r + tol;
+            let on_bottom_edge = (p.y - h).abs() < tol && p.x > r - tol && p.x < w - r + tol;
+            let on_left_edge = p.x.abs() < tol && p.y > r - tol && p.y < h - r + tol;
+
+            // Arcs: distance from corner center == r
+            // Corner centers: TL=(r,r), TR=(w-r,r), BR=(w-r,h-r), BL=(r,h-r)
+            let tl_d = ((p.x - r).powi(2) + (p.y - r).powi(2)).sqrt();
+            let tr_d = ((p.x - (w - r)).powi(2) + (p.y - r).powi(2)).sqrt();
+            let br_d = ((p.x - (w - r)).powi(2) + (p.y - (h - r)).powi(2)).sqrt();
+            let bl_d = ((p.x - r).powi(2) + (p.y - (h - r)).powi(2)).sqrt();
+
+            // Arc quadrant guards use <= / >= with tolerance so boundary points
+            // (e.g., exactly at (r, 0) or (w, r)) classify correctly. Edge
+            // precedence in the if/else chain below handles the tie at endpoints (M1).
+            let on_tl_arc = (tl_d - r).abs() < tol && p.x <= r + tol && p.y <= r + tol;
+            let on_tr_arc = (tr_d - r).abs() < tol && p.x >= w - r - tol && p.y <= r + tol;
+            let on_br_arc = (br_d - r).abs() < tol && p.x >= w - r - tol && p.y >= h - r - tol;
+            let on_bl_arc = (bl_d - r).abs() < tol && p.x <= r + tol && p.y >= h - r - tol;
+
+            // Spec §4 step 6: clockwise from (r, 0) — top-edge, top-right arc,
+            // right-edge, bottom-right arc, bottom-edge, bottom-left arc,
+            // left-edge, top-left arc.
+            // Mapping to counts indices: arc[0..3] = TR, BR, BL, TL.
+            if on_top_edge { counts[4] += 1; }
+            else if on_tr_arc { counts[0] += 1; }
+            else if on_right_edge { counts[5] += 1; }
+            else if on_br_arc { counts[1] += 1; }
+            else if on_bottom_edge { counts[6] += 1; }
+            else if on_bl_arc { counts[2] += 1; }
+            else if on_left_edge { counts[7] += 1; }
+            else if on_tl_arc { counts[3] += 1; }
+            else {
+                panic!("point {:?} did not classify into any segment", p);
+            }
+        }
+
+        // Spec r5 §4 symmetry-preserving distribution: arcs all=1, top=bottom=5,
+        // right=left=1 (bilateral symmetric).
+        assert_eq!(counts, [1, 1, 1, 1, 5, 1, 5, 1], "actual counts: {:?}", counts);
+    }
+
+    /// Ward 042 test #6: negative and NaN radius treated as zero (delegate).
+    /// Full byte-identity per spec §3 — pos, local_rest, velocity, neighbor_springs (M2 + S4).
+    #[test]
+    fn test_w42_rounded_rect_negative_and_nan_radius_treated_as_zero() {
+        let neg = EntityBody::new_rounded_rect(100.0, 50.0, -5.0, 16);
+        let nan = EntityBody::new_rounded_rect(100.0, 50.0, f32::NAN, 16);
+        let rect = EntityBody::new_rect(100.0, 50.0, 16);
+
+        for body in [&neg, &nan] {
+            assert_eq!(body.particles.len(), rect.particles.len());
+            for (a, b) in body.particles.iter().zip(rect.particles.iter()) {
+                assert_eq!(a.pos, b.pos);
+                assert_eq!(a.local_rest, b.local_rest);
+                assert_eq!(a.velocity, b.velocity);
+            }
+            assert_eq!(body.neighbor_springs.len(), rect.neighbor_springs.len());
+            for (a, b) in body.neighbor_springs.iter().zip(rect.neighbor_springs.iter()) {
+                assert_eq!(a.a, b.a);
+                assert_eq!(a.b, b.b);
+                assert_eq!(a.rest_length, b.rest_length);
+            }
+        }
+    }
+
+    /// Ward 042 test #7: pill body reaches stable equilibrium under default physics.
+    /// Default params per spec: tension=100, damping=5, substeps=1, repulsion_radius=100,
+    /// repulsion_strength=5000, neighbor_spring_k=30, no pointer.
+    /// "Stable" requires BOTH: max position drift < 1.0 px AND max velocity < 0.5 px/s.
+    /// The velocity check (M3) rejects oscillating bodies that happen to return near
+    /// their initial positions every period.
+    #[test]
+    fn test_w42_pill_body_reaches_stable_equilibrium() {
+        let mut body = EntityBody::new_rounded_rect(100.0, 50.0, 25.0, 16);
+        let initial: Vec<Vec2> = body.particles.iter().map(|p| p.pos).collect();
+
+        for _ in 0..1000 {
+            body.run_physics(0.016, 100.0, 5.0, Vec2::zero(), false, 1, 100.0, 5000.0, 30.0);
+        }
+
+        let max_drift = body
+            .particles
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (p.pos - initial[i]).length())
+            .fold(0.0_f32, f32::max);
+        assert!(
+            max_drift < 1.0,
+            "pill should reach stable equilibrium, max drift = {} px",
+            max_drift,
+        );
+
+        let max_vel = body
+            .particles
+            .iter()
+            .map(|p| p.velocity.length())
+            .fold(0.0_f32, f32::max);
+        assert!(
+            max_vel < 0.5,
+            "pill should be at rest, max velocity = {} px/s",
+            max_vel,
         );
     }
 }

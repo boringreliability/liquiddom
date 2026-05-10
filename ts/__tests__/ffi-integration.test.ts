@@ -2,8 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-
-const FLOATS_PER_ENTITY = 8;
+import { FLOATS_PER_ENTITY } from "../src/phantom-observer";
 
 // We load the WASM module synchronously via initSync + raw bytes.
 // This avoids needing a browser or fetch() in Node.
