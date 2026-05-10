@@ -27,12 +27,20 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "keywords": ["wasm", "webassembly", "physics", "canvas", "liquid", "animation"],
+  "keywords": [
+    "wasm",
+    "webassembly",
+    "physics",
+    "canvas",
+    "liquid",
+    "animation"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^25.5.0",
     "jsdom": "^29.0.1",
+    "tweakpane": "^4.0.4",
     "typescript": "^6.0.2",
     "vite": "^8.0.3",
     "vitest": "^4.1.2"

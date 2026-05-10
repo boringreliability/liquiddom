@@ -61,7 +61,8 @@ export const presets = {
   }),
 };
 
-function validatePhysicsConfig(cfg: LiquidPhysicsConfig): void {
+/** @internal — Ward 049 promotion: exported only for adapters/playground; not part of stable public API. */
+export function validatePhysicsConfig(cfg: LiquidPhysicsConfig): void {
   const checks: [string, unknown, (v: number) => boolean][] = [
     ["tension", cfg.tension, (v) => Number.isFinite(v) && v >= 0],
     ["damping", cfg.damping, (v) => Number.isFinite(v) && v >= 0],
@@ -107,6 +108,10 @@ export interface LiquidDOMInstance {
   autoDiscover(root?: Element): void;
   stopAutoDiscover(): void;
   destroy(): void;
+  /** Ward 049: live update of the per-frame physics config. Atomic — invalid input throws and leaves state unchanged. */
+  setPhysicsConfig(partial: Partial<LiquidPhysicsConfig>): void;
+  /** Ward 049: read-only snapshot of the current live physics config. Mutating the returned object does NOT affect state. */
+  getPhysicsConfig(): Required<LiquidPhysicsConfig>;
 }
 
 /** Default maximum dt in milliseconds. */
@@ -565,6 +570,27 @@ export class LiquidDOM {
         paused = false;
         lastTime = performance.now();
         startLoop();
+      },
+
+      setPhysicsConfig(partial: Partial<LiquidPhysicsConfig>): void {
+        if (destroyed) {
+          throw new Error("Cannot setPhysicsConfig on a destroyed LiquidDOM instance");
+        }
+        // Ward 049 §1: merge → validate → assign for atomicity.
+        // Validation on the MERGED config catches cross-field invariants;
+        // mutation only occurs after validation succeeds.
+        const merged = { ...physics, ...partial };
+        validatePhysicsConfig(merged);
+        Object.assign(physics, merged);
+      },
+
+      getPhysicsConfig(): Required<LiquidPhysicsConfig> {
+        if (destroyed) {
+          throw new Error("Cannot getPhysicsConfig on a destroyed LiquidDOM instance");
+        }
+        // Shallow copy so callers cannot mutate internal state via the
+        // returned reference (Ward 049 §1).
+        return { ...physics };
       },
 
       destroy(): void {

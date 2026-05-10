@@ -697,7 +697,8 @@ describe("LiquidDOM Instance API", () => {
     expect(keys).not.toContain("PhantomObserver");
     expect(keys).not.toContain("WasmBridge");
     expect(keys).not.toContain("DEFAULT_PHYSICS");
-    expect(keys).not.toContain("validatePhysicsConfig");
+    // Ward 049: validatePhysicsConfig is intentionally exported as `@internal`
+    // for adapters and the playground to reuse. Not part of the stable public API.
   });
 });
 

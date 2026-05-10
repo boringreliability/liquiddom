@@ -79,6 +79,14 @@ The constants `FLOATS_PER_ENTITY` and `PARTICLES_PER_BODY` are duplicated in `sr
 
 NaN and unknown values fall back to Default. Add new strategies by extending the enum + `dispatch_strategy` and the match arm in `LiquidCore::tick`.
 
+### Live config (Ward 049)
+
+`LiquidDOMInstance` exposes two methods for tunable runtime physics:
+- `setPhysicsConfig(partial: Partial<LiquidPhysicsConfig>): void` — atomic merge → validate → assign. Validation throws `TypeError` from `validatePhysicsConfig`; state unchanged on failure.
+- `getPhysicsConfig(): Required<LiquidPhysicsConfig>` — returns a shallow copy.
+
+Both throw `Error` after `destroy()`. `validatePhysicsConfig` is exported as `@internal` for adapter/playground reuse — not part of the stable public API.
+
 ### Memory and pointer ownership
 
 `WasmBridge` (`ts/src/wasm-bridge.ts`) is the **sole** owner of pointer/view logic. `PhantomObserver` and `LiquidDOM` never call `core.ptr()` directly. After `core.grow()`, `bridge.rebind()` MUST be called and the new views passed to `observer.setViews()` — `WebAssembly.Memory` may detach the underlying `ArrayBuffer` on grow.
