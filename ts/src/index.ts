@@ -274,7 +274,10 @@ export class LiquidDOM {
       window.addEventListener("resize", resizeCanvas);
     }
 
-    // 8. RAF loop + MutationObserver state
+    // 8. Impulse timer tracking (per entity ID)
+    const impulseTimers = new Map<number, ReturnType<typeof setTimeout>>();
+
+    // 9. RAF loop + MutationObserver state
     let animationId = 0;
     let paused = false;
     let destroyed = false;
@@ -320,6 +323,9 @@ export class LiquidDOM {
           physics.tension,
           physics.damping,
           physics.substeps,
+          physics.repulsionRadius,
+          physics.repulsionStrength,
+          physics.neighborSpringK,
         );
         observer.render(ctx, {
           viewportWidth: vp.w,
@@ -471,12 +477,19 @@ export class LiquidDOM {
         buf[off + 6] = dx * mag; // impulse_vx
         buf[off + 7] = dy * mag; // impulse_vy
 
+        // Clear previous impulse timer for this entity
+        const prev = impulseTimers.get(id);
+        if (prev !== undefined) clearTimeout(prev);
+
         // Auto-reset after duration
-        setTimeout(() => {
-          buf[off + 5] = 0.0; // Default
+        const timerId = setTimeout(() => {
+          if (destroyed) return;
+          buf[off + 5] = 0.0;
           buf[off + 6] = 0.0;
           buf[off + 7] = 0.0;
+          impulseTimers.delete(id);
         }, dur);
+        impulseTimers.set(id, timerId);
       },
 
       grow(newCapacity: number): void {
@@ -570,6 +583,12 @@ export class LiquidDOM {
         }
 
         observer.unobserveAll();
+
+        // Clear all pending impulse timers
+        for (const timerId of impulseTimers.values()) {
+          clearTimeout(timerId);
+        }
+        impulseTimers.clear();
 
         // Clear scroll timer
         if (scrollIdleTimer !== null) {

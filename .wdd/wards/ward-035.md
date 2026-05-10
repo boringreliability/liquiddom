@@ -3,12 +3,12 @@ ward: 35
 revision: null
 name: "Demo Hardening, Runtime Truth, and Showcase Polish"
 epic: "demo-scenes"
-status: "planned"
+status: "complete"
 dependencies: [24, 26, 30, 31, 32, 33, 34]
 layer: "both"
 estimated_tests: 12
 created: "2026-04-25"
-completed: null
+completed: "2026-05-10"
 ---
 # Ward 035: Demo Hardening, Runtime Truth, and Showcase Polish
 

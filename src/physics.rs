@@ -37,11 +37,9 @@ pub fn strategy_dragged(
     pointer_active: bool,
     substeps: u32,
 ) {
-    // Override centroid target to drag position
     let saved_base = body.base_pos;
-    // Shift base_pos so centroid target becomes drag_target - (w/2, h/2)
     body.base_pos = drag_target - Vec2::new(body.width * 0.5, body.height * 0.5);
-    body.run_physics(dt, tension, damping, Vec2::zero(), pointer_active, substeps);
+    body.run_physics(dt, tension, damping, Vec2::zero(), pointer_active, substeps, 100.0, 5000.0, 30.0);
     body.base_pos = saved_base;
 }
 
@@ -65,7 +63,7 @@ pub fn strategy_shake(
         particle.velocity += impulse * dt;
     }
     // Run normal physics on top (springs pull back to rest)
-    body.run_physics(dt, tension, damping, pointer_pos, pointer_active, substeps);
+    body.run_physics(dt, tension, damping, pointer_pos, pointer_active, substeps, 100.0, 5000.0, 30.0);
 }
 
 /// Default physics strategy — exact Ward 22 behavior.
@@ -79,7 +77,7 @@ pub fn strategy_default(
     pointer_active: bool,
     substeps: u32,
 ) {
-    body.run_physics(dt, tension, damping, pointer_pos, pointer_active, substeps);
+    body.run_physics(dt, tension, damping, pointer_pos, pointer_active, substeps, 100.0, 5000.0, 30.0);
 }
 
 /// A single particle in a soft body simulation.
@@ -161,11 +159,10 @@ impl EntityBody {
         pointer_pos: Vec2,
         pointer_active: bool,
     ) {
-        // Substeps default = 1 for backward compat
         self.tick_with_substeps(dt, tension, damping, pointer_pos, pointer_active, 1);
     }
 
-    /// Full tick with configurable substeps. Dispatches to strategy based on liquid_type.
+    /// Full tick with configurable substeps and default physics constants.
     pub fn tick_with_substeps(
         &mut self,
         dt: f32,
@@ -175,12 +172,11 @@ impl EntityBody {
         pointer_active: bool,
         substeps: u32,
     ) {
-        // Dispatch is a no-op for now — all strategies use run_physics (Default).
-        // Ward 030+ will add strategy-specific behavior here.
-        self.run_physics(dt, tension, damping, pointer_pos, pointer_active, substeps);
+        self.run_physics(dt, tension, damping, pointer_pos, pointer_active, substeps, 100.0, 5000.0, 30.0);
     }
 
     /// Core physics implementation. Called by all strategies (Default baseline).
+    #[allow(clippy::too_many_arguments)]
     pub fn run_physics(
         &mut self,
         dt: f32,
@@ -189,10 +185,10 @@ impl EntityBody {
         pointer_pos: Vec2,
         pointer_active: bool,
         substeps: u32,
+        repulsion_radius: f32,
+        repulsion_strength: f32,
+        neighbor_stiffness: f32,
     ) {
-        const REPULSION_RADIUS: f32 = 100.0;
-        const REPULSION_STRENGTH: f32 = 5000.0;
-        const NEIGHBOR_STIFFNESS: f32 = 30.0;
         const CENTROID_STRENGTH: f32 = 5.0;
         const AREA_CORRECTION_STRENGTH: f32 = 0.5;
 
@@ -222,7 +218,7 @@ impl EntityBody {
                 let dist = diff.length();
                 if dist > 0.001 {
                     let stretch = dist - spring.rest_length;
-                    let force = diff.normalize() * (-NEIGHBOR_STIFFNESS * stretch);
+                    let force = diff.normalize() * (-neighbor_stiffness * stretch);
                     neighbor_forces[spring.a] += force;
                     neighbor_forces[spring.b] += force * -1.0;
                 }
@@ -274,10 +270,10 @@ impl EntityBody {
                 if pointer_active {
                     let to_particle = particle.pos - pointer_pos;
                     let dist = to_particle.length();
-                    if dist < REPULSION_RADIUS && dist > 0.001 {
-                        let falloff = 1.0 - (dist / REPULSION_RADIUS);
+                    if dist < repulsion_radius && dist > 0.001 {
+                        let falloff = 1.0 - (dist / repulsion_radius);
                         let f_repel =
-                            to_particle.normalize() * (REPULSION_STRENGTH * falloff);
+                            to_particle.normalize() * (repulsion_strength * falloff);
                         f_total += f_repel;
                     }
                 }
@@ -658,7 +654,7 @@ mod tests {
         let mut body = EntityBody::new_rect(100.0, 100.0, 16);
         // Displace all particles randomly-ish
         for (i, p) in body.particles.iter_mut().enumerate() {
-            p.pos = p.pos + Vec2::new((i as f32) * 5.0, (i as f32) * -3.0);
+            p.pos += Vec2::new((i as f32) * 5.0, (i as f32) * -3.0);
         }
 
         // Run 1000 ticks
@@ -802,7 +798,7 @@ mod tests {
 
         // Then run default physics for many frames (impulse gone, springs pull back)
         for _ in 0..500 {
-            body.run_physics(0.016, 100.0, 5.0, Vec2::zero(), false, 1);
+            body.run_physics(0.016, 100.0, 5.0, Vec2::zero(), false, 1, 100.0, 5000.0, 30.0);
         }
 
         // Should be back near rest
