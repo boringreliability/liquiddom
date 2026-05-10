@@ -64,6 +64,9 @@ impl LiquidCore {
         tension: f32,
         damping: f32,
         substeps: u32,
+        repulsion_radius: f32,
+        repulsion_strength: f32,
+        neighbor_spring_k: f32,
     ) {
         let dt = dt_ms / 1000.0;
         let pointer_pos = Vec2::new(pointer_x, pointer_y);
@@ -98,9 +101,7 @@ impl LiquidCore {
 
             match strategy {
                 PhysicsStrategy::Dragged => {
-                    // DOM element moves with pointer, sync() updates base_pos.
-                    // skip_rigid_translation is set above — springs create squish.
-                    body.run_physics(dt, tension, damping, pointer_pos, pointer_active, substeps);
+                    body.run_physics(dt, tension, damping, pointer_pos, pointer_active, substeps, repulsion_radius, repulsion_strength, neighbor_spring_k);
                 }
                 PhysicsStrategy::Shake => {
                     let impulse_vx = slice[6];
@@ -108,8 +109,7 @@ impl LiquidCore {
                     strategy_shake(body, dt, tension, damping, impulse_vx, impulse_vy, pointer_pos, pointer_active, substeps);
                 }
                 _ => {
-                    // Default, Tear, Magnet, Tween — all use default physics
-                    body.tick_with_substeps(dt, tension, damping, pointer_pos, pointer_active, substeps);
+                    body.run_physics(dt, tension, damping, pointer_pos, pointer_active, substeps, repulsion_radius, repulsion_strength, neighbor_spring_k);
                 }
             }
 

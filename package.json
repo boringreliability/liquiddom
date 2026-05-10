@@ -14,14 +14,14 @@
   },
   "files": [
     "dist/",
-    "pkg/",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
     "build:wasm": "wasm-pack build --target web --out-dir pkg",
     "build:ts": "tsc -p tsconfig.build.json",
-    "build": "npm run build:wasm && npm run build:ts",
+    "build:copy-wasm": "node scripts/copy-wasm.mjs",
+    "build": "npm run build:wasm && npm run build:ts && npm run build:copy-wasm",
     "prepublishOnly": "npm run build",
     "dev": "npm run build:wasm && vite --config demo/vite.config.ts demo",
     "test": "vitest run",

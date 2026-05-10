@@ -98,7 +98,7 @@ describe("FFI Integration", () => {
     view[3] = 30.0; // height
 
     // tick creates an EntityBody and runs physics
-    core.tick(16.0, 0, 0, false, 100.0, 5.0, 1);
+    core.tick(16.0, 0, 0, false, 100.0, 5.0, 1, 100.0, 5000.0, 30.0);
 
     // particle_data should now have non-zero values for entity 0
     const particlePtr = core.particle_ptr();
@@ -168,7 +168,7 @@ describe("Physics FFI Bridge", () => {
     view[offset2 + 2] = 120.0; // width
     view[offset2 + 3] = 80.0; // height
 
-    core.tick(16.0, 0, 0, false, 100.0, 5.0, 1);
+    core.tick(16.0, 0, 0, false, 100.0, 5.0, 1, 100.0, 5000.0, 30.0);
 
     // Entity 2's particles should be populated
     const particlePtr = core.particle_ptr();
@@ -215,7 +215,7 @@ describe("Physics FFI Bridge", () => {
 
     // Run several ticks so particles converge toward target
     for (let i = 0; i < 60; i++) {
-      core.tick(16.0, 0, 0, false, 100.0, 5.0, 1);
+      core.tick(16.0, 0, 0, false, 100.0, 5.0, 1, 100.0, 5000.0, 30.0);
     }
 
     // Read particle data
@@ -249,7 +249,7 @@ describe("Physics FFI Bridge", () => {
     view[2] = 50.0;
     view[3] = 50.0;
 
-    core.tick(16.0, 0, 0, false, 100.0, 5.0, 1);
+    core.tick(16.0, 0, 0, false, 100.0, 5.0, 1, 100.0, 5000.0, 30.0);
 
     // Grow
     core.grow(20);
