@@ -1,46 +1,66 @@
 # Progress — liquiddom
 
 ## Summary
-34 of 35 Wards complete · 121 estimated tests · 0 blocked
+35 of 55 Wards complete · 183 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
 |------|------|-------|--------|------|
-| 1 | Memory Layout & Buffer Allocation | 6 | ✅ Complete | 2026-03-30 |
-| 2 | Buffer Mutation API | 6 | ✅ Complete | 2026-03-30 |
-| 3 | Phantom DOM Observer | 5 | ✅ Complete | 2026-03-30 |
-| 4 | FFI Integration & Tick Event | 4 | ✅ Complete | 2026-03-31 |
-| 5 | Visual FFI Proof | 0 | ✅ Complete | 2026-04-22 |
-| 6 | Particle & Spring Data Structures | 4 | ✅ Complete | 2026-03-31 |
-| 7 | Mass-Spring-Damper Kernel | 4 | ✅ Complete | 2026-03-31 |
-| 8 | Physics to FFI Bridge | 3 | ✅ Complete | 2026-03-31 |
-| 9 | Pointer Repulsion | 4 | ✅ Complete | 2026-03-31 |
-| 10 | Canvas Spline Renderer | 1 | ✅ Complete | 2026-03-31 |
-| 11 | The Illusion & Interaction State | 2 | ✅ Complete | 2026-03-31 |
-| 12 | Final Demo & API Wrapper | 2 | ✅ Complete | 2026-04-22 |
-| 13 | Instance-Based Runtime API | 4 | ✅ Complete | 2026-03-31 |
-| 14 | Runtime Teardown and Idempotent Lifecycle | 5 | ✅ Complete | 2026-04-01 |
-| 15 | Memory Bridge Encapsulation | 4 | ✅ Complete | 2026-04-01 |
-| 16 | Capacity Correctness and Grow Semantics | 4 | ✅ Complete | 2026-04-01 |
-| 17 | Hidden-Tab, Large-dt, and Pause/Resume Controls | 4 | ✅ Complete | 2026-04-01 |
-| 18 | High-DPI Canvas and Viewport Culling | 3 | ✅ Complete | 2026-04-01 |
-| 19 | Reduced Motion, Focus State, and Touch Parity | 4 | ✅ Complete | 2026-04-01 |
-| 20 | Container-Scoped Rendering Mode | 3 | ✅ Complete | 2026-04-01 |
-| 21 | Dynamic Observation Strategy | 3 | ✅ Complete | 2026-04-21 |
-| 22 | Physics Stabilization Layer | 4 | ✅ Complete | 2026-04-21 |
-| 23 | Configurable Materials and Runtime Options | 3 | ✅ Complete | 2026-04-22 |
-| 24 | Packaging, Exports, and NPM-Ready Distribution | 2 | ✅ Complete | 2026-04-22 |
-| 25 | WDD Reconciliation and Project Hygiene Pass | 0 | ✅ Complete | 2026-04-22 |
-| 26 | Scroll-Aware Base Position | 3 | ✅ Complete | 2026-04-22 |
-| 27 | Coordinate System Unification | 4 | ✅ Complete | 2026-04-23 |
-| 28 | Transparent Background Compatibility | 2 | ✅ Complete | 2026-04-23 |
-| 29 | Liquid Type Dispatch Architecture | 4 | ✅ Complete | 2026-04-23 |
-| 30 | Dragable Interaction Primitive | 4 | ✅ Complete | 2026-04-23 |
-| 31 | Impulse Injection Primitive | 3 | ✅ Complete | 2026-04-23 |
-| 32 | Position Tween Primitive | 3 | ✅ Complete | 2026-04-23 |
-| 33 | Dragable Cards Scene | 1 | ✅ Complete | 2026-04-23 |
-| 34 | Scroll-Responsive Hero Scene | 1 | ✅ Complete | 2026-04-25 |
-| 35 | Demo Hardening, Runtime Truth, and Showcase Polish | 12 | 📋 Planned | - |
+| 001 | Memory Layout & Buffer Allocation | 6 | ✅ Complete | 2026-03-30 |
+| 002 | Buffer Mutation API | 6 | ✅ Complete | 2026-03-30 |
+| 003 | Phantom DOM Observer | 5 | ✅ Complete | 2026-03-30 |
+| 004 | FFI Integration & Tick Event | 4 | ✅ Complete | 2026-03-31 |
+| 005 | Visual FFI Proof | 0 | ✅ Complete | 2026-04-22 |
+| 006 | Particle & Spring Data Structures | 4 | ✅ Complete | 2026-03-31 |
+| 007 | Mass-Spring-Damper Kernel | 4 | ✅ Complete | 2026-03-31 |
+| 008 | Physics to FFI Bridge | 3 | ✅ Complete | 2026-03-31 |
+| 009 | Pointer Repulsion | 4 | ✅ Complete | 2026-03-31 |
+| 010 | Canvas Spline Renderer | 1 | ✅ Complete | 2026-03-31 |
+| 011 | The Illusion & Interaction State | 2 | ✅ Complete | 2026-03-31 |
+| 012 | Final Demo & API Wrapper | 2 | ✅ Complete | 2026-04-22 |
+| 013 | Instance-Based Runtime API | 4 | ✅ Complete | 2026-03-31 |
+| 014 | Runtime Teardown and Idempotent Lifecycle | 5 | ✅ Complete | 2026-04-01 |
+| 015 | Memory Bridge Encapsulation | 4 | ✅ Complete | 2026-04-01 |
+| 016 | Capacity Correctness and Grow Semantics | 4 | ✅ Complete | 2026-04-01 |
+| 017 | Hidden-Tab, Large-dt, and Pause/Resume Controls | 4 | ✅ Complete | 2026-04-01 |
+| 018 | High-DPI Canvas and Viewport Culling | 3 | ✅ Complete | 2026-04-01 |
+| 019 | Reduced Motion, Focus State, and Touch Parity | 4 | ✅ Complete | 2026-04-01 |
+| 020 | Container-Scoped Rendering Mode | 3 | ✅ Complete | 2026-04-01 |
+| 021 | Dynamic Observation Strategy | 3 | ✅ Complete | 2026-04-21 |
+| 022 | Physics Stabilization Layer | 4 | ✅ Complete | 2026-04-21 |
+| 023 | Configurable Materials and Runtime Options | 3 | ✅ Complete | 2026-04-22 |
+| 024 | Packaging, Exports, and NPM-Ready Distribution | 2 | ✅ Complete | 2026-04-22 |
+| 025 | WDD Reconciliation and Project Hygiene Pass | 0 | ✅ Complete | 2026-04-22 |
+| 026 | Scroll-Aware Base Position | 3 | ✅ Complete | 2026-04-22 |
+| 027 | Coordinate System Unification | 4 | ✅ Complete | 2026-04-23 |
+| 028 | Transparent Background Compatibility | 2 | ✅ Complete | 2026-04-23 |
+| 029 | Liquid Type Dispatch Architecture | 4 | ✅ Complete | 2026-04-23 |
+| 030 | Dragable Interaction Primitive | 4 | ✅ Complete | 2026-04-23 |
+| 031 | Impulse Injection Primitive | 3 | ✅ Complete | 2026-04-23 |
+| 032 | Position Tween Primitive | 3 | ✅ Complete | 2026-04-23 |
+| 033 | Dragable Cards Scene | 1 | ✅ Complete | 2026-04-23 |
+| 034 | Scroll-Responsive Hero Scene | 1 | ✅ Complete | 2026-04-25 |
+| 035 | Demo Hardening, Runtime Truth, and Showcase Polish | 12 | ✅ Complete | 2026-05-10 |
+| 036 | Render Abstraction Layer | 3 | 📋 Planned | - |
+| 037 | WebGPU Pipeline Scaffolding | 4 | 📋 Planned | - |
+| 038 | SDF Blob Fragment Shader | 2 | 📋 Planned | - |
+| 039 | Metaball Fusion Shader | 2 | 📋 Planned | - |
+| 040 | Background Refraction Sampling | 2 | 📋 Planned | - |
+| 041 | Canvas2D Fallback & Feature Detection | 3 | 📋 Planned | - |
+| 042 | Border-Radius Aware Rest Shape | 5 | 📋 Planned | - |
+| 043 | FreeDrop Entity Type & Buffer Extension | 4 | 📋 Planned | - |
+| 044 | Impulse-Triggered Droplet Spawning | 3 | 📋 Planned | - |
+| 045 | Droplet Culling & Lifetime Management | 3 | 📋 Planned | - |
+| 046 | Device Orientation Gravity Vector | 3 | 📋 Planned | - |
+| 047 | @liquiddom/react Adapter Package | 5 | 📋 Planned | - |
+| 048 | @liquiddom/vue Adapter Package | 4 | 📋 Planned | - |
+| 049 | Tweakpane Visual Playground | 1 | 📋 Planned | - |
+| 050 | Web Worker Offload (Optional) | 4 | 📋 Planned | - |
+| 051 | NPM Publish Pipeline & Workspace Split | 2 | 📋 Planned | - |
+| 052 | CSS Computed Background Reflection | 4 | 📋 Planned | - |
+| 053 | Border-Radius Clip in preserveBackgrounds | 3 | 📋 Planned | - |
+| 054 | box-shadow Compatibility under preserveBackgrounds | 2 | 📋 Planned | - |
+| 055 | Smooth Scroll-Snap Interpolation | 3 | 📋 Planned | - |
 
 ## Test Summary
-- Estimated total: 121
+- Estimated total: 183
