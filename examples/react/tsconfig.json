@@ -6,10 +6,9 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["node"],
-    "outDir": "dist/ts",
-    "declaration": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "isolatedModules": true,
+    "noEmit": true
   },
-  "include": ["ts/**/*", "adapters/**/*"]
+  "include": ["src/**/*"]
 }
