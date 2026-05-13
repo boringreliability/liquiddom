@@ -91,6 +91,19 @@ Both throw `Error` after `destroy()`. `validatePhysicsConfig` is exported as `@i
 
 Opt-in via `LiquidOptions.colorSource: 'computed'` (default `'config'` preserves legacy behavior). Each observed element's `getComputedStyle(...).backgroundColor` is resolved on `observe()` and on `style` / `class` mutations (via a per-element `MutationObserver` — one per observed element since the standard `MutationObserver` has no per-target `unobserve`, only `disconnect()`). The resolved color is used as the blob's base fill; hover state continues to use the global `colorHover` for v1. Transparent / `'transparent'` / unparseable values fall back to `colorDefault`. Call `instance.refreshTheme(el)` to trigger a manual re-read (e.g. after a stylesheet swap that the per-element MO can't see).
 
+### Vue adapter (Ward 048)
+
+Vue 3.4+ bindings live at `adapters/vue/index.ts`, consumed via relative
+import (publication as `@liquiddom/vue` deferred to W51). Public API:
+
+- `<LiquidProvider :config>` — owns one `LiquidDOMInstance` via provide/inject. Captures `config` once on mount.
+- `LiquidPlugin` — alternative install path: `app.use(LiquidPlugin, config?)`. Monkey-patches `app.unmount` for cleanup.
+- `useLiquid()` — returns `Ref<LiquidDOMInstance | null>`; reactive (updates when async create resolves).
+- `useLiquidRef<T>(opts?)` — returns `Ref<T | null>` template ref; internal `watch` auto-observes/unobserves across lifecycle (`flush: "post"` so element is mounted before observe fires). `liquidType` captured once — `:liquidType="reactive"` looks reactive but isn't.
+- `<LiquidElement :as :liquidType>` — wraps a tag with the ref pre-attached. `inheritAttrs: false` + manual spread (Vue forwards class/style/events/data-* via `attrs`).
+
+SSR-safe: provider effect gated on `typeof window`; `useLiquidRef`'s watch doesn't fire on the server. Adapter is pure TypeScript with `h()` render functions — no `.vue` SFCs, no vite-plugin-vue dependency.
+
 ### React adapter (Ward 047)
 
 React 18+ bindings live at `adapters/react/index.tsx`, consumed via relative
