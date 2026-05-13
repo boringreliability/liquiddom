@@ -1,4 +1,5 @@
 import { parseBorderRadius } from "./border-radius";
+import { parseBoxShadowMargin, ZERO_MARGIN, type ShadowMargin } from "./box-shadow";
 
 /** Must match Rust FLOATS_PER_ENTITY in src/buffer.rs */
 export const FLOATS_PER_ENTITY = 9;
@@ -84,8 +85,10 @@ export class PhantomObserver {
   private coordOffsetY = 0;
   private resizeObserver: ResizeObserver | null = null;
   // Ward 052: per-element theme cache + per-element MutationObservers
+  // Ward 054: MO became unconditional, also drives shadowCache refresh.
   private readonly useComputedTheme: boolean;
   private readonly themeCache: Map<number, string> = new Map();
+  private readonly shadowCache: Map<number, ShadowMargin> = new Map();
   private readonly mutationObservers: Map<number, MutationObserver> = new Map();
 
   /**
@@ -277,14 +280,25 @@ export class PhantomObserver {
     // Ward 042 §6: subscribe to resize for radius refresh.
     this.resizeObserver?.observe(el);
 
+    // Ward 054: box-shadow margin cached on every observe (regardless of
+    // useComputedTheme — clip-inflation is independent of theme tracking).
+    this.refreshElementShadow(el, id);
+
     // Ward 052: per-element computed-theme tracking (opt-in).
     if (this.useComputedTheme) {
       this.refreshElementTheme(el, id);
-      if (typeof MutationObserver !== "undefined") {
-        const mo = new MutationObserver(() => this.refreshElementTheme(el, id));
-        mo.observe(el, { attributes: true, attributeFilter: ["style", "class"] });
-        this.mutationObservers.set(id, mo);
-      }
+    }
+
+    // Ward 054: per-element MO is now unconditional — fires on either theme
+    // or box-shadow style change. Theme branch is gated inside the callback
+    // so useComputedTheme: false consumers don't get auto-populated themeCache.
+    if (typeof MutationObserver !== "undefined") {
+      const mo = new MutationObserver(() => {
+        if (this.useComputedTheme) this.refreshElementTheme(el, id);
+        this.refreshElementShadow(el, id);
+      });
+      mo.observe(el, { attributes: true, attributeFilter: ["style", "class"] });
+      this.mutationObservers.set(id, mo);
     }
 
     return id;
@@ -311,6 +325,29 @@ export class PhantomObserver {
     const id = this.elementToId.get(el);
     if (id === undefined) return;
     this.refreshElementTheme(el, id);
+  }
+
+  /** Ward 054: read computed box-shadow for `el` and update shadowCache for `id`. */
+  private refreshElementShadow(el: HTMLElement, id: number): void {
+    if (typeof window === "undefined") return;
+    const margin = parseBoxShadowMargin(window.getComputedStyle(el).boxShadow);
+    // parseBoxShadowMargin returns the ZERO_MARGIN singleton for any all-zero result.
+    if (margin === ZERO_MARGIN) {
+      this.shadowCache.delete(id);
+    } else {
+      this.shadowCache.set(id, margin);
+    }
+  }
+
+  /**
+   * Ward 054: re-read computed box-shadow for an observed element.
+   * Used for stylesheet-cascade-driven changes outside MutationObserver scope.
+   * No-op if element not observed.
+   */
+  refreshShadow(el: HTMLElement): void {
+    const id = this.elementToId.get(el);
+    if (id === undefined) return;
+    this.refreshElementShadow(el, id);
   }
 
   /** Unobserve all tracked elements. Used by runtime destroy(). */
@@ -340,15 +377,15 @@ export class PhantomObserver {
       this.listeners.delete(el);
     }
 
-    // Ward 052: disconnect per-element MutationObserver + clear theme cache.
-    if (this.useComputedTheme) {
-      const mo = this.mutationObservers.get(id);
-      if (mo) {
-        mo.disconnect();
-        this.mutationObservers.delete(id);
-      }
-      this.themeCache.delete(id);
+    // Ward 052 + Ward 054: disconnect per-element MutationObserver (now
+    // unconditional) and clear both theme + shadow caches.
+    const mo = this.mutationObservers.get(id);
+    if (mo) {
+      mo.disconnect();
+      this.mutationObservers.delete(id);
     }
+    this.themeCache.delete(id);
+    this.shadowCache.delete(id);
 
     // Ward 042 §6: unsubscribe from resize.
     this.resizeObserver?.unobserve(el);
@@ -432,16 +469,22 @@ export class PhantomObserver {
 
       // Clip rendering to exclude element rect if preserveBackgrounds is on.
       // W53: rounded-rect hole when border-radius (slot[8]) is set.
+      // W54: inflated by per-side box-shadow margin so shadows render intact.
       const clipping = viewport?.preserveBackgrounds === true;
       if (clipping) {
         ctx.save();
         ctx.beginPath();
         ctx.rect(0, 0, viewport.viewportWidth, viewport.viewportHeight);
-        const r = clampClipRadius(this.buffer[entityOffset + 8], w, h);
+        const m = this.shadowCache.get(id) ?? ZERO_MARGIN;
+        const cx = x - m.left;
+        const cy = y - m.top;
+        const cw = w + m.left + m.right;
+        const ch = h + m.top + m.bottom;
+        const r = clampClipRadius(this.buffer[entityOffset + 8], cw, ch);
         if (r > 0) {
-          ctx.roundRect(x, y, w, h, r);
+          ctx.roundRect(cx, cy, cw, ch, r);
         } else {
-          ctx.rect(x, y, w, h);
+          ctx.rect(cx, cy, cw, ch);
         }
         ctx.clip("evenodd");
       }

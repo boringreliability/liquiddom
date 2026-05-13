@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-42 of 55 Wards complete · 224 estimated tests · 0 blocked
+43 of 55 Wards complete · 231 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -59,8 +59,8 @@
 | 0512 | NPM Publish Pipeline & Workspace Split | 13 | ✅ Complete | 2026-05-13 |
 | 0524 | CSS Computed Background Reflection | 9 | ✅ Complete | 2026-05-13 |
 | 0533 | Border-Radius Clip in preserveBackgrounds | 4 | ✅ Complete | 2026-05-13 |
-| 054 | box-shadow Compatibility under preserveBackgrounds | 2 | 📋 Planned | - |
+| 0542 | box-shadow Compatibility under preserveBackgrounds | 9 | ✅ Complete | 2026-05-13 |
 | 055 | Smooth Scroll-Snap Interpolation | 3 | 📋 Planned | - |
 
 ## Test Summary
-- Estimated total: 224
+- Estimated total: 231

@@ -4,7 +4,7 @@
 Ward 54 — 2026-05-13
 
 ## Current State
-43 wards COMPLETE (latest: Ward 54 — box-shadow clip inflation). 43 Rust + 156 TS = 199 tests. 0 clippy warnings, 0 TS errors. Repo is an npm workspace: `packages/{core,react,vue}` + `examples/react`. Three publishable packages at v0.2.0-rc.0. CI + release workflows wired. Rust source + Cargo.toml stay at repo root. W54 closes the box-shadow-clipping limitation: clip-hole inflates by per-side shadow margin under `preserveBackgrounds: true`.
+42 wards COMPLETE, Ward 54 GOLD (awaiting human approval). 43 Rust + 155 TS = 198 tests. 0 clippy warnings, 0 TS errors. Repo is an npm workspace: `packages/{core,react,vue}` + `examples/react`. Three publishable packages at v0.2.0-rc.0. CI + release workflows wired. Rust source + Cargo.toml stay at repo root. W54 closes the box-shadow-clipping limitation: clip-hole inflates by per-side shadow margin under `preserveBackgrounds: true`.
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -61,7 +61,7 @@ Ward 54 — 2026-05-13
 | Total tests | 167 (43 Rust + 124 TS) | W52 |
 | Total tests | 176 (43 Rust + 133 TS) | W48 |
 | Total tests | 189 (43 Rust + 146 TS) | W51 |
-| Total tests | 199 (43 Rust + 156 TS) | W54 |
+| Total tests | 198 (43 Rust + 155 TS) | W54 |
 
 ## Known Limitations
 - Container mode assumes positioned containing block
