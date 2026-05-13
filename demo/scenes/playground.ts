@@ -22,7 +22,7 @@ const DEFAULT_THEME = {
 const DEFAULT_INIT = {
   capacity: 64,
   forceReducedMotion: false,
-  preserveBackgrounds: false,
+  preserveBackgrounds: true, // W53: rounded-rect clip now matches border-radius
 };
 
 type PresetName = "custom" | "goo" | "jelly" | "firm";

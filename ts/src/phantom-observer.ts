@@ -7,6 +7,16 @@ export const FLOATS_PER_ENTITY = 9;
 export const PARTICLES_PER_BODY = 16;
 const PARTICLE_FLOATS_PER_BODY = PARTICLES_PER_BODY * 2;
 
+/**
+ * Ward 053 clip-site clamp. Trusts the entity buffer's raw slot[8] value
+ * but defensively clamps to `min(w, h) / 2` (mirroring Rust's body-init
+ * clamp) and bails to 0 for NaN / Infinity / non-positive inputs.
+ */
+function clampClipRadius(r: number, w: number, h: number): number {
+  if (!Number.isFinite(r) || r <= 0) return 0;
+  return Math.min(r, Math.min(w, h) / 2);
+}
+
 const DEFAULT_COLOR = "rgba(83, 52, 131, 0.8)";
 const DEFAULT_COLOR_HOVER = "rgba(120, 80, 180, 0.9)";
 
@@ -309,7 +319,7 @@ export class PhantomObserver {
     viewport?: {
       viewportWidth: number;
       viewportHeight: number;
-      cullMargin: number;
+      cullMargin?: number;
       preserveBackgrounds?: boolean;
     },
   ): void {
@@ -327,7 +337,7 @@ export class PhantomObserver {
 
       // Viewport culling: skip entities fully outside viewport + margin
       if (viewport) {
-        const m = viewport.cullMargin;
+        const m = viewport.cullMargin ?? 0;
         if (
           x + w < -m ||
           y + h < -m ||
@@ -342,17 +352,19 @@ export class PhantomObserver {
       const isHover = this.buffer[entityOffset + 4] === 1.0;
       ctx.fillStyle = isHover ? this.colorHover : this.colorDefault;
 
-      // Clip rendering to exclude element rect if preserveBackgrounds is on
+      // Clip rendering to exclude element rect if preserveBackgrounds is on.
+      // W53: rounded-rect hole when border-radius (slot[8]) is set.
       const clipping = viewport?.preserveBackgrounds === true;
       if (clipping) {
         ctx.save();
         ctx.beginPath();
-        // Full viewport rect
-        const vw = viewport!.viewportWidth;
-        const vh = viewport!.viewportHeight;
-        ctx.rect(0, 0, vw, vh);
-        // Inverse: cut out the element rect
-        ctx.rect(x, y, w, h);
+        ctx.rect(0, 0, viewport.viewportWidth, viewport.viewportHeight);
+        const r = clampClipRadius(this.buffer[entityOffset + 8], w, h);
+        if (r > 0) {
+          ctx.roundRect(x, y, w, h, r);
+        } else {
+          ctx.rect(x, y, w, h);
+        }
         ctx.clip("evenodd");
       }
 
