@@ -87,6 +87,10 @@ NaN and unknown values fall back to Default. Add new strategies by extending the
 
 Both throw `Error` after `destroy()`. `validatePhysicsConfig` is exported as `@internal` for adapter/playground reuse — not part of the stable public API.
 
+### Computed-theme color source (Ward 052)
+
+Opt-in via `LiquidOptions.colorSource: 'computed'` (default `'config'` preserves legacy behavior). Each observed element's `getComputedStyle(...).backgroundColor` is resolved on `observe()` and on `style` / `class` mutations (via a per-element `MutationObserver` — one per observed element since the standard `MutationObserver` has no per-target `unobserve`, only `disconnect()`). The resolved color is used as the blob's base fill; hover state continues to use the global `colorHover` for v1. Transparent / `'transparent'` / unparseable values fall back to `colorDefault`. Call `instance.refreshTheme(el)` to trigger a manual re-read (e.g. after a stylesheet swap that the per-element MO can't see).
+
 ### React adapter (Ward 047)
 
 React 18+ bindings live at `adapters/react/index.tsx`, consumed via relative

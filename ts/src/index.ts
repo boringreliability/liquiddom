@@ -22,6 +22,8 @@ export interface LiquidOptions {
   container?: HTMLElement;
   preserveBackgrounds?: boolean;
   physics?: LiquidPhysicsConfig;
+  /** Ward 052: when 'computed', each observed element's bg-color is read on observe + on style/class changes. Default 'config'. */
+  colorSource?: "config" | "computed";
 }
 
 const DEFAULT_PHYSICS: Required<LiquidPhysicsConfig> = {
@@ -112,6 +114,8 @@ export interface LiquidDOMInstance {
   setPhysicsConfig(partial: Partial<LiquidPhysicsConfig>): void;
   /** Ward 049: read-only snapshot of the current live physics config. Mutating the returned object does NOT affect state. */
   getPhysicsConfig(): Required<LiquidPhysicsConfig>;
+  /** Ward 052: re-read computed bg-color for an observed element; no-op if colorSource !== 'computed' or element not observed. */
+  refreshTheme(el: HTMLElement): void;
 }
 
 /** Default maximum dt in milliseconds. */
@@ -175,6 +179,7 @@ export class LiquidDOM {
       colorHover: options?.colorHover,
       entityView: bridge?.entityView(),
       particleView: bridge?.particleView(),
+      useComputedTheme: options?.colorSource === "computed",
     });
 
     // 3b. Set initial coord offset for container mode
@@ -591,6 +596,13 @@ export class LiquidDOM {
         // Shallow copy so callers cannot mutate internal state via the
         // returned reference (Ward 049 §1).
         return { ...physics };
+      },
+
+      refreshTheme(el: HTMLElement): void {
+        if (destroyed) {
+          throw new Error("Cannot refreshTheme on a destroyed LiquidDOM instance");
+        }
+        observer.refreshTheme(el);
       },
 
       destroy(): void {

@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-39 of 55 Wards complete · 203 estimated tests · 0 blocked
+40 of 55 Wards complete · 208 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -57,10 +57,10 @@
 | 0494 | Tweakpane Visual Playground | 7 | ✅ Complete | 2026-05-10 |
 | 050 | Web Worker Offload (Optional) | 4 | 📋 Planned | - |
 | 051 | NPM Publish Pipeline & Workspace Split | 2 | 📋 Planned | - |
-| 052 | CSS Computed Background Reflection | 4 | 📋 Planned | - |
+| 0524 | CSS Computed Background Reflection | 9 | ✅ Complete | 2026-05-13 |
 | 0533 | Border-Radius Clip in preserveBackgrounds | 4 | ✅ Complete | 2026-05-13 |
 | 054 | box-shadow Compatibility under preserveBackgrounds | 2 | 📋 Planned | - |
 | 055 | Smooth Scroll-Snap Interpolation | 3 | 📋 Planned | - |
 
 ## Test Summary
-- Estimated total: 203
+- Estimated total: 208
