@@ -87,6 +87,18 @@ NaN and unknown values fall back to Default. Add new strategies by extending the
 
 Both throw `Error` after `destroy()`. `validatePhysicsConfig` is exported as `@internal` for adapter/playground reuse — not part of the stable public API.
 
+### React adapter (Ward 047)
+
+React 18+ bindings live at `adapters/react/index.tsx`, consumed via relative
+import (publication as `@liquiddom/react` deferred to W51). Public API:
+
+- `<LiquidProvider config?>` — owns one `LiquidDOMInstance` via React Context, captures `config` once on mount.
+- `useLiquid()` — read the instance; returns `null` before init / outside a provider.
+- `useLiquidRef<T>(opts?)` — callback ref that auto-observes / unobserves an element on mount/unmount; safe before instance ready (deferred via state-trigger).
+- `<LiquidElement as? liquidType?>` — convenience tag that wraps `useLiquidRef`.
+
+Strict-mode safe via idempotent `observe` (W14 invariant). SSR-safe — provider effect is gated on `typeof window`.
+
 ### Memory and pointer ownership
 
 `WasmBridge` (`ts/src/wasm-bridge.ts`) is the **sole** owner of pointer/view logic. `PhantomObserver` and `LiquidDOM` never call `core.ptr()` directly. After `core.grow()`, `bridge.rebind()` MUST be called and the new views passed to `observer.setViews()` — `WebAssembly.Memory` may detach the underlying `ArrayBuffer` on grow.

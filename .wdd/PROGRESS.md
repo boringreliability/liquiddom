@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-37 of 55 Wards complete · 198 estimated tests · 0 blocked
+38 of 55 Wards complete · 202 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -52,7 +52,7 @@
 | 044 | Impulse-Triggered Droplet Spawning | 3 | 📋 Planned | - |
 | 045 | Droplet Culling & Lifetime Management | 3 | 📋 Planned | - |
 | 046 | Device Orientation Gravity Vector | 3 | 📋 Planned | - |
-| 047 | @liquiddom/react Adapter Package | 5 | 📋 Planned | - |
+| 0474 | @liquiddom/react Adapter Package | 9 | ✅ Complete | 2026-05-13 |
 | 048 | @liquiddom/vue Adapter Package | 4 | 📋 Planned | - |
 | 0494 | Tweakpane Visual Playground | 7 | ✅ Complete | 2026-05-10 |
 | 050 | Web Worker Offload (Optional) | 4 | 📋 Planned | - |
@@ -63,4 +63,4 @@
 | 055 | Smooth Scroll-Snap Interpolation | 3 | 📋 Planned | - |
 
 ## Test Summary
-- Estimated total: 198
+- Estimated total: 202
