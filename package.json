@@ -1,53 +1,39 @@
 {
-  "name": "liquiddom",
-  "version": "0.1.0",
-  "description": "WASM-driven fluid dynamics on web elements via hidden canvas",
+  "name": "liquiddom-workspace",
+  "version": "0.0.0",
+  "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
-  },
-  "files": [
-    "dist/",
-    "README.md",
-    "LICENSE"
+  "workspaces": [
+    "packages/*",
+    "examples/*"
   ],
   "scripts": {
     "build:wasm": "wasm-pack build --target web --out-dir pkg",
-    "build:ts": "tsc -p tsconfig.build.json",
-    "build:copy-wasm": "node scripts/copy-wasm.mjs",
-    "build": "npm run build:wasm && npm run build:ts && npm run build:copy-wasm",
-    "prepublishOnly": "npm run build",
-    "dev": "npm run build:wasm && vite --config demo/vite.config.ts demo",
+    "build:ts": "npm run build --workspaces --if-present",
+    "build": "npm run build:wasm && npm run build:ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:rust": "cargo test",
+    "clippy": "cargo clippy --all-targets --all-features -- -D warnings",
+    "verify": "npm run build && npm run test:rust && npm run test && npm run clippy",
+    "dev": "npm run build:wasm && vite --config demo/vite.config.ts demo",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "npm run build && npx changeset publish"
   },
-  "keywords": [
-    "wasm",
-    "webassembly",
-    "physics",
-    "canvas",
-    "liquid",
-    "animation"
-  ],
-  "author": "",
-  "license": "MIT",
   "devDependencies": {
+    "@changesets/cli": "^2.27.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^25.5.0",
     "@types/react": "^18.3.28",
     "@types/react-dom": "^18.3.7",
+    "@types/semver": "^7.7.1",
     "@vue/server-renderer": "^3.5.34",
     "@vue/test-utils": "^2.4.10",
     "jsdom": "^29.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "semver": "^7.8.0",
     "tweakpane": "^4.0.4",
     "typescript": "^6.0.2",
     "vite": "^8.0.3",

@@ -1,0 +1,39 @@
+{
+  "name": "liquiddom",
+  "version": "0.2.0-rc.0",
+  "description": "WASM-driven fluid dynamics on web elements via hidden canvas",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./wasm/liquiddom.js": "./dist/wasm/liquiddom.js"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node ../../scripts/copy-wasm.mjs",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "wasm",
+    "webassembly",
+    "physics",
+    "canvas",
+    "liquid",
+    "animation"
+  ],
+  "author": "",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}

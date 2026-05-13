@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-41 of 55 Wards complete · 213 estimated tests · 0 blocked
+42 of 55 Wards complete · 224 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -56,11 +56,11 @@
 | 0483 | @liquiddom/vue Adapter Package | 9 | ✅ Complete | 2026-05-13 |
 | 0494 | Tweakpane Visual Playground | 7 | ✅ Complete | 2026-05-10 |
 | 050 | Web Worker Offload (Optional) | 4 | 📋 Planned | - |
-| 051 | NPM Publish Pipeline & Workspace Split | 2 | 📋 Planned | - |
+| 0512 | NPM Publish Pipeline & Workspace Split | 13 | ✅ Complete | 2026-05-13 |
 | 0524 | CSS Computed Background Reflection | 9 | ✅ Complete | 2026-05-13 |
 | 0533 | Border-Radius Clip in preserveBackgrounds | 4 | ✅ Complete | 2026-05-13 |
 | 054 | box-shadow Compatibility under preserveBackgrounds | 2 | 📋 Planned | - |
 | 055 | Smooth Scroll-Snap Interpolation | 3 | 📋 Planned | - |
 
 ## Test Summary
-- Estimated total: 213
+- Estimated total: 224

@@ -5,11 +5,14 @@
   "type": "module",
   "scripts": {
     "predev": "cd ../.. && npm run build:wasm",
+    "prebuild": "cd ../.. && npm run build:wasm",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "liquiddom": "*",
+    "@liquiddom/react": "*",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
