@@ -6,33 +6,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `liquiddom` is a WASM-driven soft-body physics library that animates real DOM elements via a hidden `<canvas>` overlay while preserving accessibility. Rust computes the physics; TypeScript orchestrates DOM observation, the RAF loop, pointer/scroll/visibility events, and rendering. They share a pre-allocated `Float32Array` in WASM linear memory — there is no JSON over the FFI boundary.
 
-The package is published as ESM (`dist/`) plus the wasm-pack output (`pkg/`). Entry point: `ts/src/index.ts` exporting `LiquidDOM.create()`.
+As of W51 the repo is an npm workspace with three publishable packages: `liquiddom` (core), `@liquiddom/react`, and `@liquiddom/vue`. Rust source and `Cargo.toml` stay at repo root (one Rust crate produces one `pkg/` consumed by `packages/core/`). Entry point: `packages/core/ts/src/index.ts` exporting `LiquidDOM.create()`.
 
 ## Commands
 
 ### Build
-- `npm run build` — Full pipeline: `wasm-pack build --target web --out-dir pkg` then `tsc -p tsconfig.build.json`. Always required after Rust changes.
+- `npm run build` — Full pipeline from root: `wasm-pack` then `tsc` in each `packages/*` (topological via peer-dep order). Always required after Rust changes.
 - `npm run build:wasm` — Rust → WASM only.
-- `npm run build:ts` — TypeScript → `dist/` only.
+- `npm run build:ts` — Workspace-fanned TS build (`npm run build --workspaces --if-present`).
+- `npm run build -w liquiddom` — Build a single package.
 
 ### Develop
 - `npm run dev` — Builds WASM, then runs Vite against `demo/` (with `demo/scenes/*.html` for individual scenarios: `dragable-cards.html`, `scroll-hero.html`).
+- `npm run build -w liquiddom-react-example` — Build the React example app.
 
 ### Test
-- `npm test` — Vitest run (TS tests under `ts/__tests__/`). jsdom environment.
-- `npm run test:watch` — Vitest watch mode.
-- `npm test -- ts/__tests__/runtime-truth.test.ts` — Run a single test file.
-- `npm test -- -t "snippet"` — Run tests matching a name pattern.
+- `npm test` — Vitest workspace-mode (`vitest.workspace.ts` runs all three packages in one process). jsdom env per package config.
+- `npm test -- -t "snippet"` — Filter by name pattern.
+- `npm test -w @liquiddom/react` — Run only one package's tests.
 - `cargo test` — All Rust unit tests (in-file `#[cfg(test)]` modules under `src/`).
 - `cargo test --lib physics::` — Filter by module path.
 
 ### Lint / Format
 - `cargo clippy` — Required to pass with zero warnings.
 - `cargo fmt` — Required.
-- TypeScript correctness is enforced via `tsc --noEmit` through `npm run build:ts`.
+- TypeScript correctness is enforced via `tsc` through `npm run build:ts`.
+
+### Release
+- `npm run changeset` — Author a new changeset (drives version bumps).
+- `npm run version` — Apply pending changesets (bumps package.json versions).
+- Tag `v*` on `master` → `.github/workflows/release.yml` runs `npx changeset publish` with `NPM_TOKEN`.
 
 ### Verification (use before claiming a ward is gold)
-`npm run build && npm test && cargo test && cargo clippy && npm pack --dry-run`
+`npm run verify` — runs `build + test:rust + test + clippy`. Add `npm pack --dry-run --workspaces` to inspect publish output.
 
 ## Architecture (high-level)
 
@@ -62,7 +68,7 @@ A single flat `Float32Array` in WASM memory is the only data channel. Two views:
 
 2. **Particle buffer** — `PARTICLES_PER_BODY * 2` floats per entity (currently `16 * 2 = 32`). Rust writes particle positions; TS reads to render splines.
 
-The constants `FLOATS_PER_ENTITY` and `PARTICLES_PER_BODY` are duplicated in `src/buffer.rs` / `src/api.rs` (Rust) and `ts/src/phantom-observer.ts` (TS). They MUST stay in sync.
+The constants `FLOATS_PER_ENTITY` and `PARTICLES_PER_BODY` are duplicated in `src/buffer.rs` / `src/api.rs` (Rust) and `packages/core/ts/src/phantom-observer.ts` (TS). They MUST stay in sync.
 
 ### `liquid_type` dispatch (`src/physics.rs`)
 
@@ -93,8 +99,7 @@ Opt-in via `LiquidOptions.colorSource: 'computed'` (default `'config'` preserves
 
 ### Vue adapter (Ward 048)
 
-Vue 3.4+ bindings live at `adapters/vue/index.ts`, consumed via relative
-import (publication as `@liquiddom/vue` deferred to W51). Public API:
+Vue 3.4+ bindings live at `packages/vue/src/index.ts`, published as `@liquiddom/vue` (workspace split landed in W51). Public API:
 
 - `<LiquidProvider :config>` — owns one `LiquidDOMInstance` via provide/inject. Captures `config` once on mount.
 - `LiquidPlugin` — alternative install path: `app.use(LiquidPlugin, config?)`. Monkey-patches `app.unmount` for cleanup.
@@ -106,8 +111,7 @@ SSR-safe: provider effect gated on `typeof window`; `useLiquidRef`'s watch doesn
 
 ### React adapter (Ward 047)
 
-React 18+ bindings live at `adapters/react/index.tsx`, consumed via relative
-import (publication as `@liquiddom/react` deferred to W51). Public API:
+React 18+ bindings live at `packages/react/src/index.tsx`, published as `@liquiddom/react` (workspace split landed in W51). Public API:
 
 - `<LiquidProvider config?>` — owns one `LiquidDOMInstance` via React Context, captures `config` once on mount.
 - `useLiquid()` — read the instance; returns `null` before init / outside a provider.
@@ -118,9 +122,9 @@ Strict-mode safe via idempotent `observe` (W14 invariant). SSR-safe — provider
 
 ### Memory and pointer ownership
 
-`WasmBridge` (`ts/src/wasm-bridge.ts`) is the **sole** owner of pointer/view logic. `PhantomObserver` and `LiquidDOM` never call `core.ptr()` directly. After `core.grow()`, `bridge.rebind()` MUST be called and the new views passed to `observer.setViews()` — `WebAssembly.Memory` may detach the underlying `ArrayBuffer` on grow.
+`WasmBridge` (`packages/core/ts/src/wasm-bridge.ts`) is the **sole** owner of pointer/view logic. `PhantomObserver` and `LiquidDOM` never call `core.ptr()` directly. After `core.grow()`, `bridge.rebind()` MUST be called and the new views passed to `observer.setViews()` — `WebAssembly.Memory` may detach the underlying `ArrayBuffer` on grow.
 
-### Per-frame loop semantics (`ts/src/index.ts`)
+### Per-frame loop semantics (`packages/core/ts/src/index.ts`)
 
 Order matters:
 1. Cache `getBoundingClientRect` once, set `coordOffset` for container mode.
@@ -152,7 +156,7 @@ This repo is governed by `.wdd/` — `PROJECT.md`, `PROGRESS.md`, `CONTEXT.md`, 
 
 ## Test conventions
 
-- TS tests live in `ts/__tests__/*.test.ts`. The "runtime-truth" file (Ward 35) catches "looks green but isn't true at runtime" failures — extend it when wiring new public API surface.
+- TS tests live in `packages/{core,react,vue}/__tests__/` and `packages/core/ts/__tests__/*.test.ts`. The "runtime-truth" file (Ward 35) catches "looks green but isn't true at runtime" failures — extend it when wiring new public API surface. `packages/core/__tests__/workspace-publish.test.ts` (W51) asserts the publishable shape of all three packages.
 - `liquiddom-api.test.ts` covers the full public `LiquidDOM` instance API.
 - Rust tests are colocated with the module under `#[cfg(test)] mod tests` in `src/*.rs`.
 - Vitest uses `jsdom`. Mocks for `pkg/liquiddom.js` are required because WASM does not load under jsdom — the codebase falls back to a "mock mode" if WASM `import` fails. Tests should still verify the buffer-write contract is correct.

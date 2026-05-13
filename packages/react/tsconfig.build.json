@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "jsx": "react-jsx",
+    "composite": true,
+    "paths": {
+      "liquiddom": ["../core/ts/src/index.ts"]
+    }
+  },
+  "references": [{ "path": "../core/tsconfig.build.json" }],
+  "include": ["src/**/*"]
+}

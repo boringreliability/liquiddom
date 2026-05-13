@@ -1,5 +1,5 @@
-import { LiquidProvider, useLiquidRef, LiquidElement } from "../../../adapters/react";
-import { presets } from "../../../ts/src/index";
+import { LiquidProvider, useLiquidRef, LiquidElement } from "@liquiddom/react";
+import { presets } from "liquiddom";
 
 function HookButton() {
   const ref = useLiquidRef<HTMLButtonElement>();
