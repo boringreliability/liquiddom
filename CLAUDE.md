@@ -95,7 +95,13 @@ Both throw `Error` after `destroy()`. `validatePhysicsConfig` is exported as `@i
 
 ### Computed-theme color source (Ward 052)
 
-Opt-in via `LiquidOptions.colorSource: 'computed'` (default `'config'` preserves legacy behavior). Each observed element's `getComputedStyle(...).backgroundColor` is resolved on `observe()` and on `style` / `class` mutations (via a per-element `MutationObserver` — one per observed element since the standard `MutationObserver` has no per-target `unobserve`, only `disconnect()`). The resolved color is used as the blob's base fill; hover state continues to use the global `colorHover` for v1. Transparent / `'transparent'` / unparseable values fall back to `colorDefault`. Call `instance.refreshTheme(el)` to trigger a manual re-read (e.g. after a stylesheet swap that the per-element MO can't see).
+Opt-in via `LiquidOptions.colorSource: 'computed'` (default `'config'` preserves legacy behavior). Each observed element's `getComputedStyle(...).backgroundColor` is resolved on `observe()` and on `style` / `class` mutations. The resolved color is used as the blob's base fill; hover state continues to use the global `colorHover` for v1. Transparent / `'transparent'` / unparseable values fall back to `colorDefault`. Call `instance.refreshTheme(el)` to trigger a manual re-read (e.g. after a stylesheet swap the per-element MO can't see).
+
+After W54, the per-element `MutationObserver` is **unconditional** (one per observed element, disconnect on `unobserve`). It drives BOTH theme refresh and box-shadow margin refresh; the theme branch is gated inside the callback (`if (this.useComputedTheme) this.refreshElementTheme(...)`) so `useComputedTheme: false` consumers don't get auto-populated `themeCache` entries.
+
+### box-shadow clip inflation (Ward 054)
+
+Under `preserveBackgrounds: true`, the canvas-clip rectangle is sized to the element's bounding box plus per-side margins computed from `getComputedStyle(el).boxShadow` so outset shadows render intact. `packages/core/ts/src/box-shadow.ts` exposes `parseBoxShadowMargin(raw: string): ShadowMargin` (paren-aware top-level split → numeric `px` token extraction per segment → per-side max across segments; `inset` shadows skipped). Margins are cached in `PhantomObserver.shadowCache` on `observe()` and refreshed via the unconditional MO. The clip-hole's border-radius is preserved unchanged (the clip-hole corner is behind the DOM element so the geometric difference is invisible; shadow falloff masks the rest). Public API: `instance.refreshShadow(el)` for stylesheet-cascade-driven changes outside MO scope (parity with `refreshTheme`).
 
 ### Vue adapter (Ward 048)
 

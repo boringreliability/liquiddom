@@ -116,6 +116,13 @@ export interface LiquidDOMInstance {
   getPhysicsConfig(): Required<LiquidPhysicsConfig>;
   /** Ward 052: re-read computed bg-color for an observed element; no-op if colorSource !== 'computed' or element not observed. */
   refreshTheme(el: HTMLElement): void;
+  /**
+   * Ward 054: re-read computed box-shadow for an observed element. Useful for
+   * stylesheet-cascade-driven changes (e.g., ancestor `data-theme` toggling a
+   * CSS rule with a different `box-shadow`) that the per-element MutationObserver
+   * cannot see. No-op if element not observed.
+   */
+  refreshShadow(el: HTMLElement): void;
 }
 
 /** Default maximum dt in milliseconds. */
@@ -603,6 +610,13 @@ export class LiquidDOM {
           throw new Error("Cannot refreshTheme on a destroyed LiquidDOM instance");
         }
         observer.refreshTheme(el);
+      },
+
+      refreshShadow(el: HTMLElement): void {
+        if (destroyed) {
+          throw new Error("Cannot refreshShadow on a destroyed LiquidDOM instance");
+        }
+        observer.refreshShadow(el);
       },
 
       destroy(): void {
