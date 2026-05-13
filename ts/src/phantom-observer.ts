@@ -17,6 +17,31 @@ function clampClipRadius(r: number, w: number, h: number): number {
   return Math.min(r, Math.min(w, h) / 2);
 }
 
+/**
+ * Ward 052: resolve a `getComputedStyle(...).backgroundColor` string to a
+ * usable CSS color or null. Null signals "transparent / unparseable" and the
+ * caller falls back to `colorDefault`.
+ *
+ * The regex matches only the 4-arg `rgba(...)` form to extract alpha for the
+ * transparent check. 3-arg `rgb()` and CSS4 space-separated forms fall
+ * through to the return statement — by design (no alpha == fully opaque).
+ */
+function parseComputedColor(raw: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (
+    trimmed === "" ||
+    trimmed === "transparent" ||
+    trimmed === "initial" ||
+    trimmed === "inherit"
+  ) {
+    return null;
+  }
+  const m = trimmed.match(/^rgba?\(\s*[^,]+,\s*[^,]+,\s*[^,]+,\s*([0-9.]+)\s*\)$/i);
+  if (m && parseFloat(m[1]!) === 0) return null;
+  return trimmed;
+}
+
 const DEFAULT_COLOR = "rgba(83, 52, 131, 0.8)";
 const DEFAULT_COLOR_HOVER = "rgba(120, 80, 180, 0.9)";
 
@@ -25,6 +50,8 @@ export interface PhantomObserverOptions {
   particleView?: Float32Array;
   colorDefault?: string;
   colorHover?: string;
+  /** Ward 052: when true, read getComputedStyle(el).backgroundColor on observe + style/class mutations. */
+  useComputedTheme?: boolean;
 }
 
 /** Stored listener refs for clean removal in unobserve() */
@@ -56,6 +83,10 @@ export class PhantomObserver {
   private coordOffsetX = 0;
   private coordOffsetY = 0;
   private resizeObserver: ResizeObserver | null = null;
+  // Ward 052: per-element theme cache + per-element MutationObservers
+  private readonly useComputedTheme: boolean;
+  private readonly themeCache: Map<number, string> = new Map();
+  private readonly mutationObservers: Map<number, MutationObserver> = new Map();
 
   /**
    * @param capacity - Max number of entities
@@ -67,6 +98,7 @@ export class PhantomObserver {
     this.colorHover = options?.colorHover ?? DEFAULT_COLOR_HOVER;
     this.buffer = options?.entityView ?? new Float32Array(capacity * FLOATS_PER_ENTITY);
     this.particleBuffer = options?.particleView ?? null;
+    this.useComputedTheme = options?.useComputedTheme === true;
 
     // Ward 042 §6: single shared ResizeObserver for border-radius refresh.
     // Lazy: only construct when ResizeObserver is available (browsers + the
@@ -245,7 +277,40 @@ export class PhantomObserver {
     // Ward 042 §6: subscribe to resize for radius refresh.
     this.resizeObserver?.observe(el);
 
+    // Ward 052: per-element computed-theme tracking (opt-in).
+    if (this.useComputedTheme) {
+      this.refreshElementTheme(el, id);
+      if (typeof MutationObserver !== "undefined") {
+        const mo = new MutationObserver(() => this.refreshElementTheme(el, id));
+        mo.observe(el, { attributes: true, attributeFilter: ["style", "class"] });
+        this.mutationObservers.set(id, mo);
+      }
+    }
+
     return id;
+  }
+
+  /** Ward 052: read computed bg-color for `el` and update themeCache for `id`. */
+  private refreshElementTheme(el: HTMLElement, id: number): void {
+    if (typeof window === "undefined") return;
+    const raw = window.getComputedStyle(el).backgroundColor;
+    const resolved = parseComputedColor(raw);
+    if (resolved === null) {
+      this.themeCache.delete(id);
+    } else {
+      this.themeCache.set(id, resolved);
+    }
+  }
+
+  /**
+   * Ward 052: re-read computed bg-color for an observed element.
+   * No-op if not in computed mode or element not observed.
+   */
+  refreshTheme(el: HTMLElement): void {
+    if (!this.useComputedTheme) return;
+    const id = this.elementToId.get(el);
+    if (id === undefined) return;
+    this.refreshElementTheme(el, id);
   }
 
   /** Unobserve all tracked elements. Used by runtime destroy(). */
@@ -273,6 +338,16 @@ export class PhantomObserver {
       el.removeEventListener("pointerup", ls.pointerup);
       el.removeEventListener("pointercancel", ls.pointercancel);
       this.listeners.delete(el);
+    }
+
+    // Ward 052: disconnect per-element MutationObserver + clear theme cache.
+    if (this.useComputedTheme) {
+      const mo = this.mutationObservers.get(id);
+      if (mo) {
+        mo.disconnect();
+        this.mutationObservers.delete(id);
+      }
+      this.themeCache.delete(id);
     }
 
     // Ward 042 §6: unsubscribe from resize.
@@ -350,7 +425,10 @@ export class PhantomObserver {
 
       // Read interaction_state for hover visual feedback
       const isHover = this.buffer[entityOffset + 4] === 1.0;
-      ctx.fillStyle = isHover ? this.colorHover : this.colorDefault;
+      // Ward 052: per-element themed color when in computed mode (themeCache empty in config mode).
+      // Hover stays global for v1.
+      const baseColor = this.themeCache.get(id) ?? this.colorDefault;
+      ctx.fillStyle = isHover ? this.colorHover : baseColor;
 
       // Clip rendering to exclude element rect if preserveBackgrounds is on.
       // W53: rounded-rect hole when border-radius (slot[8]) is set.
