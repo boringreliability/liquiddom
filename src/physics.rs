@@ -9,6 +9,27 @@ pub enum PhysicsStrategy {
     Dragged,  // 3.0 — Ward 030
     Shake,    // 4.0 — Ward 031
     Tween,    // 5.0 — Ward 032
+    FreeDrop, // 6.0 — Ward 043
+}
+
+/// Ward 043 free-floating particle. No DOM anchor, no springs, no neighbors.
+/// Stored in `LiquidCore::free_particles` parallel to `bodies`.
+#[derive(Debug, Clone)]
+pub struct FreeParticle {
+    pub pos: Vec2,
+    pub velocity: Vec2,
+    pub radius: f32,
+}
+
+impl FreeParticle {
+    pub fn new(pos: Vec2, velocity: Vec2, radius: f32) -> Self {
+        Self { pos, velocity, radius }
+    }
+
+    /// Constant-velocity integration. Gravity arrives in W46.
+    pub fn integrate(&mut self, dt: f32) {
+        self.pos += self.velocity * dt;
+    }
 }
 
 /// Map liquid_type float to PhysicsStrategy. Unknown values fall back to Default.
@@ -23,6 +44,7 @@ pub fn dispatch_strategy(liquid_type: f32) -> PhysicsStrategy {
         3 => PhysicsStrategy::Dragged,
         4 => PhysicsStrategy::Shake,
         5 => PhysicsStrategy::Tween,
+        6 => PhysicsStrategy::FreeDrop,
         _ => PhysicsStrategy::Default,
     }
 }
