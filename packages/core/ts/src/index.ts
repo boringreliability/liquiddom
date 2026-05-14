@@ -65,6 +65,48 @@ export const presets = {
   }),
 };
 
+/**
+ * Ward 044: optional splash configuration for `impulse()`. When supplied AND
+ * `magnitude >= threshold`, droplets spawn at the element's perimeter with
+ * velocities derived from the impulse vector + jitter. Backwards-compatible:
+ * omit `splash` to keep classic Shake-only behavior.
+ *
+ * Note: `magnitude` defaults to `10` when omitted from `impulse()` options.
+ * A splash with `threshold: 5` fires on every call unless `magnitude` is
+ * explicitly set below 5. Set `magnitude` deliberately when using splash.
+ */
+export interface SplashOptions {
+  /** Minimum `magnitude` required to fire splash. Below this → zero droplets. */
+  threshold: number;
+  /** Number of droplets to spawn (best-effort; capped by capacity). */
+  count: number;
+  /** Random unit-vector jitter added to droplet velocity. Default 0. */
+  jitter?: number;
+  /** Scale applied to magnitude when deriving droplet speed. Default 0.3. */
+  speedScale?: number;
+  /** Lifetime per droplet (ms). Defaults to spawnDroplet's own default. */
+  lifetimeMs?: number;
+  /** Visual radius per droplet (px). Defaults to spawnDroplet's own default. */
+  radius?: number;
+}
+
+/**
+ * Ward 044: edge-walking perimeter sampler. `t ∈ [0, 1)` traverses the rect's
+ * four edges in order top → right → bottom → left. Callers use
+ * `t = (j + 0.5) / count` to center samples within their arc segment — for
+ * `count=4` this lands at the four mid-edges. (The `count=1` case lands at
+ * `t=0.5`, the bottom-right corner; deterministic but visually neutral.)
+ */
+function samplePerimeterPoint(
+  t: number,
+  x: number, y: number, w: number, h: number,
+): [number, number] {
+  if (t < 0.25)      return [x + w * (t * 4),                 y];
+  else if (t < 0.5)  return [x + w,                            y + h * ((t - 0.25) * 4)];
+  else if (t < 0.75) return [x + w - w * ((t - 0.5) * 4),      y + h];
+  else               return [x,                                y + h - h * ((t - 0.75) * 4)];
+}
+
 /** @internal — Ward 049 promotion: exported only for adapters/playground; not part of stable public API. */
 export function validatePhysicsConfig(cfg: LiquidPhysicsConfig): void {
   const checks: [string, unknown, (v: number) => boolean][] = [
@@ -106,6 +148,8 @@ export interface LiquidDOMInstance {
     direction?: [number, number];
     magnitude?: number;
     duration?: number;
+    /** Ward 044: opt-in droplet spawning when magnitude exceeds threshold. */
+    splash?: SplashOptions;
   }): void;
   pause(): void;
   resume(): void;
@@ -489,6 +533,7 @@ export class LiquidDOM {
         direction?: [number, number];
         magnitude?: number;
         duration?: number;
+        splash?: SplashOptions;
       }): void {
         if (destroyed) {
           throw new Error("Cannot impulse on a destroyed LiquidDOM instance");
@@ -507,6 +552,40 @@ export class LiquidDOM {
         buf[off + 5] = 4.0; // liquid_type = Shake
         buf[off + 6] = dx * mag; // impulse_vx
         buf[off + 7] = dy * mag; // impulse_vy
+
+        // Ward 044: splash spawning runs AFTER the impulse buffer writes
+        // (so it reads the same slot[0..3] the next tick will use) and
+        // BEFORE the auto-reset timer is scheduled.
+        const splash = options?.splash;
+        if (splash !== undefined && mag >= splash.threshold) {
+          const ex = buf[off];
+          const ey = buf[off + 1];
+          const ew = buf[off + 2];
+          const eh = buf[off + 3];
+          const speed = mag * (splash.speedScale ?? 0.3);
+          const jitter = splash.jitter ?? 0;
+
+          for (let j = 0; j < splash.count; j++) {
+            const t = (j + 0.5) / splash.count;
+            const [px, py] = samplePerimeterPoint(t, ex, ey, ew, eh);
+            const angle = Math.random() * Math.PI * 2;
+            const vx = dx * speed + Math.cos(angle) * jitter;
+            const vy = dy * speed + Math.sin(angle) * jitter;
+            try {
+              observer.spawnDroplet({
+                x: px,
+                y: py,
+                vx,
+                vy,
+                radius: splash.radius,
+                lifetimeMs: splash.lifetimeMs,
+              });
+            } catch {
+              // Pool exhausted (today the only throw path) — abandon remaining splash.
+              break;
+            }
+          }
+        }
 
         // Clear previous impulse timer for this entity
         const prev = impulseTimers.get(id);
