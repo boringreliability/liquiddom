@@ -127,6 +127,8 @@ export interface LiquidDOMInstance {
   refreshShadow(el: HTMLElement): void;
   /** Ward 043: spawn a DOM-less free-floating particle. Returns its slot id. */
   spawnDroplet(opts: SpawnDropletOptions): number;
+  /** Ward 045: explicitly remove a droplet by id. No-op if not a droplet slot. */
+  despawnDroplet(id: number): void;
 }
 
 /** Default maximum dt in milliseconds. */
@@ -340,6 +342,9 @@ export class LiquidDOM {
         observer.sync();
 
         const physicsDt = reducedMotion ? 0 : dt;
+        // W45: viewport AABB for FreeDrop auto-cull (soft-body slots ignored,
+        // Decision §9). CULL_MARGIN_PX is reused for the render-cull default.
+        const CULL_MARGIN_PX = 100;
         core!.tick(
           physicsDt,
           pointerX,
@@ -351,11 +356,12 @@ export class LiquidDOM {
           physics.repulsionRadius,
           physics.repulsionStrength,
           physics.neighborSpringK,
+          0, 0, vp.w, vp.h, CULL_MARGIN_PX,
         );
         observer.render(ctx, {
           viewportWidth: vp.w,
           viewportHeight: vp.h,
-          cullMargin: 100,
+          cullMargin: CULL_MARGIN_PX,
           preserveBackgrounds: preserveBg,
         });
 
@@ -632,6 +638,13 @@ export class LiquidDOM {
           throw new Error("Cannot spawnDroplet on a destroyed LiquidDOM instance");
         }
         return observer.spawnDroplet(opts);
+      },
+
+      despawnDroplet(id: number): void {
+        if (destroyed) {
+          throw new Error("Cannot despawnDroplet on a destroyed LiquidDOM instance");
+        }
+        observer.despawnDroplet(id);
       },
 
       destroy(): void {

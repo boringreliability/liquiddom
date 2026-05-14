@@ -102,15 +102,19 @@ Opt-in via `LiquidOptions.colorSource: 'computed'` (default `'config'` preserves
 
 After W54, the per-element `MutationObserver` is **unconditional** (one per observed element, disconnect on `unobserve`). It drives BOTH theme refresh and box-shadow margin refresh; the theme branch is gated inside the callback (`if (this.useComputedTheme) this.refreshElementTheme(...)`) so `useComputedTheme: false` consumers don't get auto-populated `themeCache` entries.
 
-### FreeDrop entity (Ward 043)
+### FreeDrop entity (Wards 043 + 045)
 
-A second entity class — DOM-less free-floating particles in the same slot pool as soft-body entities. Foundation for W44 (spawning UX), W45 (lifetime/culling), W46 (gravity). Without gravity, a FreeDrop moves at constant velocity forever.
+A second entity class — DOM-less free-floating particles in the same slot pool as soft-body entities. Foundation for W44 (spawning UX) and W46 (gravity). Without gravity, a FreeDrop moves at constant velocity until its lifetime expires or it exits the viewport.
 
-- **Spawn:** `instance.spawnDroplet({ x, y, vx, vy, radius? })` returns the slot id. Default `radius=4` (diameter 8 in slot[2]/[3]).
+- **Spawn:** `instance.spawnDroplet({ x, y, vx, vy, radius?, lifetimeMs? })` returns the slot id. Defaults: `radius=4` (diameter 8 in slot[2]), `lifetimeMs=5000`.
+- **Despawn:** `instance.destroy()` cleans all droplet slots; `instance.despawnDroplet(id)` (W45) for explicit removal. Idempotent — silent no-op on non-droplet ids.
 - **Storage:** `LiquidCore` has `bodies: Vec<Option<EntityBody>>` AND `free_particles: Vec<Option<FreeParticle>>`. Invariant: at most one is `Some` per slot. Enforced by `release_slot(id)` (idempotent, clears both) called from TS in both `unobserve` and `spawnDroplet`. A `debug_assert!` at the FreeDrop init site traps invariant violations in dev.
-- **Slot reuse:** `slot[5]=6.0` (liquid_type). `slot[2]=slot[3]=diameter`. `slot[6]/[7]` = initial velocity, **read once** at lazy `FreeParticle` creation; subsequent ticks ignore them.
-- **Render:** Rust writes 16 particle positions distributed on a circle of `radius = slot[2]/2` around the droplet center; existing Bezier-midpoint spline renderer draws a smooth disc. W38 SDF will replace this.
-- **Constraints:** `observe(el, 6)` throws (FreeDrop has no DOM). FreeDrop slots are EXCLUDED from `preserveBackgrounds` clip-hole (clipping would erase the droplet's own particles). `instance.destroy()` cleans droplet slots via `unobserveAll`'s extension to iterate `dropletIds`. No `despawnDroplet` API yet (deferred to W45 culling) — droplets accumulate until `destroy()` or capacity exhaustion.
+- **Slot reuse (W43 + W45):** `slot[5]=6.0` (liquid_type). `slot[2]=diameter` (active marker). `slot[3]=lifetime_ms` (W45 reclaimed from diameter symmetry). `slot[6]/[7]`=initial velocity. **Slots [3], [6], [7] are read ONCE at lazy `FreeParticle` creation; subsequent ticks ignore them.** Renewing lifetime requires despawn + respawn.
+- **Auto-cull (W45):** Each tick, `lifetime_ms -= dt_ms`. If lifetime ≤ 0 OR center is outside `(vp_x, vp_y, vp_w, vp_h)` ± `cull_margin`, Rust deactivates the slot (zeros slot[2]/[3], clears `free_particles[i]`). Render-last-frame-then-cull ordering — the cull check fires AFTER the particle positions for that frame are written.
+- **TS allocator (W45):** `spawnDroplet` priority is `availableIds` → `scanForFreedDropletSlot` (iterates `dropletIds` for `slot[2]===0` Rust-culled entries) → `nextId++`. `despawnDroplet` removes from `dropletIds` BEFORE zeroing slot, so the scan unambiguously finds Rust-driven culls.
+- **Tick signature:** `core.tick(...)` carries 15 args including `vp_x, vp_y, vp_w, vp_h, cull_margin` (W45 §1: passed every frame; no setter — no ordering risk). RAF loop uses `(0, 0, vp.w, vp.h, 100)`.
+- **Render:** Rust writes 16 particle positions distributed on a circle of `radius = slot[2]/2` around the droplet center. **Today `PhantomObserver.render()` iterates only `idToElement` and doesn't draw droplets** — a follow-up ward will extend the renderer.
+- **Constraints:** `observe(el, 6)` throws (FreeDrop has no DOM). FreeDrop slots are EXCLUDED from `preserveBackgrounds` clip-hole (clipping would erase the droplet's own particles).
 
 ### box-shadow clip inflation (Ward 054)
 

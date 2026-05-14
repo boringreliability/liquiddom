@@ -8,7 +8,24 @@ export interface WasmCore {
   particle_ptr(): number;
   capacity(): number;
   grow(newCapacity: number): void;
-  tick(dt: number, px: number, py: number, active: boolean, tension: number, damping: number, substeps: number, repulsionRadius: number, repulsionStrength: number, neighborSpringK: number): void;
+  tick(
+    dt: number,
+    px: number,
+    py: number,
+    active: boolean,
+    tension: number,
+    damping: number,
+    substeps: number,
+    repulsionRadius: number,
+    repulsionStrength: number,
+    neighborSpringK: number,
+    /** Ward 045 viewport AABB for FreeDrop cull (top-left x). */
+    vpX: number,
+    vpY: number,
+    vpW: number,
+    vpH: number,
+    cullMargin: number,
+  ): void;
   /** Ward 043: clear both bodies[id] and free_particles[id]. Idempotent. */
   release_slot(id: number): void;
   free(): void;

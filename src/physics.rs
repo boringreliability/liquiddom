@@ -14,21 +14,28 @@ pub enum PhysicsStrategy {
 
 /// Ward 043 free-floating particle. No DOM anchor, no springs, no neighbors.
 /// Stored in `LiquidCore::free_particles` parallel to `bodies`.
+/// Ward 045 adds `lifetime_ms` for auto-cull.
 #[derive(Debug, Clone)]
 pub struct FreeParticle {
     pub pos: Vec2,
     pub velocity: Vec2,
     pub radius: f32,
+    pub lifetime_ms: f32,
 }
 
 impl FreeParticle {
-    pub fn new(pos: Vec2, velocity: Vec2, radius: f32) -> Self {
-        Self { pos, velocity, radius }
+    pub fn new(pos: Vec2, velocity: Vec2, radius: f32, lifetime_ms: f32) -> Self {
+        Self { pos, velocity, radius, lifetime_ms }
     }
 
     /// Constant-velocity integration. Gravity arrives in W46.
     pub fn integrate(&mut self, dt: f32) {
         self.pos += self.velocity * dt;
+    }
+
+    /// Ward 045: returns true when slot should be reclaimed by tick().
+    pub fn is_expired(&self) -> bool {
+        self.lifetime_ms <= 0.0
     }
 }
 

@@ -4,7 +4,7 @@
 Ward 45 — 2026-05-14
 
 ## Current State
-45 wards COMPLETE (latest: Ward 45 — Droplet Culling & Lifetime). 52 Rust + 166 TS = 218 tests. 0 clippy warnings, 0 TS errors. W45 closes the W43 "droplets accumulate forever" caveat: FreeDrop slots auto-cull when center exits viewport+margin OR `lifetime_ms` expires. `spawnDroplet` allocator now scans for Rust-culled slots before failing capacity. Public `instance.despawnDroplet(id)` API added. 0 clippy warnings, 0 TS errors. W43 introduces `PhysicsStrategy::FreeDrop` — DOM-less free-floating particles in the same slot pool as soft-body entities. Public API: `instance.spawnDroplet({ x, y, vx, vy, radius? })`. Foundation for W44 (spawning UX), W45 (culling), W46 (gravity).
+44 wards COMPLETE, Ward 45 GOLD (awaiting human approval). 52 Rust + 166 TS = 218 tests. 0 clippy warnings, 0 TS errors. W45 closes the W43 "droplets accumulate forever" caveat: FreeDrop slots auto-cull when center exits viewport+margin OR `lifetime_ms` expires. `spawnDroplet` allocator now scans for Rust-culled slots before failing capacity. Public `instance.despawnDroplet(id)` API added. 0 clippy warnings, 0 TS errors. W43 introduces `PhysicsStrategy::FreeDrop` — DOM-less free-floating particles in the same slot pool as soft-body entities. Public API: `instance.spawnDroplet({ x, y, vx, vy, radius? })`. Foundation for W44 (spawning UX), W45 (culling), W46 (gravity).
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
