@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-45 of 55 Wards complete · 242 estimated tests · 0 blocked
+46 of 55 Wards complete · 246 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -49,7 +49,7 @@
 | 041 | Canvas2D Fallback & Feature Detection | 3 | 📋 Planned | - |
 | 0425 | Border-Radius Aware Rest Shape | 14 | ✅ Complete | 2026-05-10 |
 | 0432 | FreeDrop Entity Type & Buffer Extension | 8 | ✅ Complete | 2026-05-14 |
-| 044 | Impulse-Triggered Droplet Spawning | 3 | 📋 Planned | - |
+| 0442 | Impulse-Triggered Droplet Spawning | 7 | ✅ Complete | 2026-05-14 |
 | 0452 | Droplet Culling & Lifetime Management | 10 | ✅ Complete | 2026-05-14 |
 | 046 | Device Orientation Gravity Vector | 3 | 📋 Planned | - |
 | 0474 | @liquiddom/react Adapter Package | 9 | ✅ Complete | 2026-05-13 |
@@ -63,4 +63,4 @@
 | 055 | Smooth Scroll-Snap Interpolation | 3 | 📋 Planned | - |
 
 ## Test Summary
-- Estimated total: 242
+- Estimated total: 246

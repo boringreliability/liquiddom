@@ -102,11 +102,12 @@ Opt-in via `LiquidOptions.colorSource: 'computed'` (default `'config'` preserves
 
 After W54, the per-element `MutationObserver` is **unconditional** (one per observed element, disconnect on `unobserve`). It drives BOTH theme refresh and box-shadow margin refresh; the theme branch is gated inside the callback (`if (this.useComputedTheme) this.refreshElementTheme(...)`) so `useComputedTheme: false` consumers don't get auto-populated `themeCache` entries.
 
-### FreeDrop entity (Wards 043 + 045)
+### FreeDrop entity (Wards 043 + 044 + 045)
 
 A second entity class — DOM-less free-floating particles in the same slot pool as soft-body entities. Foundation for W44 (spawning UX) and W46 (gravity). Without gravity, a FreeDrop moves at constant velocity until its lifetime expires or it exits the viewport.
 
 - **Spawn:** `instance.spawnDroplet({ x, y, vx, vy, radius?, lifetimeMs? })` returns the slot id. Defaults: `radius=4` (diameter 8 in slot[2]), `lifetimeMs=5000`.
+- **Splash spawn (W44):** `instance.impulse(el, { magnitude, direction, splash: { threshold, count, jitter?, speedScale?, lifetimeMs?, radius? } })` opt-in fires droplets at the element's perimeter when `magnitude >= splash.threshold`. Edge-centered sampling (`t = (j+0.5)/count`) → `count=4` hits the four mid-edges. Velocity = `direction*magnitude*speedScale + jitter*randomUnit()`. Capacity-exhausted aborts the splash loop silently. Splash defaults inherit from `spawnDroplet` (single source of truth). Splash runs AFTER impulse buffer writes, BEFORE the W31 auto-reset timer.
 - **Despawn:** `instance.destroy()` cleans all droplet slots; `instance.despawnDroplet(id)` (W45) for explicit removal. Idempotent — silent no-op on non-droplet ids.
 - **Storage:** `LiquidCore` has `bodies: Vec<Option<EntityBody>>` AND `free_particles: Vec<Option<FreeParticle>>`. Invariant: at most one is `Some` per slot. Enforced by `release_slot(id)` (idempotent, clears both) called from TS in both `unobserve` and `spawnDroplet`. A `debug_assert!` at the FreeDrop init site traps invariant violations in dev.
 - **Slot reuse (W43 + W45):** `slot[5]=6.0` (liquid_type). `slot[2]=diameter` (active marker). `slot[3]=lifetime_ms` (W45 reclaimed from diameter symmetry). `slot[6]/[7]`=initial velocity. **Slots [3], [6], [7] are read ONCE at lazy `FreeParticle` creation; subsequent ticks ignore them.** Renewing lifetime requires despawn + respawn.
