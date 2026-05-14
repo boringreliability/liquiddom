@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LiquidDOM — Splash Buttons</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;500;800&display=swap');
+
+    :root {
+      --bg: #0b0914;
+      --fg: #f0e6ff;
+      --fg-dim: #6a5a8a;
+      --accent: rgba(233, 69, 96, 0.9);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 4rem 2rem;
+      gap: 3rem;
+    }
+
+    h1 {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -1px;
+      opacity: 0.7;
+    }
+
+    .subtitle {
+      font-size: 0.95rem;
+      color: var(--fg-dim);
+      font-weight: 300;
+      max-width: 540px;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    .buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+      align-items: center;
+    }
+
+    [data-liquid] {
+      background: transparent !important;
+      border: none !important;
+      outline: none !important;
+      cursor: pointer;
+      user-select: none;
+      position: relative;
+      z-index: 1;
+      font-family: inherit;
+      color: var(--fg);
+    }
+
+    .btn {
+      padding: 1.5rem 3rem;
+      font-size: 1.2rem;
+      font-weight: 500;
+      min-width: 260px;
+    }
+
+    .btn-title {
+      font-weight: 800;
+      font-size: 1.4rem;
+      display: block;
+    }
+
+    .btn-sub {
+      font-size: 0.85rem;
+      color: var(--fg-dim);
+      font-weight: 300;
+      font-style: italic;
+      display: block;
+      margin-top: 0.3rem;
+    }
+
+    .info {
+      max-width: 540px;
+      padding: 1.5rem;
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 8px;
+      font-size: 0.85rem;
+      color: var(--fg-dim);
+      line-height: 1.6;
+    }
+
+    .info kbd {
+      background: rgba(255, 255, 255, 0.08);
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      font-size: 0.8rem;
+      color: var(--fg);
+    }
+  </style>
+</head>
+<body>
+  <h1>Splash Buttons</h1>
+  <p class="subtitle">
+    Click each button to fire an <kbd>impulse()</kbd> with a different
+    <kbd>splash</kbd> config. Droplets emit from the element's perimeter,
+    fly off with the impulse vector + jitter, and auto-despawn after their
+    lifetime expires or they exit the viewport.
+  </p>
+
+  <div class="buttons">
+    <button class="btn" data-liquid data-splash="gentle">
+      <span class="btn-title">Gentle Drip</span>
+      <span class="btn-sub">3 droplets, low jitter</span>
+    </button>
+
+    <button class="btn" data-liquid data-splash="explosion">
+      <span class="btn-title">Explosion</span>
+      <span class="btn-sub">16 droplets, high jitter, upward</span>
+    </button>
+
+    <button class="btn" data-liquid data-splash="trickle">
+      <span class="btn-title">Threshold Demo</span>
+      <span class="btn-sub">below threshold: no droplets · above: 8 droplets</span>
+    </button>
+  </div>
+
+  <div class="info">
+    <strong>What you're seeing:</strong> W43 (FreeDrop entity) + W44 (impulse
+    splash) + W45 (auto-cull) + W56 (canvas rendering). Droplets are stored in
+    the same WASM buffer as soft-body entities and ticked by the Rust physics
+    core — they're not separate DOM elements.
+    <br><br>
+    <strong>Tip:</strong> Open DevTools and check <kbd>(window as any).liquid</kbd>
+    to inspect the live instance. Try
+    <kbd>liquid.spawnDroplet({x: 400, y: 100, vx: 80, vy: 0})</kbd>.
+  </div>
+
+  <script type="module" src="./splash-buttons.ts"></script>
+</body>
+</html>

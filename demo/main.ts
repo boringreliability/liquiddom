@@ -1,4 +1,4 @@
-import { LiquidDOM, presets } from "../ts/src/index";
+import { LiquidDOM, presets } from "liquiddom";
 
 async function bootstrap() {
   try {

@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-46 of 55 Wards complete · 246 estimated tests · 0 blocked
+47 of 56 Wards complete · 252 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -61,6 +61,7 @@
 | 0533 | Border-Radius Clip in preserveBackgrounds | 4 | ✅ Complete | 2026-05-13 |
 | 0542 | box-shadow Compatibility under preserveBackgrounds | 9 | ✅ Complete | 2026-05-13 |
 | 055 | Smooth Scroll-Snap Interpolation | 3 | 📋 Planned | - |
+| 0562 | FreeDrop Canvas Rendering | 6 | ✅ Complete | 2026-05-14 |
 
 ## Test Summary
-- Estimated total: 246
+- Estimated total: 252

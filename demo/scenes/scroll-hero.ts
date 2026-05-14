@@ -1,4 +1,4 @@
-import { LiquidDOM } from "../../ts/src/index";
+import { LiquidDOM } from "liquiddom";
 
 async function main() {
   try {

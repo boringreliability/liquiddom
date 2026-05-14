@@ -6,7 +6,7 @@
  * Schema mismatches → discard old state and fall back to defaults.
  */
 
-import type { LiquidPhysicsConfig } from "../../ts/src/index";
+import type { LiquidPhysicsConfig } from "liquiddom";
 
 export interface PlaygroundState {
   schema: 1;

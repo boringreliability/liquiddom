@@ -102,7 +102,7 @@ Opt-in via `LiquidOptions.colorSource: 'computed'` (default `'config'` preserves
 
 After W54, the per-element `MutationObserver` is **unconditional** (one per observed element, disconnect on `unobserve`). It drives BOTH theme refresh and box-shadow margin refresh; the theme branch is gated inside the callback (`if (this.useComputedTheme) this.refreshElementTheme(...)`) so `useComputedTheme: false` consumers don't get auto-populated `themeCache` entries.
 
-### FreeDrop entity (Wards 043 + 044 + 045)
+### FreeDrop entity (Wards 043 + 044 + 045 + 056)
 
 A second entity class — DOM-less free-floating particles in the same slot pool as soft-body entities. Foundation for W44 (spawning UX) and W46 (gravity). Without gravity, a FreeDrop moves at constant velocity until its lifetime expires or it exits the viewport.
 
@@ -114,7 +114,7 @@ A second entity class — DOM-less free-floating particles in the same slot pool
 - **Auto-cull (W45):** Each tick, `lifetime_ms -= dt_ms`. If lifetime ≤ 0 OR center is outside `(vp_x, vp_y, vp_w, vp_h)` ± `cull_margin`, Rust deactivates the slot (zeros slot[2]/[3], clears `free_particles[i]`). Render-last-frame-then-cull ordering — the cull check fires AFTER the particle positions for that frame are written.
 - **TS allocator (W45):** `spawnDroplet` priority is `availableIds` → `scanForFreedDropletSlot` (iterates `dropletIds` for `slot[2]===0` Rust-culled entries) → `nextId++`. `despawnDroplet` removes from `dropletIds` BEFORE zeroing slot, so the scan unambiguously finds Rust-driven culls.
 - **Tick signature:** `core.tick(...)` carries 15 args including `vp_x, vp_y, vp_w, vp_h, cull_margin` (W45 §1: passed every frame; no setter — no ordering risk). RAF loop uses `(0, 0, vp.w, vp.h, 100)`.
-- **Render:** Rust writes 16 particle positions distributed on a circle of `radius = slot[2]/2` around the droplet center. **Today `PhantomObserver.render()` iterates only `idToElement` and doesn't draw droplets** — a follow-up ward will extend the renderer.
+- **Render (W56):** Rust writes 16 particle positions distributed on a circle of `radius = slot[2]/2` around the droplet center. `PhantomObserver.render()` iterates both `idToElement` (soft-body) AND `dropletIds` (FreeDrop) via the shared `renderEntityAt(ctx, id, viewport, isFreeDrop)` private dispatcher. Droplets render through the same Bezier-midpoint spline path as soft-bodies, but with: (a) center-based viewport cull (`pos ± r` bbox), (b) `colorDefault` only — no hover/theme, (c) no clip-hole under `preserveBackgrounds`, (d) filled-circle fallback (`ctx.arc`) when `particleBuffer` is null (mock-mode).
 - **Constraints:** `observe(el, 6)` throws (FreeDrop has no DOM). FreeDrop slots are EXCLUDED from `preserveBackgrounds` clip-hole (clipping would erase the droplet's own particles).
 
 ### box-shadow clip inflation (Ward 054)
