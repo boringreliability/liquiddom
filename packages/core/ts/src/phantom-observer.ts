@@ -57,7 +57,7 @@ export interface PhantomObserverOptions {
   releaseSlot?: (id: number) => void;
 }
 
-/** Ward 043: options for spawning a DOM-less free-floating particle. */
+/** Ward 043+045: options for spawning a DOM-less free-floating particle. */
 export interface SpawnDropletOptions {
   x: number;
   y: number;
@@ -65,6 +65,8 @@ export interface SpawnDropletOptions {
   vy: number;
   /** Visual radius in CSS px. Default 4 (diameter 8). */
   radius?: number;
+  /** Ward 045: ms before auto-despawn. Default 5000. */
+  lifetimeMs?: number;
 }
 
 /** Stored listener refs for clean removal in unobserve() */
@@ -381,33 +383,63 @@ export class PhantomObserver {
    * are never both `Some`.
    */
   spawnDroplet(opts: SpawnDropletOptions): number {
-    // Peek the next id WITHOUT consuming, so a capacity-exceeded throw leaves
-    // availableIds + nextId untouched (Test #6 invariant).
-    const wouldBe = this.availableIds.length > 0
-      ? this.availableIds[this.availableIds.length - 1]!
-      : this.nextId;
-    if (wouldBe >= this._capacity) {
-      throw new Error(`PhantomObserver capacity exceeded: ${this._capacity} slots max`);
+    // Allocator priority (W45 Decision §7):
+    //   1. availableIds  — explicit recycle queue (despawnDroplet, unobserve)
+    //   2. scan          — slots Rust deactivated via cull but TS hasn't recycled
+    //   3. nextId        — fresh allocation, with capacity guard
+    let id = this.availableIds.pop() ?? this.scanForFreedDropletSlot();
+    if (id === undefined) {
+      if (this.nextId >= this._capacity) {
+        throw new Error(`PhantomObserver capacity exceeded: ${this._capacity} slots max`);
+      }
+      id = this.nextId++;
     }
-    const id = this.availableIds.length > 0
-      ? this.availableIds.pop()!
-      : this.nextId++;
     this.releaseSlot?.(id);
     this.dropletIds.add(id);
 
     const radius = opts.radius ?? 4;
+    const lifetimeMs = opts.lifetimeMs ?? 5000;
     const diameter = radius * 2;
     const off = id * FLOATS_PER_ENTITY;
     this.buffer[off]     = opts.x;
     this.buffer[off + 1] = opts.y;
     this.buffer[off + 2] = diameter;
-    this.buffer[off + 3] = diameter;
+    this.buffer[off + 3] = lifetimeMs; // W45: slot[3] is lifetime (was diameter symmetry)
     this.buffer[off + 4] = 0;
     this.buffer[off + 5] = 6.0;
     this.buffer[off + 6] = opts.vx;
     this.buffer[off + 7] = opts.vy;
     this.buffer[off + 8] = 0;
     return id;
+  }
+
+  /**
+   * Ward 045: find a droplet slot that Rust cull deactivated (slot[2] === 0
+   * AND id still in dropletIds). despawnDroplet removes from dropletIds before
+   * zeroing, so a hit here is unambiguously a Rust-driven cull.
+   */
+  private scanForFreedDropletSlot(): number | undefined {
+    for (const id of this.dropletIds) {
+      if (this.buffer[id * FLOATS_PER_ENTITY + 2] === 0) {
+        this.dropletIds.delete(id);
+        return id;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Ward 045: explicit droplet removal. Idempotent — silent no-op for ids
+   * not in dropletIds (covers soft-body slots, already-despawned droplets,
+   * and out-of-range ids).
+   */
+  despawnDroplet(id: number): void {
+    if (!this.dropletIds.has(id)) return;
+    this.dropletIds.delete(id);
+    this.releaseSlot?.(id);
+    const off = id * FLOATS_PER_ENTITY;
+    this.buffer.fill(0, off, off + FLOATS_PER_ENTITY);
+    this.availableIds.push(id);
   }
 
   /** Unobserve all tracked elements + droplet slots. Used by runtime destroy(). */
