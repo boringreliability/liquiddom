@@ -6,7 +6,7 @@
  * State persists to localStorage; URL params override init-only fields.
  */
 import { Pane } from "tweakpane";
-import { LiquidDOM, presets, type LiquidPhysicsConfig } from "../../ts/src/index";
+import { LiquidDOM, presets, type LiquidPhysicsConfig } from "liquiddom";
 import {
   loadPlaygroundState,
   parseUrlParams,
