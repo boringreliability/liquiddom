@@ -4,7 +4,7 @@
 Ward 43 — 2026-05-14
 
 ## Current State
-44 wards COMPLETE (latest: Ward 43 — FreeDrop entity type). 47 Rust + 161 TS = 208 tests. 0 clippy warnings, 0 TS errors. W43 introduces `PhysicsStrategy::FreeDrop` — DOM-less free-floating particles in the same slot pool as soft-body entities. Public API: `instance.spawnDroplet({ x, y, vx, vy, radius? })`. Foundation for W44 (spawning UX), W45 (culling), W46 (gravity).
+43 wards COMPLETE, Ward 43 GOLD (awaiting human approval). 47 Rust + 161 TS = 208 tests. 0 clippy warnings, 0 TS errors. W43 introduces `PhysicsStrategy::FreeDrop` — DOM-less free-floating particles in the same slot pool as soft-body entities. Public API: `instance.spawnDroplet({ x, y, vx, vy, radius? })`. Foundation for W44 (spawning UX), W45 (culling), W46 (gravity).
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |

@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-43 of 55 Wards complete · 231 estimated tests · 0 blocked
+44 of 55 Wards complete · 235 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -48,7 +48,7 @@
 | 040 | Background Refraction Sampling | 2 | 📋 Planned | - |
 | 041 | Canvas2D Fallback & Feature Detection | 3 | 📋 Planned | - |
 | 0425 | Border-Radius Aware Rest Shape | 14 | ✅ Complete | 2026-05-10 |
-| 043 | FreeDrop Entity Type & Buffer Extension | 4 | 📋 Planned | - |
+| 0432 | FreeDrop Entity Type & Buffer Extension | 8 | ✅ Complete | 2026-05-14 |
 | 044 | Impulse-Triggered Droplet Spawning | 3 | 📋 Planned | - |
 | 045 | Droplet Culling & Lifetime Management | 3 | 📋 Planned | - |
 | 046 | Device Orientation Gravity Vector | 3 | 📋 Planned | - |
@@ -63,4 +63,4 @@
 | 055 | Smooth Scroll-Snap Interpolation | 3 | 📋 Planned | - |
 
 ## Test Summary
-- Estimated total: 231
+- Estimated total: 235

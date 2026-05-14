@@ -53,6 +53,18 @@ export interface PhantomObserverOptions {
   colorHover?: string;
   /** Ward 052: when true, read getComputedStyle(el).backgroundColor on observe + style/class mutations. */
   useComputedTheme?: boolean;
+  /** Ward 043: called on unobserve, unobserveAll, and spawnDroplet to clear stale Rust slot state. */
+  releaseSlot?: (id: number) => void;
+}
+
+/** Ward 043: options for spawning a DOM-less free-floating particle. */
+export interface SpawnDropletOptions {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  /** Visual radius in CSS px. Default 4 (diameter 8). */
+  radius?: number;
 }
 
 /** Stored listener refs for clean removal in unobserve() */
@@ -90,6 +102,9 @@ export class PhantomObserver {
   private readonly themeCache: Map<number, string> = new Map();
   private readonly shadowCache: Map<number, ShadowMargin> = new Map();
   private readonly mutationObservers: Map<number, MutationObserver> = new Map();
+  // Ward 043: DOM-less free-floating particle slot tracking + Rust-side clearer.
+  private readonly dropletIds: Set<number> = new Set();
+  private readonly releaseSlot?: (id: number) => void;
 
   /**
    * @param capacity - Max number of entities
@@ -102,6 +117,7 @@ export class PhantomObserver {
     this.buffer = options?.entityView ?? new Float32Array(capacity * FLOATS_PER_ENTITY);
     this.particleBuffer = options?.particleView ?? null;
     this.useComputedTheme = options?.useComputedTheme === true;
+    this.releaseSlot = options?.releaseSlot;
 
     // Ward 042 §6: single shared ResizeObserver for border-radius refresh.
     // Lazy: only construct when ResizeObserver is available (browsers + the
@@ -157,6 +173,13 @@ export class PhantomObserver {
   }
 
   observe(el: HTMLElement, liquidType?: number): number {
+    // Ward 043: liquid_type=6 (FreeDrop) is allocated via spawnDroplet, not observe.
+    // Round to match Rust's dispatch_strategy semantics (6.4 → FreeDrop).
+    if (liquidType !== undefined && Math.round(liquidType) === 6) {
+      throw new Error(
+        "observe() does not accept liquid_type=6 (FreeDrop). Use instance.spawnDroplet() instead.",
+      );
+    }
     // Idempotent: if already observed, return existing ID
     const existingId = this.elementToId.get(el);
     if (existingId !== undefined) return existingId;
@@ -350,13 +373,59 @@ export class PhantomObserver {
     this.refreshElementShadow(el, id);
   }
 
-  /** Unobserve all tracked elements. Used by runtime destroy(). */
+  /**
+   * Ward 043: spawn a DOM-less free-floating particle. Allocates a slot from
+   * the same pool as `observe()` and writes initial state into the buffer.
+   * Calls `releaseSlot` (if provided) to clear any stale Rust state for
+   * recycled slots — Decision §1's invariant: bodies[id] and free_particles[id]
+   * are never both `Some`.
+   */
+  spawnDroplet(opts: SpawnDropletOptions): number {
+    // Peek the next id WITHOUT consuming, so a capacity-exceeded throw leaves
+    // availableIds + nextId untouched (Test #6 invariant).
+    const wouldBe = this.availableIds.length > 0
+      ? this.availableIds[this.availableIds.length - 1]!
+      : this.nextId;
+    if (wouldBe >= this._capacity) {
+      throw new Error(`PhantomObserver capacity exceeded: ${this._capacity} slots max`);
+    }
+    const id = this.availableIds.length > 0
+      ? this.availableIds.pop()!
+      : this.nextId++;
+    this.releaseSlot?.(id);
+    this.dropletIds.add(id);
+
+    const radius = opts.radius ?? 4;
+    const diameter = radius * 2;
+    const off = id * FLOATS_PER_ENTITY;
+    this.buffer[off]     = opts.x;
+    this.buffer[off + 1] = opts.y;
+    this.buffer[off + 2] = diameter;
+    this.buffer[off + 3] = diameter;
+    this.buffer[off + 4] = 0;
+    this.buffer[off + 5] = 6.0;
+    this.buffer[off + 6] = opts.vx;
+    this.buffer[off + 7] = opts.vy;
+    this.buffer[off + 8] = 0;
+    return id;
+  }
+
+  /** Unobserve all tracked elements + droplet slots. Used by runtime destroy(). */
   unobserveAll(): void {
     // Collect elements first — unobserve mutates idToElement
     const elements = [...this.idToElement.values()];
     for (const el of elements) {
       this.unobserve(el);
     }
+    // Ward 043: also clear droplet slots — they have no DOM element so the
+    // element-iteration above skips them.
+    for (const id of this.dropletIds) {
+      this.releaseSlot?.(id);
+      const off = id * FLOATS_PER_ENTITY;
+      this.buffer.fill(0, off, off + FLOATS_PER_ENTITY);
+      this.availableIds.push(id);
+    }
+    this.dropletIds.clear();
   }
 
   unobserve(el: HTMLElement): void {
@@ -389,6 +458,10 @@ export class PhantomObserver {
 
     // Ward 042 §6: unsubscribe from resize.
     this.resizeObserver?.unobserve(el);
+
+    // Ward 043: clear Rust slot state so a future spawnDroplet on this id
+    // starts clean (Decision §1 invariant).
+    this.releaseSlot?.(id);
 
     // Zero out the slot
     const offset = id * FLOATS_PER_ENTITY;
@@ -470,7 +543,11 @@ export class PhantomObserver {
       // Clip rendering to exclude element rect if preserveBackgrounds is on.
       // W53: rounded-rect hole when border-radius (slot[8]) is set.
       // W54: inflated by per-side box-shadow margin so shadows render intact.
-      const clipping = viewport?.preserveBackgrounds === true;
+      // W43: FreeDrop slots have no DOM element behind them — a clip-hole
+      // would partially erase the droplet's own particles. Rounds to match
+      // Rust's dispatch_strategy semantics.
+      const isFreeDrop = Math.round(this.buffer[entityOffset + 5]) === 6;
+      const clipping = viewport?.preserveBackgrounds === true && !isFreeDrop;
       if (clipping) {
         ctx.save();
         ctx.beginPath();

@@ -9,6 +9,8 @@ export interface WasmCore {
   capacity(): number;
   grow(newCapacity: number): void;
   tick(dt: number, px: number, py: number, active: boolean, tension: number, damping: number, substeps: number, repulsionRadius: number, repulsionStrength: number, neighborSpringK: number): void;
+  /** Ward 043: clear both bodies[id] and free_particles[id]. Idempotent. */
+  release_slot(id: number): void;
   free(): void;
 }
 

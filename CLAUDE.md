@@ -70,6 +70,8 @@ A single flat `Float32Array` in WASM memory is the only data channel. Two views:
 
 The constants `FLOATS_PER_ENTITY` and `PARTICLES_PER_BODY` are duplicated in `src/buffer.rs` / `src/api.rs` (Rust) and `packages/core/ts/src/phantom-observer.ts` (TS). They MUST stay in sync.
 
+Per-strategy slot reinterpretation: under `liquid_type=4` (Shake) slot[6]/[7] are per-frame impulse; under `liquid_type=6` (FreeDrop) they are one-time initial velocity. The buffer layout itself is fixed — the meaning of slot[6]/[7] is selected by slot[5]'s dispatch.
+
 ### `liquid_type` dispatch (`src/physics.rs`)
 
 `liquid_type` (slice index 5) selects a `PhysicsStrategy`:
@@ -82,6 +84,7 @@ The constants `FLOATS_PER_ENTITY` and `PARTICLES_PER_BODY` are duplicated in `sr
 | 3     | Dragged  | active (Ward 30) — drag moves DOM, Rust follows via `skip_rigid_translation` |
 | 4     | Shake    | active (Ward 31) — uses impulse_vx/vy at slice[6,7]; TS owns timer-based decay |
 | 5     | Tween    | active (Ward 32) — TS writes target into buffer between ticks |
+| 6     | FreeDrop | active (Ward 43) — DOM-less particle, no springs/neighbors. Lazy-inits `FreeParticle` from slot[6]/[7] as initial velocity; subsequent ticks ignore those slots. Stored in parallel `Vec<Option<FreeParticle>>`. |
 
 NaN and unknown values fall back to Default. Add new strategies by extending the enum + `dispatch_strategy` and the match arm in `LiquidCore::tick`.
 
@@ -98,6 +101,16 @@ Both throw `Error` after `destroy()`. `validatePhysicsConfig` is exported as `@i
 Opt-in via `LiquidOptions.colorSource: 'computed'` (default `'config'` preserves legacy behavior). Each observed element's `getComputedStyle(...).backgroundColor` is resolved on `observe()` and on `style` / `class` mutations. The resolved color is used as the blob's base fill; hover state continues to use the global `colorHover` for v1. Transparent / `'transparent'` / unparseable values fall back to `colorDefault`. Call `instance.refreshTheme(el)` to trigger a manual re-read (e.g. after a stylesheet swap the per-element MO can't see).
 
 After W54, the per-element `MutationObserver` is **unconditional** (one per observed element, disconnect on `unobserve`). It drives BOTH theme refresh and box-shadow margin refresh; the theme branch is gated inside the callback (`if (this.useComputedTheme) this.refreshElementTheme(...)`) so `useComputedTheme: false` consumers don't get auto-populated `themeCache` entries.
+
+### FreeDrop entity (Ward 043)
+
+A second entity class — DOM-less free-floating particles in the same slot pool as soft-body entities. Foundation for W44 (spawning UX), W45 (lifetime/culling), W46 (gravity). Without gravity, a FreeDrop moves at constant velocity forever.
+
+- **Spawn:** `instance.spawnDroplet({ x, y, vx, vy, radius? })` returns the slot id. Default `radius=4` (diameter 8 in slot[2]/[3]).
+- **Storage:** `LiquidCore` has `bodies: Vec<Option<EntityBody>>` AND `free_particles: Vec<Option<FreeParticle>>`. Invariant: at most one is `Some` per slot. Enforced by `release_slot(id)` (idempotent, clears both) called from TS in both `unobserve` and `spawnDroplet`. A `debug_assert!` at the FreeDrop init site traps invariant violations in dev.
+- **Slot reuse:** `slot[5]=6.0` (liquid_type). `slot[2]=slot[3]=diameter`. `slot[6]/[7]` = initial velocity, **read once** at lazy `FreeParticle` creation; subsequent ticks ignore them.
+- **Render:** Rust writes 16 particle positions distributed on a circle of `radius = slot[2]/2` around the droplet center; existing Bezier-midpoint spline renderer draws a smooth disc. W38 SDF will replace this.
+- **Constraints:** `observe(el, 6)` throws (FreeDrop has no DOM). FreeDrop slots are EXCLUDED from `preserveBackgrounds` clip-hole (clipping would erase the droplet's own particles). `instance.destroy()` cleans droplet slots via `unobserveAll`'s extension to iterate `dropletIds`. No `despawnDroplet` API yet (deferred to W45 culling) — droplets accumulate until `destroy()` or capacity exhaustion.
 
 ### box-shadow clip inflation (Ward 054)
 

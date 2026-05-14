@@ -1,4 +1,6 @@
-import { FLOATS_PER_ENTITY, PhantomObserver } from "./phantom-observer";
+import { FLOATS_PER_ENTITY, PhantomObserver, type SpawnDropletOptions } from "./phantom-observer";
+
+export type { SpawnDropletOptions };
 import { WasmBridge, WasmCore } from "./wasm-bridge";
 
 export interface LiquidPhysicsConfig {
@@ -123,6 +125,8 @@ export interface LiquidDOMInstance {
    * cannot see. No-op if element not observed.
    */
   refreshShadow(el: HTMLElement): void;
+  /** Ward 043: spawn a DOM-less free-floating particle. Returns its slot id. */
+  spawnDroplet(opts: SpawnDropletOptions): number;
 }
 
 /** Default maximum dt in milliseconds. */
@@ -187,6 +191,10 @@ export class LiquidDOM {
       entityView: bridge?.entityView(),
       particleView: bridge?.particleView(),
       useComputedTheme: options?.colorSource === "computed",
+      // Ward 043: bridge slot cleanup between TS and Rust. In mock mode
+      // (no WASM) `core` is null and this is a no-op — droplet integration
+      // doesn't run anyway without Rust.
+      releaseSlot: (id) => core?.release_slot(id),
     });
 
     // 3b. Set initial coord offset for container mode
@@ -617,6 +625,13 @@ export class LiquidDOM {
           throw new Error("Cannot refreshShadow on a destroyed LiquidDOM instance");
         }
         observer.refreshShadow(el);
+      },
+
+      spawnDroplet(opts: SpawnDropletOptions): number {
+        if (destroyed) {
+          throw new Error("Cannot spawnDroplet on a destroyed LiquidDOM instance");
+        }
+        return observer.spawnDroplet(opts);
       },
 
       destroy(): void {
