@@ -13,6 +13,27 @@ export interface LiquidPhysicsConfig {
   neighborSpringK?: number;
 }
 
+/**
+ * Ward 046: gravity source + vector for FreeDrop + soft-body particles.
+ *
+ * - `source: 'none'` (default) → gravity always (0, 0), no behavior change.
+ * - `source: 'fixed'` → use `vector` verbatim each frame. Omitted vector = [0, 0].
+ * - `source: 'orientation'` → subscribe to `DeviceOrientationEvent`, map
+ *   `gamma → x, beta → y` normalized to [-1, 1] × `strength`. On iOS 13+
+ *   call `instance.requestOrientationPermission()` from a user-gesture handler
+ *   first. Requires HTTPS in modern browsers (localhost is exempt for dev).
+ */
+export interface GravityOptions {
+  source: "none" | "fixed" | "orientation";
+  /** Used when `source === 'fixed'`. Units: px/s². Omitted → [0, 0]. */
+  vector?: [number, number];
+  /**
+   * Multiplier for the normalized [-1, 1] orientation mapping. Units: px/s².
+   * Default 980 (≈ 1 g at typical screen scale of 100 px/m).
+   */
+  strength?: number;
+}
+
 export interface LiquidOptions {
   capacity?: number;
   autoObserve?: boolean;
@@ -26,6 +47,8 @@ export interface LiquidOptions {
   physics?: LiquidPhysicsConfig;
   /** Ward 052: when 'computed', each observed element's bg-color is read on observe + on style/class changes. Default 'config'. */
   colorSource?: "config" | "computed";
+  /** Ward 046: gravity source for FreeDrop + soft-body particles. Default `{ source: 'none' }`. */
+  gravity?: GravityOptions;
 }
 
 const DEFAULT_PHYSICS: Required<LiquidPhysicsConfig> = {
@@ -173,10 +196,26 @@ export interface LiquidDOMInstance {
   spawnDroplet(opts: SpawnDropletOptions): number;
   /** Ward 045: explicitly remove a droplet by id. No-op if not a droplet slot. */
   despawnDroplet(id: number): void;
+  /**
+   * Ward 046: prompt for device orientation permission (iOS 13+).
+   *
+   * **MUST be called from a user-gesture event handler** (e.g. button `click`)
+   * — iOS WebKit silently denies non-gesture permission requests. Returns
+   * `true` on grant or when no permission is required (Chrome, Firefox,
+   * non-iOS Safari). Throws after `destroy()`.
+   */
+  requestOrientationPermission(): Promise<boolean>;
 }
 
 /** Default maximum dt in milliseconds. */
 const DEFAULT_MAX_DT = 50;
+
+function clamp(v: number, lo: number, hi: number): number {
+  // NaN propagation guard: a malformed DeviceOrientationEvent could deliver
+  // NaN, which would silently corrupt gravity downstream. Map NaN → 0.
+  if (!Number.isFinite(v)) return 0;
+  return v < lo ? lo : v > hi ? hi : v;
+}
 
 export class LiquidDOM {
   static async create(options?: LiquidOptions): Promise<LiquidDOMInstance> {
@@ -273,6 +312,24 @@ export class LiquidDOM {
       reducedMotion = e.matches;
     };
     motionQuery?.addEventListener("change", onMotionChange);
+
+    // Ward 046: gravity source. `fixed` writes once; `orientation` attaches
+    // a window listener that mutates gravityX/gravityY on each event.
+    // gamma maps to screen x (tilt left/right), beta maps to screen y
+    // (tilt front/back, positive = down in CSS), each normalized from
+    // [-90, 90] degrees to [-1, 1] then scaled by `strength` (px/s²).
+    const gravityOpt = options?.gravity ?? { source: "none" as const };
+    const gravityStrength = gravityOpt.strength ?? 980;
+    let [gravityX, gravityY] =
+      gravityOpt.source === "fixed" ? (gravityOpt.vector ?? [0, 0]) : [0, 0];
+    let orientationListener: ((e: DeviceOrientationEvent) => void) | null = null;
+    if (gravityOpt.source === "orientation" && typeof window !== "undefined") {
+      orientationListener = (e) => {
+        gravityX = (clamp(e.gamma ?? 0, -90, 90) / 90) * gravityStrength;
+        gravityY = (clamp(e.beta ?? 0, -90, 90) / 90) * gravityStrength;
+      };
+      window.addEventListener("deviceorientation", orientationListener);
+    }
 
     // 6. Pointer tracking with container-relative coordinate transform
     let pointerX = 0;
@@ -389,6 +446,10 @@ export class LiquidDOM {
         // W45: viewport AABB for FreeDrop auto-cull (soft-body slots ignored,
         // Decision §9). CULL_MARGIN_PX is reused for the render-cull default.
         const CULL_MARGIN_PX = 100;
+        // W46: gravity passes through every frame. Clamped to (0, 0) under
+        // reduced-motion (mirrors the existing physicsDt clamp).
+        const gx = reducedMotion ? 0 : gravityX;
+        const gy = reducedMotion ? 0 : gravityY;
         core!.tick(
           physicsDt,
           pointerX,
@@ -401,6 +462,7 @@ export class LiquidDOM {
           physics.repulsionStrength,
           physics.neighborSpringK,
           0, 0, vp.w, vp.h, CULL_MARGIN_PX,
+          gx, gy,
         );
         observer.render(ctx, {
           viewportWidth: vp.w,
@@ -726,6 +788,28 @@ export class LiquidDOM {
         observer.despawnDroplet(id);
       },
 
+      async requestOrientationPermission(): Promise<boolean> {
+        if (destroyed) {
+          throw new Error("Cannot requestOrientationPermission on a destroyed LiquidDOM instance");
+        }
+        // iOS 13+: DeviceOrientationEvent has a static requestPermission().
+        // Chrome / Firefox / non-iOS Safari: no permission required → true.
+        const evCtor = (window as unknown as {
+          DeviceOrientationEvent?: {
+            requestPermission?: () => Promise<"granted" | "denied">;
+          };
+        }).DeviceOrientationEvent;
+        if (!evCtor || typeof evCtor.requestPermission !== "function") {
+          return true;
+        }
+        try {
+          const result = await evCtor.requestPermission();
+          return result === "granted";
+        } catch {
+          return false;
+        }
+      },
+
       destroy(): void {
         if (destroyed) return;
         destroyed = true;
@@ -742,6 +826,12 @@ export class LiquidDOM {
         }
 
         observer.unobserveAll();
+
+        // W46: remove orientation listener if attached.
+        if (orientationListener) {
+          window.removeEventListener("deviceorientation", orientationListener);
+          orientationListener = null;
+        }
 
         // Clear all pending impulse timers
         for (const timerId of impulseTimers.values()) {
