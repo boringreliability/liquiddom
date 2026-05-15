@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LiquidDOM — Tilt Bowl</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;500;800&display=swap');
+
+    :root {
+      --bg: #0b0914;
+      --fg: #f0e6ff;
+      --fg-dim: #6a5a8a;
+      --accent: rgba(233, 69, 96, 0.9);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body { height: 100%; overflow: hidden; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      gap: 2rem;
+      position: relative;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 800;
+      letter-spacing: -1px;
+      opacity: 0.7;
+    }
+
+    .subtitle {
+      font-size: 0.95rem;
+      color: var(--fg-dim);
+      font-weight: 300;
+      max-width: 480px;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    .bowl {
+      width: min(80vw, 400px);
+      height: min(80vw, 400px);
+      border-radius: 50%;
+      background: transparent !important;
+      border: 1px dashed rgba(240, 230, 255, 0.15);
+      position: relative;
+    }
+
+    .bowl [data-liquid] {
+      background: transparent !important;
+      border: none !important;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+    }
+
+    .controls {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    button {
+      font-family: inherit;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--fg);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 0.7rem 1.4rem;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    button:hover { background: rgba(255, 255, 255, 0.12); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .status {
+      font-size: 0.85rem;
+      color: var(--fg-dim);
+      min-height: 1.2em;
+      font-family: 'SF Mono', Monaco, monospace;
+    }
+
+    .help {
+      max-width: 520px;
+      padding: 1rem 1.5rem;
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 8px;
+      font-size: 0.8rem;
+      color: var(--fg-dim);
+      line-height: 1.6;
+      position: absolute;
+      bottom: 2rem;
+    }
+
+    .help kbd {
+      background: rgba(255, 255, 255, 0.08);
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      color: var(--fg);
+    }
+  </style>
+</head>
+<body>
+  <h1>Tilt Bowl</h1>
+  <p class="subtitle">
+    Soft-body blob inside a circular bowl. Tilt the device (or use DevTools
+    sensor emulation) — the blob sloshes toward the low edge as gravity
+    follows the orientation.
+  </p>
+
+  <div class="bowl">
+    <div data-liquid></div>
+  </div>
+
+  <div class="controls">
+    <button id="enable-tilt">Enable Tilt (iOS)</button>
+    <button id="spawn-droplets">Spawn 12 Droplets</button>
+    <button id="reset">Reset</button>
+  </div>
+
+  <p class="status" id="status">Gravity: off — click Enable Tilt or use a fixed vector below.</p>
+
+  <div class="help">
+    <strong>Mobile (iOS 13+):</strong> tap <kbd>Enable Tilt</kbd> to grant
+    permission, then tilt the phone. <strong>Desktop Chrome:</strong> open
+    DevTools → ⋮ menu → More tools → Sensors → set Orientation to "Custom"
+    and drag alpha/beta/gamma sliders.
+    <br><br>
+    Refer to <kbd>(window as any).liquid</kbd> to inspect the live instance
+    in DevTools.
+  </div>
+
+  <script type="module" src="./tilt-bowl.ts"></script>
+</body>
+</html>
