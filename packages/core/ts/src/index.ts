@@ -49,6 +49,11 @@ export interface LiquidOptions {
   colorSource?: "config" | "computed";
   /** Ward 046: gravity source for FreeDrop + soft-body particles. Default `{ source: 'none' }`. */
   gravity?: GravityOptions;
+  /**
+   * Ward 055: snap-back lerp duration in ms after a scroll ends. Default 150.
+   * Reduced-motion bypasses the lerp (instant snap regardless of this value).
+   */
+  snapDurationMs?: number;
 }
 
 const DEFAULT_PHYSICS: Required<LiquidPhysicsConfig> = {
@@ -153,6 +158,8 @@ export interface LiquidDOMInstance {
   readonly isPaused: boolean;
   readonly isReducedMotion: boolean;
   readonly isScrolling: boolean;
+  /** Ward 055: true while the scroll-end lerp is active (between scroll-idle and lerp completion). */
+  readonly isScrollSnapping: boolean;
   readonly pointerActive: boolean;
   readonly pointerX: number;
   readonly pointerY: number;
@@ -357,18 +364,71 @@ export class LiquidDOM {
     document.addEventListener("pointermove", onPointerMove);
     document.addEventListener("pointerleave", onPointerLeave);
 
-    // 7. Scroll-aware physics: pause substeps during scroll, snap on idle
+    // 7. Scroll-aware physics: pause substeps during scroll (W26 fix), then
+    // ease base_pos back to live rect via W55 lerp on scroll-idle.
     let scrolling = false;
     let scrollIdleTimer: ReturnType<typeof setTimeout> | null = null;
     const SCROLL_IDLE_MS = 100;
+
+    // W55: per-entity lerp state. Keyed on slot id — element refs are held
+    // for live getBoundingClientRect reads during the lerp window.
+    interface ScrollSnapState {
+      fromX: number;
+      fromY: number;
+      el: HTMLElement;
+      startTime: number;
+    }
+    const scrollSnap = new Map<number, ScrollSnapState>();
+    const snapDurationMs = options?.snapDurationMs ?? 150;
+
+    function initiateScrollSnap(): void {
+      // W55 Decision §6: bypass under reduced-motion (instant snap on next sync).
+      if (reducedMotion) return;
+      const buf = observer.getBuffer();
+      const now = performance.now();
+      for (const [id, el] of observer.getObservedEntries()) {
+        const off = id * FLOATS_PER_ENTITY;
+        scrollSnap.set(id, {
+          fromX: buf[off]!,
+          fromY: buf[off + 1]!,
+          el,
+          startTime: now,
+        });
+      }
+    }
+
+    function runScrollSnapLerp(): void {
+      const buf = observer.getBuffer();
+      const now = performance.now();
+      // Container offset (coordOffsetX/Y) — closure-captured per W55 R5.
+      // Reuse the per-frame containerRect when in container mode.
+      const offX = isContainerMode && containerRect ? containerRect.left : 0;
+      const offY = isContainerMode && containerRect ? containerRect.top : 0;
+      for (const [id, state] of scrollSnap) {
+        const elapsed = now - state.startTime;
+        const t = Math.min(1, elapsed / snapDurationMs);
+        const rect = state.el.getBoundingClientRect();
+        const targetX = rect.x - offX;
+        const targetY = rect.y - offY;
+        const off = id * FLOATS_PER_ENTITY;
+        buf[off]     = state.fromX + (targetX - state.fromX) * t;
+        buf[off + 1] = state.fromY + (targetY - state.fromY) * t;
+        // slot[2]/[3] are live-tracked (not lerped). Width/height could change
+        // mid-scroll on responsive layouts.
+        buf[off + 2] = rect.width;
+        buf[off + 3] = rect.height;
+        if (t >= 1) scrollSnap.delete(id);
+      }
+    }
 
     const onScroll = () => {
       scrolling = true;
       if (scrollIdleTimer !== null) clearTimeout(scrollIdleTimer);
       scrollIdleTimer = setTimeout(() => {
         scrolling = false;
-        // Snap: sync will pick up new getBoundingClientRect values on next frame
-        observer.sync();
+        // W55: drop redundant observer.sync() here (W26 §9). Initiate the
+        // ease-back lerp instead — runScrollSnapLerp runs in the RAF loop.
+        initiateScrollSnap();
       }, SCROLL_IDLE_MS);
     };
 
@@ -421,7 +481,10 @@ export class LiquidDOM {
     }
 
     function startLoop() {
-      if (!ctx || !core) return;
+      // W55: in mock-mode (no WASM) `core` is null but render fallbacks
+      // (W56 mock-mode) + scroll-snap lerp still need to run. Only bail
+      // when the canvas context itself is missing.
+      if (!ctx) return;
 
       const loop = (now: number) => {
         if (paused || destroyed) return;
@@ -440,9 +503,16 @@ export class LiquidDOM {
         const vp = getViewportSize();
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, vp.w, vp.h);
-        observer.sync();
+        // W55: lerp owns slot[0..3] writes while it's active.
+        if (scrollSnap.size > 0) {
+          runScrollSnapLerp();
+        } else {
+          observer.sync();
+        }
 
-        const physicsDt = reducedMotion ? 0 : dt;
+        // W26 fix: physics pauses during scroll (was previously only gated
+        // on reduced-motion despite W26's spec promising scroll-pause too).
+        const physicsDt = (reducedMotion || scrolling) ? 0 : dt;
         // W45: viewport AABB for FreeDrop auto-cull (soft-body slots ignored,
         // Decision §9). CULL_MARGIN_PX is reused for the render-cull default.
         const CULL_MARGIN_PX = 100;
@@ -450,20 +520,23 @@ export class LiquidDOM {
         // reduced-motion (mirrors the existing physicsDt clamp).
         const gx = reducedMotion ? 0 : gravityX;
         const gy = reducedMotion ? 0 : gravityY;
-        core!.tick(
-          physicsDt,
-          pointerX,
-          pointerY,
-          pointerActive && !reducedMotion,
-          physics.tension,
-          physics.damping,
-          physics.substeps,
-          physics.repulsionRadius,
-          physics.repulsionStrength,
-          physics.neighborSpringK,
-          0, 0, vp.w, vp.h, CULL_MARGIN_PX,
-          gx, gy,
-        );
+        // W55: tick is WASM-only. Mock-mode (core=null) still runs sync/lerp/render.
+        if (core) {
+          core.tick(
+            physicsDt,
+            pointerX,
+            pointerY,
+            pointerActive && !reducedMotion && !scrolling,
+            physics.tension,
+            physics.damping,
+            physics.substeps,
+            physics.repulsionRadius,
+            physics.repulsionStrength,
+            physics.neighborSpringK,
+            0, 0, vp.w, vp.h, CULL_MARGIN_PX,
+            gx, gy,
+          );
+        }
         observer.render(ctx, {
           viewportWidth: vp.w,
           viewportHeight: vp.h,
@@ -508,6 +581,10 @@ export class LiquidDOM {
         return scrolling;
       },
 
+      get isScrollSnapping(): boolean {
+        return scrollSnap.size > 0;
+      },
+
       get pointerActive(): boolean {
         return pointerActive;
       },
@@ -537,6 +614,10 @@ export class LiquidDOM {
 
       unobserve(el: HTMLElement): void {
         if (destroyed) return;
+        // W55 Decision §4: drop any active lerp entry for this slot before
+        // the observer clears the id. Prevents a 1-frame ghost-write.
+        const id = observer.getEntityId(el);
+        if (id !== undefined) scrollSnap.delete(id);
         observer.unobserve(el);
       },
 
@@ -553,6 +634,10 @@ export class LiquidDOM {
         if (id === undefined) {
           throw new Error("Element is not observed by this LiquidDOM instance");
         }
+
+        // W55 Decision §7: tween wins composition — drop any active lerp
+        // for this slot so its writes don't fight tween's setInterval.
+        scrollSnap.delete(id);
 
         const buf = observer.getBuffer();
         const off = id * FLOATS_PER_ENTITY;
@@ -844,6 +929,8 @@ export class LiquidDOM {
           clearTimeout(scrollIdleTimer);
           scrollIdleTimer = null;
         }
+        // W55: release element refs held by the lerp map.
+        scrollSnap.clear();
         window.removeEventListener("scroll", onScroll, { capture: true } as EventListenerOptions);
         if (isContainerMode) {
           container.removeEventListener("scroll", onScroll);

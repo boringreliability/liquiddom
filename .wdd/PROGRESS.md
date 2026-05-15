@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-48 of 56 Wards complete · 257 estimated tests · 0 blocked
+49 of 56 Wards complete · 265 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -60,8 +60,8 @@
 | 0524 | CSS Computed Background Reflection | 9 | ✅ Complete | 2026-05-13 |
 | 0533 | Border-Radius Clip in preserveBackgrounds | 4 | ✅ Complete | 2026-05-13 |
 | 0542 | box-shadow Compatibility under preserveBackgrounds | 9 | ✅ Complete | 2026-05-13 |
-| 055 | Smooth Scroll-Snap Interpolation | 3 | 📋 Planned | - |
+| 0552 | Smooth Scroll-Snap Interpolation (+ W26 implementation fix) | 11 | ✅ Complete | 2026-05-15 |
 | 0562 | FreeDrop Canvas Rendering | 6 | ✅ Complete | 2026-05-14 |
 
 ## Test Summary
-- Estimated total: 257
+- Estimated total: 265

@@ -102,6 +102,17 @@ Opt-in via `LiquidOptions.colorSource: 'computed'` (default `'config'` preserves
 
 After W54, the per-element `MutationObserver` is **unconditional** (one per observed element, disconnect on `unobserve`). It drives BOTH theme refresh and box-shadow margin refresh; the theme branch is gated inside the callback (`if (this.useComputedTheme) this.refreshElementTheme(...)`) so `useComputedTheme: false` consumers don't get auto-populated `themeCache` entries.
 
+### Scroll handling (Ward 026 + 055)
+
+W26 added a `scrolling` flag toggled by `scroll` events with a 100ms idle timeout. W55 fixed W26's implementation gap and added smooth lerp:
+
+- **Physics pause during scroll**: `physicsDt = (reducedMotion || scrolling) ? 0 : dt`. Pointer repulsion also freezes: `pointerActive && !reducedMotion && !scrolling`. Prevents partikel-eksplosion during fast scrolls.
+- **Smooth lerp at scroll-end (W55)**: when `scrolling` flips false, capture per-entity `base_pos` snapshots into an internal `Map<id, ScrollSnapState>`. RAF loop runs `runScrollSnapLerp()` when map is non-empty (skips `observer.sync()` to avoid overwriting); each frame computes `t = elapsed / snapDurationMs`, lerps slot[0]/[1] toward live `getBoundingClientRect()`. `LiquidOptions.snapDurationMs` (default 150).
+- **Public API**: `instance.isScrollSnapping: boolean` — true while the lerp map is non-empty.
+- **Composition with `tween()`**: tween wins. `tween(el, ...)` deletes the entity's lerp entry before scheduling its setInterval, so the two paths never fight.
+- **Container mode**: container scroll events also trigger the lerp; container-relative coord offset is applied so buffer-space and rect-space stay aligned.
+- **Reduced motion**: bypasses lerp entirely — `observer.sync()` keeps writing live rects (instant snap).
+
 ### Gravity (Ward 046)
 
 `LiquidOptions.gravity?: { source: 'none' | 'fixed' | 'orientation', vector?, strength? }`. Per-frame `(gx, gy)` in px/s² flows through `tick()`. Strategy gating: Default/Shake/Magnet/Tear + FreeDrop receive gravity; Dragged + Tween skip (would fight cursor/target). Semi-implicit Euler: `velocity += g*dt; pos += velocity*dt`. Reduced-motion clamps to (0, 0).
