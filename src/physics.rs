@@ -28,8 +28,11 @@ impl FreeParticle {
         Self { pos, velocity, radius, lifetime_ms }
     }
 
-    /// Constant-velocity integration. Gravity arrives in W46.
-    pub fn integrate(&mut self, dt: f32) {
+    /// Semi-implicit Euler integration with gravity. `gravity_x` and
+    /// `gravity_y` are in px/s²; pass `(0.0, 0.0)` to disable.
+    pub fn integrate(&mut self, dt: f32, gravity_x: f32, gravity_y: f32) {
+        self.velocity.x += gravity_x * dt;
+        self.velocity.y += gravity_y * dt;
         self.pos += self.velocity * dt;
     }
 
@@ -149,6 +152,24 @@ impl Particle {
 }
 
 impl EntityBody {
+    /// Ward 046: adds `gravity * dt` to every particle's velocity. Skips the
+    /// loop when both args are zero (the dominant case while gravity is off)
+    /// OR when either arg is NaN/Infinity (defense against malformed input
+    /// from `DeviceOrientationEvent` or buggy consumers — corruption would
+    /// propagate to every particle).
+    pub fn apply_gravity(&mut self, dt: f32, gravity_x: f32, gravity_y: f32) {
+        if !gravity_x.is_finite() || !gravity_y.is_finite() {
+            return;
+        }
+        if gravity_x == 0.0 && gravity_y == 0.0 {
+            return;
+        }
+        let g = Vec2::new(gravity_x, gravity_y);
+        for particle in &mut self.particles {
+            particle.velocity += g * dt;
+        }
+    }
+
     /// Compute polygon area via Shoelace formula.
     pub fn compute_area(&self) -> f32 {
         let n = self.particles.len();

@@ -100,6 +100,8 @@ impl LiquidCore {
         vp_w: f32,
         vp_h: f32,
         cull_margin: f32,
+        gravity_x: f32,
+        gravity_y: f32,
     ) {
         let dt = dt_ms / 1000.0;
         let pointer_pos = Vec2::new(pointer_x, pointer_y);
@@ -140,7 +142,7 @@ impl LiquidCore {
                         slice[3],
                     )
                 });
-                part.integrate(dt);
+                part.integrate(dt, gravity_x, gravity_y);
                 part.lifetime_ms -= dt_ms;
 
                 // Capture state BEFORE releasing the &mut borrow — the cull
@@ -181,6 +183,19 @@ impl LiquidCore {
 
             // During drag, skip rigid translation so particles lag behind with squish
             body.skip_rigid_translation = strategy == PhysicsStrategy::Dragged;
+
+            // W46: apply gravity BEFORE run_physics so springs can react this frame.
+            // Independent of the match arms below (Decision §6). Skipped for
+            // Dragged (cursor-driven) and Tween (target-driven curves).
+            if matches!(
+                strategy,
+                PhysicsStrategy::Default
+                    | PhysicsStrategy::Shake
+                    | PhysicsStrategy::Magnet
+                    | PhysicsStrategy::Tear
+            ) {
+                body.apply_gravity(dt, gravity_x, gravity_y);
+            }
 
             match strategy {
                 PhysicsStrategy::Dragged => {
@@ -255,7 +270,7 @@ mod tests {
 
     fn tick_no_cull(core: &mut LiquidCore, dt_ms: f32) {
         let (vx, vy, vw, vh, m) = NO_CULL_VP;
-        core.tick(dt_ms, 0.0, 0.0, false, 1.0, 1.0, 1, 0.0, 0.0, 0.0, vx, vy, vw, vh, m);
+        core.tick(dt_ms, 0.0, 0.0, false, 1.0, 1.0, 1, 0.0, 0.0, 0.0, vx, vy, vw, vh, m, 0.0, 0.0);
     }
 
     // ── Test #1 — dispatch_strategy(6.0) returns FreeDrop ──
@@ -352,7 +367,7 @@ mod tests {
 
         // viewport (0, 0, 100, 100) with margin 10 → cull when pos.x > 110.
         // After 1 s at 200 px/s: pos.x = 250, well past margin.
-        core.tick(1000.0, 0.0, 0.0, false, 1.0, 1.0, 1, 0.0, 0.0, 0.0, 0.0, 0.0, 100.0, 100.0, 10.0);
+        core.tick(1000.0, 0.0, 0.0, false, 1.0, 1.0, 1, 0.0, 0.0, 0.0, 0.0, 0.0, 100.0, 100.0, 10.0, 0.0, 0.0);
 
         assert!(!core.free_particle_is_some(0), "off-screen FreeDrop must be reclaimed");
         assert_eq!(core.read_slot_field(0, 2), 0.0, "slot[2] must be zeroed");
@@ -381,7 +396,7 @@ mod tests {
         core.write_slot(0, [99999.0, 99999.0, 100.0, 50.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
 
         // Viewport (0, 0, 100, 100), margin 10 — soft-body is far outside.
-        core.tick(16.0, 0.0, 0.0, false, 1.0, 1.0, 1, 0.0, 0.0, 0.0, 0.0, 0.0, 100.0, 100.0, 10.0);
+        core.tick(16.0, 0.0, 0.0, false, 1.0, 1.0, 1, 0.0, 0.0, 0.0, 0.0, 0.0, 100.0, 100.0, 10.0, 0.0, 0.0);
 
         assert!(core.body_is_some(0), "soft-body must NOT be reclaimed by FreeDrop cull");
         assert_eq!(core.read_slot_field(0, 2), 100.0, "soft-body slot[2] (width) unchanged");
@@ -414,7 +429,7 @@ mod tests {
         core.write_slot(0, freedrop_slot_with_lifetime(95.0, 50.0, 8.0, 200.0, 0.0, 1.0e9));
 
         // 100 ms at 200 px/s → pos.x advances by 20 → 115 (outside).
-        core.tick(100.0, 0.0, 0.0, false, 1.0, 1.0, 1, 0.0, 0.0, 0.0, 0.0, 0.0, 100.0, 100.0, 0.0);
+        core.tick(100.0, 0.0, 0.0, false, 1.0, 1.0, 1, 0.0, 0.0, 0.0, 0.0, 0.0, 100.0, 100.0, 0.0, 0.0, 0.0);
 
         // Slot must be deactivated AFTER the tick.
         assert!(!core.free_particle_is_some(0), "slot must be reclaimed after cull");
@@ -428,6 +443,90 @@ mod tests {
         assert!(
             (dist - radius).abs() < 1e-3,
             "last-frame render: particle 0 should be on circle around (115, 50), got dist={dist}"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Ward 046 — Device Orientation Gravity Vector (Rust tests T1-T3)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// Helper: tick with explicit gravity (no cull).
+    fn tick_with_gravity(core: &mut LiquidCore, dt_ms: f32, gx: f32, gy: f32) {
+        let (vx, vy, vw, vh, m) = NO_CULL_VP;
+        core.tick(dt_ms, 0.0, 0.0, false, 1.0, 1.0, 1, 0.0, 0.0, 0.0, vx, vy, vw, vh, m, gx, gy);
+    }
+
+    // ── W46 T1 — FreeDrop semi-implicit Euler gravity drift ──
+    #[test]
+    fn test_freedrop_gravity_drift() {
+        let mut core = LiquidCore::new(1);
+        // Stationary FreeDrop at (50, 50), velocity (0, 0), huge lifetime.
+        core.write_slot(0, freedrop_slot_with_lifetime(50.0, 50.0, 8.0, 0.0, 0.0, 1.0e9));
+
+        // Tick 1: dt_ms=1000 (1s), gy=100. Semi-implicit Euler:
+        //   velocity.y += 100 * 1.0 = 100
+        //   pos.y += velocity.y * 1.0 = 50 + 100 = 150
+        tick_with_gravity(&mut core, 1000.0, 0.0, 100.0);
+        let pos1 = core.free_particle_pos(0).expect("FreeParticle exists");
+        assert!((pos1.y - 150.0).abs() < 1e-3, "tick 1: pos.y expected 150, got {}", pos1.y);
+        assert!((pos1.x - 50.0).abs() < 1e-3, "tick 1: pos.x unchanged");
+
+        // Tick 2: velocity.y += 100 = 200, pos.y += 200 = 350.
+        tick_with_gravity(&mut core, 1000.0, 0.0, 100.0);
+        let pos2 = core.free_particle_pos(0).expect("FreeParticle exists");
+        assert!((pos2.y - 350.0).abs() < 1e-3, "tick 2: pos.y expected 350, got {}", pos2.y);
+    }
+
+    // ── W46 T2 — soft-body drifts under gravity ──
+    #[test]
+    fn test_softbody_gravity_drift() {
+        // Two parallel scenarios: one with gx=100, one with gx=0.
+        // After 60 ticks @ dt_ms=16.67ms each (~1s), the gravity scenario's
+        // centroid x should be > 10 px greater than the no-gravity baseline.
+        fn run_60(gx: f32) -> f32 {
+            let mut core = LiquidCore::new(1);
+            // Soft-body slot at (100, 100, 50, 30).
+            core.write_slot(0, [100.0, 100.0, 50.0, 30.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+            for _ in 0..60 {
+                tick_with_gravity(&mut core, 16.67, gx, 0.0);
+            }
+            // Read particle 0's x as a proxy for centroid drift.
+            core.read_particle(0, 0).0
+        }
+        let gravity_x = run_60(100.0);
+        let baseline_x = run_60(0.0);
+        assert!(
+            gravity_x - baseline_x > 10.0,
+            "gravity scenario should drift > 10 px more than baseline; got {} vs {}",
+            gravity_x, baseline_x
+        );
+    }
+
+    // ── W46 T3 — gravity skipped for Dragged strategy ──
+    #[test]
+    fn test_gravity_skip_dragged() {
+        // Two parallel scenarios identical except gravity.
+        // Dragged (liquid_type=3) should ignore gravity entirely.
+        fn run_with_gravity(gx: f32, gy: f32) -> (f32, f32) {
+            let mut core = LiquidCore::new(1);
+            // Dragged slot.
+            core.write_slot(0, [100.0, 100.0, 50.0, 30.0, 0.0, 3.0, 0.0, 0.0, 0.0]);
+            for _ in 0..10 {
+                tick_with_gravity(&mut core, 16.67, gx, gy);
+            }
+            core.read_particle(0, 0)
+        }
+        let no_grav = run_with_gravity(0.0, 0.0);
+        let with_grav = run_with_gravity(100.0, 100.0);
+        assert!(
+            (no_grav.0 - with_grav.0).abs() < 1e-3,
+            "Dragged x drift should be identical with/without gravity; got {} vs {}",
+            no_grav.0, with_grav.0
+        );
+        assert!(
+            (no_grav.1 - with_grav.1).abs() < 1e-3,
+            "Dragged y drift should be identical with/without gravity; got {} vs {}",
+            no_grav.1, with_grav.1
         );
     }
 }

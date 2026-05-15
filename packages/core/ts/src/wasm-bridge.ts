@@ -25,6 +25,9 @@ export interface WasmCore {
     vpW: number,
     vpH: number,
     cullMargin: number,
+    /** Ward 046 gravity (px/s²). Applied per strategy in tick(). */
+    gravityX: number,
+    gravityY: number,
   ): void;
   /** Ward 043: clear both bodies[id] and free_particles[id]. Idempotent. */
   release_slot(id: number): void;

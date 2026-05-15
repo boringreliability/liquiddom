@@ -102,6 +102,14 @@ Opt-in via `LiquidOptions.colorSource: 'computed'` (default `'config'` preserves
 
 After W54, the per-element `MutationObserver` is **unconditional** (one per observed element, disconnect on `unobserve`). It drives BOTH theme refresh and box-shadow margin refresh; the theme branch is gated inside the callback (`if (this.useComputedTheme) this.refreshElementTheme(...)`) so `useComputedTheme: false` consumers don't get auto-populated `themeCache` entries.
 
+### Gravity (Ward 046)
+
+`LiquidOptions.gravity?: { source: 'none' | 'fixed' | 'orientation', vector?, strength? }`. Per-frame `(gx, gy)` in px/s² flows through `tick()`. Strategy gating: Default/Shake/Magnet/Tear + FreeDrop receive gravity; Dragged + Tween skip (would fight cursor/target). Semi-implicit Euler: `velocity += g*dt; pos += velocity*dt`. Reduced-motion clamps to (0, 0).
+
+- **Sources:** `'none'` (default, no behavior change), `'fixed'` (use `vector` verbatim), `'orientation'` (subscribe to `DeviceOrientationEvent`, map `gamma → x, beta → y` via `clamp([-90, 90])/90 × strength`).
+- **iOS 13+:** `instance.requestOrientationPermission()` — MUST be called from user-gesture handler. Returns `true` on grant or when no permission is required. Requires HTTPS in production (localhost is exempt for dev).
+- **Defense-in-depth:** Both Rust `apply_gravity` and TS `clamp()` reject NaN/Infinity (malformed orientation events).
+
 ### FreeDrop entity (Wards 043 + 044 + 045 + 056)
 
 A second entity class — DOM-less free-floating particles in the same slot pool as soft-body entities. Foundation for W44 (spawning UX) and W46 (gravity). Without gravity, a FreeDrop moves at constant velocity until its lifetime expires or it exits the viewport.

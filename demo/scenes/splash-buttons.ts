@@ -38,6 +38,9 @@ async function main() {
       colorDefault: "rgba(15, 52, 96, 0.85)",
       colorHover: "rgba(233, 69, 96, 0.9)",
       physics: { ...presets.jelly, tension: 80, damping: 5, substeps: 2 },
+      // W46: gravity makes the splash droplets arc + fall instead of flying
+      // straight away. 800 px/s² downward (≈ 0.8 g at typical screen scale).
+      gravity: { source: "fixed", vector: [0, 800] },
     });
 
     // Expose for DevTools console experimentation.
