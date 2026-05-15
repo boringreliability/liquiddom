@@ -153,6 +153,16 @@ export class PhantomObserver {
     return this.elementToId.get(el);
   }
 
+  /**
+   * Ward 055: public iterator over (slot id → element) pairs for currently
+   * observed soft-body entities. Used by `LiquidDOM.create()`'s scroll-snap
+   * lerp to snapshot every entity's base_pos at scroll-end. Does NOT include
+   * droplet ids (see `dropletIds` set — droplets aren't subject to scroll-snap).
+   */
+  getObservedEntries(): IterableIterator<[number, HTMLElement]> {
+    return this.idToElement.entries();
+  }
+
   /** Update views and capacity after WasmBridge rebind. */
   setViews(entityView: Float32Array, particleView: Float32Array | null, newCapacity: number): void {
     this.buffer = entityView;
