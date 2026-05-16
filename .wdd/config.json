@@ -2,7 +2,7 @@
   "project": "liquiddom",
   "version": "0.1.0",
   "methodology": "wdd",
-  "wdd_version": "1.0",
+  "wdd_version": "1.2",
   "ai_tools": {
     "primary": "claude-code",
     "review": []
@@ -13,5 +13,24 @@
     "format": "cargo fmt"
   },
   "ward_prefix": "ward",
-  "ward_digits": 3
+  "ward_digits": 3,
+  "scan": {
+    "roots": [
+      "src/"
+    ],
+    "extensions": [
+      ".ts",
+      ".tsx"
+    ],
+    "exclude": [
+      "**/*.test.ts",
+      "**/*.spec.ts",
+      "**/*.test.tsx",
+      "**/*.spec.tsx",
+      "**/*.d.ts",
+      "**/dist/**",
+      "**/build/**",
+      "**/node_modules/**"
+    ]
+  }
 }

@@ -58,6 +58,8 @@ export interface UrlParamOverrides {
   capacity?: number;
   forceReducedMotion?: boolean;
   preserveBackgrounds?: boolean;
+  /** Ward 037 manual smoke-test handle. `?renderer=webgpu` opts into WebGPURenderer. */
+  renderer?: "canvas2d" | "webgpu";
 }
 
 /**
@@ -98,6 +100,12 @@ export function parseUrlParams(): UrlParamOverrides {
   const pb = parseStrictBool(params.get("preserveBackgrounds"));
   if (pb !== undefined) {
     out.preserveBackgrounds = pb;
+    anyValid = true;
+  }
+
+  const rawRenderer = params.get("renderer");
+  if (rawRenderer === "webgpu" || rawRenderer === "canvas2d") {
+    out.renderer = rawRenderer;
     anyValid = true;
   }
 

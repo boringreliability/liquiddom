@@ -35,5 +35,8 @@
   "license": "MIT",
   "publishConfig": {
     "access": "public"
+  },
+  "devDependencies": {
+    "@webgpu/types": "^0.1.70"
   }
 }

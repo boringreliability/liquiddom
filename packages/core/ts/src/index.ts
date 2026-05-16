@@ -3,7 +3,10 @@ import { FLOATS_PER_ENTITY, PhantomObserver, type SpawnDropletOptions } from "./
 export type { SpawnDropletOptions };
 import { WasmBridge, WasmCore } from "./wasm-bridge";
 import { Canvas2DRenderer } from "./renderers/canvas2d-renderer";
+import { WebGPURenderer } from "./renderers/webgpu-renderer";
 import type { Renderer } from "./renderers/renderer";
+
+export { WebGPUUnavailableError } from "./renderers/webgpu-renderer";
 
 export interface LiquidPhysicsConfig {
   tension?: number;
@@ -56,6 +59,14 @@ export interface LiquidOptions {
    * Reduced-motion bypasses the lerp (instant snap regardless of this value).
    */
   snapDurationMs?: number;
+  /**
+   * Ward 037: select the rendering backend. Default `'canvas2d'`. `'webgpu'`
+   * requires a WebGPU-capable browser (Chrome 113+, Edge 113+); `LiquidDOM.create()`
+   * rejects with `WebGPUUnavailableError` if WebGPU is unavailable. The `'auto'`
+   * value with graceful fallback is W41's job — until then, callers handle the
+   * rejection themselves.
+   */
+  renderer?: "canvas2d" | "webgpu";
 }
 
 const DEFAULT_PHYSICS: Required<LiquidPhysicsConfig> = {
@@ -443,16 +454,27 @@ export class LiquidDOM {
     // 8. Resize handling — container uses ResizeObserver, fullscreen uses window
     let resizeObserver: ResizeObserver | null = null;
 
-    // W36: Renderer instantiation. `await init` propagates renderer-specific
-    // setup failures (e.g., W37 WebGPU adapter unavailable) through create().
-    const renderer: Renderer = new Canvas2DRenderer();
+    // W36/W37: Renderer instantiation. `await init` propagates renderer-specific
+    // setup failures (e.g., W37 WebGPU adapter unavailable as WebGPUUnavailableError)
+    // through create()'s returned promise.
+    const renderer: Renderer = options?.renderer === "webgpu"
+      ? new WebGPURenderer()
+      : new Canvas2DRenderer();
     await renderer.init(canvas);
 
     // Mock-mode detection (W55 invariant): in jsdom canvas.getContext("2d")
     // returns null. The renderer also bails internally, but skipping the RAF
     // loop entirely keeps `observer.sync()` from firing in tests that mock
     // RAF via fake timers but assume the loop is dormant.
-    const hasCanvasCtx = canvas.getContext("2d") !== null;
+    //
+    // W37 fix: when renderer is WebGPU, init() has already acquired the GPU
+    // context successfully (otherwise create() would have rejected before
+    // reaching this line). Don't re-check getContext("2d") — that returns
+    // null on a canvas that already has a webgpu context, which would
+    // dormancy-trap the RAF loop and stop all GPU rendering.
+    const hasCanvasCtx = options?.renderer === "webgpu"
+      ? true
+      : canvas.getContext("2d") !== null;
 
     function resizeCanvas() {
       const dpr = window.devicePixelRatio || 1;
