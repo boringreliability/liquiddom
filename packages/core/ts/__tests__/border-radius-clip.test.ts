@@ -10,6 +10,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PhantomObserver, FLOATS_PER_ENTITY, PARTICLES_PER_BODY } from "../src/phantom-observer";
+import { renderWithFakeCtx } from "./_render-helper";
 
 // jsdom polyfills — match runtime-truth.test.ts pattern
 if (typeof globalThis.ResizeObserver === "undefined") {
@@ -90,7 +91,7 @@ describe("Ward 053: Border-Radius Clip", () => {
   it("clip_uses_roundRect_when_radius_present", () => {
     const { fakeCtx, observer, ctx } = setupClipTest({ x: 100, y: 50, w: 200, h: 80 }, 10);
 
-    observer.render(ctx, { preserveBackgrounds: true, ...VIEWPORT });
+    renderWithFakeCtx(observer, ctx, { preserveBackgrounds: true, ...VIEWPORT });
 
     expect(fakeCtx.roundRect).toHaveBeenCalledWith(100, 50, 200, 80, 10);
     expect(fakeCtx.rect).toHaveBeenCalledWith(0, 0, 800, 600);
@@ -103,7 +104,7 @@ describe("Ward 053: Border-Radius Clip", () => {
     // slot[8] left at default 0 (parseBorderRadius('') === 0)
     const { fakeCtx, observer, ctx } = setupClipTest({ x: 100, y: 50, w: 200, h: 80 });
 
-    observer.render(ctx, { preserveBackgrounds: true, ...VIEWPORT });
+    renderWithFakeCtx(observer, ctx, { preserveBackgrounds: true, ...VIEWPORT });
 
     expect(fakeCtx.rect).toHaveBeenCalledWith(100, 50, 200, 80);
     expect(fakeCtx.roundRect).not.toHaveBeenCalled();
@@ -113,7 +114,7 @@ describe("Ward 053: Border-Radius Clip", () => {
   it("clip_skipped_when_preserveBackgrounds_false", () => {
     const { fakeCtx, observer, ctx } = setupClipTest({ x: 100, y: 50, w: 200, h: 80 }, 10);
 
-    observer.render(ctx, { preserveBackgrounds: false, ...VIEWPORT });
+    renderWithFakeCtx(observer, ctx, { preserveBackgrounds: false, ...VIEWPORT });
 
     expect(fakeCtx.rect).not.toHaveBeenCalledWith(100, 50, 200, 80);
     expect(fakeCtx.rect).not.toHaveBeenCalledWith(0, 0, 800, 600);
@@ -128,7 +129,7 @@ describe("Ward 053: Border-Radius Clip", () => {
   it("clip_radius_clamped_to_half_min_dim", () => {
     const { fakeCtx, observer, ctx } = setupClipTest({ x: 100, y: 50, w: 100, h: 50 }, 999);
 
-    observer.render(ctx, { preserveBackgrounds: true, ...VIEWPORT });
+    renderWithFakeCtx(observer, ctx, { preserveBackgrounds: true, ...VIEWPORT });
 
     // min(100, 50) / 2 === 25
     expect(fakeCtx.roundRect).toHaveBeenCalledWith(100, 50, 100, 50, 25);

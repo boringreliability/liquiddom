@@ -10,6 +10,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { PhantomObserver, FLOATS_PER_ENTITY, PARTICLES_PER_BODY } from "../src/phantom-observer";
+import { renderWithFakeCtx } from "./_render-helper";
 
 function makeObserver(capacity: number, releaseSlot?: (id: number) => void) {
   const particleView = new Float32Array(capacity * PARTICLES_PER_BODY * 2);
@@ -323,7 +324,7 @@ describe("Ward 056: FreeDrop Canvas Rendering", () => {
     writeParticleCircle(particleView, id2, 300, 50, 6);
 
     const ctx = makeFakeCtx();
-    observer.render(ctx);
+    renderWithFakeCtx(observer, ctx as unknown as CanvasRenderingContext2D);
 
     // 3 droplets → 3 beginPath + 3 fill calls.
     expect((ctx.beginPath as ReturnType<typeof vi.fn>).mock.calls.length).toBe(3);
@@ -347,7 +348,7 @@ describe("Ward 056: FreeDrop Canvas Rendering", () => {
     observer.getBuffer()[id0 * FLOATS_PER_ENTITY + 2] = 0;
 
     const ctx = makeFakeCtx();
-    observer.render(ctx);
+    renderWithFakeCtx(observer, ctx as unknown as CanvasRenderingContext2D);
 
     // Only id1 should render.
     expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
@@ -369,7 +370,7 @@ describe("Ward 056: FreeDrop Canvas Rendering", () => {
     observer.getBuffer()[id * FLOATS_PER_ENTITY + 4] = 1.0;
 
     const ctx = makeFakeCtx();
-    observer.render(ctx);
+    renderWithFakeCtx(observer, ctx as unknown as CanvasRenderingContext2D);
 
     // colorHover must never be assigned during the droplet pass; colorDefault is.
     expect(ctx._fillStyleAssignments).not.toContain("rgb(2,2,2)");
@@ -390,7 +391,7 @@ describe("Ward 056: FreeDrop Canvas Rendering", () => {
     writeParticleCircle(particleView, straddling, -3, 50, 5);
 
     const ctx = makeFakeCtx();
-    observer.render(ctx, { viewportWidth: 100, viewportHeight: 100, cullMargin: 0 });
+    renderWithFakeCtx(observer, ctx as unknown as CanvasRenderingContext2D, { viewportWidth: 100, viewportHeight: 100, cullMargin: 0 });
 
     // Only the straddling droplet should fire fill.
     expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
@@ -405,7 +406,7 @@ describe("Ward 056: FreeDrop Canvas Rendering", () => {
     writeDroplet(observer, 100, 100, 8);
 
     const ctx = makeFakeCtx();
-    observer.render(ctx);
+    renderWithFakeCtx(observer, ctx as unknown as CanvasRenderingContext2D);
 
     // ctx.arc invoked with center + radius; fillRect never called for droplet.
     const arcCalls = (ctx.arc as ReturnType<typeof vi.fn>).mock.calls;
@@ -424,7 +425,7 @@ describe("Ward 056: FreeDrop Canvas Rendering", () => {
     writeParticleCircle(particleView, id, 50, 50, 4);
 
     const ctx = makeFakeCtx();
-    observer.render(ctx, {
+    renderWithFakeCtx(observer, ctx as unknown as CanvasRenderingContext2D, {
       viewportWidth: 200, viewportHeight: 200,
       preserveBackgrounds: true,
     });
@@ -454,7 +455,7 @@ describe("Ward 056: FreeDrop Canvas Rendering", () => {
     writeParticleCircle(particleView, id, 60, 45, 30);
 
     const ctx = makeFakeCtx();
-    observer.render(ctx);
+    renderWithFakeCtx(observer, ctx as unknown as CanvasRenderingContext2D);
 
     // Regression locker for W56 extraction — any benign soft-body render
     // change (extra save/restore pair, lineWidth reset, etc.) must update

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { PhantomObserver, FLOATS_PER_ENTITY } from "../src/phantom-observer";
+import { renderWithFakeCtx } from "./_render-helper";
 
 /** Lightweight mock with no-op event listeners */
 function mockElement(
@@ -161,7 +162,7 @@ describe("PhantomObserver", () => {
     } as unknown as CanvasRenderingContext2D;
 
     // Should not throw (fallback mode — no particleBuffer)
-    expect(() => observer.render(ctx)).not.toThrow();
+    expect(() => renderWithFakeCtx(observer, ctx)).not.toThrow();
   });
 
   // ── Ward 11: Interaction State tests ──
@@ -258,7 +259,7 @@ describe("PhantomObserver", () => {
       fill: () => { fillCalls++; },
     } as unknown as CanvasRenderingContext2D;
 
-    observer.render(ctx, { viewportWidth: 800, viewportHeight: 600, cullMargin: 100 });
+    renderWithFakeCtx(observer, ctx, { viewportWidth: 800, viewportHeight: 600, cullMargin: 100 });
 
     // Only the normal element should complete a fill — zero-width skipped
     expect(fillCalls).toBe(1);
@@ -287,7 +288,7 @@ describe("PhantomObserver", () => {
       fill: () => { fillCalls++; },
     } as unknown as CanvasRenderingContext2D;
 
-    observer.render(ctx, { viewportWidth: 800, viewportHeight: 600, cullMargin: 100 });
+    renderWithFakeCtx(observer, ctx, { viewportWidth: 800, viewportHeight: 600, cullMargin: 100 });
 
     // Only the on-screen element should render
     expect(fillCalls).toBe(1);
