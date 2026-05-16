@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { PhantomObserver, FLOATS_PER_ENTITY, PARTICLES_PER_BODY } from "../src/phantom-observer";
 import { LiquidDOM } from "../src/index";
+import { renderWithFakeCtx } from "./_render-helper";
 
 // jsdom polyfill for ResizeObserver (existing W42 dependency)
 if (typeof globalThis.ResizeObserver === "undefined") {
@@ -138,7 +139,7 @@ function setupThemedEl(bg: string) {
 }
 
 function renderWith(observer: PhantomObserver, fakeCtx: ReturnType<typeof makeFakeCtx>) {
-  observer.render(fakeCtx as unknown as CanvasRenderingContext2D, RENDER_OPTS);
+  renderWithFakeCtx(observer, fakeCtx as unknown as CanvasRenderingContext2D, RENDER_OPTS);
 }
 
 describe("Ward 052: CSS Computed Background Reflection", () => {

@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-50 of 57 Wards complete · 268 estimated tests · 0 blocked
+51 of 57 Wards complete · 269 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -41,7 +41,7 @@
 | 033 | Dragable Cards Scene | 1 | ✅ Complete | 2026-04-23 |
 | 034 | Scroll-Responsive Hero Scene | 1 | ✅ Complete | 2026-04-25 |
 | 035 | Demo Hardening, Runtime Truth, and Showcase Polish | 12 | ✅ Complete | 2026-05-10 |
-| 036 | Render Abstraction Layer | 3 | 📋 Planned | - |
+| 0362 | Render Abstraction Layer | 4 | ✅ Complete | 2026-05-16 |
 | 037 | WebGPU Pipeline Scaffolding | 4 | 📋 Planned | - |
 | 038 | SDF Blob Fragment Shader | 2 | 📋 Planned | - |
 | 039 | Metaball Fusion Shader | 2 | 📋 Planned | - |
@@ -65,4 +65,4 @@
 | 057 | Canvas Z-Index Default Fix | 3 | ✅ Complete | 2026-05-16 |
 
 ## Test Summary
-- Estimated total: 268
+- Estimated total: 269

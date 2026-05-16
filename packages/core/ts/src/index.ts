@@ -2,6 +2,8 @@ import { FLOATS_PER_ENTITY, PhantomObserver, type SpawnDropletOptions } from "./
 
 export type { SpawnDropletOptions };
 import { WasmBridge, WasmCore } from "./wasm-bridge";
+import { Canvas2DRenderer } from "./renderers/canvas2d-renderer";
+import type { Renderer } from "./renderers/renderer";
 
 export interface LiquidPhysicsConfig {
   tension?: number;
@@ -441,17 +443,25 @@ export class LiquidDOM {
     // 8. Resize handling — container uses ResizeObserver, fullscreen uses window
     let resizeObserver: ResizeObserver | null = null;
 
+    // W36: Renderer instantiation. `await init` propagates renderer-specific
+    // setup failures (e.g., W37 WebGPU adapter unavailable) through create().
+    const renderer: Renderer = new Canvas2DRenderer();
+    await renderer.init(canvas);
+
+    // Mock-mode detection (W55 invariant): in jsdom canvas.getContext("2d")
+    // returns null. The renderer also bails internally, but skipping the RAF
+    // loop entirely keeps `observer.sync()` from firing in tests that mock
+    // RAF via fake timers but assume the loop is dormant.
+    const hasCanvasCtx = canvas.getContext("2d") !== null;
+
     function resizeCanvas() {
       const dpr = window.devicePixelRatio || 1;
-      if (isContainerMode) {
-        const w = container.clientWidth;
-        const h = container.clientHeight;
-        canvas.width = w * dpr;
-        canvas.height = h * dpr;
-      } else {
-        canvas.width = window.innerWidth * dpr;
-        canvas.height = window.innerHeight * dpr;
-      }
+      const w = isContainerMode ? container.clientWidth : window.innerWidth;
+      const h = isContainerMode ? container.clientHeight : window.innerHeight;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      // W36 Decision §15: renderer.resize() AFTER backing-store write.
+      renderer.resize(w * dpr, h * dpr, dpr);
     }
     resizeCanvas();
 
@@ -471,7 +481,6 @@ export class LiquidDOM {
     let destroyed = false;
     let mutationObserver: MutationObserver | null = null;
     let lastTime = performance.now();
-    const ctx = canvas.getContext("2d");
 
     function getViewportSize(): { w: number; h: number } {
       if (isContainerMode) {
@@ -481,10 +490,11 @@ export class LiquidDOM {
     }
 
     function startLoop() {
-      // W55: in mock-mode (no WASM) `core` is null but render fallbacks
-      // (W56 mock-mode) + scroll-snap lerp still need to run. Only bail
-      // when the canvas context itself is missing.
-      if (!ctx) return;
+      // W36 (amended): bail in mock-mode (canvas.getContext("2d") === null)
+      // so the RAF loop stays dormant in jsdom. Preserves W55 test-determinism:
+      // tests using fake timers + faked RAF don't see spurious observer.sync()
+      // calls. Production always has a real ctx; this is a test-only fast-path.
+      if (!hasCanvasCtx) return;
 
       const loop = (now: number) => {
         if (paused || destroyed) return;
@@ -499,10 +509,7 @@ export class LiquidDOM {
           observer.setCoordOffset(containerRect.left, containerRect.top);
         }
 
-        const dpr = window.devicePixelRatio || 1;
         const vp = getViewportSize();
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.clearRect(0, 0, vp.w, vp.h);
         // W55: lerp owns slot[0..3] writes while it's active.
         if (scrollSnap.size > 0) {
           runScrollSnapLerp();
@@ -537,12 +544,15 @@ export class LiquidDOM {
             gx, gy,
           );
         }
-        observer.render(ctx, {
-          viewportWidth: vp.w,
-          viewportHeight: vp.h,
+        // W36: buildFrame() AFTER sync/tick so render reads post-tick state.
+        const frame = observer.buildFrame({
+          widthCss: vp.w,
+          heightCss: vp.h,
+          dpr: window.devicePixelRatio || 1,
           cullMargin: CULL_MARGIN_PX,
           preserveBackgrounds: preserveBg,
         });
+        renderer.render(frame);
 
         animationId = requestAnimationFrame(loop);
       };
@@ -909,6 +919,9 @@ export class LiquidDOM {
           mutationObserver.disconnect();
           mutationObserver = null;
         }
+
+        // W36: release renderer resources before tearing down observer state.
+        renderer.destroy();
 
         observer.unobserveAll();
 

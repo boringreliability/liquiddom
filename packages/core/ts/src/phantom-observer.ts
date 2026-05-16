@@ -1,22 +1,12 @@
 import { parseBorderRadius } from "./border-radius";
 import { parseBoxShadowMargin, ZERO_MARGIN, type ShadowMargin } from "./box-shadow";
+import type { RenderFrame, RenderFrameViewport } from "./renderers/renderer";
 
 /** Must match Rust FLOATS_PER_ENTITY in src/buffer.rs */
 export const FLOATS_PER_ENTITY = 9;
 
 /** Must match Rust PARTICLES_PER_BODY in src/api.rs */
 export const PARTICLES_PER_BODY = 16;
-const PARTICLE_FLOATS_PER_BODY = PARTICLES_PER_BODY * 2;
-
-/**
- * Ward 053 clip-site clamp. Trusts the entity buffer's raw slot[8] value
- * but defensively clamps to `min(w, h) / 2` (mirroring Rust's body-init
- * clamp) and bails to 0 for NaN / Infinity / non-positive inputs.
- */
-function clampClipRadius(r: number, w: number, h: number): number {
-  if (!Number.isFinite(r) || r <= 0) return 0;
-  return Math.min(r, Math.min(w, h) / 2);
-}
 
 /**
  * Ward 052: resolve a `getComputedStyle(...).backgroundColor` string to a
@@ -537,226 +527,26 @@ export class PhantomObserver {
   }
 
   /**
-   * Render soft body blobs (and Ward 056 droplets) using midpoint quadratic curves.
-   * Falls back to filled rect/circle if no particle buffer is available.
-   * Optional viewport info enables culling of off-screen entities.
+   * Ward 036: build a per-frame RenderFrame DTO. Replaces the old `render()`.
+   * Buffers and theme/shadow Maps are passed by reference (Decision §1);
+   * id arrays are snapshotted (Decision §12) to immunize against any
+   * intervening observer mutation between frame build and renderer draw.
    */
-  render(
-    ctx: CanvasRenderingContext2D,
-    viewport?: RenderViewport,
-  ): void {
-    ctx.save();
-
-    // Soft-body pass. W56 §6 defense-in-depth: skip any droplet id that leaked
-    // into idToElement — without this guard it would render twice (wrong soft-body
-    // semantics here, then correctly in the droplet loop below).
-    for (const [id] of this.idToElement) {
-      const entityOffset = id * FLOATS_PER_ENTITY;
-      if (Math.round(this.buffer[entityOffset + 5]) === 6) continue;
-      this.renderEntityAt(ctx, id, viewport, /* isFreeDrop */ false);
-    }
-
-    // Ward 056: FreeDrop droplet pass — separate iteration source (dropletIds Set).
-    for (const id of this.dropletIds) {
-      this.renderEntityAt(ctx, id, viewport, /* isFreeDrop */ true);
-    }
-
-    ctx.restore();
+  buildFrame(viewport: RenderFrameViewport): RenderFrame {
+    return {
+      entities: this.buffer,
+      particles: this.particleBuffer,
+      capacity: this._capacity,
+      softBodyIds: Array.from(this.idToElement.keys()),
+      dropletIds: Array.from(this.dropletIds),
+      viewport,
+      theme: {
+        colorDefault: this.colorDefault,
+        colorHover: this.colorHover,
+        themeCache: this.themeCache,
+        shadowCache: this.shadowCache,
+      },
+    };
   }
 
-  /**
-   * Ward 056: render a single entity slot. Soft-body path is the full
-   * extraction of the pre-W56 render block (preserves all W22/W42/W52/W53/W54
-   * behavior). Droplet path is similar but: (a) slot[0..3] is center+diameter
-   * not top-left+extent, (b) no hover/theme — `colorDefault` only, (c) no
-   * clip-hole under `preserveBackgrounds` (W43 §9: no DOM behind a droplet).
-   */
-  private renderEntityAt(
-    ctx: CanvasRenderingContext2D,
-    id: number,
-    viewport: RenderViewport | undefined,
-    isFreeDrop: boolean,
-  ): void {
-    if (isFreeDrop) {
-      this.renderDropletAt(ctx, id, viewport);
-      return;
-    }
-
-    const entityOffset = id * FLOATS_PER_ENTITY;
-    const x = this.buffer[entityOffset];
-    const y = this.buffer[entityOffset + 1];
-    const w = this.buffer[entityOffset + 2];
-    const h = this.buffer[entityOffset + 3];
-
-    // Skip zero-sized entities
-    if (w === 0 || h === 0) return;
-
-    // Viewport culling: skip entities fully outside viewport + margin (soft-body bbox math).
-    if (viewport) {
-      const m = viewport.cullMargin ?? 0;
-      if (
-        x + w < -m ||
-        y + h < -m ||
-        x > viewport.viewportWidth + m ||
-        y > viewport.viewportHeight + m
-      ) {
-        return;
-      }
-    }
-
-    // Read interaction_state for hover visual feedback
-    const isHover = this.buffer[entityOffset + 4] === 1.0;
-    // Ward 052: per-element themed color when in computed mode (themeCache empty in config mode).
-    // Hover stays global for v1.
-    const baseColor = this.themeCache.get(id) ?? this.colorDefault;
-    ctx.fillStyle = isHover ? this.colorHover : baseColor;
-
-    // Clip rendering to exclude element rect if preserveBackgrounds is on.
-    // W53: rounded-rect hole when border-radius (slot[8]) is set.
-    // W54: inflated by per-side box-shadow margin so shadows render intact.
-    const clipping = viewport?.preserveBackgrounds === true;
-    if (clipping) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(0, 0, viewport.viewportWidth, viewport.viewportHeight);
-      const m = this.shadowCache.get(id) ?? ZERO_MARGIN;
-      const cx = x - m.left;
-      const cy = y - m.top;
-      const cw = w + m.left + m.right;
-      const ch = h + m.top + m.bottom;
-      const r = clampClipRadius(this.buffer[entityOffset + 8], cw, ch);
-      if (r > 0) {
-        ctx.roundRect(cx, cy, cw, ch, r);
-      } else {
-        ctx.rect(cx, cy, cw, ch);
-      }
-      ctx.clip("evenodd");
-    }
-
-    if (this.particleBuffer) {
-      const offset = id * PARTICLE_FLOATS_PER_BODY;
-      const n = PARTICLES_PER_BODY;
-
-      const lastX = this.particleBuffer[offset + (n - 1) * 2];
-      const lastY = this.particleBuffer[offset + (n - 1) * 2 + 1];
-      const firstX = this.particleBuffer[offset];
-      const firstY = this.particleBuffer[offset + 1];
-
-      const startX = (lastX + firstX) / 2;
-      const startY = (lastY + firstY) / 2;
-
-      ctx.beginPath();
-      ctx.moveTo(startX, startY);
-
-      for (let i = 0; i < n; i++) {
-        const nextI = (i + 1) % n;
-        const currIdx = offset + i * 2;
-        const nextIdx = offset + nextI * 2;
-
-        const currX = this.particleBuffer[currIdx];
-        const currY = this.particleBuffer[currIdx + 1];
-        const nextX = this.particleBuffer[nextIdx];
-        const nextY = this.particleBuffer[nextIdx + 1];
-
-        const midX = (currX + nextX) / 2;
-        const midY = (currY + nextY) / 2;
-
-        ctx.quadraticCurveTo(currX, currY, midX, midY);
-      }
-
-      ctx.closePath();
-      ctx.fill();
-    } else {
-      ctx.fillRect(x, y, w, h);
-    }
-
-    if (clipping) {
-      ctx.restore();
-    }
-  }
-
-  /**
-   * Ward 056: render a single FreeDrop slot. `slot[0]/[1]` is the particle
-   * center, `slot[2]` is the diameter (`slot[3]` is W45 lifetime — not a
-   * dimension). No hover, no theme, no clip-hole.
-   */
-  private renderDropletAt(
-    ctx: CanvasRenderingContext2D,
-    id: number,
-    viewport: RenderViewport | undefined,
-  ): void {
-    const entityOffset = id * FLOATS_PER_ENTITY;
-    const cx = this.buffer[entityOffset];
-    const cy = this.buffer[entityOffset + 1];
-    const diameter = this.buffer[entityOffset + 2];
-
-    // Inactive slot (Rust cull zeroed slot[2]).
-    if (diameter === 0) return;
-
-    const r = diameter * 0.5;
-
-    // Center-based viewport cull (bbox = pos ± r). See W56 Decision §3.
-    if (viewport) {
-      const m = viewport.cullMargin ?? 0;
-      if (
-        cx + r < -m ||
-        cy + r < -m ||
-        cx - r > viewport.viewportWidth + m ||
-        cy - r > viewport.viewportHeight + m
-      ) {
-        return;
-      }
-    }
-
-    ctx.fillStyle = this.colorDefault;
-
-    if (this.particleBuffer) {
-      const offset = id * PARTICLE_FLOATS_PER_BODY;
-      const n = PARTICLES_PER_BODY;
-
-      const lastX = this.particleBuffer[offset + (n - 1) * 2];
-      const lastY = this.particleBuffer[offset + (n - 1) * 2 + 1];
-      const firstX = this.particleBuffer[offset];
-      const firstY = this.particleBuffer[offset + 1];
-
-      const startX = (lastX + firstX) / 2;
-      const startY = (lastY + firstY) / 2;
-
-      ctx.beginPath();
-      ctx.moveTo(startX, startY);
-
-      for (let i = 0; i < n; i++) {
-        const nextI = (i + 1) % n;
-        const currIdx = offset + i * 2;
-        const nextIdx = offset + nextI * 2;
-
-        const currX = this.particleBuffer[currIdx];
-        const currY = this.particleBuffer[currIdx + 1];
-        const nextX = this.particleBuffer[nextIdx];
-        const nextY = this.particleBuffer[nextIdx + 1];
-
-        const midX = (currX + nextX) / 2;
-        const midY = (currY + nextY) / 2;
-
-        ctx.quadraticCurveTo(currX, currY, midX, midY);
-      }
-
-      ctx.closePath();
-      ctx.fill();
-    } else {
-      // Mock-mode (WASM failed to load): draw a filled circle so the droplet
-      // is visible without particle data.
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
 }
-
-/** Ward 056: shared viewport options for `render()` + `renderEntityAt()`. */
-type RenderViewport = {
-  viewportWidth: number;
-  viewportHeight: number;
-  cullMargin?: number;
-  preserveBackgrounds?: boolean;
-};

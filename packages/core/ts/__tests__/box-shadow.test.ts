@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { PhantomObserver, PARTICLES_PER_BODY } from "../src/phantom-observer";
 import { parseBoxShadowMargin } from "../src/box-shadow";
+import { renderWithFakeCtx } from "./_render-helper";
 
 if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = class {
@@ -197,10 +198,7 @@ describe("Ward 054: clip-rect integration", () => {
     observer.sync();
 
     const ctx = makeFakeCtx();
-    observer.render(ctx as unknown as CanvasRenderingContext2D, {
-      preserveBackgrounds: true,
-      ...VIEWPORT,
-    });
+    renderWithFakeCtx(observer, ctx as unknown as CanvasRenderingContext2D, { preserveBackgrounds: true, ...VIEWPORT });
 
     // 1st ctx.rect call is the outer viewport rect: (0, 0, vw, vh).
     // 2nd ctx.rect call is the inner clip-hole — must be inflated.
@@ -229,10 +227,7 @@ describe("Ward 054: clip-rect integration", () => {
     observer.sync();
 
     const ctx = makeFakeCtx();
-    observer.render(ctx as unknown as CanvasRenderingContext2D, {
-      preserveBackgrounds: false,
-      ...VIEWPORT,
-    });
+    renderWithFakeCtx(observer, ctx as unknown as CanvasRenderingContext2D, { preserveBackgrounds: false, ...VIEWPORT });
 
     // No clipping at all — ctx.clip must not be called.
     expect(ctx.clip).not.toHaveBeenCalled();
@@ -252,10 +247,7 @@ describe("Ward 054: clip-rect integration", () => {
 
     // Render before mutation → no inflation (shadow is "none").
     const ctx1 = makeFakeCtx();
-    observer.render(ctx1 as unknown as CanvasRenderingContext2D, {
-      preserveBackgrounds: true,
-      ...VIEWPORT,
-    });
+    renderWithFakeCtx(observer, ctx1 as unknown as CanvasRenderingContext2D, { preserveBackgrounds: true, ...VIEWPORT });
     expect(ctx1.rect.mock.calls[1]).toEqual([100, 50, 200, 80]);
 
     // Mutate computed style; fire MO callback deterministically.
@@ -271,10 +263,7 @@ describe("Ward 054: clip-rect integration", () => {
     // top = max(0, 12-4) = 8, right = 12, bottom = max(0, 12+4) = 16, left = 12.
     // cx = 100-12 = 88, cy = 50-8 = 42, cw = 200+24 = 224, ch = 80+24 = 104.
     const ctx2 = makeFakeCtx();
-    observer.render(ctx2 as unknown as CanvasRenderingContext2D, {
-      preserveBackgrounds: true,
-      ...VIEWPORT,
-    });
+    renderWithFakeCtx(observer, ctx2 as unknown as CanvasRenderingContext2D, { preserveBackgrounds: true, ...VIEWPORT });
     expect(ctx2.rect.mock.calls[1]).toEqual([88, 42, 224, 104]);
   });
 
@@ -291,10 +280,7 @@ describe("Ward 054: clip-rect integration", () => {
     observer.sync();
 
     const ctx = makeFakeCtx();
-    observer.render(ctx as unknown as CanvasRenderingContext2D, {
-      preserveBackgrounds: true,
-      ...VIEWPORT,
-    });
+    renderWithFakeCtx(observer, ctx as unknown as CanvasRenderingContext2D, { preserveBackgrounds: true, ...VIEWPORT });
 
     // Bare element rect — no inflation despite preserveBackgrounds=true.
     expect(ctx.rect.mock.calls[1]).toEqual([100, 50, 200, 80]);
@@ -316,10 +302,7 @@ describe("Ward 054: clip-rect integration", () => {
     observer.sync();
 
     const ctx = makeFakeCtx();
-    observer.render(ctx as unknown as CanvasRenderingContext2D, {
-      preserveBackgrounds: true,
-      ...VIEWPORT,
-    });
+    renderWithFakeCtx(observer, ctx as unknown as CanvasRenderingContext2D, { preserveBackgrounds: true, ...VIEWPORT });
 
     // Inflated WH, radius unchanged (Decision §7).
     // cx=76, cy=34, cw=248, ch=128, r=8.
@@ -349,10 +332,7 @@ describe("Ward 054: clip-rect integration", () => {
 
     // Render proves margin is cached (top=8, right=12, bottom=16, left=12).
     const ctxBefore = makeFakeCtx();
-    observer.render(ctxBefore as unknown as CanvasRenderingContext2D, {
-      preserveBackgrounds: true,
-      ...VIEWPORT,
-    });
+    renderWithFakeCtx(observer, ctxBefore as unknown as CanvasRenderingContext2D, { preserveBackgrounds: true, ...VIEWPORT });
     expect(ctxBefore.rect.mock.calls[1]).toEqual([-12, -8, 124, 124]);
 
     // Direct-cache peek BEFORE unobserve: cache populated for slot 0.
@@ -375,10 +355,7 @@ describe("Ward 054: clip-rect integration", () => {
     observer.sync();
 
     const ctxAfter = makeFakeCtx();
-    observer.render(ctxAfter as unknown as CanvasRenderingContext2D, {
-      preserveBackgrounds: true,
-      ...VIEWPORT,
-    });
+    renderWithFakeCtx(observer, ctxAfter as unknown as CanvasRenderingContext2D, { preserveBackgrounds: true, ...VIEWPORT });
     // Bare rect — no inflation leaked from el1.
     expect(ctxAfter.rect.mock.calls[1]).toEqual([200, 200, 50, 50]);
   });
