@@ -5,7 +5,6 @@ async function bootstrap() {
     const liquid = await LiquidDOM.create({
       capacity: 64,
       autoObserve: true,
-      canvasZIndex: -1,
       colorDefault: "rgba(15, 52, 96, 0.75)",
       colorHover: "rgba(233, 69, 96, 0.85)",
       physics: {

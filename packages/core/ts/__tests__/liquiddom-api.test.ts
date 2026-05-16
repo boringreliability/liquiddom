@@ -1225,4 +1225,31 @@ describe("Position Tween", () => {
 
     instance.destroy();
   });
+
+  // ── Ward 057 — Canvas Z-Index Default Fix ──
+  describe("Ward 057: canvas z-index default", () => {
+    it("default_canvas_z_index_is_zero", async () => {
+      const instance = await LiquidDOM.create({ capacity: 4 });
+      const canvas = document.querySelector("canvas");
+      expect(canvas).not.toBeNull();
+      expect(canvas!.style.zIndex).toBe("0");
+      instance.destroy();
+    });
+
+    it("explicit_canvas_z_index_minus_one_is_preserved", async () => {
+      const instance = await LiquidDOM.create({ capacity: 4, canvasZIndex: -1 });
+      const canvas = document.querySelector("canvas");
+      expect(canvas).not.toBeNull();
+      expect(canvas!.style.zIndex).toBe("-1");
+      instance.destroy();
+    });
+
+    it("explicit_canvas_z_index_custom_positive_is_preserved", async () => {
+      const instance = await LiquidDOM.create({ capacity: 4, canvasZIndex: 42 });
+      const canvas = document.querySelector("canvas");
+      expect(canvas).not.toBeNull();
+      expect(canvas!.style.zIndex).toBe("42");
+      instance.destroy();
+    });
+  });
 });
