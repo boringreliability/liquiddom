@@ -6,7 +6,7 @@
  * State persists to localStorage; URL params override init-only fields.
  */
 import { Pane } from "tweakpane";
-import { LiquidDOM, presets, type LiquidPhysicsConfig } from "liquiddom";
+import { LiquidDOM, presets, WebGPUUnavailableError, type LiquidPhysicsConfig } from "liquiddom";
 import {
   loadPlaygroundState,
   parseUrlParams,
@@ -23,6 +23,7 @@ const DEFAULT_INIT = {
   capacity: 64,
   forceReducedMotion: false,
   preserveBackgrounds: true, // W53: rounded-rect clip now matches border-radius
+  renderer: "canvas2d" as "canvas2d" | "webgpu",
 };
 
 type PresetName = "custom" | "goo" | "jelly" | "firm";
@@ -52,6 +53,7 @@ function buildInitialState(): PlaygroundConfig {
       capacity: urlOverrides.capacity ?? savedInit?.capacity ?? DEFAULT_INIT.capacity,
       forceReducedMotion: urlOverrides.forceReducedMotion ?? savedInit?.forceReducedMotion ?? DEFAULT_INIT.forceReducedMotion,
       preserveBackgrounds: urlOverrides.preserveBackgrounds ?? savedInit?.preserveBackgrounds ?? DEFAULT_INIT.preserveBackgrounds,
+      renderer: urlOverrides.renderer ?? DEFAULT_INIT.renderer,
     },
   };
 }
@@ -111,15 +113,43 @@ function debounce<T extends (...args: never[]) => void>(fn: T, ms: number) {
 async function bootstrap() {
   const state = buildInitialState();
 
-  let instance = await LiquidDOM.create({
-    capacity: state.init.capacity,
-    autoObserve: true,
-    forceReducedMotion: state.init.forceReducedMotion,
-    preserveBackgrounds: state.init.preserveBackgrounds,
-    colorDefault: state.theme.colorDefault,
-    colorHover: state.theme.colorHover,
-    physics: state.physics,
-  });
+  // Ward 037: opt into WebGPU when ?renderer=webgpu is in the URL. If WebGPU
+  // is unavailable, surface the error in the page header instead of crashing
+  // the demo silently. W41 will land a proper 'auto' fallback.
+  let activeRenderer: "canvas2d" | "webgpu" = "canvas2d";
+  let instance;
+  try {
+    instance = await LiquidDOM.create({
+      capacity: state.init.capacity,
+      autoObserve: true,
+      forceReducedMotion: state.init.forceReducedMotion,
+      preserveBackgrounds: state.init.preserveBackgrounds,
+      colorDefault: state.theme.colorDefault,
+      colorHover: state.theme.colorHover,
+      physics: state.physics,
+      renderer: state.init.renderer,
+    });
+    activeRenderer = state.init.renderer;
+  } catch (err) {
+    if (err instanceof WebGPUUnavailableError) {
+      console.warn("[playground] WebGPU unavailable, falling back to canvas2d:", err);
+      instance = await LiquidDOM.create({
+        capacity: state.init.capacity,
+        autoObserve: true,
+        forceReducedMotion: state.init.forceReducedMotion,
+        preserveBackgrounds: state.init.preserveBackgrounds,
+        colorDefault: state.theme.colorDefault,
+        colorHover: state.theme.colorHover,
+        physics: state.physics,
+      });
+      activeRenderer = "canvas2d";
+    } else {
+      throw err;
+    }
+  }
+  showRendererBadge(activeRenderer);
+  (window as unknown as { __inst: typeof instance }).__inst = instance;
+  (window as unknown as { __activeRenderer: string }).__activeRenderer = activeRenderer;
 
   // ── Persistence ──
   function save() {
@@ -206,6 +236,8 @@ async function bootstrap() {
       colorDefault: state.theme.colorDefault,
       colorHover: state.theme.colorHover,
       physics: state.physics,
+      // Ward 037: preserve the WebGPU opt-in across theme-driven rebuilds.
+      renderer: activeRenderer,
     }).then((next) => {
       if (mySeq !== rebuildSeq) {
         next.destroy();
@@ -294,6 +326,15 @@ async function bootstrap() {
     const collapsed = mount.getAttribute("data-collapsed") === "true";
     mount.setAttribute("data-collapsed", String(!collapsed));
   });
+}
+
+/** Ward 037: surface the active renderer in the page header so a manual smoke
+ * test can confirm `?renderer=webgpu` actually opted into the GPU path. */
+function showRendererBadge(active: "canvas2d" | "webgpu"): void {
+  const badge = document.getElementById("renderer-badge");
+  if (!badge) return;
+  badge.textContent = `renderer: ${active}`;
+  badge.dataset.renderer = active;
 }
 
 function showToast(msg: string) {

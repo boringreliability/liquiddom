@@ -137,12 +137,29 @@
       z-index: 200;
     }
     #toast[data-visible="true"] { opacity: 1; }
+    #renderer-badge {
+      display: inline-block;
+      margin-left: 0.75rem;
+      padding: 0.15rem 0.5rem;
+      background: #1a1a2a;
+      color: var(--muted);
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-family: ui-monospace, monospace;
+    }
+    #renderer-badge[data-renderer="webgpu"] {
+      background: rgba(56, 189, 248, 0.18);
+      color: #7dd3fc;
+    }
   </style>
 </head>
 <body>
   <header>
     <h1>Liquid DOM — Visual Playground</h1>
-    <p>Tweak every physics parameter live. <a href="../index.html">← back to demos</a></p>
+    <p>
+      Tweak every physics parameter live. <a href="../index.html">← back to demos</a>
+      <span id="renderer-badge">renderer: …</span>
+    </p>
   </header>
 
   <main>

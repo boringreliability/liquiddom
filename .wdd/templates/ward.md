@@ -36,5 +36,19 @@ completed: null
 ## Must DO
 - {Explicit requirement}
 
+## Manual Smoke Test
+### Setup
+{Exact commands to spin up — npm link, dev server, build, etc.}
+
+### Steps
+1. Run: `{exact command}`
+   Expected: `{exact output or behavior}`
+2. Run: `{next command}`
+   Verify: `{what to look for}`
+
+### Pass criteria
+- [ ] {concrete observable thing}
+- [ ] {concrete observable thing}
+
 ## Verification
 {How to prove this Ward is complete}

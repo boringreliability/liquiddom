@@ -166,5 +166,21 @@ describe("Ward 049: URL param parser", () => {
     result = parseUrlParams();
     expect(result.forceReducedMotion).toBeUndefined();
     expect(replaceStateSpy).not.toHaveBeenCalled();
+
+    replaceStateSpy.mockClear();
+
+    // Ward 037: renderer=webgpu opt-in for manual smoke tests.
+    setSearch("?renderer=webgpu");
+    result = parseUrlParams();
+    expect(result.renderer).toBe("webgpu");
+    expect(replaceStateSpy).toHaveBeenCalled();
+
+    replaceStateSpy.mockClear();
+
+    // Invalid renderer value silently ignored.
+    setSearch("?renderer=vulkan");
+    result = parseUrlParams();
+    expect(result.renderer).toBeUndefined();
+    expect(replaceStateSpy).not.toHaveBeenCalled();
   });
 });

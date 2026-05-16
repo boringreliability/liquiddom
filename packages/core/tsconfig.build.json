@@ -3,7 +3,8 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./ts/src",
-    "composite": true
+    "composite": true,
+    "types": ["@webgpu/types"]
   },
   "include": ["ts/src/**/*"],
   "exclude": ["ts/__tests__/**/*", "__tests__/**/*"]
