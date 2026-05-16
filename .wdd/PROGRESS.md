@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-52 of 57 Wards complete · 272 estimated tests · 0 blocked
+53 of 57 Wards complete · 274 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -43,7 +43,7 @@
 | 035 | Demo Hardening, Runtime Truth, and Showcase Polish | 12 | ✅ Complete | 2026-05-10 |
 | 0362 | Render Abstraction Layer | 4 | ✅ Complete | 2026-05-16 |
 | 0372 | WebGPU Pipeline Scaffolding | 7 | ✅ Complete | 2026-05-16 |
-| 038 | SDF Blob Fragment Shader | 2 | 📋 Planned | - |
+| 0382 | SDF Blob Fragment Shader | 4 | ✅ Complete | 2026-05-16 |
 | 039 | Metaball Fusion Shader | 2 | 📋 Planned | - |
 | 040 | Background Refraction Sampling | 2 | 📋 Planned | - |
 | 041 | Canvas2D Fallback & Feature Detection | 3 | 📋 Planned | - |
@@ -65,4 +65,4 @@
 | 057 | Canvas Z-Index Default Fix | 3 | ✅ Complete | 2026-05-16 |
 
 ## Test Summary
-- Estimated total: 272
+- Estimated total: 274

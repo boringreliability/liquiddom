@@ -11,12 +11,17 @@ import {
   type RenderFrame,
   type Renderer,
 } from "./renderer";
-import { BLOB_WGSL } from "./shaders/blob.wgsl";
+import { BLOB_SDF_WGSL } from "./shaders/blob-sdf.wgsl";
 
 const PARTICLE_FLOATS_PER_BODY = PARTICLES_PER_BODY * 2;
-const FLOATS_PER_ENTITY_GPU = 8; // vec4 color + vec2 centroid + vec2 pad
-const BYTES_PER_ENTITY_GPU = FLOATS_PER_ENTITY_GPU * 4; // 32 bytes
-const VERTICES_PER_BLOB = PARTICLES_PER_BODY * 3; // 48 (W38 may change)
+// W38 Decision §6: EntityGPU = 4 × vec4 = 64 bytes (color + aabb + clipRect + params).
+const FLOATS_PER_ENTITY_GPU = 16;
+const BYTES_PER_ENTITY_GPU = FLOATS_PER_ENTITY_GPU * 4; // 64 bytes
+// W38 Decision §1: one AABB-quad per entity = 6 vertices (2 triangles).
+const VERTICES_PER_ENTITY = 6;
+// W38 Decision §10b: global uniform = mat4x4 (64B) + flags vec4 (16B) = 80B.
+const GLOBAL_UNIFORM_FLOATS = 20;
+const GLOBAL_UNIFORM_BYTES = GLOBAL_UNIFORM_FLOATS * 4;
 
 const PREMUL_BLEND: GPUBlendComponent = {
   srcFactor: "one",
@@ -68,9 +73,9 @@ export class WebGPURenderer implements Renderer {
   private bindGroup: GPUBindGroup | null = null;
   private sRgbFormat: GPUTextureFormat | null = null;
   private capacity = 0;
-  private readonly projMatrix = new Float32Array(16);
+  // W38: 20 floats = mat4x4 projection + flags vec4. Decision §10/§10b.
+  private readonly projMatrix = new Float32Array(GLOBAL_UNIFORM_FLOATS);
   private entityScratch: Float32Array | null = null;
-  private warnedPreserveBg = false;
 
   async init(canvas: HTMLCanvasElement): Promise<void> {
     this.canvas = canvas;
@@ -121,7 +126,7 @@ export class WebGPURenderer implements Renderer {
       // Path E: shader compile or pipeline validation fails. Wrap creation in a
       // validation error scope so we can surface the actual GPUError as cause.
       device.pushErrorScope("validation");
-      const shaderModule = device.createShaderModule({ code: BLOB_WGSL });
+      const shaderModule = device.createShaderModule({ code: BLOB_SDF_WGSL });
       const pipeline = device.createRenderPipeline({
         layout: "auto",
         vertex: { module: shaderModule, entryPoint: "vs_main" },
@@ -140,9 +145,9 @@ export class WebGPURenderer implements Renderer {
         );
       }
 
-      // Projection uniform buffer (mat4x4<f32>, 64 bytes). Updated each frame.
+      // W38: global uniform = mat4x4 + flags vec4 = 80 bytes. Updated each frame.
       const projectionBuffer = device.createBuffer({
-        size: 64,
+        size: GLOBAL_UNIFORM_BYTES,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
 
@@ -182,13 +187,8 @@ export class WebGPURenderer implements Renderer {
     const sRgbFormat = this.sRgbFormat;
     if (!device || !ctx || !pipeline || !projBuf || !sRgbFormat) return;
     if (!frame.particles) return; // Decision §13: mock-mode no-op
-
-    if (frame.viewport.preserveBackgrounds && !this.warnedPreserveBg) {
-      console.warn(
-        "[liquiddom] WebGPU renderer does not support preserveBackgrounds in W37 — blobs will render on top of element backgrounds. Use renderer: 'canvas2d' for clip support.",
-      );
-      this.warnedPreserveBg = true;
-    }
+    // (W38: preserveBackgrounds is now supported via SDF discard — the W37
+    // once-per-session warn has been removed.)
 
     // Lazy GPU-buffer allocation on first render or capacity change.
     if (frame.capacity !== this.capacity) {
@@ -216,9 +216,15 @@ export class WebGPURenderer implements Renderer {
 
     // Update projection matrix from viewport CSS px → clip space [-1, 1].
     this.updateProjectionMatrix(frame.viewport.widthCss, frame.viewport.heightCss);
+    // W38 Decision §10: pack flags vec4 after the mat4x4. Slot 16 carries the
+    // preserveBackgroundsActive flag; 17/18/19 are reserved for W39/W40.
+    this.projMatrix[16] = frame.viewport.preserveBackgrounds ? 1.0 : 0.0;
+    this.projMatrix[17] = 0;
+    this.projMatrix[18] = 0;
+    this.projMatrix[19] = 0;
     device.queue.writeBuffer(
       projBuf, 0,
-      this.projMatrix.buffer, this.projMatrix.byteOffset, 64,
+      this.projMatrix.buffer, this.projMatrix.byteOffset, GLOBAL_UNIFORM_BYTES,
     );
 
     // Upload particle data verbatim.
@@ -227,36 +233,86 @@ export class WebGPURenderer implements Renderer {
       frame.particles.buffer, frame.particles.byteOffset, frame.particles.byteLength,
     );
 
-    // Pack per-entity (color + centroid) into scratch.
+    // Pack per-entity (color + AABB + clipRect + params) into scratch.
+    // Each entity occupies FLOATS_PER_ENTITY_GPU = 16 floats = 64 bytes.
+    // Layout: [r·a, g·a, b·a, a, minX, minY, maxX, maxY, clipX, clipY, clipW, clipH, softness, clipBorderRadius, 0, 0]
     const colorDefault = parseColor(frame.theme.colorDefault);
     const colorHover = parseColor(frame.theme.colorHover);
     const scratch = this.entityScratch!;
     scratch.fill(0);
+
     for (const id of frame.softBodyIds) {
       const off = id * FLOATS_PER_ENTITY;
-      if (frame.entities[off + 2] === 0) continue;
+      const w = frame.entities[off + 2];
+      const h = frame.entities[off + 3];
+      if (w === 0) continue;
       const lt = Math.round(frame.entities[off + 5]);
       if (lt === 6) continue; // FreeDrop leaker (W56 defense-in-depth)
+
+      // Compute particle AABB.
+      const pBase = id * PARTICLE_FLOATS_PER_BODY;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (let i = 0; i < PARTICLES_PER_BODY; i++) {
+        const px = frame.particles[pBase + i * 2];
+        const py = frame.particles[pBase + i * 2 + 1];
+        if (px < minX) minX = px;
+        if (py < minY) minY = py;
+        if (px > maxX) maxX = px;
+        if (py > maxY) maxY = py;
+      }
+      // Decision §4: softness derived from element diagonal, clamped [2, 8].
+      const softness = Math.max(2, Math.min(8, Math.sqrt(w * w + h * h) * 0.01));
+      minX -= softness; minY -= softness;
+      maxX += softness; maxY += softness;
+
+      // Decision §6 / R3: clamp border-radius to min(w, h) / 2.
+      const rawRadius = frame.entities[off + 8];
+      const clipBorderRadius = Math.min(rawRadius, Math.min(w, h) / 2);
+
       const isHover = frame.entities[off + 4] === 1.0;
       const color = isHover ? colorHover : colorDefault;
       const sOff = id * FLOATS_PER_ENTITY_GPU;
-      scratch[sOff] = color[0];
-      scratch[sOff + 1] = color[1];
-      scratch[sOff + 2] = color[2];
-      scratch[sOff + 3] = color[3];
-      scratch[sOff + 4] = frame.entities[off] + frame.entities[off + 2] * 0.5;
-      scratch[sOff + 5] = frame.entities[off + 1] + frame.entities[off + 3] * 0.5;
+      scratch[sOff +  0] = color[0];
+      scratch[sOff +  1] = color[1];
+      scratch[sOff +  2] = color[2];
+      scratch[sOff +  3] = color[3];
+      scratch[sOff +  4] = minX;
+      scratch[sOff +  5] = minY;
+      scratch[sOff +  6] = maxX;
+      scratch[sOff +  7] = maxY;
+      scratch[sOff +  8] = frame.entities[off + 0]; // clipRect.x
+      scratch[sOff +  9] = frame.entities[off + 1]; // clipRect.y
+      scratch[sOff + 10] = w;                       // clipRect.w
+      scratch[sOff + 11] = h;                       // clipRect.h
+      scratch[sOff + 12] = softness;
+      scratch[sOff + 13] = clipBorderRadius;
+      // sOff+14, +15 are padding (already zero from fill).
     }
+
     for (const id of frame.dropletIds) {
       const off = id * FLOATS_PER_ENTITY;
-      if (frame.entities[off + 2] === 0) continue;
+      const diameter = frame.entities[off + 2];
+      if (diameter === 0) continue;
+      const cx = frame.entities[off + 0];
+      const cy = frame.entities[off + 1];
+      const r = diameter * 0.5;
+      const softness = Math.max(2, Math.min(8, diameter * 0.05));
       const sOff = id * FLOATS_PER_ENTITY_GPU;
-      scratch[sOff] = colorDefault[0];
-      scratch[sOff + 1] = colorDefault[1];
-      scratch[sOff + 2] = colorDefault[2];
-      scratch[sOff + 3] = colorDefault[3];
-      scratch[sOff + 4] = frame.entities[off];
-      scratch[sOff + 5] = frame.entities[off + 1];
+      scratch[sOff +  0] = colorDefault[0];
+      scratch[sOff +  1] = colorDefault[1];
+      scratch[sOff +  2] = colorDefault[2];
+      scratch[sOff +  3] = colorDefault[3];
+      scratch[sOff +  4] = cx - r - softness;
+      scratch[sOff +  5] = cy - r - softness;
+      scratch[sOff +  6] = cx + r + softness;
+      scratch[sOff +  7] = cy + r + softness;
+      // Droplets don't clip — clipRect.zw = 0 makes the shader skip clip pass.
+      scratch[sOff +  8] = 0;
+      scratch[sOff +  9] = 0;
+      scratch[sOff + 10] = 0;
+      scratch[sOff + 11] = 0;
+      scratch[sOff + 12] = softness;
+      scratch[sOff + 13] = 0;
     }
     device.queue.writeBuffer(
       this.entityBuffer!, 0,
@@ -276,7 +332,7 @@ export class WebGPURenderer implements Renderer {
     });
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, this.bindGroup!);
-    pass.draw(VERTICES_PER_BLOB, frame.capacity, 0, 0);
+    pass.draw(VERTICES_PER_ENTITY, frame.capacity, 0, 0);
     pass.end();
     device.queue.submit([encoder.finish()]);
   }
