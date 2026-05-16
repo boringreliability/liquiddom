@@ -34,7 +34,6 @@ async function main() {
     const liquid = await LiquidDOM.create({
       capacity: 64,
       autoObserve: true,
-      canvasZIndex: -1,
       colorDefault: "rgba(15, 52, 96, 0.85)",
       colorHover: "rgba(233, 69, 96, 0.9)",
       physics: { ...presets.jelly, tension: 80, damping: 5, substeps: 2 },

@@ -114,7 +114,6 @@ async function bootstrap() {
   let instance = await LiquidDOM.create({
     capacity: state.init.capacity,
     autoObserve: true,
-    canvasZIndex: -1,
     forceReducedMotion: state.init.forceReducedMotion,
     preserveBackgrounds: state.init.preserveBackgrounds,
     colorDefault: state.theme.colorDefault,
@@ -202,7 +201,6 @@ async function bootstrap() {
     LiquidDOM.create({
       capacity: state.init.capacity,
       autoObserve: true,
-      canvasZIndex: -1,
       forceReducedMotion: state.init.forceReducedMotion,
       preserveBackgrounds: state.init.preserveBackgrounds,
       colorDefault: state.theme.colorDefault,

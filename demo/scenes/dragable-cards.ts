@@ -5,7 +5,6 @@ async function main() {
     await LiquidDOM.create({
       capacity: 16,
       autoObserve: true,
-      canvasZIndex: -1,
       colorDefault: "rgba(15, 52, 96, 0.8)",
       colorHover: "rgba(233, 69, 96, 0.9)",
       physics: {

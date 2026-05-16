@@ -1,10 +1,10 @@
 # Context — liquiddom
 
 ## Last Updated
-Ward 57 — 2026-05-16
+Ward 55 — 2026-05-15
 
 ## Current State
-50 wards COMPLETE (latest: Ward 57 — Canvas Z-Index Default Fix). 55 Rust + 204 TS = 259 tests. 0 clippy warnings, 0 TS errors. W57 closes a critical visibility bug discovered during manual playground inspection: all 6 demo scenes had INVISIBLE blobs because `canvasZIndex: -1` (the library default) combined with body's solid `background-color` triggered CSS's negative-z-index paint-order trap. Canvas was rendering 256k+ pixels correctly but body's bg covered them. Fix: `canvasZIndex` default `-1` → `0`. Demos updated to drop the now-redundant explicit option. Existing `canvasZIndex: -1` consumers still get pass-through (locked by Test #2). W55 ships a two-in-one: Part A fixes W26's implementation gap (physics didn't actually pause during scroll); Part B adds smooth 150ms lerp at scroll-end (replaces hard snap). `LiquidOptions.snapDurationMs`, `instance.isScrollSnapping`. Behavior change: pointer-driven repulsion now freezes during scroll. 0 clippy warnings, 0 TS errors. W46 closes the FreeDrop UX gap: gravity makes droplets arc + fall instead of flying straight away. Per-frame `(gx, gy)` in tick(), strategy-gated (Default/Shake/Magnet/Tear + FreeDrop; skips Dragged/Tween). `LiquidOptions.gravity: { source: 'none' | 'fixed' | 'orientation', vector?, strength? }`. iOS 13+ wrapper via `instance.requestOrientationPermission()`. 0 clippy warnings, 0 TS errors. W56 closes the FreeDrop visibility gap from W43+W44+W45 — `PhantomObserver.render()` now iterates `dropletIds` and draws each droplet as a particle-spline blob (or filled circle in mock-mode). The entire FreeDrop pipeline (spawn → tick → cull → render) is now visible end-to-end. 0 clippy warnings, 0 TS errors. W44 ties FreeDrop spawning into `impulse()`: opt-in `splash: SplashOptions` fires droplets at the element's perimeter with velocity = `direction*magnitude*speedScale + jitter*randomUnit`. Backwards-compatible (no splash = today's Shake-only behavior). 0 clippy warnings, 0 TS errors. W45 closes the W43 "droplets accumulate forever" caveat: FreeDrop slots auto-cull when center exits viewport+margin OR `lifetime_ms` expires. `spawnDroplet` allocator now scans for Rust-culled slots before failing capacity. Public `instance.despawnDroplet(id)` API added. 0 clippy warnings, 0 TS errors. W43 introduces `PhysicsStrategy::FreeDrop` — DOM-less free-floating particles in the same slot pool as soft-body entities. Public API: `instance.spawnDroplet({ x, y, vx, vy, radius? })`. Foundation for W44 (spawning UX), W45 (culling), W46 (gravity).
+49 wards COMPLETE (latest: Ward 55 — Smooth Scroll-Snap Interpolation + W26 fix). 55 Rust + 201 TS = 256 tests. 0 clippy warnings, 0 TS errors. W55 ships a two-in-one: Part A fixes W26's implementation gap (physics didn't actually pause during scroll); Part B adds smooth 150ms lerp at scroll-end (replaces hard snap). `LiquidOptions.snapDurationMs`, `instance.isScrollSnapping`. Behavior change: pointer-driven repulsion now freezes during scroll. 0 clippy warnings, 0 TS errors. W46 closes the FreeDrop UX gap: gravity makes droplets arc + fall instead of flying straight away. Per-frame `(gx, gy)` in tick(), strategy-gated (Default/Shake/Magnet/Tear + FreeDrop; skips Dragged/Tween). `LiquidOptions.gravity: { source: 'none' | 'fixed' | 'orientation', vector?, strength? }`. iOS 13+ wrapper via `instance.requestOrientationPermission()`. 0 clippy warnings, 0 TS errors. W56 closes the FreeDrop visibility gap from W43+W44+W45 — `PhantomObserver.render()` now iterates `dropletIds` and draws each droplet as a particle-spline blob (or filled circle in mock-mode). The entire FreeDrop pipeline (spawn → tick → cull → render) is now visible end-to-end. 0 clippy warnings, 0 TS errors. W44 ties FreeDrop spawning into `impulse()`: opt-in `splash: SplashOptions` fires droplets at the element's perimeter with velocity = `direction*magnitude*speedScale + jitter*randomUnit`. Backwards-compatible (no splash = today's Shake-only behavior). 0 clippy warnings, 0 TS errors. W45 closes the W43 "droplets accumulate forever" caveat: FreeDrop slots auto-cull when center exits viewport+margin OR `lifetime_ms` expires. `spawnDroplet` allocator now scans for Rust-culled slots before failing capacity. Public `instance.despawnDroplet(id)` API added. 0 clippy warnings, 0 TS errors. W43 introduces `PhysicsStrategy::FreeDrop` — DOM-less free-floating particles in the same slot pool as soft-body entities. Public API: `instance.spawnDroplet({ x, y, vx, vy, radius? })`. Foundation for W44 (spawning UX), W45 (culling), W46 (gravity).
 
 ## Architecture Decisions Made
 | Decision | Rationale | Ward |
@@ -58,7 +58,6 @@ Ward 57 — 2026-05-16
 | W26's "physics pause during scroll" was never actually implemented — W55 Part A fixes it | `physicsDt = (reducedMotion \|\| scrolling) ? 0 : dt` + `pointerActive && !reducedMotion && !scrolling`. The redundant `observer.sync()` in the scroll-idle timeout is dropped (per-frame RAF sync covers it). Behavior change: pointer repulsion now freezes during scroll. | W55 |
 | Smooth scroll-snap lerp via per-entity Map (not per-entity buffer slot) | TS-side `Map<id, { fromX, fromY, el, startTime }>` populated at scroll-end. RAF loop runs `runScrollSnapLerp()` when map is non-empty (skips `observer.sync()` to avoid overwriting). Lerp reads LIVE `getBoundingClientRect()` each frame so re-scroll catches up naturally. Tween wins composition via `scrollSnap.delete(id)` at tween start. | W55 |
 | Mock-mode tolerance: RAF loop bails on `!ctx` only, not `!core` | Previously `if (!ctx || !core) return;` meant mock-mode (no WASM) never ran the loop. Now mock-mode still runs sync/lerp/render fallbacks; only `core.tick()` is gated. Marginal real-world benefit (rarely hit) but consistent. | W55 |
-| `canvasZIndex` default `-1` → `0` | CSS negative-z-index trap: `<canvas z-index:-1>` paints BETWEEN root bg and body's box, so any solid body background covers it. Bug invisible in tests (canvas rendered correctly) but visible in browser (no blobs). `0` aligns with default body-child layer; explicit `position: fixed` keeps placement; `pointer-events: none` keeps interaction pass-through. Demo CSS pattern `[data-liquid] { position: relative; z-index: 1 }` keeps text on top. Backwards-compat: explicit `-1` still respected. | W57 |
 
 ## Active Constraints
 - Rust er DOM-blind og Farve-blind (kun matematik)
@@ -89,7 +88,6 @@ Ward 57 — 2026-05-16
 | Total tests | 232 (52 Rust + 180 TS) | W56 |
 | Total tests | 245 (55 Rust + 190 TS) | W46 |
 | Total tests | 256 (55 Rust + 201 TS) | W55 |
-| Total tests | 259 (55 Rust + 204 TS) | W57 |
 
 ## Known Limitations
 - Container mode assumes positioned containing block
@@ -104,9 +102,8 @@ Ward 57 — 2026-05-16
 - `calc()` / `min()` / `max()` may fall back to 0 if `getComputedStyle` does not resolve them (W42)
 
 ## What Comes Next
-- FreeDrop trilogi + visibility + gravity + scroll-snap + visibility-fix nu komplet.
+- FreeDrop trilogi + visibility + gravity + scroll-snap nu komplet.
 - Tag `v0.2.0-rc.0` whenever publish is desired (W51 pipeline ready)
 - W36 (renderer abstraction → WebGPU), examples/vue (DX)
 - WebGPU rendering exploration (long-term)
 - W55 follow-up: update slot[4] (interaction_state) during the lerp window so hover styling reacts within 150ms post-scroll instead of waiting for sync resume
-- `preserveBackgrounds: true` + tight rest-shape produces invisible blob (midpoint-spline traces interior of perimeter polygon; clip excludes that interior). Visible only on hover/drag/impulse. Either tune playground default OR add a clip-inset option in a future ward.

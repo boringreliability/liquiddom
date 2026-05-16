@@ -228,7 +228,7 @@ export class LiquidDOM {
   static async create(options?: LiquidOptions): Promise<LiquidDOMInstance> {
     const capacity = options?.capacity ?? 128;
     const autoObserve = options?.autoObserve ?? true;
-    const canvasZIndex = options?.canvasZIndex ?? -1;
+    const canvasZIndex = options?.canvasZIndex ?? 0;
     const maxDt = Math.max(1, options?.maxDt ?? DEFAULT_MAX_DT);
     const container = options?.container;
     const isContainerMode = !!container;

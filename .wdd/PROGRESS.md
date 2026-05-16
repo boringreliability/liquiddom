@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-49 of 56 Wards complete · 265 estimated tests · 0 blocked
+50 of 57 Wards complete · 268 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -62,6 +62,7 @@
 | 0542 | box-shadow Compatibility under preserveBackgrounds | 9 | ✅ Complete | 2026-05-13 |
 | 0552 | Smooth Scroll-Snap Interpolation (+ W26 implementation fix) | 11 | ✅ Complete | 2026-05-15 |
 | 0562 | FreeDrop Canvas Rendering | 6 | ✅ Complete | 2026-05-14 |
+| 057 | Canvas Z-Index Default Fix | 3 | ✅ Complete | 2026-05-16 |
 
 ## Test Summary
-- Estimated total: 265
+- Estimated total: 268
