@@ -67,6 +67,22 @@ export interface LiquidOptions {
    * rejection themselves.
    */
   renderer?: "canvas2d" | "webgpu";
+  /**
+   * Ward 039: theme configuration that doesn't fit the flat top-level color
+   * fields. Currently carries `fusionRadius` (metaball fusion). Future wards
+   * add nested fields here (e.g., `refraction` in W40). `colorDefault` /
+   * `colorHover` / `colorSource` remain flat for backwards compat.
+   */
+  theme?: {
+    /**
+     * Metaball fusion radius in CSS px. When > 0, adjacent entities visually
+     * merge via smooth-min SDF blending in the WebGPU renderer. Default 0
+     * (no fusion). Capacity > 64 disables fusion + logs a one-time warning.
+     * WebGPU only — `renderer: 'canvas2d'` ignores this. NaN / negative
+     * values are clamped to 0.
+     */
+    fusionRadius?: number;
+  };
 }
 
 const DEFAULT_PHYSICS: Required<LiquidPhysicsConfig> = {
@@ -290,12 +306,18 @@ export class LiquidDOM {
     }
 
     // 3. Create PhantomObserver
+    // Ward 039 r2 m1: clamp fusionRadius at the public boundary. NaN/Infinity
+    // from a buggy consumer no longer poisons the uniform; negative values
+    // are clamped to 0.
+    const rawFusion = options?.theme?.fusionRadius ?? 0;
+    const fusionRadius = Number.isFinite(rawFusion) ? Math.max(0, rawFusion) : 0;
     const observer = new PhantomObserver(capacity, {
       colorDefault: options?.colorDefault,
       colorHover: options?.colorHover,
       entityView: bridge?.entityView(),
       particleView: bridge?.particleView(),
       useComputedTheme: options?.colorSource === "computed",
+      fusionRadius,
       // Ward 043: bridge slot cleanup between TS and Rust. In mock mode
       // (no WASM) `core` is null and this is a no-op — droplet integration
       // doesn't run anyway without Rust.

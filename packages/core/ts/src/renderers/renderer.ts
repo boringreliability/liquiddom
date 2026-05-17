@@ -22,6 +22,8 @@ export interface RenderFrame {
     colorHover: string;
     themeCache: Map<number, string>;
     shadowCache: Map<number, ShadowMargin>;
+    /** Ward 039 metaball fusion radius (CSS px). Optional; undefined = 0 (no fusion). */
+    fusionRadius?: number;
   };
 }
 

@@ -30,6 +30,25 @@ import {
 import { LiquidDOM, WebGPUUnavailableError as BarrelExportedError } from "../src/index";
 import type { Renderer } from "../src/renderers/renderer";
 
+// W39: WebGPU globals not provided by jsdom. WebGPURenderer.init() now
+// references GPUShaderStage when building the explicit bindGroupLayout
+// (W39 Decision §9 / r2 F2). Path E test needs this polyfill so init()
+// reaches the validation error scope without throwing ReferenceError first.
+if (typeof globalThis.GPUBufferUsage === "undefined") {
+  (globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
+    MAP_READ: 0x0001, MAP_WRITE: 0x0002,
+    COPY_SRC: 0x0004, COPY_DST: 0x0008,
+    INDEX: 0x0010, VERTEX: 0x0020,
+    UNIFORM: 0x0040, STORAGE: 0x0080,
+    INDIRECT: 0x0100, QUERY_RESOLVE: 0x0200,
+  };
+}
+if (typeof globalThis.GPUShaderStage === "undefined") {
+  (globalThis as unknown as { GPUShaderStage: Record<string, number> }).GPUShaderStage = {
+    VERTEX: 0x1, FRAGMENT: 0x2, COMPUTE: 0x4,
+  };
+}
+
 // jsdom ResizeObserver polyfill for the LiquidDOM.create wire-up test.
 if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = class {
@@ -90,6 +109,9 @@ function makeMinimalGpu(overrides: {
           queue: { writeBuffer() {}, submit() {} },
           createBuffer: () => ({ destroy() {} }),
           createBindGroup: () => ({}),
+          // W39 r2 F2: explicit bind-group + pipeline layouts.
+          createBindGroupLayout: () => ({}),
+          createPipelineLayout: () => ({}),
           createShaderModule: () => ({}),
           createRenderPipeline: () => ({ getBindGroupLayout: () => ({}) }),
           createCommandEncoder: () => ({

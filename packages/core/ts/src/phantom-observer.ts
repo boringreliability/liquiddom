@@ -45,6 +45,8 @@ export interface PhantomObserverOptions {
   useComputedTheme?: boolean;
   /** Ward 043: called on unobserve, unobserveAll, and spawnDroplet to clear stale Rust slot state. */
   releaseSlot?: (id: number) => void;
+  /** Ward 039: metaball fusion radius in CSS px (WebGPU only). Default 0 (no fusion). */
+  fusionRadius?: number;
 }
 
 /** Ward 043+045: options for spawning a DOM-less free-floating particle. */
@@ -97,6 +99,8 @@ export class PhantomObserver {
   // Ward 043: DOM-less free-floating particle slot tracking + Rust-side clearer.
   private readonly dropletIds: Set<number> = new Set();
   private readonly releaseSlot?: (id: number) => void;
+  /** Ward 039: metaball fusion radius (CSS px), 0 = disabled. */
+  private readonly fusionRadius: number;
 
   /**
    * @param capacity - Max number of entities
@@ -110,6 +114,7 @@ export class PhantomObserver {
     this.particleBuffer = options?.particleView ?? null;
     this.useComputedTheme = options?.useComputedTheme === true;
     this.releaseSlot = options?.releaseSlot;
+    this.fusionRadius = options?.fusionRadius ?? 0;
 
     // Ward 042 §6: single shared ResizeObserver for border-radius refresh.
     // Lazy: only construct when ResizeObserver is available (browsers + the
@@ -545,6 +550,7 @@ export class PhantomObserver {
         colorHover: this.colorHover,
         themeCache: this.themeCache,
         shadowCache: this.shadowCache,
+        fusionRadius: this.fusionRadius,
       },
     };
   }
