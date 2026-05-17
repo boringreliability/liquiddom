@@ -39,6 +39,11 @@ if (typeof globalThis.GPUBufferUsage === "undefined") {
     QUERY_RESOLVE: 0x0200,
   };
 }
+if (typeof globalThis.GPUShaderStage === "undefined") {
+  (globalThis as unknown as { GPUShaderStage: Record<string, number> }).GPUShaderStage = {
+    VERTEX: 0x1, FRAGMENT: 0x2, COMPUTE: 0x4,
+  };
+}
 
 let savedGpu: PropertyDescriptor | undefined;
 let savedCaptured = false;
@@ -126,6 +131,9 @@ function makeDeviceMock(log: DeviceLog): unknown {
       return makeBuffer();
     },
     createBindGroup: () => ({}),
+    // W39 r2 F2: explicit bind-group + pipeline layouts.
+    createBindGroupLayout: () => ({}),
+    createPipelineLayout: () => ({}),
     createShaderModule: () => ({}),
     createRenderPipeline: () => ({ getBindGroupLayout: () => ({}) }),
     createCommandEncoder: () => ({

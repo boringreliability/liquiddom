@@ -12,16 +12,23 @@ import {
   type Renderer,
 } from "./renderer";
 import { BLOB_SDF_WGSL } from "./shaders/blob-sdf.wgsl";
+import { FUSION_SDF_WGSL } from "./shaders/fusion-sdf.wgsl";
 
 const PARTICLE_FLOATS_PER_BODY = PARTICLES_PER_BODY * 2;
 // W38 Decision §6: EntityGPU = 4 × vec4 = 64 bytes (color + aabb + clipRect + params).
 const FLOATS_PER_ENTITY_GPU = 16;
 const BYTES_PER_ENTITY_GPU = FLOATS_PER_ENTITY_GPU * 4; // 64 bytes
 // W38 Decision §1: one AABB-quad per entity = 6 vertices (2 triangles).
+// W39 Decision §1: fusion pipeline ALSO emits 6 vertices but with instance
+// count = 1 (single full-screen quad).
 const VERTICES_PER_ENTITY = 6;
 // W38 Decision §10b: global uniform = mat4x4 (64B) + flags vec4 (16B) = 80B.
 const GLOBAL_UNIFORM_FLOATS = 20;
 const GLOBAL_UNIFORM_BYTES = GLOBAL_UNIFORM_FLOATS * 4;
+// W39 Decision §2: fusion-pipeline capacity safety valve. Above this,
+// fragment shader's MAX_ENTITIES = 64 loop would scale per-fragment cost
+// dangerously; fall back to AABB pipeline (no fusion) + once-per-session warn.
+const FUSION_MAX_CAPACITY = 64;
 
 const PREMUL_BLEND: GPUBlendComponent = {
   srcFactor: "one",
@@ -66,7 +73,13 @@ export class WebGPURenderer implements Renderer {
   private canvas: HTMLCanvasElement | null = null;
   private ctx: GPUCanvasContext | null = null;
   private device: GPUDevice | null = null;
-  private pipeline: GPURenderPipeline | null = null;
+  // W39 Decision §1: two pipelines coexist. aabbPipeline is the W38 default
+  // (per-entity AABB quad); fusionPipeline activates when fusionRadius > 0.
+  private aabbPipeline: GPURenderPipeline | null = null;
+  private fusionPipeline: GPURenderPipeline | null = null;
+  // W39 Decision §9 / r2 F2: explicit bind-group + pipeline layouts so both
+  // pipelines accept the same bindGroup.
+  private bindGroupLayout: GPUBindGroupLayout | null = null;
   private particleBuffer: GPUBuffer | null = null;
   private entityBuffer: GPUBuffer | null = null;
   private projectionBuffer: GPUBuffer | null = null;
@@ -76,6 +89,10 @@ export class WebGPURenderer implements Renderer {
   // W38: 20 floats = mat4x4 projection + flags vec4. Decision §10/§10b.
   private readonly projMatrix = new Float32Array(GLOBAL_UNIFORM_FLOATS);
   private entityScratch: Float32Array | null = null;
+  // W39 Decision §2: once-per-instance warn when capacity > 64 forces a
+  // fusion-disabled fallback. Per-instance (NOT module-static) so each new
+  // WebGPURenderer gets a fresh notification.
+  private warnedFusionCapacityFallback = false;
 
   async init(canvas: HTMLCanvasElement): Promise<void> {
     this.canvas = canvas;
@@ -123,15 +140,57 @@ export class WebGPURenderer implements Renderer {
         viewFormats: [sRgbFormat],
       });
 
-      // Path E: shader compile or pipeline validation fails. Wrap creation in a
-      // validation error scope so we can surface the actual GPUError as cause.
+      // W39 Decision §9 / r2 F2: explicit bind-group + pipeline layout shared
+      // between BOTH pipelines. `layout: "auto"` would produce pipeline-specific
+      // BGLs that aren't interchangeable, breaking cross-pipeline bindGroup
+      // sharing. Layout: 3 bindings (uniform Globals + 2 storage buffers),
+      // all visible to both vertex and fragment stages.
+      const bindGroupLayout = device.createBindGroupLayout({
+        entries: [
+          {
+            binding: 0,
+            visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+            buffer: { type: "uniform" },
+          },
+          {
+            binding: 1,
+            visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+            buffer: { type: "read-only-storage" },
+          },
+          {
+            binding: 2,
+            visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+            buffer: { type: "read-only-storage" },
+          },
+        ],
+      });
+      const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] });
+
+      // Path E: shader compile or pipeline validation fails. Wrap BOTH pipeline
+      // creations in one validation error scope so a typo in either shader
+      // surfaces as the cause of WebGPUUnavailableError.
       device.pushErrorScope("validation");
-      const shaderModule = device.createShaderModule({ code: BLOB_SDF_WGSL });
-      const pipeline = device.createRenderPipeline({
-        layout: "auto",
-        vertex: { module: shaderModule, entryPoint: "vs_main" },
+      const aabbShader = device.createShaderModule({ code: BLOB_SDF_WGSL });
+      const aabbPipeline = device.createRenderPipeline({
+        label: "aabb-pipeline",
+        layout: pipelineLayout,
+        vertex: { module: aabbShader, entryPoint: "vs_main" },
         fragment: {
-          module: shaderModule,
+          module: aabbShader,
+          entryPoint: "fs_main",
+          targets: [{ format: sRgbFormat, blend: { color: PREMUL_BLEND, alpha: PREMUL_BLEND } }],
+        },
+        primitive: { topology: "triangle-list" },
+      });
+      // W39: second pipeline using FUSION_SDF_WGSL. Same bind-group layout,
+      // same blend state, same primitive topology — only the shader code differs.
+      const fusionShader = device.createShaderModule({ code: FUSION_SDF_WGSL });
+      const fusionPipeline = device.createRenderPipeline({
+        label: "fusion-pipeline",
+        layout: pipelineLayout,
+        vertex: { module: fusionShader, entryPoint: "vs_main" },
+        fragment: {
+          module: fusionShader,
           entryPoint: "fs_main",
           targets: [{ format: sRgbFormat, blend: { color: PREMUL_BLEND, alpha: PREMUL_BLEND } }],
         },
@@ -158,7 +217,9 @@ export class WebGPURenderer implements Renderer {
       // consumer's catch handler already cleaned up).
       this.device = device;
       this.ctx = ctx;
-      this.pipeline = pipeline;
+      this.aabbPipeline = aabbPipeline;
+      this.fusionPipeline = fusionPipeline;
+      this.bindGroupLayout = bindGroupLayout;
       this.projectionBuffer = projectionBuffer;
       this.sRgbFormat = sRgbFormat;
       const ownedDevice = device;
@@ -182,13 +243,29 @@ export class WebGPURenderer implements Renderer {
   render(frame: RenderFrame): void {
     const device = this.device;
     const ctx = this.ctx;
-    const pipeline = this.pipeline;
+    const aabbPipeline = this.aabbPipeline;
+    const fusionPipeline = this.fusionPipeline;
+    const bindGroupLayout = this.bindGroupLayout;
     const projBuf = this.projectionBuffer;
     const sRgbFormat = this.sRgbFormat;
-    if (!device || !ctx || !pipeline || !projBuf || !sRgbFormat) return;
+    if (!device || !ctx || !aabbPipeline || !fusionPipeline || !bindGroupLayout || !projBuf || !sRgbFormat) return;
     if (!frame.particles) return; // Decision §13: mock-mode no-op
     // (W38: preserveBackgrounds is now supported via SDF discard — the W37
     // once-per-session warn has been removed.)
+
+    // W39 Decision §1 + §2: pick pipeline. Fusion path requires fusionRadius
+    // > 0 AND capacity <= 64. Above 64 the per-fragment 16-segment SDF loop
+    // becomes a performance cliff → fall back to AABB pipeline + warn once
+    // per instance.
+    const rawFusion = frame.theme.fusionRadius ?? 0;
+    const wantsFusion = rawFusion > 0;
+    const useFusion = wantsFusion && frame.capacity <= FUSION_MAX_CAPACITY;
+    if (wantsFusion && !useFusion && !this.warnedFusionCapacityFallback) {
+      console.warn(
+        `[liquiddom] fusionRadius set but capacity (${frame.capacity}) > ${FUSION_MAX_CAPACITY}. Fusion disabled — falling back to per-entity AABB pipeline.`,
+      );
+      this.warnedFusionCapacityFallback = true;
+    }
 
     // Lazy GPU-buffer allocation on first render or capacity change.
     if (frame.capacity !== this.capacity) {
@@ -204,8 +281,11 @@ export class WebGPURenderer implements Renderer {
       });
       this.entityScratch = new Float32Array(frame.capacity * FLOATS_PER_ENTITY_GPU);
       this.capacity = frame.capacity;
+      // W39: bindGroup uses the explicit `bindGroupLayout`, NOT
+      // `pipeline.getBindGroupLayout(0)` — that would return a
+      // pipeline-specific layout incompatible with the OTHER pipeline.
       this.bindGroup = device.createBindGroup({
-        layout: pipeline.getBindGroupLayout(0),
+        layout: bindGroupLayout,
         entries: [
           { binding: 0, resource: { buffer: projBuf } },
           { binding: 1, resource: { buffer: this.particleBuffer } },
@@ -217,11 +297,18 @@ export class WebGPURenderer implements Renderer {
     // Update projection matrix from viewport CSS px → clip space [-1, 1].
     this.updateProjectionMatrix(frame.viewport.widthCss, frame.viewport.heightCss);
     // W38 Decision §10: pack flags vec4 after the mat4x4. Slot 16 carries the
-    // preserveBackgroundsActive flag; 17/18/19 are reserved for W39/W40.
+    // preserveBackgroundsActive flag.
+    // W39 Decision §7 + r2 m1: fusionRadius lives at slot 17 (= flags.y).
+    // Clamp NaN/negative to 0 — defense-in-depth alongside LiquidDOM.create()'s
+    // CPU clamp, so a buggy direct buildFrame() consumer can't poison the
+    // uniform with NaN.
+    const fusionRadiusForFlag = useFusion && Number.isFinite(rawFusion)
+      ? Math.max(0, rawFusion)
+      : 0;
     this.projMatrix[16] = frame.viewport.preserveBackgrounds ? 1.0 : 0.0;
-    this.projMatrix[17] = 0;
-    this.projMatrix[18] = 0;
-    this.projMatrix[19] = 0;
+    this.projMatrix[17] = fusionRadiusForFlag;
+    this.projMatrix[18] = 0; // W40 reserved (refractionStrength)
+    this.projMatrix[19] = 0; // reserved
     device.queue.writeBuffer(
       projBuf, 0,
       this.projMatrix.buffer, this.projMatrix.byteOffset, GLOBAL_UNIFORM_BYTES,
@@ -330,9 +417,11 @@ export class WebGPURenderer implements Renderer {
         clearValue: { r: 0, g: 0, b: 0, a: 0 },
       }],
     });
-    pass.setPipeline(pipeline);
+    // W39 Decision §1: dual-pipeline dispatch. Fusion path = single full-screen
+    // quad (instance count 1). AABB path = one quad per entity (× capacity).
+    pass.setPipeline(useFusion ? fusionPipeline : aabbPipeline);
     pass.setBindGroup(0, this.bindGroup!);
-    pass.draw(VERTICES_PER_ENTITY, frame.capacity, 0, 0);
+    pass.draw(VERTICES_PER_ENTITY, useFusion ? 1 : frame.capacity, 0, 0);
     pass.end();
     device.queue.submit([encoder.finish()]);
   }
@@ -345,7 +434,9 @@ export class WebGPURenderer implements Renderer {
     this.canvas = null;
     this.ctx = null;
     this.device = null;
-    this.pipeline = null;
+    this.aabbPipeline = null;
+    this.fusionPipeline = null;
+    this.bindGroupLayout = null;
     this.particleBuffer = null;
     this.entityBuffer = null;
     this.projectionBuffer = null;
@@ -353,6 +444,7 @@ export class WebGPURenderer implements Renderer {
     this.sRgbFormat = null;
     this.capacity = 0;
     this.entityScratch = null;
+    this.warnedFusionCapacityFallback = false;
   }
 
   /**
