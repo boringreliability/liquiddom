@@ -16,6 +16,8 @@ function clampClipRadius(r: number, w: number, h: number): number {
 export class Canvas2DRenderer implements Renderer {
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
+  // W40: one-shot warn flag for setBackgroundTexture in Canvas2D mode.
+  private warnedCanvas2DRefraction = false;
 
   init(canvas: HTMLCanvasElement): Promise<void> {
     this.canvas = canvas;
@@ -26,6 +28,22 @@ export class Canvas2DRenderer implements Renderer {
   resize(_widthPx: number, _heightPx: number, _dpr: number): void {
     // Canvas2D backing-store resize is done by the caller before this is
     // invoked (Decision §15). The 2D context picks it up automatically.
+  }
+
+  /**
+   * Ward 040: refraction is a WebGPU-only feature. Canvas2D logs once on the
+   * first NON-null call (matches the WebGPU null-noop idempotency), then
+   * silently no-ops on subsequent calls.
+   */
+  setBackgroundTexture(bitmap: ImageBitmap | null): void {
+    // Don't warn on null — that's the renderer-agnostic "clear" call and
+    // a consumer switching renderers shouldn't see a spurious warning.
+    if (bitmap !== null && !this.warnedCanvas2DRefraction) {
+      console.warn(
+        "[liquiddom] setBackgroundTexture is WebGPU-only — Canvas2D renderer ignores refraction.",
+      );
+      this.warnedCanvas2DRefraction = true;
+    }
   }
 
   render(frame: RenderFrame): void {

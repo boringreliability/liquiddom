@@ -73,6 +73,7 @@ function makeFrame(overrides: Partial<RenderFrame> = {}): RenderFrame {
     softBodyIds: [],
     dropletIds: [],
     viewport: VIEWPORT_DEFAULT,
+    reducedMotion: false,
     theme: {
       colorDefault: "rgba(15, 52, 96, 0.75)",
       colorHover: "rgba(233, 69, 96, 0.85)",

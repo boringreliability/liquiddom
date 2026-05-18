@@ -20,7 +20,9 @@ import { SDF_HELPERS_WGSL } from "./sdf-helpers.wgsl";
 const SHADER_BODY = /* wgsl */ `
 struct Globals {
   projection: mat4x4<f32>,
-  flags: vec4<f32>,  // (preserveBackgroundsActive, fusionRadius, reserved, reserved)
+  // W40: flags.z carries refraction strength (CSS px); 0 = refraction disabled.
+  // flags.w reserved.
+  flags: vec4<f32>,
 };
 
 struct EntityGPU {
@@ -33,6 +35,10 @@ struct EntityGPU {
 @group(0) @binding(0) var<uniform> globals: Globals;
 @group(0) @binding(1) var<storage, read> particles: array<vec2<f32>>;
 @group(0) @binding(2) var<storage, read> entities: array<EntityGPU>;
+// W40: refraction texture + sampler. Bound unconditionally — a 1×1 white dummy
+// is bound when no host bitmap is supplied. Shader gates sampling on flags.z.
+@group(0) @binding(3) var refractionTex: texture_2d<f32>;
+@group(0) @binding(4) var refractionSamp: sampler;
 
 const PARTICLES_PER_BODY: u32 = 16u;
 const MAX_ENTITIES: u32 = 64u;
@@ -67,6 +73,20 @@ fn ndcToWorld(ndc: vec2<f32>) -> vec2<f32> {
 fn smin(a: f32, b: f32, k: f32) -> f32 {
   let h = max(k - abs(a - b), 0.0) / k;
   return min(a, b) - h * h * k * 0.25;
+}
+
+// Ward 040: helper for central-difference gradient sampling. Same MAX_ENTITIES
+// bound as fs_main's main loop (Decision §8). Guarded against k=0 (auto-promote
+// path where fusionRadius=0): smin's divide-by-k would NaN, so fall back to min.
+fn combinedSdf(p: vec2<f32>) -> f32 {
+  var d: f32 = 1e9;
+  let k = globals.flags.y;
+  for (var i: u32 = 0u; i < MAX_ENTITIES; i = i + 1u) {
+    if (entities[i].color.a == 0.0) { continue; }
+    let dEntity = sdPolygon(p, i * PARTICLES_PER_BODY, PARTICLES_PER_BODY);
+    d = select(min(d, dEntity), smin(d, dEntity, k), k > 0.0);
+  }
+  return d;
 }
 
 @fragment
@@ -105,8 +125,37 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     if (clipSdf < 0.0) { discard; }
   }
 
-  let c = winner.color;
-  return vec4<f32>(c.rgb * alpha, c.a * alpha);
+  // W40: refraction. Gated on flags.z > 0. Central-difference SDF gradient
+  // via combinedSdf gives an outward-pointing direction; UV displacement is
+  // strength / resolution.y (single scalar avoids per-axis asymmetry on
+  // non-square canvases). winnerColor is premultiplied; sampled is straight
+  // alpha — acceptable v1 trade-off (Spec §8 alpha note).
+  var finalRgb = winner.color.rgb;
+  var finalA = winner.color.a;
+  if (globals.flags.z > 0.0) {
+    let eps = 1.0;
+    let dx = combinedSdf(p + vec2<f32>(eps, 0.0)) - combinedSdf(p - vec2<f32>(eps, 0.0));
+    let dy = combinedSdf(p + vec2<f32>(0.0, eps)) - combinedSdf(p - vec2<f32>(0.0, eps));
+    let grad = vec2<f32>(dx, dy);
+    let gradLen = length(grad);
+    if (gradLen > 0.001) {
+      let m = globals.projection;
+      let width = 2.0 / m[0][0];
+      let height = -2.0 / m[1][1];
+      let resolution = vec2<f32>(width, height);
+      let uvOffset = (grad / gradLen) * (globals.flags.z / resolution.y);
+      let uv = (p / resolution) + uvOffset;
+      // textureSampleLevel (not textureSample) — sampling here is inside a
+      // non-uniform conditional (gradLen > 0.001), which would violate
+      // WGSL's uniformity rules for implicit-derivative textureSample.
+      // LOD 0 is correct: refraction texture has no mipmaps.
+      let sampled = textureSampleLevel(refractionTex, refractionSamp, uv, 0.0);
+      // mix(sampled, winnerColor, 0.3) = 70% refracted + 30% tint.
+      finalRgb = sampled.rgb * 0.7 + winner.color.rgb * 0.3;
+      finalA = sampled.a * 0.7 + winner.color.a * 0.3;
+    }
+  }
+  return vec4<f32>(finalRgb * alpha, finalA * alpha);
 }
 `;
 

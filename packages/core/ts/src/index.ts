@@ -82,6 +82,19 @@ export interface LiquidOptions {
      * values are clamped to 0.
      */
     fusionRadius?: number;
+    /**
+     * Ward 040 background refraction. The blob acts as a glass lens over a
+     * host-supplied snapshot (`instance.setBackgroundTexture(bitmap)`). Refraction
+     * is silently a no-op when `enabled: false`, when no texture has been
+     * provided, or under `prefers-reduced-motion`. Requires fusion pipeline
+     * (auto-promoted when `fusionRadius` is omitted). WebGPU only —
+     * `renderer: 'canvas2d'` ignores this. NaN / negative `strength` clamps to 0.
+     */
+    refraction?: {
+      enabled?: boolean;
+      /** CSS pixels of UV displacement at the blob edge. Default 8. */
+      strength?: number;
+    };
   };
 }
 
@@ -233,6 +246,13 @@ export interface LiquidDOMInstance {
   /** Ward 045: explicitly remove a droplet by id. No-op if not a droplet slot. */
   despawnDroplet(id: number): void;
   /**
+   * Ward 040: hand a host-supplied background snapshot to the renderer for
+   * refractive sampling. `null` releases any prior texture and falls back to
+   * an internal dummy. Canvas2D renderer logs once and no-ops. After
+   * `destroy()`, this is a silent no-op (does not throw).
+   */
+  setBackgroundTexture(bitmap: ImageBitmap | null): void;
+  /**
    * Ward 046: prompt for device orientation permission (iOS 13+).
    *
    * **MUST be called from a user-gesture event handler** (e.g. button `click`)
@@ -311,6 +331,18 @@ export class LiquidDOM {
     // are clamped to 0.
     const rawFusion = options?.theme?.fusionRadius ?? 0;
     const fusionRadius = Number.isFinite(rawFusion) ? Math.max(0, rawFusion) : 0;
+    // Ward 040: same clamp pattern for refraction.strength. `enabled` defaults
+    // to `false`; an explicit `enabled: undefined` falls through to false too.
+    const rawRefraction = options?.theme?.refraction;
+    let refraction: { enabled: boolean; strength: number } | undefined;
+    if (rawRefraction !== undefined) {
+      const rawStrength = rawRefraction.strength ?? 8;
+      const strength = Number.isFinite(rawStrength) ? Math.max(0, rawStrength) : 0;
+      refraction = {
+        enabled: rawRefraction.enabled === true,
+        strength,
+      };
+    }
     const observer = new PhantomObserver(capacity, {
       colorDefault: options?.colorDefault,
       colorHover: options?.colorHover,
@@ -318,6 +350,7 @@ export class LiquidDOM {
       particleView: bridge?.particleView(),
       useComputedTheme: options?.colorSource === "computed",
       fusionRadius,
+      refraction,
       // Ward 043: bridge slot cleanup between TS and Rust. In mock mode
       // (no WASM) `core` is null and this is a no-op — droplet integration
       // doesn't run anyway without Rust.
@@ -589,13 +622,15 @@ export class LiquidDOM {
           );
         }
         // W36: buildFrame() AFTER sync/tick so render reads post-tick state.
+        // W40: thread reducedMotion through buildFrame for the renderer's
+        // refraction gate (Rule of Two — observer/renderer never touch DOM).
         const frame = observer.buildFrame({
           widthCss: vp.w,
           heightCss: vp.h,
           dpr: window.devicePixelRatio || 1,
           cullMargin: CULL_MARGIN_PX,
           preserveBackgrounds: preserveBg,
-        });
+        }, reducedMotion);
         renderer.render(frame);
 
         animationId = requestAnimationFrame(loop);
@@ -925,6 +960,12 @@ export class LiquidDOM {
           throw new Error("Cannot despawnDroplet on a destroyed LiquidDOM instance");
         }
         observer.despawnDroplet(id);
+      },
+
+      setBackgroundTexture(bitmap: ImageBitmap | null): void {
+        // Ward 040 §11: silent no-op post-destroy (parity with W14 idempotency).
+        if (destroyed) return;
+        renderer.setBackgroundTexture?.(bitmap);
       },
 
       async requestOrientationPermission(): Promise<boolean> {
