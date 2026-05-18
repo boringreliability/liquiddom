@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Liquid DOM — Background Refraction</title>
+  <style>
+    :root {
+      --bg: #0a0a12;
+      --text: #f0e6ff;
+      --muted: #7a6a9a;
+      --accent: #e94560;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    header {
+      padding: 1.5rem 2rem;
+      border-bottom: 1px solid #1a1a2a;
+    }
+    header h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    header p {
+      color: var(--muted);
+      font-size: 0.875rem;
+      margin-top: 0.25rem;
+    }
+    header a { color: var(--accent); text-decoration: none; }
+    main {
+      position: relative;
+      display: grid;
+      grid-template-columns: auto auto;
+      grid-template-rows: auto auto;
+      gap: 40px;
+      place-items: center;
+      place-content: center;
+      min-height: calc(100vh - 80px);
+    }
+    #backdrop {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4rem;
+      font-size: 1.1rem;
+      line-height: 1.7;
+      color: rgba(240, 230, 255, 0.85);
+    }
+    #backdrop .panel {
+      max-width: 56ch;
+      padding: 2rem;
+      background: linear-gradient(135deg, rgba(120, 60, 200, 0.55), rgba(220, 70, 120, 0.4));
+      border-radius: 16px;
+    }
+    [data-liquid] {
+      position: relative;
+      z-index: 2;
+      background: transparent !important;
+      border: none !important;
+      outline: none !important;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: default;
+      width: 110px;
+      height: 110px;
+      border-radius: 20px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #renderer-badge {
+      display: inline-block;
+      margin-left: 0.75rem;
+      padding: 0.15rem 0.5rem;
+      background: #1a1a2a;
+      color: var(--muted);
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-family: ui-monospace, monospace;
+    }
+    #renderer-badge[data-renderer="webgpu"] {
+      background: rgba(56, 189, 248, 0.18);
+      color: #7dd3fc;
+    }
+    .note {
+      position: fixed;
+      bottom: 1rem;
+      left: 1rem;
+      color: var(--muted);
+      font-size: 0.8rem;
+      max-width: 38rem;
+      line-height: 1.4;
+    }
+    .note code { font-family: ui-monospace, monospace; color: #7dd3fc; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Liquid DOM — Background Refraction</h1>
+    <p>
+      Blobs refract a host-supplied bitmap snapshot via SDF-gradient UV displacement.
+      <a href="../index.html">← back to demos</a>
+      <span id="renderer-badge">renderer: …</span>
+    </p>
+  </header>
+
+  <main>
+    <div id="backdrop"><div class="panel">
+      Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor
+      incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud
+      exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute
+      irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla.
+    </div></div>
+    <div data-liquid>A</div>
+    <div data-liquid>B</div>
+    <div data-liquid>C</div>
+    <div data-liquid>D</div>
+  </main>
+
+  <p class="note">
+    Try <code>?refraction=off</code> to disable refraction (fusion-only).
+    Try <code>?strength=20</code> for stronger lensing.
+    Try <code>?renderer=canvas2d</code> — refraction is WebGPU-only.
+    The host code in <code>refraction.ts</code> paints the backdrop to an offscreen
+    canvas, calls <code>createImageBitmap(canvas)</code>, then hands the bitmap to
+    <code>instance.setBackgroundTexture(bitmap)</code>.
+  </p>
+
+  <script type="module" src="./refraction.ts"></script>
+</body>
+</html>

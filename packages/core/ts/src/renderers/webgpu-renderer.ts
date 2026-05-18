@@ -93,6 +93,14 @@ export class WebGPURenderer implements Renderer {
   // fusion-disabled fallback. Per-instance (NOT module-static) so each new
   // WebGPURenderer gets a fresh notification.
   private warnedFusionCapacityFallback = false;
+  // W40: refraction state. `refractionTexture` is unconditionally bound
+  // (1×1 white dummy until host calls setBackgroundTexture).
+  // `warnedRefractionCapacityFallback` is the refraction-only sibling of the
+  // fusion warn flag (per Spec §7 dual-warn priority).
+  private refractionTexture: GPUTexture | null = null;
+  private refractionSampler: GPUSampler | null = null;
+  private hasUserTexture = false;
+  private warnedRefractionCapacityFallback = false;
 
   async init(canvas: HTMLCanvasElement): Promise<void> {
     this.canvas = canvas;
@@ -143,8 +151,9 @@ export class WebGPURenderer implements Renderer {
       // W39 Decision §9 / r2 F2: explicit bind-group + pipeline layout shared
       // between BOTH pipelines. `layout: "auto"` would produce pipeline-specific
       // BGLs that aren't interchangeable, breaking cross-pipeline bindGroup
-      // sharing. Layout: 3 bindings (uniform Globals + 2 storage buffers),
-      // all visible to both vertex and fragment stages.
+      // sharing. W40 extends the BGL 3 → 5 entries (texture + sampler for
+      // refraction). The AABB shader does not reference bindings 3/4 —
+      // WebGPU permits bind groups to carry resources unused by the pipeline.
       const bindGroupLayout = device.createBindGroupLayout({
         entries: [
           {
@@ -161,6 +170,16 @@ export class WebGPURenderer implements Renderer {
             binding: 2,
             visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
             buffer: { type: "read-only-storage" },
+          },
+          {
+            binding: 3,
+            visibility: GPUShaderStage.FRAGMENT,
+            texture: { sampleType: "float", viewDimension: "2d" },
+          },
+          {
+            binding: 4,
+            visibility: GPUShaderStage.FRAGMENT,
+            sampler: { type: "filtering" },
           },
         ],
       });
@@ -210,6 +229,26 @@ export class WebGPURenderer implements Renderer {
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
 
+      // W40: dummy 1×1 white refraction texture + linear-clamp sampler.
+      // Bound unconditionally; shader gates sampling on flags.z (Spec §3).
+      const refractionTexture = device.createTexture({
+        size: [1, 1, 1],
+        format: "rgba8unorm",
+        usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING,
+      });
+      device.queue.writeTexture(
+        { texture: refractionTexture },
+        new Uint8Array([255, 255, 255, 255]),
+        { bytesPerRow: 4 },
+        [1, 1, 1],
+      );
+      const refractionSampler = device.createSampler({
+        minFilter: "linear",
+        magFilter: "linear",
+        addressModeU: "clamp-to-edge",
+        addressModeV: "clamp-to-edge",
+      });
+
       // All init steps succeeded — commit state. Attaching `device.lost` AFTER
       // commit prevents spurious post-destroy warnings on path-D/E failures
       // (the device is destroyed in the catch below, but its lost-promise
@@ -221,11 +260,17 @@ export class WebGPURenderer implements Renderer {
       this.fusionPipeline = fusionPipeline;
       this.bindGroupLayout = bindGroupLayout;
       this.projectionBuffer = projectionBuffer;
+      this.refractionTexture = refractionTexture;
+      this.refractionSampler = refractionSampler;
       this.sRgbFormat = sRgbFormat;
       const ownedDevice = device;
       device.lost.then((info) => {
         if (this.device !== ownedDevice) return; // already destroyed locally
         console.warn(`[liquiddom] WebGPU device lost: ${info.message}`);
+        // W40: invalidate refraction state on device loss. Texture handle is
+        // no longer usable; setBackgroundTexture must be a no-op until re-init.
+        this.refractionTexture = null;
+        this.hasUserTexture = false;
         this.device = null;
       });
     } catch (err) {
@@ -248,23 +293,40 @@ export class WebGPURenderer implements Renderer {
     const bindGroupLayout = this.bindGroupLayout;
     const projBuf = this.projectionBuffer;
     const sRgbFormat = this.sRgbFormat;
-    if (!device || !ctx || !aabbPipeline || !fusionPipeline || !bindGroupLayout || !projBuf || !sRgbFormat) return;
+    const refractionTex = this.refractionTexture;
+    const refractionSamp = this.refractionSampler;
+    if (
+      !device || !ctx || !aabbPipeline || !fusionPipeline ||
+      !bindGroupLayout || !projBuf || !sRgbFormat ||
+      !refractionTex || !refractionSamp
+    ) return;
     if (!frame.particles) return; // Decision §13: mock-mode no-op
     // (W38: preserveBackgrounds is now supported via SDF discard — the W37
     // once-per-session warn has been removed.)
 
-    // W39 Decision §1 + §2: pick pipeline. Fusion path requires fusionRadius
-    // > 0 AND capacity <= 64. Above 64 the per-fragment 16-segment SDF loop
-    // becomes a performance cliff → fall back to AABB pipeline + warn once
-    // per instance.
+    // W39 Decision §1 + §2 / W40 Decision §6: pick pipeline. Fusion path
+    // activates when EITHER fusionRadius > 0 OR refraction is requested with a
+    // texture. Capacity > 64 disables fusion + warns (per-instance, once).
     const rawFusion = frame.theme.fusionRadius ?? 0;
     const wantsFusion = rawFusion > 0;
-    const useFusion = wantsFusion && frame.capacity <= FUSION_MAX_CAPACITY;
-    if (wantsFusion && !useFusion && !this.warnedFusionCapacityFallback) {
-      console.warn(
-        `[liquiddom] fusionRadius set but capacity (${frame.capacity}) > ${FUSION_MAX_CAPACITY}. Fusion disabled — falling back to per-entity AABB pipeline.`,
-      );
-      this.warnedFusionCapacityFallback = true;
+    const wantsRefraction = frame.theme.refraction?.enabled === true;
+    const needsFusionPipeline = wantsFusion || (wantsRefraction && this.hasUserTexture);
+    const useFusion = needsFusionPipeline && frame.capacity <= FUSION_MAX_CAPACITY;
+    if (needsFusionPipeline && !useFusion) {
+      // W40 Spec §7 dual-warn priority: fusion-warn wins when both requested;
+      // refraction-only warn fires only when refraction was the SOLE reason
+      // fusion pipeline was needed (wantsFusion === false).
+      if (wantsFusion && !this.warnedFusionCapacityFallback) {
+        console.warn(
+          `[liquiddom] fusionRadius set but capacity (${frame.capacity}) > ${FUSION_MAX_CAPACITY}. Fusion disabled — falling back to per-entity AABB pipeline.`,
+        );
+        this.warnedFusionCapacityFallback = true;
+      } else if (!wantsFusion && wantsRefraction && this.hasUserTexture && !this.warnedRefractionCapacityFallback) {
+        console.warn(
+          `[liquiddom] theme.refraction.enabled set but capacity (${frame.capacity}) > ${FUSION_MAX_CAPACITY}. Refraction disabled — falling back to per-entity AABB pipeline.`,
+        );
+        this.warnedRefractionCapacityFallback = true;
+      }
     }
 
     // Lazy GPU-buffer allocation on first render or capacity change.
@@ -281,15 +343,17 @@ export class WebGPURenderer implements Renderer {
       });
       this.entityScratch = new Float32Array(frame.capacity * FLOATS_PER_ENTITY_GPU);
       this.capacity = frame.capacity;
-      // W39: bindGroup uses the explicit `bindGroupLayout`, NOT
-      // `pipeline.getBindGroupLayout(0)` — that would return a
-      // pipeline-specific layout incompatible with the OTHER pipeline.
+      // W40: capacity-change BGL rebuild must include bindings 3+4
+      // (texture + sampler). Otherwise post-resize the rebuilt 3-entry
+      // bind group would be rejected against the 5-entry layout.
       this.bindGroup = device.createBindGroup({
         layout: bindGroupLayout,
         entries: [
           { binding: 0, resource: { buffer: projBuf } },
           { binding: 1, resource: { buffer: this.particleBuffer } },
           { binding: 2, resource: { buffer: this.entityBuffer } },
+          { binding: 3, resource: refractionTex.createView() },
+          { binding: 4, resource: refractionSamp },
         ],
       });
     }
@@ -300,14 +364,24 @@ export class WebGPURenderer implements Renderer {
     // preserveBackgroundsActive flag.
     // W39 Decision §7 + r2 m1: fusionRadius lives at slot 17 (= flags.y).
     // Clamp NaN/negative to 0 — defense-in-depth alongside LiquidDOM.create()'s
-    // CPU clamp, so a buggy direct buildFrame() consumer can't poison the
-    // uniform with NaN.
+    // CPU clamp.
     const fusionRadiusForFlag = useFusion && Number.isFinite(rawFusion)
       ? Math.max(0, rawFusion)
       : 0;
+    // W40 Decision §6: flags.z carries effective refraction strength.
+    // refractionActive requires: wantsRefraction AND hasUserTexture AND
+    // !reducedMotion AND useFusion (refraction lives in the fusion shader).
+    const refractionActive = wantsRefraction
+      && this.hasUserTexture
+      && !frame.reducedMotion
+      && useFusion;
+    const rawStrength = frame.theme.refraction?.strength;
+    const refractionStrength = refractionActive && rawStrength !== undefined && Number.isFinite(rawStrength)
+      ? Math.max(0, rawStrength)
+      : 0;
     this.projMatrix[16] = frame.viewport.preserveBackgrounds ? 1.0 : 0.0;
     this.projMatrix[17] = fusionRadiusForFlag;
-    this.projMatrix[18] = 0; // W40 reserved (refractionStrength)
+    this.projMatrix[18] = refractionStrength;
     this.projMatrix[19] = 0; // reserved
     device.queue.writeBuffer(
       projBuf, 0,
@@ -426,7 +500,82 @@ export class WebGPURenderer implements Renderer {
     device.queue.submit([encoder.finish()]);
   }
 
+  /**
+   * Ward 040: hand a host-supplied background snapshot for refractive sampling.
+   * Two guards open the method:
+   *   1. `!this.device` → post-destroy / device-lost: silent no-op.
+   *   2. `bitmap === null && !hasUserTexture` → already-dummy: silent no-op
+   *      (idempotency parity with W14's destroy/observe pattern).
+   * Otherwise: destroy prior texture, create new GPU texture (or recreate the
+   * 1×1 white dummy), upload, recreate the bind group.
+   */
+  setBackgroundTexture(bitmap: ImageBitmap | null): void {
+    const device = this.device;
+    if (!device) return;
+    if (bitmap === null && !this.hasUserTexture) return;
+
+    const prev = this.refractionTexture;
+    let nextTex: GPUTexture;
+    if (bitmap !== null) {
+      nextTex = device.createTexture({
+        size: [bitmap.width, bitmap.height, 1],
+        format: "rgba8unorm",
+        usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING,
+      });
+      device.queue.copyExternalImageToTexture(
+        { source: bitmap },
+        { texture: nextTex },
+        [bitmap.width, bitmap.height, 1],
+      );
+    } else {
+      // Recreate the 1×1 white dummy — matches init §3 exactly so the binding
+      // is valid + uniform across the bitmap/null transitions.
+      nextTex = device.createTexture({
+        size: [1, 1, 1],
+        format: "rgba8unorm",
+        usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING,
+      });
+      device.queue.writeTexture(
+        { texture: nextTex },
+        new Uint8Array([255, 255, 255, 255]),
+        { bytesPerRow: 4 },
+        [1, 1, 1],
+      );
+    }
+    prev?.destroy();
+    this.refractionTexture = nextTex;
+    this.hasUserTexture = bitmap !== null;
+    this.rebuildBindGroup();
+  }
+
+  /** W40: rebuild bind group after refraction texture swap. */
+  private rebuildBindGroup(): void {
+    const device = this.device;
+    const bindGroupLayout = this.bindGroupLayout;
+    const projBuf = this.projectionBuffer;
+    const partBuf = this.particleBuffer;
+    const entBuf = this.entityBuffer;
+    const tex = this.refractionTexture;
+    const samp = this.refractionSampler;
+    if (!device || !bindGroupLayout || !projBuf || !partBuf || !entBuf || !tex || !samp) {
+      // Pre-first-render path: capacity-change branch in render() will build
+      // the bind group with the current refractionTexture reference.
+      return;
+    }
+    this.bindGroup = device.createBindGroup({
+      layout: bindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: projBuf } },
+        { binding: 1, resource: { buffer: partBuf } },
+        { binding: 2, resource: { buffer: entBuf } },
+        { binding: 3, resource: tex.createView() },
+        { binding: 4, resource: samp },
+      ],
+    });
+  }
+
   destroy(): void {
+    this.refractionTexture?.destroy();
     this.particleBuffer?.destroy();
     this.entityBuffer?.destroy();
     this.projectionBuffer?.destroy();
@@ -445,6 +594,10 @@ export class WebGPURenderer implements Renderer {
     this.capacity = 0;
     this.entityScratch = null;
     this.warnedFusionCapacityFallback = false;
+    this.refractionTexture = null;
+    this.refractionSampler = null;
+    this.hasUserTexture = false;
+    this.warnedRefractionCapacityFallback = false;
   }
 
   /**

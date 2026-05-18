@@ -44,6 +44,13 @@ if (typeof globalThis.GPUShaderStage === "undefined") {
     VERTEX: 0x1, FRAGMENT: 0x2, COMPUTE: 0x4,
   };
 }
+if (typeof globalThis.GPUTextureUsage === "undefined") {
+  (globalThis as unknown as { GPUTextureUsage: Record<string, number> }).GPUTextureUsage = {
+    COPY_SRC: 0x01, COPY_DST: 0x02,
+    TEXTURE_BINDING: 0x04, STORAGE_BINDING: 0x08,
+    RENDER_ATTACHMENT: 0x10,
+  };
+}
 
 let savedGpu: PropertyDescriptor | undefined;
 let savedCaptured = false;
@@ -123,6 +130,11 @@ function makeDeviceMock(log: DeviceLog): unknown {
           byteLength: sourceByteLength,
         });
       },
+      // W40: refraction-init paths in WebGPURenderer.init() call writeTexture
+      // for the 1×1 white dummy. The W38 tests don't assert on this, so the
+      // stub is a no-op.
+      writeTexture() {},
+      copyExternalImageToTexture() {},
       submit() {},
       onSubmittedWorkDone: () => Promise.resolve(),
     },
@@ -134,6 +146,11 @@ function makeDeviceMock(log: DeviceLog): unknown {
     // W39 r2 F2: explicit bind-group + pipeline layouts.
     createBindGroupLayout: () => ({}),
     createPipelineLayout: () => ({}),
+    // W40: refraction texture + sampler created in init(). Tests don't assert
+    // on these stubs; the render path needs createView() on the texture so
+    // the bind group's binding 3 resolves.
+    createTexture: () => ({ destroy() {}, createView: () => ({}) }),
+    createSampler: () => ({}),
     createShaderModule: () => ({}),
     createRenderPipeline: () => ({ getBindGroupLayout: () => ({}) }),
     createCommandEncoder: () => ({
@@ -186,6 +203,7 @@ function makeFrame(overrides: Partial<RenderFrame> = {}): RenderFrame {
     softBodyIds: [0],
     dropletIds: [],
     viewport: vp,
+    reducedMotion: false,
     theme: {
       colorDefault: "rgba(15, 52, 96, 0.75)",
       colorHover: "rgba(233, 69, 96, 0.85)",

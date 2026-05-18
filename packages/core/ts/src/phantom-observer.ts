@@ -47,6 +47,12 @@ export interface PhantomObserverOptions {
   releaseSlot?: (id: number) => void;
   /** Ward 039: metaball fusion radius in CSS px (WebGPU only). Default 0 (no fusion). */
   fusionRadius?: number;
+  /**
+   * Ward 040: refraction config (WebGPU only). Pre-clamped at the public API.
+   * `strength` is finite non-negative; `enabled: false` keeps shader path
+   * dormant. Omitting the option keeps refraction off.
+   */
+  refraction?: { enabled: boolean; strength: number };
 }
 
 /** Ward 043+045: options for spawning a DOM-less free-floating particle. */
@@ -101,6 +107,8 @@ export class PhantomObserver {
   private readonly releaseSlot?: (id: number) => void;
   /** Ward 039: metaball fusion radius (CSS px), 0 = disabled. */
   private readonly fusionRadius: number;
+  /** Ward 040: refraction config (pre-clamped at instance API). */
+  private readonly refraction: { enabled: boolean; strength: number } | undefined;
 
   /**
    * @param capacity - Max number of entities
@@ -115,6 +123,7 @@ export class PhantomObserver {
     this.useComputedTheme = options?.useComputedTheme === true;
     this.releaseSlot = options?.releaseSlot;
     this.fusionRadius = options?.fusionRadius ?? 0;
+    this.refraction = options?.refraction;
 
     // Ward 042 §6: single shared ResizeObserver for border-radius refresh.
     // Lazy: only construct when ResizeObserver is available (browsers + the
@@ -536,8 +545,11 @@ export class PhantomObserver {
    * Buffers and theme/shadow Maps are passed by reference (Decision §1);
    * id arrays are snapshotted (Decision §12) to immunize against any
    * intervening observer mutation between frame build and renderer draw.
+   *
+   * Ward 040: `reducedMotion` flows in from the RAF loop's closure variable
+   * (Rule of Two — the observer/renderer never read `window.matchMedia` directly).
    */
-  buildFrame(viewport: RenderFrameViewport): RenderFrame {
+  buildFrame(viewport: RenderFrameViewport, reducedMotion = false): RenderFrame {
     return {
       entities: this.buffer,
       particles: this.particleBuffer,
@@ -545,12 +557,14 @@ export class PhantomObserver {
       softBodyIds: Array.from(this.idToElement.keys()),
       dropletIds: Array.from(this.dropletIds),
       viewport,
+      reducedMotion,
       theme: {
         colorDefault: this.colorDefault,
         colorHover: this.colorHover,
         themeCache: this.themeCache,
         shadowCache: this.shadowCache,
         fusionRadius: this.fusionRadius,
+        refraction: this.refraction,
       },
     };
   }

@@ -35,6 +35,13 @@ if (typeof globalThis.GPUShaderStage === "undefined") {
     VERTEX: 0x1, FRAGMENT: 0x2, COMPUTE: 0x4,
   };
 }
+if (typeof globalThis.GPUTextureUsage === "undefined") {
+  (globalThis as unknown as { GPUTextureUsage: Record<string, number> }).GPUTextureUsage = {
+    COPY_SRC: 0x01, COPY_DST: 0x02,
+    TEXTURE_BINDING: 0x04, STORAGE_BINDING: 0x08,
+    RENDER_ATTACHMENT: 0x10,
+  };
+}
 if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = class {
     observe() {}
@@ -108,6 +115,9 @@ function makeDeviceMock(log: DeviceLog): unknown {
           byteLength: sourceByteLength,
         });
       },
+      // W40: refraction paths.
+      writeTexture() {},
+      copyExternalImageToTexture() {},
       submit() {},
       onSubmittedWorkDone: () => Promise.resolve(),
     },
@@ -117,6 +127,9 @@ function makeDeviceMock(log: DeviceLog): unknown {
       log.bindGroupsCreated.push(bg);
       return bg;
     },
+    // W40: refraction texture + sampler created in init().
+    createTexture: () => ({ destroy() {}, createView: () => ({}) }),
+    createSampler: () => ({}),
     createShaderModule: () => ({}),
     createRenderPipeline: (desc: { layout?: unknown }) => {
       const p = { tag: `pipeline${pipelineCounter++}`, layoutArg: desc.layout, getBindGroupLayout: () => ({}) };
@@ -184,6 +197,7 @@ function makeFrame(overrides: Partial<RenderFrame> = {}): RenderFrame {
     softBodyIds: [0],
     dropletIds: [],
     viewport: vp,
+    reducedMotion: false,
     theme: defaultTheme(),
     ...overrides,
   };
