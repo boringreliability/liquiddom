@@ -22,38 +22,42 @@ function parseUrlOverrides(): { renderer?: "canvas2d" | "webgpu"; fusionRadius?:
 
 async function main() {
   const overrides = parseUrlOverrides();
-  const requestedRenderer = overrides.renderer ?? "webgpu";
   const fusionRadius = overrides.fusionRadius ?? 60;
 
-  let active: "canvas2d" | "webgpu" = "canvas2d";
-  try {
-    await LiquidDOM.create({
-      capacity: 8,
-      autoObserve: true,
-      renderer: requestedRenderer,
-      theme: { fusionRadius },
-      colorDefault: "rgba(30, 130, 220, 0.85)",
-      colorHover: "rgba(233, 69, 96, 0.9)",
-      physics: { ...presets.jelly, tension: 80, substeps: 2 },
-    });
-    active = requestedRenderer;
-  } catch (err) {
-    if (err instanceof WebGPUUnavailableError) {
+  // W41: the `'auto'` default handles fallback inside core. We only opt out of
+  // it for explicit URL overrides (`?renderer=webgpu` for the hard-fail demo,
+  // `?renderer=canvas2d` to skip probing entirely).
+  const baseConfig = {
+    capacity: 8,
+    autoObserve: true,
+    theme: { fusionRadius },
+    colorDefault: "rgba(30, 130, 220, 0.85)",
+    colorHover: "rgba(233, 69, 96, 0.9)",
+    physics: { ...presets.jelly, tension: 80, substeps: 2 },
+  };
+
+  let instance;
+  if (overrides.renderer === "webgpu") {
+    // Explicit `?renderer=webgpu` keeps the legacy try/catch — proves the
+    // hard-fail path and demonstrates how consumers handle it themselves.
+    try {
+      instance = await LiquidDOM.create({ ...baseConfig, renderer: "webgpu" });
+    } catch (err) {
+      if (!(err instanceof WebGPUUnavailableError)) throw err;
       console.warn("[fusion-demo] WebGPU unavailable, falling back to canvas2d:", err);
-      await LiquidDOM.create({
-        capacity: 8,
-        autoObserve: true,
-        colorDefault: "rgba(30, 130, 220, 0.85)",
-        colorHover: "rgba(233, 69, 96, 0.9)",
-        physics: { ...presets.jelly, tension: 80, substeps: 2 },
-      });
-      active = "canvas2d";
-    } else {
-      throw err;
+      instance = await LiquidDOM.create({ ...baseConfig, renderer: "canvas2d" });
     }
+  } else if (overrides.renderer === "canvas2d") {
+    instance = await LiquidDOM.create({ ...baseConfig, renderer: "canvas2d" });
+  } else {
+    // No URL override → use the new W41 'auto' default.
+    instance = await LiquidDOM.create(baseConfig);
   }
-  setBadge(active);
-  console.log(`[LiquidDOM] Metaball Fusion scene ready — renderer=${active}, fusionRadius=${fusionRadius}`);
+
+  setBadge(instance.activeRenderer);
+  console.log(
+    `[LiquidDOM] Metaball Fusion scene ready — renderer=${instance.activeRenderer}, fusionRadius=${fusionRadius}`,
+  );
 }
 
 main();

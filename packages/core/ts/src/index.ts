@@ -3,10 +3,10 @@ import { FLOATS_PER_ENTITY, PhantomObserver, type SpawnDropletOptions } from "./
 export type { SpawnDropletOptions };
 import { WasmBridge, WasmCore } from "./wasm-bridge";
 import { Canvas2DRenderer } from "./renderers/canvas2d-renderer";
-import { WebGPURenderer } from "./renderers/webgpu-renderer";
+import { WebGPURenderer, WebGPUUnavailableError } from "./renderers/webgpu-renderer";
 import type { Renderer } from "./renderers/renderer";
 
-export { WebGPUUnavailableError } from "./renderers/webgpu-renderer";
+export { WebGPUUnavailableError };
 
 export interface LiquidPhysicsConfig {
   tension?: number;
@@ -60,13 +60,20 @@ export interface LiquidOptions {
    */
   snapDurationMs?: number;
   /**
-   * Ward 037: select the rendering backend. Default `'canvas2d'`. `'webgpu'`
-   * requires a WebGPU-capable browser (Chrome 113+, Edge 113+); `LiquidDOM.create()`
-   * rejects with `WebGPUUnavailableError` if WebGPU is unavailable. The `'auto'`
-   * value with graceful fallback is W41's job — until then, callers handle the
-   * rejection themselves.
+   * Ward 041: select the rendering backend. Default `'auto'` — attempts WebGPU,
+   * silently falls back to Canvas2D on `WebGPUUnavailableError` (paths A-E from
+   * W37). `'webgpu'` forces WebGPU and rejects `LiquidDOM.create()` with
+   * `WebGPUUnavailableError` on any failure; `'canvas2d'` skips the WebGPU
+   * probe entirely. The active backend is exposed via `instance.activeRenderer`.
    */
-  renderer?: "canvas2d" | "webgpu";
+  renderer?: "auto" | "canvas2d" | "webgpu";
+  /**
+   * Ward 041: when `true`, suppress the info-level `console.info` line emitted
+   * by the `'auto'` fallback path. Default `false` — fallback always logs. Set
+   * this on multi-instance pages running on no-WebGPU browsers to avoid log
+   * spam. Has no effect when `renderer` is `'canvas2d'` or `'webgpu'`.
+   */
+  silentFallback?: boolean;
   /**
    * Ward 039: theme configuration that doesn't fit the flat top-level color
    * fields. Currently carries `fusionRadius` (metaball fusion). Future wards
@@ -206,6 +213,14 @@ export interface LiquidDOMInstance {
   readonly pointerX: number;
   readonly pointerY: number;
   readonly preserveBackgrounds: boolean;
+  /**
+   * Ward 041: the active rendering backend. `'webgpu'` when WebGPU was
+   * successfully initialized (either via `renderer: 'webgpu'` or `'auto'` on a
+   * capable browser); `'canvas2d'` otherwise — including the `'auto'` fallback
+   * path. Read-only and stable for the instance's lifetime (mid-session
+   * `device.lost` does NOT switch this in v1; see CONTEXT.md Known Limitations).
+   */
+  readonly activeRenderer: "canvas2d" | "webgpu";
   getBuffer(): Float32Array | null;
   observe(el: HTMLElement, liquidType?: number): number;
   unobserve(el: HTMLElement): void;
@@ -273,6 +288,37 @@ function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
+// Ward 041: shared canvas creation + styling + mount. Used at initial create
+// AND on the auto-fallback path (W37 §17 forbids reusing a WebGPU-polluted
+// canvas for Canvas2D). Returns a naked canvas — backing-store dimensions
+// (`canvas.width`/`canvas.height`) are set later by `resizeCanvas()`. The
+// helper always appends to the DOM; the fallback caller is responsible for
+// `canvas.remove()` on the previous canvas before calling again.
+function mountCanvas(
+  zIndex: number,
+  container: HTMLElement | undefined,
+): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.style.pointerEvents = "none";
+  canvas.style.zIndex = String(zIndex);
+  if (container) {
+    canvas.style.position = "absolute";
+    canvas.style.top = "0";
+    canvas.style.left = "0";
+    canvas.style.width = "100%";
+    canvas.style.height = "100%";
+    container.appendChild(canvas);
+  } else {
+    canvas.style.position = "fixed";
+    canvas.style.top = "0";
+    canvas.style.left = "0";
+    canvas.style.width = "100vw";
+    canvas.style.height = "100vh";
+    document.body.appendChild(canvas);
+  }
+  return canvas;
+}
+
 export class LiquidDOM {
   static async create(options?: LiquidOptions): Promise<LiquidDOMInstance> {
     const capacity = options?.capacity ?? 128;
@@ -288,28 +334,10 @@ export class LiquidDOM {
     validatePhysicsConfig(userPhysics);
     const physics: Required<LiquidPhysicsConfig> = { ...DEFAULT_PHYSICS, ...userPhysics };
 
-    // 1. Create and mount canvas
-    const canvas = document.createElement("canvas");
-    canvas.style.pointerEvents = "none";
-    canvas.style.zIndex = String(canvasZIndex);
-
-    if (isContainerMode) {
-      // Container mode: position absolute inside container
-      canvas.style.position = "absolute";
-      canvas.style.top = "0";
-      canvas.style.left = "0";
-      canvas.style.width = "100%";
-      canvas.style.height = "100%";
-      container.appendChild(canvas);
-    } else {
-      // Fullscreen mode: fixed, covers viewport
-      canvas.style.position = "fixed";
-      canvas.style.top = "0";
-      canvas.style.left = "0";
-      canvas.style.width = "100vw";
-      canvas.style.height = "100vh";
-      document.body.appendChild(canvas);
-    }
+    // 1. Create and mount canvas. `let` so the W41 auto-fallback branch can
+    // reassign after `canvas.remove()` (W37 §17 — WebGPU-polluted canvas
+    // cannot be reused for Canvas2D).
+    let canvas = mountCanvas(canvasZIndex, container);
 
     // 2. Try to initialize WASM + bridge
     let core: WasmCore | null = null;
@@ -509,25 +537,56 @@ export class LiquidDOM {
     // 8. Resize handling — container uses ResizeObserver, fullscreen uses window
     let resizeObserver: ResizeObserver | null = null;
 
-    // W36/W37: Renderer instantiation. `await init` propagates renderer-specific
-    // setup failures (e.g., W37 WebGPU adapter unavailable as WebGPUUnavailableError)
-    // through create()'s returned promise.
-    const renderer: Renderer = options?.renderer === "webgpu"
-      ? new WebGPURenderer()
-      : new Canvas2DRenderer();
-    await renderer.init(canvas);
+    // W36/W37/W41: Renderer instantiation. `'auto'` (the W41 default) attempts
+    // WebGPU then falls back to Canvas2D on `WebGPUUnavailableError`. `'webgpu'`
+    // preserves the W37 contract (hard-fail with `WebGPUUnavailableError`).
+    // `'canvas2d'` skips probing entirely.
+    const requestedRenderer = options?.renderer ?? "auto";
+    let renderer: Renderer;
+    let activeRenderer: "canvas2d" | "webgpu";
+
+    if (requestedRenderer === "canvas2d") {
+      renderer = new Canvas2DRenderer();
+      await renderer.init(canvas);
+      activeRenderer = "canvas2d";
+    } else {
+      try {
+        const gpuRenderer = new WebGPURenderer();
+        await gpuRenderer.init(canvas);
+        renderer = gpuRenderer;
+        activeRenderer = "webgpu";
+      } catch (err) {
+        // Explicit 'webgpu' ask → hard-fail (W37 contract preserved).
+        if (requestedRenderer === "webgpu") throw err;
+        // Non-WebGPU error in 'auto' mode → don't swallow (e.g., TypeError
+        // from a bug must surface).
+        if (!(err instanceof WebGPUUnavailableError)) throw err;
+        // 'auto' fallback: replace polluted canvas (W37 §17) + init Canvas2D.
+        canvas.remove();
+        canvas = mountCanvas(canvasZIndex, container);
+        renderer = new Canvas2DRenderer();
+        await renderer.init(canvas);
+        activeRenderer = "canvas2d";
+        if (!options?.silentFallback) {
+          console.info(
+            `[liquiddom] WebGPU unavailable, falling back to Canvas2D renderer (${err.message})`,
+          );
+        }
+      }
+    }
 
     // Mock-mode detection (W55 invariant): in jsdom canvas.getContext("2d")
     // returns null. The renderer also bails internally, but skipping the RAF
     // loop entirely keeps `observer.sync()` from firing in tests that mock
     // RAF via fake timers but assume the loop is dormant.
     //
-    // W37 fix: when renderer is WebGPU, init() has already acquired the GPU
-    // context successfully (otherwise create() would have rejected before
-    // reaching this line). Don't re-check getContext("2d") — that returns
+    // W37/W41: when activeRenderer is WebGPU, init() has already acquired the
+    // GPU context successfully. Don't re-check getContext("2d") — that returns
     // null on a canvas that already has a webgpu context, which would
-    // dormancy-trap the RAF loop and stop all GPU rendering.
-    const hasCanvasCtx = options?.renderer === "webgpu"
+    // dormancy-trap the RAF loop and stop all GPU rendering. Reads
+    // `activeRenderer` (not the requested option) so the auto-fallback path
+    // sees the post-fallback Canvas2D context correctly.
+    const hasCanvasCtx = activeRenderer === "webgpu"
       ? true
       : canvas.getContext("2d") !== null;
 
@@ -680,6 +739,10 @@ export class LiquidDOM {
 
       get preserveBackgrounds(): boolean {
         return preserveBg;
+      },
+
+      get activeRenderer(): "canvas2d" | "webgpu" {
+        return activeRenderer;
       },
 
       getBuffer(): Float32Array | null {

@@ -12,6 +12,10 @@ completed: "2026-05-16"
 ---
 # Ward 037: WebGPU Pipeline Scaffolding
 
+<!-- W41 changed `LiquidOptions.renderer` default from 'canvas2d' to 'auto'.
+     References to 'canvas2d' as the default below are historical — see ward-041.md. -->
+
+
 ## Revision history
 - **r1** — initial fleshed-out spec.
 - **r2** (this revision) — addresses 8 critical and 6 should-fix findings from 3 parallel reviews (code-reviewer + WebGPU-technical + forward-compat):

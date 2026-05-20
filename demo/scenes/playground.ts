@@ -23,7 +23,9 @@ const DEFAULT_INIT = {
   capacity: 64,
   forceReducedMotion: false,
   preserveBackgrounds: true, // W53: rounded-rect clip now matches border-radius
-  renderer: "canvas2d" as "canvas2d" | "webgpu",
+  // W41: default to 'auto' so the demo picks WebGPU on capable browsers and
+  // falls back to Canvas2D elsewhere without the consumer handling it.
+  renderer: "auto" as "auto" | "canvas2d" | "webgpu",
 };
 
 type PresetName = "custom" | "goo" | "jelly" | "firm";
@@ -32,7 +34,13 @@ interface PlaygroundConfig {
   preset: PresetName;
   physics: Required<LiquidPhysicsConfig>;
   theme: { colorDefault: string; colorHover: string };
-  init: { capacity: number; forceReducedMotion: boolean; preserveBackgrounds: boolean };
+  init: {
+    capacity: number;
+    forceReducedMotion: boolean;
+    preserveBackgrounds: boolean;
+    // W41: 'auto' is the default; URL overrides can force 'canvas2d' or 'webgpu'.
+    renderer: "auto" | "canvas2d" | "webgpu";
+  };
 }
 
 // `playground-state.ts` validates `physics` and `theme` but not `init` (it's
@@ -113,12 +121,38 @@ function debounce<T extends (...args: never[]) => void>(fn: T, ms: number) {
 async function bootstrap() {
   const state = buildInitialState();
 
-  // Ward 037: opt into WebGPU when ?renderer=webgpu is in the URL. If WebGPU
-  // is unavailable, surface the error in the page header instead of crashing
-  // the demo silently. W41 will land a proper 'auto' fallback.
-  let activeRenderer: "canvas2d" | "webgpu" = "canvas2d";
+  // W41: 'auto' is the default; explicit `?renderer=webgpu` keeps the
+  // legacy hard-fail demo path with a hand-rolled catch so the page header
+  // can still surface the fallback. For 'auto' / 'canvas2d' no try/catch
+  // is needed — the core handles it.
   let instance;
-  try {
+  if (state.init.renderer === "webgpu") {
+    try {
+      instance = await LiquidDOM.create({
+        capacity: state.init.capacity,
+        autoObserve: true,
+        forceReducedMotion: state.init.forceReducedMotion,
+        preserveBackgrounds: state.init.preserveBackgrounds,
+        colorDefault: state.theme.colorDefault,
+        colorHover: state.theme.colorHover,
+        physics: state.physics,
+        renderer: "webgpu",
+      });
+    } catch (err) {
+      if (!(err instanceof WebGPUUnavailableError)) throw err;
+      console.warn("[playground] WebGPU unavailable, falling back to canvas2d:", err);
+      instance = await LiquidDOM.create({
+        capacity: state.init.capacity,
+        autoObserve: true,
+        forceReducedMotion: state.init.forceReducedMotion,
+        preserveBackgrounds: state.init.preserveBackgrounds,
+        colorDefault: state.theme.colorDefault,
+        colorHover: state.theme.colorHover,
+        physics: state.physics,
+        renderer: "canvas2d",
+      });
+    }
+  } else {
     instance = await LiquidDOM.create({
       capacity: state.init.capacity,
       autoObserve: true,
@@ -129,27 +163,10 @@ async function bootstrap() {
       physics: state.physics,
       renderer: state.init.renderer,
     });
-    activeRenderer = state.init.renderer;
-  } catch (err) {
-    if (err instanceof WebGPUUnavailableError) {
-      console.warn("[playground] WebGPU unavailable, falling back to canvas2d:", err);
-      instance = await LiquidDOM.create({
-        capacity: state.init.capacity,
-        autoObserve: true,
-        forceReducedMotion: state.init.forceReducedMotion,
-        preserveBackgrounds: state.init.preserveBackgrounds,
-        colorDefault: state.theme.colorDefault,
-        colorHover: state.theme.colorHover,
-        physics: state.physics,
-      });
-      activeRenderer = "canvas2d";
-    } else {
-      throw err;
-    }
   }
-  showRendererBadge(activeRenderer);
+  showRendererBadge(instance.activeRenderer);
   (window as unknown as { __inst: typeof instance }).__inst = instance;
-  (window as unknown as { __activeRenderer: string }).__activeRenderer = activeRenderer;
+  (window as unknown as { __activeRenderer: string }).__activeRenderer = instance.activeRenderer;
 
   // ── Persistence ──
   function save() {
@@ -236,8 +253,10 @@ async function bootstrap() {
       colorDefault: state.theme.colorDefault,
       colorHover: state.theme.colorHover,
       physics: state.physics,
-      // Ward 037: preserve the WebGPU opt-in across theme-driven rebuilds.
-      renderer: activeRenderer,
+      // Ward 037/W41: preserve the active backend across theme-driven rebuilds.
+      // Reads `instance.activeRenderer` at debounce-fire time (single source of
+      // truth — no stale local that could drift if a future change re-runs auto).
+      renderer: instance.activeRenderer,
     }).then((next) => {
       if (mySeq !== rebuildSeq) {
         next.destroy();
