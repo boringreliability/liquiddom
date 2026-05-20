@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-55 of 57 Wards complete · 287 estimated tests · 0 blocked
+56 of 57 Wards complete · 294 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -46,7 +46,7 @@
 | 0382 | SDF Blob Fragment Shader | 4 | ✅ Complete | 2026-05-16 |
 | 0392 | Metaball Fusion Shader | 7 | ✅ Complete | 2026-05-17 |
 | 0403 | Background Refraction Sampling | 10 | ✅ Complete | 2026-05-18 |
-| 041 | Canvas2D Fallback & Feature Detection | 3 | 📋 Planned | - |
+| 0413 | Canvas2D Fallback & Feature Detection | 10 | ✅ Complete | 2026-05-20 |
 | 0425 | Border-Radius Aware Rest Shape | 14 | ✅ Complete | 2026-05-10 |
 | 0432 | FreeDrop Entity Type & Buffer Extension | 8 | ✅ Complete | 2026-05-14 |
 | 0442 | Impulse-Triggered Droplet Spawning | 7 | ✅ Complete | 2026-05-14 |
@@ -65,4 +65,4 @@
 | 057 | Canvas Z-Index Default Fix | 3 | ✅ Complete | 2026-05-16 |
 
 ## Test Summary
-- Estimated total: 287
+- Estimated total: 294

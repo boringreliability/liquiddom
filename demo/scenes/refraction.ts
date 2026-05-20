@@ -77,7 +77,6 @@ async function captureBackdropBitmap(): Promise<ImageBitmap> {
 
 async function main() {
   const overrides = parseUrlOverrides();
-  const requestedRenderer = overrides.renderer ?? "webgpu";
   const strength = overrides.strength ?? 12;
   const refractionEnabled = !overrides.refractionOff;
 
@@ -93,26 +92,30 @@ async function main() {
     },
   };
 
-  let active: "canvas2d" | "webgpu" = "canvas2d";
+  // W41: 'auto' is the new default; explicit URL overrides keep the legacy
+  // hand-rolled fallback for the hard-fail demo path.
   let instance;
-  try {
-    instance = await LiquidDOM.create({ ...baseConfig, renderer: requestedRenderer });
-    active = requestedRenderer;
-  } catch (err) {
-    if (err instanceof WebGPUUnavailableError) {
+  if (overrides.renderer === "webgpu") {
+    try {
+      instance = await LiquidDOM.create({ ...baseConfig, renderer: "webgpu" });
+    } catch (err) {
+      if (!(err instanceof WebGPUUnavailableError)) throw err;
       console.warn("[refraction-demo] WebGPU unavailable, falling back to canvas2d:", err);
-      instance = await LiquidDOM.create(baseConfig);
-      active = "canvas2d";
-    } else {
-      throw err;
+      instance = await LiquidDOM.create({ ...baseConfig, renderer: "canvas2d" });
     }
+  } else if (overrides.renderer === "canvas2d") {
+    instance = await LiquidDOM.create({ ...baseConfig, renderer: "canvas2d" });
+  } else {
+    instance = await LiquidDOM.create(baseConfig);
   }
 
-  setBadge(active);
+  setBadge(instance.activeRenderer);
 
   // Host-supplied texture: paint the visible backdrop to an offscreen canvas,
   // hand the bitmap to the renderer. On window resize, re-snapshot.
-  if (active === "webgpu" && refractionEnabled) {
+  // W41 §10: gate reads `instance.activeRenderer` (post-fallback truth) so
+  // 'auto' that resolved to webgpu correctly enables refraction.
+  if (instance.activeRenderer === "webgpu" && refractionEnabled) {
     const bitmap = await captureBackdropBitmap();
     instance.setBackgroundTexture(bitmap);
 
@@ -127,7 +130,7 @@ async function main() {
   }
 
   console.log(
-    `[LiquidDOM] Refraction scene ready — renderer=${active}, ` +
+    `[LiquidDOM] Refraction scene ready — renderer=${instance.activeRenderer}, ` +
     `refraction=${refractionEnabled ? "on" : "off"}, strength=${strength}`,
   );
 }
