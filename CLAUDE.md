@@ -204,6 +204,3 @@ This repo is governed by `.wdd/` — `PROJECT.md`, `PROGRESS.md`, `CONTEXT.md`, 
 - Rust tests are colocated with the module under `#[cfg(test)] mod tests` in `src/*.rs`.
 - Vitest uses `jsdom`. Mocks for `pkg/liquiddom.js` are required because WASM does not load under jsdom — the codebase falls back to a "mock mode" if WASM `import` fails. Tests should still verify the buffer-write contract is correct.
 
-## Related working directory
-
-The user's environment also includes `/Users/Z6DEC/kmddev/thatcore/neuralDataGrid/apps/demo-app/src/wasm` as an additional working directory. It is unrelated to this project — do not edit it unless the user asks.

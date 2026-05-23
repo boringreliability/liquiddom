@@ -26,8 +26,25 @@
     "liquiddom": "^0.2.0-rc.0",
     "vue": "^3.4.0"
   },
-  "author": "",
+  "author": "Dennis Schmock",
   "license": "MIT",
+  "homepage": "https://github.com/boringreliability/liquiddom/tree/master/packages/vue#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/boringreliability/liquiddom.git",
+    "directory": "packages/vue"
+  },
+  "bugs": {
+    "url": "https://github.com/boringreliability/liquiddom/issues"
+  },
+  "keywords": [
+    "liquiddom",
+    "vue",
+    "vue3",
+    "wasm",
+    "physics",
+    "animation"
+  ],
   "publishConfig": {
     "access": "public"
   }
