@@ -4,3 +4,26 @@ dist/
 .DS_Store
 *.DS_Store
 *.tsbuildinfo
+
+# Local config
+.claude/
+.cursor/
+.vscode/
+.idea/
+
+# Secrets (defense in depth — never commit these)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# Build artifacts
+pkg/
+demo/dist/
+
+# OS / editor noise
+*.swp
+*.swo
+Thumbs.db

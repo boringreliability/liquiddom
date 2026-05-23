@@ -31,8 +31,17 @@
     "liquid",
     "animation"
   ],
-  "author": "",
+  "author": "Dennis Schmock",
   "license": "MIT",
+  "homepage": "https://github.com/boringreliability/liquiddom#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/boringreliability/liquiddom.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/boringreliability/liquiddom/issues"
+  },
   "publishConfig": {
     "access": "public"
   },
