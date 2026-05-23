@@ -304,8 +304,11 @@ describe("Ward 051: Workspace topology + publishable shape", () => {
     expect(cfg.linked).toEqual([]);
     expect(cfg.fixed).toEqual([]);
     const ignore = cfg.ignore as string[];
-    expect(ignore).toContain("liquiddom-workspace");
+    // v0.2.0-rc.0 release fix: `liquiddom-workspace` removed from ignore —
+    // changesets rejects names that aren't actual workspace packages, and the
+    // private root package.json isn't enumerated as one.
     expect(ignore).toContain("liquiddom-react-example");
+    expect(ignore).not.toContain("liquiddom-workspace");
   });
 
   // ── Test #13 — published dist must not emit declaration maps (R7) ──
