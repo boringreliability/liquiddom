@@ -4,6 +4,9 @@
 [![npm](https://img.shields.io/npm/v/liquiddom.svg)](https://www.npmjs.com/package/liquiddom)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+**🪼 Live site:** [liquiddom.vsplat.io](https://liquiddom.vsplat.io/)
+
+
 WASM-driven soft-body physics that animates real DOM elements through a hidden `<canvas>` overlay — without sacrificing accessibility. Rust runs the math, TypeScript orchestrates the DOM. They share a pre-allocated `Float32Array` over the FFI boundary; there is no JSON in the hot path.
 
 > **Status:** `0.2.0-rc.0` — Release Candidate. API is stable but expect a final polish pass before 1.0.

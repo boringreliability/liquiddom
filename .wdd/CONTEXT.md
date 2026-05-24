@@ -1,7 +1,7 @@
 # Context — liquiddom
 
 ## Last Updated
-Ward 41 — 2026-05-20
+Ward 58 — 2026-05-24 (deployed at https://liquiddom.vsplat.io)
 
 ## Current State
 56 wards COMPLETE (latest: Ward 41 — Canvas2D Fallback & Feature Detection). 55 Rust + 247 TS = 302 tests. 0 clippy warnings, 0 TS errors.
