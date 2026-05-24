@@ -1,6 +1,6 @@
 # Public site (`@liquiddom/site`)
 
-Source for [liquiddom.dev](https://boringreliability.github.io/liquiddom/) — landing page + docs. Astro 6 + Tailwind 4.
+Source for [liquiddom.vsplat.io](https://liquiddom.vsplat.io/) — landing page + docs. Astro 6 + Tailwind 4. Deployed via GitHub Pages to a custom subdomain on the `vsplat.io` multi-WASM-project hub.
 
 ## Local development
 
@@ -10,7 +10,7 @@ npm run build            # builds wasm + all workspace packages first (one-time 
 npm run dev -w @liquiddom/site
 ```
 
-Astro dev server on `http://localhost:4321/liquiddom/` (note the `/liquiddom/` base — matches GitHub Pages deployment).
+Astro dev server on `http://localhost:4321/` (custom-domain mode — no base path).
 
 ## Production build
 
@@ -39,26 +39,26 @@ The workflow builds wasm + all packages + the site, then uploads `site/dist/` as
 
 ## ⚠️ One-time GitHub Pages setup
 
-Before the first deploy succeeds, the repo owner must configure GitHub Pages source:
+These are done once per repo:
 
 1. GitHub repo → **Settings** → **Pages**
-2. **Source**: select **GitHub Actions** (not the default "Deploy from branch")
-3. Save
+2. **Source**: **GitHub Actions** (not "Deploy from branch")
+3. **Custom domain**: `liquiddom.vsplat.io`
+4. **Enforce HTTPS**: enabled (becomes available a few minutes after the cert is provisioned)
 
-After that, every push to `master` that touches a watched path triggers a build and deploy.
+The `site/public/CNAME` file (contents: `liquiddom.vsplat.io`) is what tells GitHub Pages to keep the custom-domain setting across deploys — without it, every deploy would reset the domain setting.
 
-## Custom domain (deferred)
+## DNS configuration
 
-When ready to point `liquiddom.dev` (or another domain) at the site:
+At the registrar that hosts the `vsplat.io` zone, a CNAME record points `liquiddom` to GitHub Pages:
 
-1. Add a CNAME record in the DNS provider pointing to `boringreliability.github.io`
-2. In GitHub Pages settings → set custom domain
-3. Update `site/astro.config.mjs`:
-   - Set `site` to the new domain (e.g., `https://liquiddom.dev`)
-   - Set `base: "/"` (or remove it)
-4. Add a `site/public/CNAME` file with the domain on one line
+| Type | Name | Value | TTL |
+|------|------|-------|-----|
+| CNAME | `liquiddom` | `boringreliability.github.io` | 300 (or default) |
 
-Custom domain is out of scope for W58 — documented for future reference.
+Verify propagation with `dig liquiddom.vsplat.io CNAME +short`.
+
+When more projects land on `vsplat.io`, each gets its own CNAME (e.g., `gsplat → boringreliability.github.io` from the gausian splat engine repo). Each subdomain deploys independently.
 
 ## Architecture overview
 
