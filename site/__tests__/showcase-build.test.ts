@@ -16,16 +16,19 @@ const DIST = resolve(SITE_ROOT, "dist");
 let buildSucceeded = false;
 let buildError = "";
 
-describe("Ward 059: showcase build output", () => {
-  beforeAll(() => {
-    try {
-      execFileSync("npm", ["run", "build"], { cwd: SITE_ROOT, stdio: "pipe" });
-      buildSucceeded = true;
-    } catch (e) {
-      buildError = e instanceof Error ? e.message : String(e);
-    }
-  }, 60_000);
+// File-level beforeAll: runs ONCE per worker process, before any describe.
+// Both the W59 showcase tests AND the W60 landing tests below depend on the
+// same dist/ output — sharing the build keeps the test suite fast.
+beforeAll(() => {
+  try {
+    execFileSync("npm", ["run", "build"], { cwd: SITE_ROOT, stdio: "pipe" });
+    buildSucceeded = true;
+  } catch (e) {
+    buildError = e instanceof Error ? e.message : String(e);
+  }
+}, 60_000);
 
+describe("Ward 059: showcase build output", () => {
   it("site_builds_with_showcase_routes", () => {
     expect(buildSucceeded, `build failed: ${buildError}`).toBe(true);
     expect(existsSync(resolve(DIST, "showcases/squish/index.html")), "squish page missing").toBe(true);
@@ -93,4 +96,28 @@ describe("Ward 059: showcase build output", () => {
     expect(fusionText, "fusion missing LiquidDOM.create").toContain("LiquidDOM.create");
     expect(fusionText, "fusion missing fusionRadius").toContain("fusionRadius");
   });
+});
+
+// ── Ward 060 landing-page build assertions ──
+//
+// Lives in this file (not a new one) so we share the W59 `beforeAll` astro
+// build. With `fileParallelism: false` in `site/vitest.config.ts`, multiple
+// test files each running their own `astro build` would serialize but still
+// duplicate the work — costly. Same file → same beforeAll → one build.
+describe("Ward 060: landing build output", () => {
+  it("landing_has_live_hero", () => {
+    expect(buildSucceeded, `build failed: ${buildError}`).toBe(true);
+    const landingPath = resolve(DIST, "index.html");
+    expect(existsSync(landingPath), "landing page missing").toBe(true);
+    const html = readFileSync(landingPath, "utf8");
+    // Marker for the LiveHero component's root element
+    expect(html, "landing missing data-live-hero").toContain("data-live-hero");
+    // Behind-content positioning: -z-10 class or equivalent negative z-index
+    expect(html, "live hero must sit behind hero text (-z-10)").toMatch(/-z-10|z-index:\s*-/);
+  });
+
+  // Note: `landing_has_try_it_now` test was REMOVED in W60 r3 (post-gold-vision).
+  // Two simultaneous `LiquidDOM` instances on the landing trigger a wasm-bindgen
+  // recursion panic from the Rust core. TryItNow disabled until the multi-instance
+  // bug is fixed (W61). Re-introduce this test when TryItNow is re-enabled.
 });

@@ -1,0 +1,51 @@
+---
+// Ward 060: live LiquidDOM hero background.
+//
+// Renders absolutely behind the hero text. Under `prefers-reduced-motion`,
+// only the CSS gradient is visible (no JS layer, no LiquidDOM instance).
+// Otherwise the inline script mounts 6 FreeDrop droplets that drift downward
+// under gentle gravity and respawn at the top when culled.
+//
+// Static markup carries the `-z-10` class so the build-time test can verify
+// the layer ordering without inspecting computed styles.
+---
+
+<div data-live-hero class="absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
+  <!-- CSS gradient: the reduced-motion fallback AND the visible background
+       layer underneath the liquid paint. -->
+  <div
+    class="absolute inset-0"
+    style="background: radial-gradient(80% 60% at 20% 0%, oklch(0.82 0.18 240 / 0.32), transparent 60%), radial-gradient(70% 70% at 100% 20%, oklch(0.68 0.22 25 / 0.18), transparent 55%), radial-gradient(60% 60% at 50% 100%, oklch(0.51 0.16 250 / 0.12), transparent 60%);"
+  ></div>
+</div>
+
+<script>
+  import { mountLiveHero } from "../lib/live-hero-mount";
+  import { getPreference } from "../lib/renderer-store";
+  import { createHeroBlobs } from "../showcases/hero-blobs";
+
+  let cleanup: (() => void) | null = null;
+
+  async function init() {
+    const root = document.querySelector<HTMLElement>("[data-live-hero]");
+    if (!root) return;
+    try {
+      const handle = await mountLiveHero(root, createHeroBlobs, { getPreference });
+      cleanup = handle.destroy;
+    } catch (err) {
+      // Hero is decorative. Mount failures should not bubble into UX.
+      // The CSS gradient remains visible as the fallback.
+      console.warn("[LiveHero] mount failed (decorative — gradient remains):", err);
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    void init();
+  }
+
+  window.addEventListener("beforeunload", () => {
+    if (cleanup) cleanup();
+  });
+</script>

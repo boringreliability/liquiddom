@@ -1,0 +1,73 @@
+---
+// Ward 060: chrome-less squish widget. Reuses W59's DemoEmbed + createSquishShowcase.
+import DemoEmbed from "./DemoEmbed.astro";
+import squishSrc from "../showcases/squish.ts?raw";
+import { extractSnippet } from "../lib/snippet";
+
+const code = extractSnippet(squishSrc);
+---
+
+<section class="container-page py-16 md:py-24 text-center">
+  <h2 class="text-3xl md:text-4xl font-bold text-[var(--color-ink)]">
+    Try it now
+  </h2>
+  <p class="mt-3 text-[var(--color-ink-muted)] max-w-2xl mx-auto">
+    Hover any button. Click for a shake. The page is using liquiddom right here.
+  </p>
+  <div class="mt-10 max-w-3xl mx-auto try-it-stage">
+    <DemoEmbed title="" demoId="try-it-now" code={code} showChrome={false}>
+      <div class="flex flex-wrap gap-4 items-center justify-center">
+        <button data-liquid type="button">Click me</button>
+        <button data-liquid type="button">Try me</button>
+        <button data-liquid type="button">And me</button>
+      </div>
+    </DemoEmbed>
+  </div>
+</section>
+
+<script>
+  import { wireDemoEmbed } from "../lib/demo-embed-runtime";
+  import { createSquishShowcase } from "../showcases/squish";
+
+  function init() {
+    const root = document.querySelector<HTMLElement>('[data-demo-embed="try-it-now"]');
+    if (root) {
+      wireDemoEmbed(root, createSquishShowcase).catch((err) => {
+        console.error("[try-it-now] mount failed:", err);
+      });
+    }
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+</script>
+
+<style>
+  /* Same W59 transparent-bg pattern: DOM provides layout + text only,
+     liquiddom paints the colored shape. Without these resets the CSS
+     background of the button stacks UNDER the liquid paint and you get
+     a "double layer" look (W59 lesson — see /showcases/squish/). */
+  .try-it-stage :global(button[data-liquid]) {
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 0.75rem 1.5rem;
+    color: white;
+    font-weight: 600;
+    cursor: grab;
+    -webkit-user-select: none;
+    user-select: none;
+    position: relative;
+    z-index: 1;
+    border-radius: 9999px;
+  }
+  .try-it-stage :global(button[data-liquid]:active) {
+    cursor: grabbing;
+  }
+  .try-it-stage :global(button[data-liquid]:focus-visible) {
+    outline: 2px solid var(--color-liquid-primary);
+    outline-offset: 4px;
+  }
+</style>

@@ -14,10 +14,12 @@ Build a unified public site that doubles as landing page AND documentation, with
 | Ward | Name | Status |
 |------|------|--------|
 | 58 | Site Foundation: Astro + Landing Skeleton + Renderer Toggle + Deploy Workflow | complete |
-| 59 | DemoEmbed + 2 Showcases (squish, fusion) + Snippet Canary + Toggle Indicator | planned |
-| 60 | Live Hero + Try-it-now + getting-started framework tabs (landing UX layer) | planned |
-| 61 | Demo Migration: remaining 6 scenes → Astro islands; delete `demo/` | planned |
-| 62 | Polish: API reference autogen + search + dark mode + SEO | planned |
+| 59 | DemoEmbed + 2 Showcases (squish, fusion) + Snippet Canary + Toggle Indicator | complete |
+| 60 | Live Hero (Canvas2D-correct, WebGPU FreeDrop AABB bug + TryItNow disabled — both deferred to W61) | planned |
+| **61** | **Core renderer bug fixes: multi-instance recursion + WebGPU FreeDrop SDF branch (publishes `0.2.0-rc.1`)** | planned |
+| 62 | Re-enable Try-it-now widget + framework tabs in getting-started | planned |
+| 63 | Demo Migration: remaining 6 scenes → Astro islands; delete `demo/` | planned |
+| 64 | Polish: API reference autogen + search + dark mode + SEO + `<LiquidElement>` auto-CSS-resets | planned |
 
 ## Integration Points
 - **Epic 10 (WebGPU Rendering):** the renderer-toggle leans on W41's `'auto'` default and `instance.activeRenderer` getter.
