@@ -1,0 +1,39 @@
+---
+import RendererToggle from "./RendererToggle.astro";
+
+const base = import.meta.env.BASE_URL;
+---
+
+<header class="sticky top-0 z-40 border-b border-[var(--color-border)] bg-[var(--color-surface)]/85 backdrop-blur-md">
+  <div class="container-page flex items-center justify-between gap-6 py-4">
+    <a href={base} class="flex items-center gap-2 text-lg font-semibold text-[var(--color-ink)]">
+      <!-- Brand mark: stylized droplet -->
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="brandGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="var(--color-liquid-glow)" />
+            <stop offset="100%" stop-color="var(--color-liquid-primary)" />
+          </linearGradient>
+        </defs>
+        <path
+          d="M14 3 C 14 3, 23 13, 23 18 A 9 9 0 1 1 5 18 C 5 13, 14 3, 14 3 Z"
+          fill="url(#brandGrad)"
+        />
+      </svg>
+      <span>liquiddom</span>
+    </a>
+
+    <nav class="hidden md:flex items-center gap-6 text-sm font-medium text-[var(--color-ink-muted)]">
+      <a href={`${base}docs/`} class="hover:text-[var(--color-ink)] transition-colors">Docs</a>
+      <a href={`${base}docs/getting-started/`} class="hover:text-[var(--color-ink)] transition-colors">Get started</a>
+      <a
+        href="https://github.com/boringreliability/liquiddom"
+        class="hover:text-[var(--color-ink)] transition-colors"
+        target="_blank"
+        rel="noopener noreferrer"
+      >GitHub</a>
+    </nav>
+
+    <RendererToggle />
+  </div>
+</header>

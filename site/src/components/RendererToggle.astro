@@ -1,0 +1,101 @@
+---
+// Ward 058: 3-button segmented control for the renderer preference.
+// Subscribes to renderer-store changes so external setPreference() calls keep
+// the UI in sync. Keyboard nav + ARIA per WAI-ARIA radiogroup pattern.
+---
+
+<div
+  role="radiogroup"
+  aria-label="Renderer backend"
+  data-renderer-toggle="root"
+  class="inline-flex items-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-0.5 text-sm font-medium"
+>
+  <button
+    type="button"
+    role="radio"
+    data-pref="auto"
+    aria-checked="true"
+    tabindex="0"
+    class="rounded-full px-3 py-1 transition-colors cursor-pointer aria-checked:bg-[var(--color-liquid-primary)] aria-checked:text-white text-[var(--color-ink-muted)]"
+  >Auto</button>
+  <button
+    type="button"
+    role="radio"
+    data-pref="webgpu"
+    aria-checked="false"
+    tabindex="-1"
+    class="rounded-full px-3 py-1 transition-colors cursor-pointer aria-checked:bg-[var(--color-liquid-primary)] aria-checked:text-white text-[var(--color-ink-muted)]"
+  >WebGPU</button>
+  <button
+    type="button"
+    role="radio"
+    data-pref="canvas2d"
+    aria-checked="false"
+    tabindex="-1"
+    class="rounded-full px-3 py-1 transition-colors cursor-pointer aria-checked:bg-[var(--color-liquid-primary)] aria-checked:text-white text-[var(--color-ink-muted)]"
+  >Canvas2D</button>
+</div>
+
+<script>
+  import { getPreference, setPreference, subscribePreference, type RendererPreference } from "../lib/renderer-store";
+
+  const roots = document.querySelectorAll<HTMLElement>('[data-renderer-toggle="root"]');
+
+  for (const root of Array.from(roots)) {
+    const buttons = Array.from(root.querySelectorAll<HTMLButtonElement>('button[role="radio"]'));
+
+    function reflect(pref: RendererPreference): void {
+      for (const btn of buttons) {
+        const active = btn.dataset.pref === pref;
+        btn.setAttribute("aria-checked", active ? "true" : "false");
+        btn.tabIndex = active ? 0 : -1;
+      }
+    }
+
+    // Initial state from localStorage
+    reflect(getPreference());
+
+    // Click: write to store; the store dispatches the change event
+    for (const btn of buttons) {
+      btn.addEventListener("click", () => {
+        const pref = btn.dataset.pref as RendererPreference;
+        setPreference(pref);
+        btn.focus();
+      });
+    }
+
+    // Keyboard nav: arrow keys cycle, Home/End jump to ends
+    root.addEventListener("keydown", (e: KeyboardEvent) => {
+      const currentIndex = buttons.findIndex((b) => b.getAttribute("aria-checked") === "true");
+      let nextIndex = currentIndex;
+      switch (e.key) {
+        case "ArrowRight":
+        case "ArrowDown":
+          nextIndex = (currentIndex + 1) % buttons.length;
+          break;
+        case "ArrowLeft":
+        case "ArrowUp":
+          nextIndex = (currentIndex - 1 + buttons.length) % buttons.length;
+          break;
+        case "Home":
+          nextIndex = 0;
+          break;
+        case "End":
+          nextIndex = buttons.length - 1;
+          break;
+        default:
+          return;
+      }
+      e.preventDefault();
+      const nextBtn = buttons[nextIndex];
+      if (nextBtn) {
+        const pref = nextBtn.dataset.pref as RendererPreference;
+        setPreference(pref);
+        nextBtn.focus();
+      }
+    });
+
+    // Subscribe so external setPreference() callers (future demo islands) keep us in sync
+    subscribePreference((pref) => reflect(pref));
+  }
+</script>

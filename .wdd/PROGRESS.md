@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-56 of 57 Wards complete · 294 estimated tests · 0 blocked
+57 of 58 Wards complete · 305 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -63,6 +63,7 @@
 | 0552 | Smooth Scroll-Snap Interpolation (+ W26 implementation fix) | 11 | ✅ Complete | 2026-05-15 |
 | 0562 | FreeDrop Canvas Rendering | 6 | ✅ Complete | 2026-05-14 |
 | 057 | Canvas Z-Index Default Fix | 3 | ✅ Complete | 2026-05-16 |
+| 0582 | Site Foundation: Astro + Landing Skeleton + Renderer Toggle + Deploy Workflow | 11 | ✅ Complete | 2026-05-24 |
 
 ## Test Summary
-- Estimated total: 294
+- Estimated total: 305

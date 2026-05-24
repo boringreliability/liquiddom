@@ -1,0 +1,71 @@
+name: Deploy site
+
+# Ward 058: build + deploy the @liquiddom/site Astro site to GitHub Pages.
+# Triggers only on push to master (no PR — avoids burning Actions minutes).
+# No untrusted github.event inputs are interpolated into run: blocks.
+on:
+  push:
+    branches: [master]
+    paths:
+      - "site/**"
+      - "packages/**"
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy-site.yml"
+      # Note: pkg/ is intentionally NOT here — it's gitignored (wasm-pack
+      # output), so it would never match a path filter anyway. Cargo source
+      # changes in src/** + Cargo.lock are the real WASM-rebuild trigger.
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build + deploy
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm deps
+        run: npm ci
+
+      - name: Build wasm and all packages
+        run: npm run build
+
+      - name: Build site workspace @liquiddom/site
+        run: npm run build -w @liquiddom/site
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

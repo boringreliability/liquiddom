@@ -5,7 +5,8 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "examples/*"
+    "examples/*",
+    "site"
   ],
   "scripts": {
     "build:wasm": "wasm-pack build --target web --out-dir pkg",
@@ -19,6 +20,11 @@
     "changeset": "changeset",
     "version": "changeset version",
     "release": "npm run build && npx changeset publish"
+  },
+  "overrides": {
+    "@liquiddom/site": {
+      "vite": "^7.3.3"
+    }
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.0",

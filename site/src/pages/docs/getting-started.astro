@@ -1,0 +1,86 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+
+const base = import.meta.env.BASE_URL;
+---
+
+<BaseLayout title="Getting Started — liquiddom" description="Install liquiddom and animate your first DOM element.">
+  <div class="container-page py-16 md:py-20 max-w-3xl">
+    <nav class="text-sm mb-4">
+      <a href={`${base}docs/`} class="text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]">← Documentation</a>
+    </nav>
+    <span class="pill mb-3">Getting Started</span>
+    <h1 class="text-4xl md:text-5xl font-bold tracking-tight text-[var(--color-ink)]">
+      Getting Started
+    </h1>
+    <p class="mt-4 text-lg text-[var(--color-ink-muted)]">
+      Three steps to your first physical button: install, create an instance,
+      mark an element with <code class="font-mono text-sm">data-liquid</code>.
+    </p>
+
+    <section class="mt-12">
+      <h2 class="text-2xl font-semibold text-[var(--color-ink)]">1. Install</h2>
+      <p class="mt-2 text-[var(--color-ink-muted)]">
+        Choose just the core, or also install the React / Vue adapter if your
+        app uses one. The adapters share a single WASM instance via peer-deps.
+      </p>
+      <div class="mt-4 rounded-xl bg-[var(--color-ink)] text-[var(--color-surface)] p-5 font-mono text-sm overflow-x-auto">
+        <pre><code># Core only
+npm install liquiddom
+
+# With React adapter
+npm install liquiddom @liquiddom/react
+
+# With Vue adapter
+npm install liquiddom @liquiddom/vue</code></pre>
+      </div>
+    </section>
+
+    <section class="mt-12">
+      <h2 class="text-2xl font-semibold text-[var(--color-ink)]">2. Create an instance</h2>
+      <p class="mt-2 text-[var(--color-ink-muted)]">
+        Vanilla TypeScript is the canonical surface — the framework adapters
+        wrap this same API.
+      </p>
+      <div class="mt-4 rounded-xl bg-[var(--color-ink)] text-[var(--color-surface)] p-5 font-mono text-sm overflow-x-auto">
+        <pre><code>import &#123; LiquidDOM &#125; from "liquiddom";
+
+const liquid = await LiquidDOM.create(&#123;
+  capacity: 64,         // max simultaneously observed elements
+  autoObserve: true,    // picks up every [data-liquid] on the page
+  // renderer defaults to 'auto' — WebGPU with Canvas2D fallback
+&#125;);</code></pre>
+      </div>
+    </section>
+
+    <section class="mt-12">
+      <h2 class="text-2xl font-semibold text-[var(--color-ink)]">3. Mark elements with <code class="font-mono text-base">data-liquid</code></h2>
+      <p class="mt-2 text-[var(--color-ink-muted)]">
+        Any HTML element. The DOM stays accessible — only the visual painting
+        is augmented by the physics overlay.
+      </p>
+      <div class="mt-4 rounded-xl bg-[var(--color-ink)] text-[var(--color-surface)] p-5 font-mono text-sm overflow-x-auto">
+        <pre><code>&lt;button data-liquid&gt;I am physically squishy&lt;/button&gt;
+&lt;a href="#" data-liquid&gt;So am I&lt;/a&gt;
+&lt;div data-liquid class="card"&gt;Even non-interactive elements&lt;/div&gt;</code></pre>
+      </div>
+      <p class="mt-3 text-sm text-[var(--color-ink-muted)]">
+        That's it. The button reacts to pointer, scroll, focus, and viewport
+        changes. The underlying <code class="font-mono text-xs">&lt;button&gt;</code>
+        remains a plain accessible DOM node.
+      </p>
+    </section>
+
+    <section class="mt-16 p-6 rounded-2xl bg-[var(--color-liquid-primary)]/5 border border-[var(--color-liquid-primary)]/20">
+      <h3 class="text-base font-semibold text-[var(--color-ink)]">Next: Core Concepts</h3>
+      <p class="mt-2 text-sm text-[var(--color-ink-muted)]">
+        Understand the Rule of Two, the flat-buffer FFI contract, and the
+        liquid_type dispatch — the architectural choices that keep liquiddom
+        small, fast, and accessible.
+      </p>
+      <a href={`${base}docs/core-concepts/`} class="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-[var(--color-liquid-primary)] hover:text-[var(--color-liquid-deep)] transition-colors">
+        Read Core Concepts →
+      </a>
+    </section>
+  </div>
+</BaseLayout>

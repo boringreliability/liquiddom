@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+/* Ward 058: design tokens. oklch-based for perceptual uniformity. */
+@theme {
+  /* Brand palette — distinct enough to feel "physical fluid", not generic SaaS. */
+  --color-liquid-deep: oklch(0.28 0.12 252);       /* deep cool indigo */
+  --color-liquid-primary: oklch(0.51 0.16 250);    /* primary blue */
+  --color-liquid-accent: oklch(0.68 0.22 25);      /* coral hover */
+  --color-liquid-glow: oklch(0.82 0.18 240);       /* hero glow */
+
+  /* Surfaces */
+  --color-surface: oklch(0.99 0.005 250);          /* near-white background */
+  --color-surface-muted: oklch(0.95 0.008 250);    /* card backgrounds */
+  --color-surface-strong: oklch(0.92 0.013 250);   /* code blocks */
+  --color-border: oklch(0.88 0.018 250);
+
+  /* Ink */
+  --color-ink: oklch(0.21 0.015 250);              /* near-black text */
+  --color-ink-muted: oklch(0.48 0.018 250);        /* secondary text */
+
+  /* Typography */
+  --font-display: ui-sans-serif, system-ui, -apple-system, "Inter", "Segoe UI", sans-serif;
+  --font-body: ui-sans-serif, system-ui, -apple-system, "Inter", "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", "Menlo", "Monaco", "Cascadia Code", monospace;
+}
+
+/* Base resets + global styles */
+@layer base {
+  html {
+    font-family: var(--font-body);
+    color: var(--color-ink);
+    background: var(--color-surface);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  main {
+    flex: 1;
+  }
+
+  /* Focus ring — visible on keyboard nav, hidden on mouse */
+  :focus-visible {
+    outline: 2px solid var(--color-liquid-primary);
+    outline-offset: 2px;
+    border-radius: 0.25rem;
+  }
+
+  /* Honor reduced-motion */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* Reusable component primitives via @utility (Tailwind 4) */
+@utility container-page {
+  width: 100%;
+  max-width: 72rem; /* 1152px */
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+}
+
+@utility pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  background: var(--color-surface-strong);
+  color: var(--color-ink-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.025em;
+}

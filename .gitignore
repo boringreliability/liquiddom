@@ -22,6 +22,13 @@ dist/
 # Build artifacts
 pkg/
 demo/dist/
+site/dist/
+site/.astro/
+
+# Verification artifacts (screenshots + browser cache from gold-phase smoke testing)
+.playwright-mcp/
+w58-*.png
+*.screenshot.png
 
 # OS / editor noise
 *.swp
