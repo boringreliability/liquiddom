@@ -1,0 +1,120 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import DemoEmbed from "../../components/DemoEmbed.astro";
+import squishSrc from "../../showcases/squish.ts?raw";
+import { extractSnippet } from "../../lib/snippet";
+
+const base = import.meta.env.BASE_URL;
+const code = extractSnippet(squishSrc);
+// The factory itself is imported by the page-level `<script>` below — that
+// import is what Vite bundles into the client chunk. The frontmatter only
+// needs the `?raw` source string + extractSnippet for build-time Shiki render.
+---
+
+<BaseLayout
+  title="Squish showcase — liquiddom"
+  description="Three buttons. Hover squishes, click shakes. WASM-driven soft-body physics on real DOM elements."
+>
+  <div class="container-page py-12 md:py-16 max-w-5xl">
+    <nav class="text-sm mb-4">
+      <a href={`${base}docs/`} class="text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]">← Documentation</a>
+    </nav>
+    <span class="pill mb-3">Showcase</span>
+    <h1 class="text-3xl md:text-5xl font-bold tracking-tight text-[var(--color-ink)]">
+      Squish
+    </h1>
+    <p class="mt-4 text-lg text-[var(--color-ink-muted)] max-w-2xl">
+      Each button below is a real <code class="font-mono text-sm">&lt;button&gt;</code>.
+      Hover it to see the soft-body squish toward your cursor; click to fire
+      <code class="font-mono text-sm">impulse()</code> for a brief shake.
+    </p>
+
+    <div class="mt-10">
+      <DemoEmbed title="Squish demo" demoId="squish" code={code}>
+        <!-- The buttons have NO css background — liquiddom paints the soft-body
+             colored shape underneath, and the button text renders on top. This
+             is the actual liquiddom illusion (see dragable-cards reference).
+             A double layer of "css bg + liquiddom paint" looks dumb. -->
+        <div class="flex flex-wrap gap-4 items-center justify-center liquid-stage">
+          <button data-liquid type="button">Click me</button>
+          <button data-liquid type="button">And me</button>
+          <button data-liquid type="button">Me too</button>
+        </div>
+
+        <Fragment slot="explain">
+          <p>
+            <strong>autoObserve</strong> picks up every
+            <code class="font-mono text-xs">[data-liquid]</code> element on
+            mount. The buttons remain accessible DOM nodes — the canvas
+            overlay only paints the physics.
+          </p>
+          <p class="mt-2">
+            On click, <code class="font-mono text-xs">impulse()</code> writes
+            into slots 6/7 of the shared buffer; Rust reads them next tick
+            and applies a brief decaying velocity to the soft-body.
+          </p>
+        </Fragment>
+      </DemoEmbed>
+    </div>
+
+    <aside class="mt-10 p-6 rounded-2xl bg-[var(--color-liquid-primary)]/5 border border-[var(--color-liquid-primary)]/20">
+      <h3 class="text-base font-semibold text-[var(--color-ink)]">See also</h3>
+      <p class="mt-2 text-sm text-[var(--color-ink-muted)]">
+        <a href={`${base}showcases/fusion/`} class="text-[var(--color-liquid-primary)] underline hover:text-[var(--color-liquid-deep)]">Fusion showcase</a> — five blobs that visibly merge on WebGPU but stay distinct on Canvas2D. The renderer toggle's killer demo.
+      </p>
+    </aside>
+  </div>
+</BaseLayout>
+
+<script>
+  import { wireDemoEmbed } from "../../lib/demo-embed-runtime";
+  import { createSquishShowcase } from "../../showcases/squish";
+
+  // Defer until DOM ready so the demo stage element exists in the tree.
+  function init() {
+    const root = document.querySelector<HTMLElement>('[data-demo-embed="squish"]');
+    if (root) {
+      wireDemoEmbed(root, createSquishShowcase).catch((err) => {
+        console.error("[squish] mount failed:", err);
+      });
+    }
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+</script>
+
+<style>
+  /* The classic liquiddom illusion: DOM contributes layout + text only.
+     Background = liquiddom's painted soft-body. Without these resets the
+     button's own CSS background renders UNDER the soft-body and you see
+     a double-layer "DOM rect + blob on top" instead of the seamless
+     "this thing IS the blob" effect.
+
+     `:global` is needed because the slot content lives inside DemoEmbed's
+     scope, but the buttons are part of THIS page's astro template — Astro
+     still scopes the styles to this file's components, so an unscoped
+     selector hits everything in the page including header-toggle buttons.
+     Scope tightly via `.liquid-stage`. */
+  .liquid-stage :global(button[data-liquid]) {
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 0.75rem 1.5rem;
+    color: white;
+    font-weight: 600;
+    cursor: grab;
+    -webkit-user-select: none;
+    user-select: none;
+    position: relative;
+    z-index: 1;
+    /* border-radius is what liquiddom reads via getComputedStyle to shape
+       the soft-body. Keep this; remove the css background only. */
+    border-radius: 9999px;
+  }
+  .liquid-stage :global(button[data-liquid]:active) {
+    cursor: grabbing;
+  }
+</style>

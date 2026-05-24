@@ -957,6 +957,12 @@ describe("Transparent Background Compatibility", () => {
 });
 
 // ── Ward 030: Dragable Interaction Primitive ──
+//
+// W59 bug-fix: drag-mode is OPT-IN via `observe(el, 3)` (Dragged type).
+// Elements observed without a liquidType (or with any non-3 type) must
+// NOT have their pointerdown hijacked into drag-mode — the W59 squish
+// showcase exposed a regression where every `[data-liquid]` click pulled
+// the element out of layout flow via `position: fixed`.
 
 describe("Dragable Interaction", () => {
   beforeEach(() => {
@@ -965,48 +971,37 @@ describe("Dragable Interaction", () => {
     }
   });
 
-  it("pointerdown moves element to fixed position", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-
+  function makeDraggable(): HTMLDivElement {
     const el = document.createElement("div");
     el.getBoundingClientRect = () => ({
       x: 100, y: 100, width: 200, height: 100,
       top: 100, left: 100, right: 300, bottom: 200,
-      toJSON: () => {},
-    });
+      toJSON: () => ({}),
+    } as DOMRect);
     el.setPointerCapture = () => {};
     el.releasePointerCapture = () => {};
     document.body.appendChild(el);
+    return el;
+  }
 
-    instance.observe(el);
+  it("pointerdown moves element to fixed position when observed as Dragged (liquid_type=3)", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
+    const el = makeDraggable();
+    instance.observe(el, 3); // opt into Dragged
 
-    // Simulate pointerdown
     el.dispatchEvent(new PointerEvent("pointerdown", {
       pointerId: 1, clientX: 150, clientY: 130,
     }));
 
-    // Element should be positioned fixed for dragging
     expect(el.style.position).toBe("fixed");
-
     instance.destroy();
   });
 
   it("pointerup resets element position", async () => {
     const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
+    const el = makeDraggable();
+    instance.observe(el, 3);
 
-    const el = document.createElement("div");
-    el.getBoundingClientRect = () => ({
-      x: 100, y: 100, width: 200, height: 100,
-      top: 100, left: 100, right: 300, bottom: 200,
-      toJSON: () => {},
-    });
-    el.setPointerCapture = () => {};
-    el.releasePointerCapture = () => {};
-    document.body.appendChild(el);
-
-    instance.observe(el);
-
-    // Drag start + end
     el.dispatchEvent(new PointerEvent("pointerdown", {
       pointerId: 1, clientX: 150, clientY: 130,
     }));
@@ -1020,18 +1015,8 @@ describe("Dragable Interaction", () => {
 
   it("pointercancel also resets element position", async () => {
     const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-
-    const el = document.createElement("div");
-    el.getBoundingClientRect = () => ({
-      x: 100, y: 100, width: 200, height: 100,
-      top: 100, left: 100, right: 300, bottom: 200,
-      toJSON: () => {},
-    });
-    el.setPointerCapture = () => {};
-    el.releasePointerCapture = () => {};
-    document.body.appendChild(el);
-
-    instance.observe(el);
+    const el = makeDraggable();
+    instance.observe(el, 3);
 
     el.dispatchEvent(new PointerEvent("pointerdown", {
       pointerId: 1, clientX: 150, clientY: 130,
@@ -1040,6 +1025,49 @@ describe("Dragable Interaction", () => {
 
     el.dispatchEvent(new PointerEvent("pointercancel", { pointerId: 1 }));
     expect(el.style.position).toBe("");
+
+    instance.destroy();
+  });
+
+  // ── W59 regression-lock tests ──
+
+  it("pointerdown is a NO-OP on Default-observed element (W59 bugfix)", async () => {
+    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
+    const el = makeDraggable();
+    instance.observe(el); // default liquid_type (no argument)
+
+    el.dispatchEvent(new PointerEvent("pointerdown", {
+      pointerId: 1, clientX: 150, clientY: 130,
+    }));
+
+    // Element must NOT have been hijacked into fixed-position drag mode.
+    expect(el.style.position).toBe("");
+    expect(el.style.left).toBe("");
+    expect(el.style.top).toBe("");
+    instance.destroy();
+  });
+
+  it("re-drag works after pointerup → pointerdown cycle on Dragged element", async () => {
+    // Regression-lock: a previous fix attempt read liquid_type from the
+    // buffer at pointerdown time, but onPointerUp resets the buffer to 0.
+    // The closure-flag approach preserves drag-eligibility across cycles.
+    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
+    const el = makeDraggable();
+    instance.observe(el, 3);
+
+    // First drag cycle
+    el.dispatchEvent(new PointerEvent("pointerdown", {
+      pointerId: 1, clientX: 150, clientY: 130,
+    }));
+    expect(el.style.position).toBe("fixed");
+    el.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1 }));
+    expect(el.style.position).toBe("");
+
+    // Second drag cycle — must still enter drag-mode
+    el.dispatchEvent(new PointerEvent("pointerdown", {
+      pointerId: 2, clientX: 150, clientY: 130,
+    }));
+    expect(el.style.position).toBe("fixed");
 
     instance.destroy();
   });

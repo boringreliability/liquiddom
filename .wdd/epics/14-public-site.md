@@ -13,10 +13,11 @@ Build a unified public site that doubles as landing page AND documentation, with
 ## Wards
 | Ward | Name | Status |
 |------|------|--------|
-| 58 | Site Foundation: Astro + Landing Skeleton + Renderer Toggle + Deploy Workflow | planned |
-| 59 | DemoEmbed + 2 Showcases (squish, fusion) + Live Hero | planned |
-| 60 | Demo Migration: remaining scenes → Astro islands; delete `demo/` | planned |
-| 61 | Polish: API reference autogen + search + dark mode + SEO | planned |
+| 58 | Site Foundation: Astro + Landing Skeleton + Renderer Toggle + Deploy Workflow | complete |
+| 59 | DemoEmbed + 2 Showcases (squish, fusion) + Snippet Canary + Toggle Indicator | planned |
+| 60 | Live Hero + Try-it-now + getting-started framework tabs (landing UX layer) | planned |
+| 61 | Demo Migration: remaining 6 scenes → Astro islands; delete `demo/` | planned |
+| 62 | Polish: API reference autogen + search + dark mode + SEO | planned |
 
 ## Integration Points
 - **Epic 10 (WebGPU Rendering):** the renderer-toggle leans on W41's `'auto'` default and `instance.activeRenderer` getter.

@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-57 of 58 Wards complete · 305 estimated tests · 0 blocked
+58 of 59 Wards complete · 316 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -64,6 +64,7 @@
 | 0562 | FreeDrop Canvas Rendering | 6 | ✅ Complete | 2026-05-14 |
 | 057 | Canvas Z-Index Default Fix | 3 | ✅ Complete | 2026-05-16 |
 | 0582 | Site Foundation: Astro + Landing Skeleton + Renderer Toggle + Deploy Workflow | 11 | ✅ Complete | 2026-05-24 |
+| 0592 | DemoEmbed + 2 Showcases (squish, fusion) + Snippet Canary + Toggle Indicator | 11 | ✅ Complete | 2026-05-24 |
 
 ## Test Summary
-- Estimated total: 305
+- Estimated total: 316

@@ -1,0 +1,96 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import DemoEmbed from "../../components/DemoEmbed.astro";
+import fusionSrc from "../../showcases/fusion.ts?raw";
+import { extractSnippet } from "../../lib/snippet";
+
+const base = import.meta.env.BASE_URL;
+const code = extractSnippet(fusionSrc);
+// Factory imported by the client-side `<script>` below; frontmatter only
+// needs the `?raw` source for build-time Shiki render.
+---
+
+<BaseLayout
+  title="Fusion showcase — liquiddom"
+  description="Five blobs that merge into a metaball on WebGPU. The renderer toggle's killer demo."
+>
+  <div class="container-page py-12 md:py-16 max-w-5xl">
+    <nav class="text-sm mb-4">
+      <a href={`${base}docs/`} class="text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]">← Documentation</a>
+    </nav>
+    <span class="pill mb-3">Showcase</span>
+    <h1 class="text-3xl md:text-5xl font-bold tracking-tight text-[var(--color-ink)]">
+      Metaball Fusion
+    </h1>
+    <p class="mt-4 text-lg text-[var(--color-ink-muted)] max-w-2xl">
+      Five blobs in a tight cluster. With
+      <code class="font-mono text-sm">theme.fusionRadius: 60</code>
+      and WebGPU, they merge into a smooth metaball via SDF smooth-min.
+      Toggle to Canvas2D — the option is ignored and you see five distinct
+      shapes. <strong>This is what WebGPU buys you.</strong>
+    </p>
+
+    <div class="mt-10">
+      <DemoEmbed title="Fusion demo" demoId="fusion" code={code}>
+        <!-- Five colored blobs in a tight cluster. The container is
+             relative-positioned so the blob divs anchor via absolute
+             offsets within the demo-stage area. -->
+        <!-- DOM divs are transparent — only their position, size, and
+             border-radius matter to liquiddom. The colored metaball is the
+             canvas paint. CSS backgrounds would render UNDER the blob and
+             produce a "double layer" look. -->
+        <div class="relative w-full h-[280px] liquid-stage">
+          <div data-liquid class="absolute w-20 h-20 rounded-full" style="top: 40%; left: 30%;"></div>
+          <div data-liquid class="absolute w-20 h-20 rounded-full" style="top: 30%; left: 45%;"></div>
+          <div data-liquid class="absolute w-20 h-20 rounded-full" style="top: 50%; left: 60%;"></div>
+          <div data-liquid class="absolute w-16 h-16 rounded-full" style="top: 25%; left: 25%;"></div>
+          <div data-liquid class="absolute w-16 h-16 rounded-full" style="top: 55%; left: 45%;"></div>
+        </div>
+
+        <Fragment slot="explain">
+          <p>
+            <strong>fusionRadius</strong> activates a WebGPU-only full-screen
+            quad shader that smooth-mins the SDFs of all entities. When two
+            blobs come within ~60 CSS pixels of each other, their boundaries
+            merge into one.
+          </p>
+          <p class="mt-2">
+            Canvas2D ignores the option entirely — the blobs render via the
+            Bezier-spline path with no compositing. Click <strong>Canvas2D</strong>
+            in the header toggle to see the difference live.
+          </p>
+        </Fragment>
+      </DemoEmbed>
+    </div>
+  </div>
+</BaseLayout>
+
+<script>
+  import { wireDemoEmbed } from "../../lib/demo-embed-runtime";
+  import { createFusionShowcase } from "../../showcases/fusion";
+
+  function init() {
+    const root = document.querySelector<HTMLElement>('[data-demo-embed="fusion"]');
+    if (root) {
+      wireDemoEmbed(root, createFusionShowcase).catch((err) => {
+        console.error("[fusion] mount failed:", err);
+      });
+    }
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+</script>
+
+<style>
+  /* Same illusion-preserving pattern as squish.astro: DOM divs are
+     transparent shapes that liquiddom reads for layout + border-radius.
+     The colored metaball is canvas paint, not the underlying div. */
+  .liquid-stage :global([data-liquid]) {
+    background: transparent;
+    border: none;
+    outline: none;
+  }
+</style>

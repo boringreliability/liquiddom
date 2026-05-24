@@ -222,7 +222,20 @@ export class PhantomObserver {
     const onFocus = () => this.focusState.set(el, true);
     const onBlur = () => this.focusState.set(el, false);
 
-    // Drag listeners — move DOM element with pointer, blob follows via sync()
+    // Drag listeners — move DOM element with pointer, blob follows via sync().
+    //
+    // Drag-mode is OPT-IN via `liquid_type=3` (Dragged). Captured ONCE at
+    // observe-time via the closure flag below. Any element observed with
+    // a different type — Default(0), Tear(1), Magnet(2), Shake(4), Tween(5),
+    // or no liquidType argument — gets pointer listeners that no-op. This
+    // prevents the W30 regression where every click on a `[data-liquid]`
+    // element hijacked the DOM via `position: fixed` + style mutations.
+    //
+    // Using a closure flag (not the buffer state) is important: the buffer
+    // is volatile — `onPointerUp` resets it to 0 and `impulse()` writes 4
+    // for Shake. Reading the buffer at pointerdown-time would break the
+    // legitimate Dragged path after the first drag/release cycle.
+    const isDraggable = liquidType === 3;
     let dragStartX = 0;
     let dragStartY = 0;
     let dragOffsetX = 0;
@@ -230,11 +243,13 @@ export class PhantomObserver {
     let dragging = false;
 
     const onPointerDown = (e: Event) => {
+      if (!isDraggable) return;
       const pe = e as PointerEvent;
       const eid = this.elementToId.get(el);
       if (eid === undefined) return;
       dragging = true;
-      // Signal to Rust: skip rigid translation, let springs create squish
+      // Signal to Rust: skip rigid translation, let springs create squish.
+      // The buffer is reset to 0 (Default) in onPointerUp.
       this.buffer[eid * FLOATS_PER_ENTITY + 5] = 3.0; // liquid_type = Dragged
       const rect = el.getBoundingClientRect();
       dragStartX = rect.left;

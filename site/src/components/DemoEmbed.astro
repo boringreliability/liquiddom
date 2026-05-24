@@ -1,0 +1,94 @@
+---
+// Ward 059: shared demo wrapper.
+//
+// Renders the markup only — no embedded script. Each showcase page wires up
+// its own demo via `wireDemoEmbed(root, factory)` from `demo-embed-runtime.ts`.
+// This keeps the component framework-agnostic and lets Vite statically analyze
+// the factory import (avoiding template-literal dynamic-import build failures).
+//
+// Layout:
+//   Desktop:  [demo stage]  [code panel + explanation + reset]
+//   Mobile:   [demo stage]
+//             [code]
+//             [explanation]
+//             [reset]
+import { Code } from "astro:components";
+
+interface Props {
+  title: string;
+  /** Code snippet to display (already extracted from `?raw` source via
+   *  `extractSnippet(...)`). Highlighted with Shiki at build time. */
+  code: string;
+  /** Shiki language. Defaults to `ts`. */
+  language?: "ts" | "tsx" | "html";
+  /** Hide code panel + explanation + powered-by badge.
+   *  Reserved for W60's TryItNow widget. Default true (full chrome). */
+  showChrome?: boolean;
+  /** Unique id used to find this embed from a page-level script. */
+  demoId: string;
+}
+
+const {
+  title,
+  code,
+  language = "ts",
+  showChrome = true,
+  demoId,
+} = Astro.props;
+---
+
+<section
+  class="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] overflow-hidden"
+  data-demo-embed={demoId}
+  data-show-chrome={showChrome ? "true" : "false"}
+>
+  <header class="flex items-center justify-between gap-4 px-6 py-4 border-b border-[var(--color-border)]">
+    <h3 class="text-base font-semibold text-[var(--color-ink)]">{title}</h3>
+    {showChrome && (
+      <span class="pill" aria-label="Active renderer">
+        Powered by
+        <span data-powered-by class="font-mono ml-1 text-[var(--color-liquid-primary)]">—</span>
+      </span>
+    )}
+  </header>
+
+  <div class={showChrome ? "grid md:grid-cols-2" : ""}>
+    <!-- Demo stage. Showcase factory mounts its canvas in here.
+         min-h ensures the empty area has shape before init. -->
+    <div
+      class="relative min-h-[280px] bg-[var(--color-surface)] flex items-center justify-center p-8"
+      data-demo-stage
+    >
+      <slot />
+    </div>
+
+    {showChrome && (
+      <div class="bg-[var(--color-ink)] text-[var(--color-surface)] flex flex-col">
+        <!-- Shiki-highlighted snippet. -->
+        <div class="flex-1 overflow-auto p-4 text-sm">
+          <Code code={code} lang={language} theme="github-dark" />
+        </div>
+
+        <!-- Explanation slot. -->
+        <div class="px-4 py-3 border-t border-white/10 text-sm text-white/80 leading-relaxed">
+          <slot name="explain" />
+        </div>
+
+        <!-- Reset. -->
+        <div class="px-4 py-3 border-t border-white/10 flex justify-end">
+          <button
+            type="button"
+            data-demo-reset
+            class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 12a9 9 0 1 0 3.46-7.09" />
+              <path d="M3 3v6h6" />
+            </svg>
+            Reset demo
+          </button>
+        </div>
+      </div>
+    )}
+  </div>
+</section>

@@ -1,43 +1,57 @@
 ---
 // Ward 058: 3-button segmented control for the renderer preference.
+// W59: extended with a capability indicator below the segments — shows
+// "Active: webgpu/canvas2d" based on what the first mounted demo reports
+// via `liquiddom:renderer-resolved` event.
+//
 // Subscribes to renderer-store changes so external setPreference() calls keep
 // the UI in sync. Keyboard nav + ARIA per WAI-ARIA radiogroup pattern.
 ---
 
-<div
-  role="radiogroup"
-  aria-label="Renderer backend"
-  data-renderer-toggle="root"
-  class="inline-flex items-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-0.5 text-sm font-medium"
->
-  <button
-    type="button"
-    role="radio"
-    data-pref="auto"
-    aria-checked="true"
-    tabindex="0"
-    class="rounded-full px-3 py-1 transition-colors cursor-pointer aria-checked:bg-[var(--color-liquid-primary)] aria-checked:text-white text-[var(--color-ink-muted)]"
-  >Auto</button>
-  <button
-    type="button"
-    role="radio"
-    data-pref="webgpu"
-    aria-checked="false"
-    tabindex="-1"
-    class="rounded-full px-3 py-1 transition-colors cursor-pointer aria-checked:bg-[var(--color-liquid-primary)] aria-checked:text-white text-[var(--color-ink-muted)]"
-  >WebGPU</button>
-  <button
-    type="button"
-    role="radio"
-    data-pref="canvas2d"
-    aria-checked="false"
-    tabindex="-1"
-    class="rounded-full px-3 py-1 transition-colors cursor-pointer aria-checked:bg-[var(--color-liquid-primary)] aria-checked:text-white text-[var(--color-ink-muted)]"
-  >Canvas2D</button>
+<div data-renderer-toggle="root" class="flex flex-col items-end gap-1">
+  <div
+    role="radiogroup"
+    aria-label="Renderer backend"
+    class="inline-flex items-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-0.5 text-sm font-medium"
+  >
+    <button
+      type="button"
+      role="radio"
+      data-pref="auto"
+      aria-checked="true"
+      tabindex="0"
+      class="rounded-full px-3 py-1 transition-colors cursor-pointer aria-checked:bg-[var(--color-liquid-primary)] aria-checked:text-white text-[var(--color-ink-muted)]"
+    >Auto</button>
+    <button
+      type="button"
+      role="radio"
+      data-pref="webgpu"
+      aria-checked="false"
+      tabindex="-1"
+      class="rounded-full px-3 py-1 transition-colors cursor-pointer aria-checked:bg-[var(--color-liquid-primary)] aria-checked:text-white text-[var(--color-ink-muted)]"
+    >WebGPU</button>
+    <button
+      type="button"
+      role="radio"
+      data-pref="canvas2d"
+      aria-checked="false"
+      tabindex="-1"
+      class="rounded-full px-3 py-1 transition-colors cursor-pointer aria-checked:bg-[var(--color-liquid-primary)] aria-checked:text-white text-[var(--color-ink-muted)]"
+    >Canvas2D</button>
+  </div>
+
+  <!-- W59 capability indicator. Hidden initially; populated when the first
+       DemoEmbed reports its instance.activeRenderer via custom event. -->
+  <span
+    data-renderer-active
+    hidden
+    class="text-xs font-mono text-[var(--color-ink-muted)] data-[match=false]:text-[var(--color-liquid-accent)]"
+  ></span>
 </div>
 
 <script>
   import { getPreference, setPreference, subscribePreference, type RendererPreference } from "../lib/renderer-store";
+  import { wireCapabilityIndicator } from "../lib/toggle-indicator";
 
   const roots = document.querySelectorAll<HTMLElement>('[data-renderer-toggle="root"]');
 
@@ -97,5 +111,9 @@
 
     // Subscribe so external setPreference() callers (future demo islands) keep us in sync
     subscribePreference((pref) => reflect(pref));
+
+    // W59: wire the capability indicator. Listens to `liquiddom:renderer-resolved`
+    // dispatched by mounted demos and updates the indicator text accordingly.
+    wireCapabilityIndicator(root, { getCurrentPreference: getPreference });
   }
 </script>
