@@ -1,6 +1,6 @@
 ---
 ward: 39
-revision: 2
+revision: null
 name: "Metaball Fusion Shader"
 epic: "webgpu-rendering"
 status: "complete"

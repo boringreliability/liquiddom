@@ -1,6 +1,6 @@
 ---
 ward: 41
-revision: 3
+revision: null
 name: "Canvas2D Fallback & Feature Detection"
 epic: "webgpu-rendering"
 status: "complete"

@@ -1,6 +1,6 @@
 ---
 ward: 52
-revision: 4
+revision: null
 name: "CSS Computed Background Reflection"
 epic: "theming-polish"
 status: "complete"

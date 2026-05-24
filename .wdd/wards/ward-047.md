@@ -1,6 +1,6 @@
 ---
 ward: 47
-revision: 4
+revision: null
 name: "@liquiddom/react Adapter Package"
 epic: "framework-adapters-dx"
 status: "complete"

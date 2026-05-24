@@ -1,6 +1,6 @@
 ---
 ward: 46
-revision: 2
+revision: null
 name: "Device Orientation Gravity Vector"
 epic: "element-physics-extensions"
 status: "complete"

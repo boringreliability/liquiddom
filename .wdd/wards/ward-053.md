@@ -1,6 +1,6 @@
 ---
 ward: 53
-revision: 3
+revision: null
 name: "Border-Radius Clip in preserveBackgrounds"
 epic: "theming-polish"
 status: "complete"

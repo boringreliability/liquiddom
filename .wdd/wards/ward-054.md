@@ -1,6 +1,6 @@
 ---
 ward: 54
-revision: 2
+revision: null
 name: "box-shadow Compatibility under preserveBackgrounds"
 epic: "theming-polish"
 status: "complete"

@@ -1,6 +1,6 @@
 ---
 ward: 48
-revision: 3
+revision: null
 name: "@liquiddom/vue Adapter Package"
 epic: "framework-adapters-dx"
 status: "complete"

@@ -1,6 +1,6 @@
 ---
 ward: 42
-revision: 5
+revision: null
 name: "Border-Radius Aware Rest Shape"
 epic: "element-physics-extensions"
 status: "complete"

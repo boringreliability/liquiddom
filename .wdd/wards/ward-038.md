@@ -1,6 +1,6 @@
 ---
 ward: 38
-revision: 2
+revision: null
 name: "SDF Blob Fragment Shader"
 epic: "webgpu-rendering"
 status: "complete"

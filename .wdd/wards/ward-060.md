@@ -1,6 +1,6 @@
 ---
 ward: 60
-revision: 3
+revision: null
 name: "Live Hero (Try-it-now cut to W61)"
 epic: "public-site"
 status: "complete"

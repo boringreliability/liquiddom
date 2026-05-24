@@ -1,6 +1,6 @@
 ---
 ward: 55
-revision: 2
+revision: null
 name: "Smooth Scroll-Snap Interpolation (+ W26 implementation fix)"
 epic: "theming-polish"
 status: "complete"

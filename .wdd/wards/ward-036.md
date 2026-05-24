@@ -1,6 +1,6 @@
 ---
 ward: 36
-revision: 2
+revision: null
 name: "Render Abstraction Layer"
 epic: "webgpu-rendering"
 status: "complete"

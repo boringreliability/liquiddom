@@ -1,6 +1,6 @@
 ---
 ward: 40
-revision: 3
+revision: null
 name: "Background Refraction Sampling"
 epic: "webgpu-rendering"
 status: "complete"

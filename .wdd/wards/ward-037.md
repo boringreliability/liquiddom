@@ -1,6 +1,6 @@
 ---
 ward: 37
-revision: 2
+revision: null
 name: "WebGPU Pipeline Scaffolding"
 epic: "webgpu-rendering"
 status: "complete"

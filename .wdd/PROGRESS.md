@@ -41,31 +41,31 @@
 | 033 | Dragable Cards Scene | 1 | ✅ Complete | 2026-04-23 |
 | 034 | Scroll-Responsive Hero Scene | 1 | ✅ Complete | 2026-04-25 |
 | 035 | Demo Hardening, Runtime Truth, and Showcase Polish | 12 | ✅ Complete | 2026-05-10 |
-| 0362 | Render Abstraction Layer | 4 | ✅ Complete | 2026-05-16 |
-| 0372 | WebGPU Pipeline Scaffolding | 7 | ✅ Complete | 2026-05-16 |
-| 0382 | SDF Blob Fragment Shader | 4 | ✅ Complete | 2026-05-16 |
-| 0392 | Metaball Fusion Shader | 7 | ✅ Complete | 2026-05-17 |
-| 0403 | Background Refraction Sampling | 10 | ✅ Complete | 2026-05-18 |
-| 0413 | Canvas2D Fallback & Feature Detection | 10 | ✅ Complete | 2026-05-20 |
-| 0425 | Border-Radius Aware Rest Shape | 14 | ✅ Complete | 2026-05-10 |
-| 0432 | FreeDrop Entity Type & Buffer Extension | 8 | ✅ Complete | 2026-05-14 |
-| 0442 | Impulse-Triggered Droplet Spawning | 7 | ✅ Complete | 2026-05-14 |
-| 0452 | Droplet Culling & Lifetime Management | 10 | ✅ Complete | 2026-05-14 |
-| 0462 | Device Orientation Gravity Vector | 8 | ✅ Complete | 2026-05-15 |
-| 0474 | @liquiddom/react Adapter Package | 9 | ✅ Complete | 2026-05-13 |
-| 0483 | @liquiddom/vue Adapter Package | 9 | ✅ Complete | 2026-05-13 |
-| 0494 | Tweakpane Visual Playground | 7 | ✅ Complete | 2026-05-10 |
+| 036 | Render Abstraction Layer | 4 | ✅ Complete | 2026-05-16 |
+| 037 | WebGPU Pipeline Scaffolding | 7 | ✅ Complete | 2026-05-16 |
+| 038 | SDF Blob Fragment Shader | 4 | ✅ Complete | 2026-05-16 |
+| 039 | Metaball Fusion Shader | 7 | ✅ Complete | 2026-05-17 |
+| 040 | Background Refraction Sampling | 10 | ✅ Complete | 2026-05-18 |
+| 041 | Canvas2D Fallback & Feature Detection | 10 | ✅ Complete | 2026-05-20 |
+| 042 | Border-Radius Aware Rest Shape | 14 | ✅ Complete | 2026-05-10 |
+| 043 | FreeDrop Entity Type & Buffer Extension | 8 | ✅ Complete | 2026-05-14 |
+| 044 | Impulse-Triggered Droplet Spawning | 7 | ✅ Complete | 2026-05-14 |
+| 045 | Droplet Culling & Lifetime Management | 10 | ✅ Complete | 2026-05-14 |
+| 046 | Device Orientation Gravity Vector | 8 | ✅ Complete | 2026-05-15 |
+| 047 | @liquiddom/react Adapter Package | 9 | ✅ Complete | 2026-05-13 |
+| 048 | @liquiddom/vue Adapter Package | 9 | ✅ Complete | 2026-05-13 |
+| 049 | Tweakpane Visual Playground | 7 | ✅ Complete | 2026-05-10 |
 | 050 | Web Worker Offload (Optional) | 4 | 📋 Planned | - |
-| 0512 | NPM Publish Pipeline & Workspace Split | 13 | ✅ Complete | 2026-05-13 |
-| 0524 | CSS Computed Background Reflection | 9 | ✅ Complete | 2026-05-13 |
-| 0533 | Border-Radius Clip in preserveBackgrounds | 4 | ✅ Complete | 2026-05-13 |
-| 0542 | box-shadow Compatibility under preserveBackgrounds | 9 | ✅ Complete | 2026-05-13 |
-| 0552 | Smooth Scroll-Snap Interpolation (+ W26 implementation fix) | 11 | ✅ Complete | 2026-05-15 |
-| 0562 | FreeDrop Canvas Rendering | 6 | ✅ Complete | 2026-05-14 |
+| 051 | NPM Publish Pipeline & Workspace Split | 13 | ✅ Complete | 2026-05-13 |
+| 052 | CSS Computed Background Reflection | 9 | ✅ Complete | 2026-05-13 |
+| 053 | Border-Radius Clip in preserveBackgrounds | 4 | ✅ Complete | 2026-05-13 |
+| 054 | box-shadow Compatibility under preserveBackgrounds | 9 | ✅ Complete | 2026-05-13 |
+| 055 | Smooth Scroll-Snap Interpolation (+ W26 implementation fix) | 11 | ✅ Complete | 2026-05-15 |
+| 056 | FreeDrop Canvas Rendering | 6 | ✅ Complete | 2026-05-14 |
 | 057 | Canvas Z-Index Default Fix | 3 | ✅ Complete | 2026-05-16 |
-| 0582 | Site Foundation: Astro + Landing Skeleton + Renderer Toggle + Deploy Workflow | 11 | ✅ Complete | 2026-05-24 |
-| 0592 | DemoEmbed + 2 Showcases (squish, fusion) + Snippet Canary + Toggle Indicator | 11 | ✅ Complete | 2026-05-24 |
-| 0603 | Live Hero (Try-it-now cut to W61) | 4 | ✅ Complete | 2026-05-24 |
+| 058 | Site Foundation: Astro + Landing Skeleton + Renderer Toggle + Deploy Workflow | 11 | ✅ Complete | 2026-05-24 |
+| 059 | DemoEmbed + 2 Showcases (squish, fusion) + Snippet Canary + Toggle Indicator | 11 | ✅ Complete | 2026-05-24 |
+| 060 | Live Hero (Try-it-now cut to W61) | 4 | ✅ Complete | 2026-05-24 |
 
 ## Test Summary
 - Estimated total: 320
