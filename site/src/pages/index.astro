@@ -1,8 +1,7 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
 import LiveHero from "../components/LiveHero.astro";
-// TryItNow import removed in W60 r3 — see commented-out section + W61 spec.
-// Re-add when the multi-instance bug is fixed.
+import TryItNow from "../components/TryItNow.astro";
 
 const base = import.meta.env.BASE_URL;
 ---
@@ -105,10 +104,7 @@ const base = import.meta.env.BASE_URL;
   </section>
 
   <!-- ── Try it now (live squish widget, W60) ─────────────────────── -->
-  <!-- TEMPORARILY DISABLED: two simultaneous LiquidDOM instances on landing
-       (LiveHero + TryItNow) trigger a wasm-bindgen "recursive use of object"
-       panic from the Rust core. Investigation deferred to follow-up ward. -->
-  <!-- <TryItNow /> -->
+  <TryItNow />
 
   <!-- ── Install ────────────────────────────────────────────────── -->
   <section class="container-page py-16 md:py-24">

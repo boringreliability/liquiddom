@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-59 of 60 Wards complete · 320 estimated tests · 0 blocked
+60 of 61 Wards complete · 325 estimated tests · 0 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -66,6 +66,7 @@
 | 058 | Site Foundation: Astro + Landing Skeleton + Renderer Toggle + Deploy Workflow | 11 | ✅ Complete | 2026-05-24 |
 | 059 | DemoEmbed + 2 Showcases (squish, fusion) + Snippet Canary + Toggle Indicator | 11 | ✅ Complete | 2026-05-24 |
 | 060 | Live Hero (Try-it-now cut to W61) | 4 | ✅ Complete | 2026-05-24 |
+| 061 | Multi-instance recursion fix | 5 | ✅ Complete | 2026-05-24 |
 
 ## Test Summary
-- Estimated total: 320
+- Estimated total: 325

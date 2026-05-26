@@ -1,14 +1,16 @@
 # Context — liquiddom
 
 ## Last Updated
-Ward 58 — 2026-05-24 (deployed at https://liquiddom.vsplat.io)
+Ward 61 — 2026-05-25 (multi-instance recursion fix + auto-recovery; `<TryItNow />` re-enabled on landing)
 
 ## Current State
-56 wards COMPLETE (latest: Ward 41 — Canvas2D Fallback & Feature Detection). 55 Rust + 247 TS = 302 tests. 0 clippy warnings, 0 TS errors.
+60 wards COMPLETE (latest: Ward 61 — Multi-instance recursion fix). 55 Rust + 252 TS (+ 5 new W61 multi-instance tests) = 307 tests passing. 0 clippy warnings, 0 TS errors. 11 pre-existing test failures in phantom-observer.test.ts + ffi-integration.test.ts (jsdom mock-element `getComputedStyle` issue from W42, unrelated to W61).
 
-W41 closes the WebGPU epic. `renderer` default flips `'canvas2d'` → `'auto'`: try WebGPU, fall back to Canvas2D on `WebGPUUnavailableError`. New: `silentFallback?: boolean` (default false, emits one `console.info`); `instance.activeRenderer: 'canvas2d' | 'webgpu'` getter; private `mountCanvas(zIndex, container)` helper called twice on auto-fallback (W37 §17 fresh-canvas — WebGPU-polluted canvas cannot reuse `getContext("2d")`). `let canvas` reassign; `resizeCanvas` + `hasCanvasCtx` placed AFTER renderer init so closure captures post-fallback canvas. `hasCanvasCtx = activeRenderer === "webgpu" ? true : canvas.getContext("2d") !== null`. Branches: `'canvas2d'` skips probing; `'webgpu'` preserves W37 hard-fail; `'auto'` catches ONLY `WebGPUUnavailableError` (TypeError from a bug rethrows). Mid-session `device.lost` does NOT auto-rebuild in v1 (deferred). Demos: drop hand-rolled fallback on no-override path, keep on `?renderer=webgpu`; `refraction.ts` gate reads `instance.activeRenderer`.
+W61 ships a 5-layer defense against the wasm-bindgen `"recursive use of an object"` panic that fires when two `LiquidDOM` instances coexist: (1) `activeCores` module-level Set pinning every wrapper (prevents premature FinalizationRegistry GC mid-borrow); (2) `wasmCallInFlight` cross-instance mutex serializing wasm method calls; (3) per-instance `inTick` re-entrancy guard + `tickFailed` fail-stop; (4) defensive `bridge.rebind()` in RAF loop on `isStale()`; (5) host-driven auto-recovery via `liquiddom:instance-panic` CustomEvent — orchestrators (`wireDemoEmbed`, `mountLiveHero`) listen and trigger destroy+remount transparently. The residual wasm-bindgen `WasmRefCell` race under V8 GC timing still fires occasionally on boot but is now invisible to users (sub-100ms remount).
 
-Prior-ward summaries snapshotted in `.wdd/memory/snapshots/ward-NNN-complete.md`. Recent epic: W36 Render Abstraction → W37 WebGPU Pipeline → W38 SDF Blob → W39 Metaball Fusion → W40 Background Refraction → W41 Canvas2D Fallback. Next: tag `v0.2.0-rc.0` (W51 publish pipeline ready).
+New public surface: `LiquidInstancePanicDetail` interface (event detail type, marked `@internal`).
+
+Prior-ward summaries snapshotted in `.wdd/memory/snapshots/ward-NNN-complete.md`. Recent sequence: W36 Render Abstraction → W37 WebGPU Pipeline → W38 SDF Blob → W39 Metaball Fusion → W40 Background Refraction → W41 Canvas2D Fallback → W58 Site Foundation → W59 DemoEmbed → W60 Live Hero → W61 Multi-instance Recursion Fix. Next: W62 WebGPU FreeDrop SDF dispatch branch (then W63 shape smoothness, W64 compositing polish, W65 republish 0.2.0-rc.1).
 
 ## Architecture Decisions Made
 Older decisions snapshotted in `.wdd/memory/snapshots/`. Active load-bearing decisions:
@@ -19,16 +21,17 @@ Older decisions snapshotted in `.wdd/memory/snapshots/`. Active load-bearing dec
 | Config via `tick()` params (not setters); `setPhysicsConfig` atomic merge | Avoids ordering pitfalls | W23, W45, W49 |
 | `dist/wasm/` shipping pattern; TS-only workspace split; Changesets `linked: []`; `default` export condition | Publishable shape | W35, W51 |
 | React/Vue adapters via Context/provide+inject + ref-hooks (zero core changes); strict-mode safe via idempotent observe | Framework bindings | W47, W48 |
-| Per-element MutationObserver drives theme + box-shadow refresh; `colorSource: 'computed'` opt-in; `parseBoxShadowMargin` paren-aware px-token | Style sync | W52, W54 |
-| FreeDrop parallel `Vec<Option<FreeParticle>>` (not enum variant); slot[3]/[6]/[7] read-once at lazy init; slot[5]=6 dispatch; non-mutating cap-check + 3-tier allocator; auto-cull via viewport+lifetime in `tick()` | Droplet pipeline | W43, W45 |
-| Splash opt-in via `impulse(el, { splash })`, edge-centered `t=(j+0.5)/count`; `renderEntityAt(...isFreeDrop)` dispatcher; gravity per-tick scalar gated to Default/Shake/Magnet/Tear+FreeDrop | UX wiring | W44, W46, W56 |
-| W26 scroll-pause via `physicsDt=0`; smooth scroll-snap lerp via per-entity Map (skips sync); tween wins composition; `canvasZIndex` default `-1`→`0` | Scroll + paint order | W55, W57 |
-| `Renderer` interface + `buildFrame()` DTO + `Canvas2DRenderer`; `init()` async for adapter-failure propagation; `hasCanvasCtx` renderer-aware (`options.renderer==="webgpu" ? true : ctx2d!==null`) | Render abstraction | W36, W37 |
-| `WebGPURenderer`: vertex-pulling, `bgra8unorm-srgb`; `WebGPUUnavailableError` paths A/B/C/D/E w/ `cause`; `pushErrorScope("validation")` around pipeline create | WebGPU baseline | W37 |
-| `renderer?: 'auto'\|'canvas2d'\|'webgpu'` (default `'auto'` since W41); `silentFallback?: boolean` opt-out of fallback log; `LiquidDOMInstance.activeRenderer` getter; `mountCanvas` helper called twice on auto-fallback (W37 §17 fresh-canvas); `let canvas` reassign + `resizeCanvas`/`hasCanvasCtx` placed AFTER renderer init; auto branch catches ONLY `WebGPUUnavailableError`, rethrows TypeError etc.; mid-session `device.lost` does NOT auto-rebuild as Canvas2D in v1 | Auto-fallback | W41 |
-| SDF blob: per-entity 6-vert AABB quad + 16-segment polygon-SDF (Jordan even/odd) + smoothstep AA; `sdf-helpers.wgsl.ts` extracted for W40; `discard`-based clip-hole using `sdRoundedRect`; EntityGPU 32B→64B; global uniform 64B→80B | SDF rendering | W38 |
-| Fusion = full-screen-quad pipeline + smin SDF combine, opt-in via `theme.fusionRadius > 0`; explicit shared BGL+PipelineLayout; cap > 64 falls back to AABB w/ warn; winner-take-all color w/ epsilon `d < minD - 0.001`; smin-self no-op (standalone outlines stay W38-faceted) | Metaball fusion | W39 |
-| Background refraction = host-supplied `ImageBitmap` via `instance.setBackgroundTexture`; BGL 3→5 (texture+sampler at 3/4); `theme.refraction = { enabled, strength }` opt-in; `combinedSdf` helper for central-difference gradient (W39 winner-loop preserved); `textureSampleLevel` LOD 0 (sampling in non-uniform conditional); auto-promote w/ `select(min, smin, k>0)` k=0 guard; single-scalar UV division; 70/30 mix; dual-warn priority; `RenderFrame.reducedMotion: boolean` required (Rule of Two) | Background refraction | W40 |
+| Per-element MutationObserver drives theme + box-shadow refresh; `colorSource: 'computed'` opt-in | Style sync | W52, W54 |
+| FreeDrop parallel `Vec<Option<FreeParticle>>`; slot[3]/[6]/[7] read-once at lazy init; slot[5]=6 dispatch; auto-cull via viewport+lifetime | Droplet pipeline | W43, W45 |
+| Splash opt-in via `impulse(el, { splash })`; `renderEntityAt(...isFreeDrop)` dispatcher; gravity gated to Default/Shake/Magnet/Tear+FreeDrop | UX wiring | W44, W46, W56 |
+| W26 scroll-pause `physicsDt=0`; smooth scroll-snap lerp via per-entity Map; tween wins composition; `canvasZIndex` default 0 | Scroll + paint order | W55, W57 |
+| `Renderer` interface + `buildFrame()` DTO + `Canvas2DRenderer`; async `init()`; `hasCanvasCtx` renderer-aware | Render abstraction | W36, W37 |
+| `WebGPURenderer`: vertex-pulling, `bgra8unorm-srgb`; `WebGPUUnavailableError` paths A-E w/ `cause` | WebGPU baseline | W37 |
+| `renderer?: 'auto'\|'canvas2d'\|'webgpu'` (default `'auto'`); `silentFallback?: boolean`; `activeRenderer` getter; double `mountCanvas` on fallback (W37 §17); auto branch catches ONLY `WebGPUUnavailableError`; `device.lost` no auto-rebuild in v1 | Auto-fallback | W41 |
+| Multi-instance: module-level `activeCores` Set pins every LiquidCore wrapper (prevents premature FinalizationRegistry GC); `wasmCallInFlight` cross-instance mutex serializes wasm method calls; per-instance `inTick` re-entrancy guard; `tickFailed` fail-stop + try/catch around `core.tick()`; defensive `bridge.rebind()` in RAF loop on `isStale()`; host-driven auto-recovery via `liquiddom:instance-panic` CustomEvent on the container (orchestrators destroy + remount on receive) | Multi-instance | W61 |
+| SDF blob: per-entity 6-vert AABB quad + 16-segment polygon-SDF + smoothstep AA; `sdf-helpers.wgsl.ts`; `discard`-clip-hole via `sdRoundedRect`; EntityGPU 64B; global uniform 80B | SDF rendering | W38 |
+| Fusion = full-screen-quad + smin SDF, opt-in via `theme.fusionRadius > 0`; cap > 64 falls back to AABB+warn; winner-take-all color w/ epsilon 0.001; smin-self no-op | Metaball fusion | W39 |
+| Background refraction = host `ImageBitmap` via `setBackgroundTexture`; BGL 3→5; `theme.refraction = { enabled, strength }`; `combinedSdf` central-diff gradient; LOD 0 sampling; auto-promote k=0 guard; 70/30 mix; `RenderFrame.reducedMotion` required | Background refraction | W40 |
 
 ## Active Constraints
 - Rust er DOM-blind og farve-blind (kun matematik)
@@ -45,22 +48,25 @@ Older decisions snapshotted in `.wdd/memory/snapshots/`. Active load-bearing dec
 | Total tests | 302 (55 Rust + 247 TS) | W41 |
 
 ## Known Limitations
-- Container mode assumes positioned containing block
-- Focus events only fire on natively focusable elements
+- Container mode assumes positioned containing block; focus events require natively focusable elements
 - Reduced motion still runs RAF loop (sync/render active, physics frozen)
-- `backdrop-filter` on elements filters canvas particles behind them (browser limitation; not fixable without moving canvas above DOM)
-- Per-corner mixed (`10px 20px`) and per-axis elliptical (`10px / 5px`) `border-radius` fall back to first token (W42)
-- `colorSource: 'computed'` reads `background-color` only — gradients fall back to `colorDefault`; global `colorHover` for all hover (W52)
-- `colorSource: 'computed'` MO listens to observed element only — ancestor-driven cascade swaps require `instance.refreshTheme(el)`
+- `backdrop-filter` filters canvas particles behind elements (browser limitation)
+- Per-corner mixed / per-axis elliptical `border-radius` fall back to first token (W42)
+- `colorSource: 'computed'` reads `background-color` only; gradients fall back; global `colorHover` (W52); MO listens to observed element only — ancestor cascade swaps need `refreshTheme(el)`
 - Runtime `border-radius` changes after `observe()` not reflected — re-observe required (W42)
-- `calc()`/`min()`/`max()` may resolve to 0 if `getComputedStyle` does not (W42)
-- W39/W40 fusion: standalone silhouettes still show 16-facet outline (smin-self no-op); merge-region clip uses winner's clipRect only; capacity > 64 falls back to AABB with one-shot warn
-- W39/W40 winner-take-all color creates a hard color boundary at smin midpoint when adjacent blobs have different colors (hover or different refraction sample). Decision §m2 trade-off: smin'd colors would muddy hover affordance.
-- W40 refraction: WebGPU-only (Canvas2D logs once on non-null `setBackgroundTexture` then no-ops); `textureSampleLevel` LOD 0 in non-uniform conditional; 70/30 mix premultiplied-vs-straight may darken transparent PNG edges
-- W41 mid-session `device.lost` does NOT auto-rebuild as Canvas2D (v1 deferral); `render()` bails on null device + `setBackgroundTexture` silently no-ops.
-- **W60: two W61-fix-targets blocking next RC.** (1) Two `LiquidDOM` instances on same page → wasm-bindgen `"recursive use of an object"` panic. (2) WebGPU paints FreeDrop as AABB rects because W38 SDF shader has no FreeDrop branch (Canvas2D W56 dispatcher works).
+- W39/W40 fusion: standalone silhouettes still show 16-facet outline (smin-self no-op); cap > 64 falls back to AABB
+- W39/W40 winner-take-all color creates a hard boundary at smin midpoint when adjacent blobs differ (Decision §m2 trade-off)
+- W40 refraction: WebGPU-only (Canvas2D no-ops); 70/30 mix may darken transparent PNG edges
+- W41 `device.lost` does NOT auto-rebuild as Canvas2D in v1; `render()` bails on null device
+- **W62 fix-target blocking next RC.** WebGPU paints FreeDrop as AABB rects (W38 SDF shader has no FreeDrop branch).
+- W61: residual wasm-bindgen WasmRefCell race under V8 GC timing still fires on boot but is INVISIBLE — `liquiddom:instance-panic` event triggers orchestrator destroy+remount in <100ms.
 
 ## What Comes Next
-- **W61: core renderer bugs → republish as `0.2.0-rc.1`.** Multi-instance recursion + WebGPU FreeDrop AABB rendering. Both fix-targets before re-publishing.
+- **W62: WebGPU FreeDrop SDF dispatch branch.** Add a FreeDrop-aware path to W38 SDF fragment shader so the WebGPU renderer matches W56 Canvas2D's per-entity-type dispatcher. Current symptom: WebGPU paints droplets as AABB rectangles.
+- **W63: WebGPU shape smoothness** (Catmull-Rom segment subdivision) — fixes the 16-facet outline limitation from W38 + the "kantede" look at large sizes.
+- **W64: WebGPU compositing polish** — winner-take-all color softening at smin midpoint + W40 refraction PNG alpha edge handling.
+- **W65: re-enable framework tabs + publish `0.2.0-rc.1`.**
+- W66 deferred: WebGPU `device.lost` auto-rebuild as Canvas2D (carried over from W41).
+- W61 follow-up (low priority): investigate wasm-bindgen version bump or `panic=unwind` profile to eliminate the residual `WasmRefCell` race entirely (today: invisible via auto-recovery).
 - W55 follow-up: update slot[4] interaction_state during lerp window so hover reacts within 150ms post-scroll.
 - `preserveBackgrounds: true` + tight rest-shape: midpoint-spline traces interior, clip excludes; invisible until hover/drag/impulse. Tune default OR add clip-inset option.

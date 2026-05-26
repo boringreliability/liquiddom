@@ -90,6 +90,20 @@ export async function wireDemoEmbed(
   };
   resetBtn?.addEventListener("click", onReset);
 
+  // W61 strategy C: host-driven recovery on tick() panic. When liquiddom's
+  // RAF loop catches a wasm-bindgen RefCell borrow panic, it dispatches
+  // `liquiddom:instance-panic` on the container. We treat that exactly like
+  // a renderer-toggle re-mount: full destroy + fresh create. The orchestrator
+  // already debounces overlapping mounts via `startMount`, so spam is safe.
+  const onInstancePanic = (e: Event) => {
+    console.warn(
+      "[demo-embed] liquiddom instance panicked — auto-recovering by remounting",
+      (e as CustomEvent).detail,
+    );
+    void startMount(getPreference());
+  };
+  stage.addEventListener("liquiddom:instance-panic", onInstancePanic);
+
   // Cleanup on full page unload. `beforeunload` fires when the page enters
   // BFCache on most browsers — meaning back-button restore returns to a
   // dead canvas (instance destroyed, RAF loop stopped, last frame frozen
@@ -101,6 +115,7 @@ export async function wireDemoEmbed(
   return () => {
     unsubscribePref();
     resetBtn?.removeEventListener("click", onReset);
+    stage.removeEventListener("liquiddom:instance-panic", onInstancePanic);
     window.removeEventListener("beforeunload", onUnload);
     destroy();
   };

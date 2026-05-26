@@ -8,6 +8,32 @@ import type { Renderer } from "./renderers/renderer";
 
 export { WebGPUUnavailableError };
 
+/**
+ * Ward 061: detail shape for the `liquiddom:instance-panic` CustomEvent.
+ *
+ * Dispatched on the LiquidDOM instance's `container` (or `window` in
+ * fullscreen mode) when the RAF loop catches a `core.tick()` panic from
+ * wasm-bindgen's WasmRefCell borrow check. Orchestrators (`wireDemoEmbed`,
+ * `mountLiveHero`, React/Vue adapter wrappers) should listen for this event
+ * and trigger a `destroy()` → fresh `LiquidDOM.create()` cycle to recover
+ * the affected region transparently. See `.wdd/wards/ward-061.md` RCA for
+ * the underlying wasm-bindgen interaction.
+ *
+ * @internal — public for adapter authors and advanced consumers; the panic
+ * scenario is a wasm-bindgen-level race that should eventually be removed
+ * by a wasm-bindgen version bump or `panic=unwind` migration.
+ */
+export interface LiquidInstancePanicDetail {
+  /** Always `"tick-failed"` for v1 — leaving room for future variants. */
+  reason: "tick-failed";
+  /** The original wasm-bindgen panic Error. */
+  error: unknown;
+  /** Capacity the panicked instance was created with. */
+  capacity: number;
+  /** The container element passed to `LiquidDOM.create()`, or `null` in fullscreen mode. */
+  container: HTMLElement | null;
+}
+
 export interface LiquidPhysicsConfig {
   tension?: number;
   damping?: number;
@@ -281,6 +307,42 @@ export interface LiquidDOMInstance {
 /** Default maximum dt in milliseconds. */
 const DEFAULT_MAX_DT = 50;
 
+// Ward 061: module-level "wasm call in progress" mutex (cross-instance).
+//
+// JS is single-threaded, so two instances' RAF callbacks never literally
+// overlap. But microtasks CAN interleave between two RAF callbacks in the
+// same frame — and one of those microtasks may be a `FinalizationRegistry`
+// callback firing for a stale wrapper that performs a wasm call. If that
+// stale wrapper's `__wbg_ptr` happens to address the same Rust allocation
+// pool slot as one of our LIVE instances (because Rust's allocator reused
+// freed memory), the stale call's `borrow_mut` corrupts our live core's
+// `WasmRefCell` state under `panic = abort`.
+//
+// `wasmCallInFlight` enforces a global "no nested wasm method calls during
+// a single JS turn" contract. Any cross-instance call that arrives while
+// another is mid-flight is dropped at the JS layer. JS single-threaded
+// semantics make this a simple boolean — no real lock needed.
+let wasmCallInFlight = false;
+
+// Ward 061: module-level strong-ref pin for every live LiquidCore.
+//
+// wasm-bindgen's generated wrapper registers each LiquidCore in a
+// FinalizationRegistry that fires `__wbg_liquidcore_free(ptr, 1)` when the
+// JS GC decides the wrapper is unreachable. Under multi-instance pages, GC
+// pressure can trigger this callback WHILE another instance's `core.tick()`
+// is mid-`borrow_mut`, causing "attempted to take ownership of Rust value
+// while it was borrowed" + the cascading "recursive use of an object" panics
+// on every subsequent call (Rust `panic = abort` on wasm32 leaves the
+// `WasmRefCell` stuck in the borrowed state). See `.wdd/wards/ward-061.md`
+// RCA for the full trace.
+//
+// Holding a strong reference here keeps every LiquidCore alive as a GC root
+// for at least as long as its owning LiquidDOMInstance — `destroy()` removes
+// the entry before explicitly calling `core.free()`, at which point GC is
+// safe (and wasm-bindgen's generated `free()` itself unregisters the
+// FinalizationRegistry entry, so the pin removal never races a finalizer).
+const activeCores = new Set<WasmCore>();
+
 function clamp(v: number, lo: number, hi: number): number {
   // NaN propagation guard: a malformed DeviceOrientationEvent could deliver
   // NaN, which would silently corrupt gravity downstream. Map NaN → 0.
@@ -342,13 +404,25 @@ export class LiquidDOM {
     // 2. Try to initialize WASM + bridge
     let core: WasmCore | null = null;
     let bridge: WasmBridge | null = null;
+    // W61 strategy C: cache module + memory so auto-recovery can rebuild a
+    // fresh `LiquidCore` without re-importing the WASM module.
+    type LiquidWasmModule = {
+      default: () => Promise<{ memory: WebAssembly.Memory }>;
+      LiquidCore: new (cap: number) => WasmCore;
+    };
+    let cachedWasmModule: LiquidWasmModule | null = null;
+    let cachedWasmMemory: WebAssembly.Memory | null = null;
 
     try {
-      const wasmModule = await import("../../../../pkg/liquiddom.js");
+      const wasmModule = (await import("../../../../pkg/liquiddom.js")) as unknown as LiquidWasmModule;
       const initWasm = wasmModule.default;
       const exports = await initWasm();
       core = new wasmModule.LiquidCore(capacity);
+      // W61: pin so FinalizationRegistry can't fire on a still-needed wrapper.
+      activeCores.add(core);
       bridge = new WasmBridge(exports.memory, core, capacity);
+      cachedWasmModule = wasmModule;
+      cachedWasmMemory = exports.memory;
     } catch {
       // WASM not available — mock mode
     }
@@ -382,7 +456,27 @@ export class LiquidDOM {
       // Ward 043: bridge slot cleanup between TS and Rust. In mock mode
       // (no WASM) `core` is null and this is a no-op — droplet integration
       // doesn't run anyway without Rust.
-      releaseSlot: (id) => core?.release_slot(id),
+      // W61: gated by the cross-instance mutex AND tickFailed. If a
+      // FinalizationRegistry callback or another instance's mid-tick
+      // observer.spawnDroplet triggers a release_slot during this
+      // instance's borrow window, we drop the call silently. The slot
+      // will be cleaned up by the next manual unobserve.
+      releaseSlot: (id) => {
+        if (!core || wasmCallInFlight || tickFailed) return;
+        wasmCallInFlight = true;
+        try {
+          core.release_slot(id);
+        } catch (err) {
+          tickFailed = true;
+          console.error(
+            "[liquiddom] core.release_slot() panicked — instance is in an " +
+            "unrecoverable state; call destroy() and create a new one.",
+            err,
+          );
+        } finally {
+          wasmCallInFlight = false;
+        }
+      },
     });
 
     // 3b. Set initial coord offset for container mode
@@ -617,6 +711,47 @@ export class LiquidDOM {
     let destroyed = false;
     let mutationObserver: MutationObserver | null = null;
     let lastTime = performance.now();
+    // W61: re-entrancy + fail-stop flags for the RAF tick path. See the loop
+    // body comment and `.wdd/wards/ward-061.md` RCA for the rationale.
+    let inTick = false;
+    let tickFailed = false;
+    let recovering = false;
+
+    // W61 strategy C: silent auto-recovery from a `tick()` panic via host-
+    // driven destroy+remount.
+    //
+    // Triggered from the RAF loop's catch block. Dispatches a custom event
+    // (`liquiddom:instance-panic`) on the canvas's container (or window in
+    // fullscreen mode). Orchestrators like `wireDemoEmbed` / `mountLiveHero`
+    // listen for this event and trigger their own destroy → wait one tick →
+    // re-create cycle. Doing recovery at the ORCHESTRATOR layer is cleaner
+    // than recreating the WASM core in place — the orchestrator owns the
+    // lifecycle (factory, container, renderer preference) and can do a
+    // proper rebuild that the renderer + observer can trust.
+    //
+    // The dispatch is one-shot — `tickFailed` stays true so we don't fire
+    // the event repeatedly. The next destroy() from the host cleans up.
+    function dispatchPanicRecovery(err: unknown): void {
+      if (recovering || destroyed) return;
+      recovering = true;
+      const target: EventTarget = container ?? window;
+      try {
+        target.dispatchEvent(
+          new CustomEvent("liquiddom:instance-panic", {
+            detail: {
+              reason: "tick-failed",
+              error: err,
+              capacity,
+              container: container ?? null,
+            },
+            bubbles: true,
+            cancelable: false,
+          }),
+        );
+      } catch (dispatchErr) {
+        console.error("[liquiddom] failed to dispatch instance-panic event:", dispatchErr);
+      }
+    }
 
     function getViewportSize(): { w: number; h: number } {
       if (isContainerMode) {
@@ -646,6 +781,19 @@ export class LiquidDOM {
         }
 
         const vp = getViewportSize();
+        // W61: defensive bridge rebind. When two LiquidDOM instances coexist,
+        // the SECOND instance's WASM allocations (e.g. `new LiquidCore(N)`
+        // creates a Rust Vec<f32> that may force `WebAssembly.Memory.grow`)
+        // detaches the FIRST instance's `Float32Array` views. The bridge's
+        // `isStale()` flag flips when `memory.buffer !== cachedBuffer`. We
+        // rebuild views here BEFORE observer.sync writes to them — accessing
+        // a detached `Float32Array` throws `TypeError` and would have failed
+        // the whole frame silently. (Bridge is null in mock-mode; skip.)
+        if (bridge && bridge.isStale()) {
+          const cap = bridge.capacity;
+          bridge.rebind(cap);
+          observer.setViews(bridge.entityView(), bridge.particleView(), cap);
+        }
         // W55: lerp owns slot[0..3] writes while it's active.
         if (scrollSnap.size > 0) {
           runScrollSnapLerp();
@@ -664,21 +812,52 @@ export class LiquidDOM {
         const gx = reducedMotion ? 0 : gravityX;
         const gy = reducedMotion ? 0 : gravityY;
         // W55: tick is WASM-only. Mock-mode (core=null) still runs sync/lerp/render.
-        if (core) {
-          core.tick(
-            physicsDt,
-            pointerX,
-            pointerY,
-            pointerActive && !reducedMotion && !scrolling,
-            physics.tension,
-            physics.damping,
-            physics.substeps,
-            physics.repulsionRadius,
-            physics.repulsionStrength,
-            physics.neighborSpringK,
-            0, 0, vp.w, vp.h, CULL_MARGIN_PX,
-            gx, gy,
-          );
+        // W61: triple-guarded tick. (1) `tickFailed` — once panicked, stop
+        // calling (panic = abort leaves WasmRefCell stuck). (2) `inTick`
+        // per-instance re-entrancy guard (covers future JS-import re-entry).
+        // (3) `wasmCallInFlight` cross-instance mutex (prevents nested wasm
+        // calls from another instance's RAF callback firing during this
+        // instance's borrow window — e.g., a FinalizationRegistry callback
+        // sneaking in between two RAF batches that share the same frame).
+        if (core && !tickFailed && !inTick && !wasmCallInFlight) {
+          // Drop the frame silently when EITHER `inTick` (same instance
+          // re-entry, future-proofing) OR `wasmCallInFlight` (another
+          // instance's wasm call still on the stack, possible via microtask
+          // boundaries) is set. The combined positive condition above
+          // replaces a prior empty-`if` style branch.
+          inTick = true;
+          wasmCallInFlight = true;
+          try {
+            core.tick(
+              physicsDt,
+              pointerX,
+              pointerY,
+              pointerActive && !reducedMotion && !scrolling,
+              physics.tension,
+              physics.damping,
+              physics.substeps,
+              physics.repulsionRadius,
+              physics.repulsionStrength,
+              physics.neighborSpringK,
+              0, 0, vp.w, vp.h, CULL_MARGIN_PX,
+              gx, gy,
+            );
+          } catch (err) {
+            // panic = abort leaves WasmRefCell borrowed forever. Mark
+            // dead so we stop hammering it on every subsequent frame.
+            tickFailed = true;
+            console.warn(
+              "[liquiddom] core.tick() panicked — dispatching `liquiddom:instance-panic` for host-driven recovery.",
+              err,
+            );
+            // W61 strategy C: host-driven recovery via custom event.
+            // Orchestrators (wireDemoEmbed, mountLiveHero, React/Vue
+            // adapters) listen and trigger destroy → remount.
+            dispatchPanicRecovery(err);
+          } finally {
+            inTick = false;
+            wasmCallInFlight = false;
+          }
         }
         // W36: buildFrame() AFTER sync/tick so render reads post-tick state.
         // W40: thread reducedMotion through buildFrame for the renderer's
@@ -912,7 +1091,17 @@ export class LiquidDOM {
         }
 
         if (core && bridge) {
-          core.grow(newCapacity);
+          // W61: grow() takes &mut self via wasm-bindgen. Acquire the
+          // mutex if free; otherwise we're in single-threaded JS at a point
+          // where another wasm call is on the stack — which by event-loop
+          // semantics can't actually happen for a synchronous user call.
+          // The defensive set/clear pair leaves the mutex correct either way.
+          wasmCallInFlight = true;
+          try {
+            core.grow(newCapacity);
+          } finally {
+            wasmCallInFlight = false;
+          }
           bridge.rebind(newCapacity);
           observer.setViews(bridge.entityView(), bridge.particleView(), newCapacity);
         } else {
@@ -1111,8 +1300,40 @@ export class LiquidDOM {
         canvas.remove();
 
         if (core) {
-          core.free();
-          core = null;
+          // W61: unpin BEFORE explicit free. wasm-bindgen's `free()` calls
+          // `LiquidCoreFinalization.unregister(this)` first, so removing
+          // from `activeCores` here cannot race a finalizer callback.
+          // The cross-instance mutex serializes against any concurrent
+          // tick/release_slot on another instance.
+          activeCores.delete(core);
+          if (wasmCallInFlight) {
+            // Defer the free to a microtask. By the time the microtask
+            // runs, the synchronous call holding the mutex has completed
+            // its finally{} and cleared `wasmCallInFlight`. The free is
+            // unconditional — single-threaded JS guarantees the flag is
+            // false at microtask time (reviewer §Blocker: never conditional
+            // here, that would leak the wrapper if our reasoning is off).
+            // try/catch swallows already-freed-wrapper errors.
+            // Called from a panic-recovery event handler (`destroy()` invoked
+            // by an orchestrator listening for `liquiddom:instance-panic`)
+            // is the typical entry point for this branch.
+            const staleCore = core;
+            core = null;
+            queueMicrotask(() => {
+              try { staleCore.free(); } catch { /* already-freed wrappers */ }
+            });
+          } else {
+            wasmCallInFlight = true;
+            try {
+              core.free();
+            } catch {
+              // Swallow — if the wrapper was already torn down by an
+              // earlier panic, free() throws. Either way, we're done.
+            } finally {
+              wasmCallInFlight = false;
+            }
+            core = null;
+          }
         }
       },
     };

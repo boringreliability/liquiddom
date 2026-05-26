@@ -87,12 +87,26 @@ export async function mountLiveHero(
     void startMount(newPref);
   });
 
+  // W61 strategy C: listen for tick-panic events from liquiddom's RAF loop.
+  // On panic, treat it like a renderer-toggle: destroy + remount. The
+  // `startMount` queue already debounces overlapping mounts so duplicate
+  // panic events are safe.
+  const onInstancePanic = (e: Event) => {
+    console.warn(
+      "[live-hero] liquiddom instance panicked — auto-recovering by remounting",
+      (e as CustomEvent).detail,
+    );
+    void startMount(store.getPreference());
+  };
+  root.addEventListener("liquiddom:instance-panic", onInstancePanic);
+
   // Initial mount.
   await startMount(store.getPreference());
 
   return {
     destroy() {
       unsubscribe();
+      root.removeEventListener("liquiddom:instance-panic", onInstancePanic);
       if (handle) {
         handle.destroy();
         handle = null;
