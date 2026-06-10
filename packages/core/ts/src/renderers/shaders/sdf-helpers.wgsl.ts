@@ -9,6 +9,10 @@
 //                                positive outside. Uses Jordan-curve even/odd
 //                                crossing rule (correct for simple polygons).
 //   sdRoundedRect(p, rect, r) → signed distance to rounded rectangle.
+//   sdCircle(p, center, r)    → analytical signed distance to a circle.
+//                                Added in W62 for FreeDrop kind=1 dispatch
+//                                (analytical circle instead of 16-gon polygon
+//                                approximation). 5 ALU ops vs ~160 for polygon.
 //
 // `count` is a compile-time `const` injected by the consuming shader so the
 // loop unrolls cleanly. blob-sdf passes PARTICLES_PER_BODY (16).
@@ -53,5 +57,9 @@ fn sdRoundedRect(p: vec2<f32>, rect: vec4<f32>, r: f32) -> f32 {
   let half_size = rect.zw * 0.5 - vec2<f32>(r);
   let d = abs(p - center) - half_size;
   return length(max(d, vec2<f32>(0.0))) + min(max(d.x, d.y), 0.0) - r;
+}
+
+fn sdCircle(p: vec2<f32>, center: vec2<f32>, radius: f32) -> f32 {
+  return length(p - center) - radius;
 }
 `;

@@ -18,7 +18,8 @@ struct EntityGPU {
   color: vec4<f32>,           // 16B — premultiplied rgba
   aabb: vec4<f32>,            // 16B — minX, minY, maxX, maxY (CSS px, includes softness margin)
   clipRect: vec4<f32>,        // 16B — DOM rect (x, y, w, h) for preserveBackgrounds discard
-  params: vec4<f32>,          // 16B — (softness, clipBorderRadius, _, _)
+  params: vec4<f32>,          // 16B — (softness, clipBorderRadius, kind, _)
+                              //        kind: 0 = soft-body polygon, 1 = FreeDrop circle (W62)
 };
 
 @group(0) @binding(0) var<uniform> globals: Globals;
@@ -65,7 +66,32 @@ fn vs_main(
 fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   let entity = entities[in.entityId];
   let softness = entity.params.x;
-  let sdf = sdPolygon(in.worldPos, in.entityId * PARTICLES_PER_BODY, PARTICLES_PER_BODY);
+  // W62: per-entity SDF dispatch. params.z = 0 → 16-gon polygon (soft-body);
+  // params.z = 1 → analytical circle (FreeDrop). The circle's center +
+  // geometric radius are recovered from the AABB: TS packs the AABB as
+  // (center ± r ± softness), so center = AABB midpoint and
+  // radius = halfExtent.x - softness. Square-AABB invariant for FreeDrop
+  // is contract-locked by W62 test #5 (square_AABB_for_droplets).
+  let aabb = entity.aabb;
+  let circleCenter = (aabb.xy + aabb.zw) * 0.5;
+  let halfExtent = (aabb.zw - aabb.xy) * 0.5;
+  let circleRadius = halfExtent.x - softness;
+  let isFreeDrop = entity.params.z > 0.5;
+  // DO NOT rewrite this if/else as select(sdPolygon(...), sdCircle(...), isFreeDrop).
+  // The select() form was tried and visually verified BROKEN in Chromium: the
+  // FreeDrop branch rendered as a blank canvas (no droplets visible) even
+  // though both sdPolygon and sdCircle would individually render correctly
+  // when used unconditionally. Possibly a WGSL uniformity-analysis or
+  // branch-evaluation quirk specific to evaluating two different SDF
+  // function calls. The if/else form is the verified-working version —
+  // shipping it explicitly so a future contributor does not simplify it back.
+  // W62 test #2 also locks this with an "if (isFreeDrop)" substring check.
+  var sdf: f32 = 0.0;
+  if (isFreeDrop) {
+    sdf = sdCircle(in.worldPos, circleCenter, circleRadius);
+  } else {
+    sdf = sdPolygon(in.worldPos, in.entityId * PARTICLES_PER_BODY, PARTICLES_PER_BODY);
+  }
   // sdf < 0 inside, > 0 outside. smoothstep maps softness→0 outside →
   // -softness→1 inside. (1 - smoothstep) inverts so inside=1, outside=0.
   let alpha = 1.0 - smoothstep(-softness, softness, sdf);

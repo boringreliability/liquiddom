@@ -354,16 +354,15 @@ describe("WasmBridge", () => {
       particleView: bridge.particleView(),
     });
 
-    // Mock element
-    const el = {
-      getBoundingClientRect: () => ({
-        x: 50, y: 60, width: 200, height: 100,
-        top: 60, left: 50, right: 250, bottom: 160,
-        toJSON: () => {},
-      }),
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    } as unknown as HTMLElement;
+    // Real DOM element so W42's `window.getComputedStyle(el)` inside
+    // observe() doesn't throw under jsdom.
+    const el = document.createElement("div");
+    el.getBoundingClientRect = () => ({
+      x: 50, y: 60, width: 200, height: 100,
+      top: 60, left: 50, right: 250, bottom: 160,
+      toJSON: () => {},
+    });
+    document.body.appendChild(el);
 
     const id = observer.observe(el);
     expect(id).toBe(0);

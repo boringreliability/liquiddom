@@ -1,10 +1,10 @@
 # Context — liquiddom
 
 ## Last Updated
-Ward 61 — 2026-05-25 (multi-instance recursion fix + auto-recovery; `<TryItNow />` re-enabled on landing)
+Ward 62 — 2026-05-26 (FreeDrop WebGPU SDF circle dispatch; pre-W62 phantom-observer/ffi-integration regression also fixed)
 
 ## Current State
-60 wards COMPLETE (latest: Ward 61 — Multi-instance recursion fix). 55 Rust + 252 TS (+ 5 new W61 multi-instance tests) = 307 tests passing. 0 clippy warnings, 0 TS errors. 11 pre-existing test failures in phantom-observer.test.ts + ffi-integration.test.ts (jsdom mock-element `getComputedStyle` issue from W42, unrelated to W61).
+61 wards COMPLETE (latest: Ward 62 — FreeDrop WebGPU SDF circle dispatch). 55 Rust + 242 TS = 297 tests, ALL passing. 0 clippy warnings, 0 TS errors. W62 also fixed an 11-test regression in `phantom-observer.test.ts` + `ffi-integration.test.ts` that had been silently failing since W42 added `window.getComputedStyle(el)` to `observe()` — the old `mockElement` helpers returned plain JS objects (cast to HTMLElement) which jsdom's strict `getComputedStyle` rejected. Replacing them with `document.createElement` + `getBoundingClientRect` override unblocked all 11.
 
 W61 ships a 5-layer defense against the wasm-bindgen `"recursive use of an object"` panic that fires when two `LiquidDOM` instances coexist: (1) `activeCores` module-level Set pinning every wrapper (prevents premature FinalizationRegistry GC mid-borrow); (2) `wasmCallInFlight` cross-instance mutex serializing wasm method calls; (3) per-instance `inTick` re-entrancy guard + `tickFailed` fail-stop; (4) defensive `bridge.rebind()` in RAF loop on `isStale()`; (5) host-driven auto-recovery via `liquiddom:instance-panic` CustomEvent — orchestrators (`wireDemoEmbed`, `mountLiveHero`) listen and trigger destroy+remount transparently. The residual wasm-bindgen `WasmRefCell` race under V8 GC timing still fires occasionally on boot but is now invisible to users (sub-100ms remount).
 
@@ -29,6 +29,7 @@ Older decisions snapshotted in `.wdd/memory/snapshots/`. Active load-bearing dec
 | `WebGPURenderer`: vertex-pulling, `bgra8unorm-srgb`; `WebGPUUnavailableError` paths A-E w/ `cause` | WebGPU baseline | W37 |
 | `renderer?: 'auto'\|'canvas2d'\|'webgpu'` (default `'auto'`); `silentFallback?: boolean`; `activeRenderer` getter; double `mountCanvas` on fallback (W37 §17); auto branch catches ONLY `WebGPUUnavailableError`; `device.lost` no auto-rebuild in v1 | Auto-fallback | W41 |
 | Multi-instance: module-level `activeCores` Set pins every LiquidCore wrapper (prevents premature FinalizationRegistry GC); `wasmCallInFlight` cross-instance mutex serializes wasm method calls; per-instance `inTick` re-entrancy guard; `tickFailed` fail-stop + try/catch around `core.tick()`; defensive `bridge.rebind()` in RAF loop on `isStale()`; host-driven auto-recovery via `liquiddom:instance-panic` CustomEvent on the container (orchestrators destroy + remount on receive) | Multi-instance | W61 |
+| FreeDrop WebGPU parity: EntityGPU.params.z = 0/1 (soft-body/FreeDrop) kind discriminator; `sdCircle(p,c,r)` helper; per-fragment if/else dispatch in blob-sdf + shared `entitySdf` helper in fusion-sdf (used by both fs_main + combinedSdf). Square AABB invariant. **WGSL `select` rejected** — Chromium WGSL quirk made FreeDrop branch invisible; if/else is verified-working. | FreeDrop WebGPU | W62 |
 | SDF blob: per-entity 6-vert AABB quad + 16-segment polygon-SDF + smoothstep AA; `sdf-helpers.wgsl.ts`; `discard`-clip-hole via `sdRoundedRect`; EntityGPU 64B; global uniform 80B | SDF rendering | W38 |
 | Fusion = full-screen-quad + smin SDF, opt-in via `theme.fusionRadius > 0`; cap > 64 falls back to AABB+warn; winner-take-all color w/ epsilon 0.001; smin-self no-op | Metaball fusion | W39 |
 | Background refraction = host `ImageBitmap` via `setBackgroundTexture`; BGL 3→5; `theme.refraction = { enabled, strength }`; `combinedSdf` central-diff gradient; LOD 0 sampling; auto-promote k=0 guard; 70/30 mix; `RenderFrame.reducedMotion` required | Background refraction | W40 |
@@ -58,15 +59,12 @@ Older decisions snapshotted in `.wdd/memory/snapshots/`. Active load-bearing dec
 - W39/W40 winner-take-all color creates a hard boundary at smin midpoint when adjacent blobs differ (Decision §m2 trade-off)
 - W40 refraction: WebGPU-only (Canvas2D no-ops); 70/30 mix may darken transparent PNG edges
 - W41 `device.lost` does NOT auto-rebuild as Canvas2D in v1; `render()` bails on null device
-- **W62 fix-target blocking next RC.** WebGPU paints FreeDrop as AABB rects (W38 SDF shader has no FreeDrop branch).
 - W61: residual wasm-bindgen WasmRefCell race under V8 GC timing still fires on boot but is INVISIBLE — `liquiddom:instance-panic` event triggers orchestrator destroy+remount in <100ms.
 
 ## What Comes Next
-- **W62: WebGPU FreeDrop SDF dispatch branch.** Add a FreeDrop-aware path to W38 SDF fragment shader so the WebGPU renderer matches W56 Canvas2D's per-entity-type dispatcher. Current symptom: WebGPU paints droplets as AABB rectangles.
-- **W63: WebGPU shape smoothness** (Catmull-Rom segment subdivision) — fixes the 16-facet outline limitation from W38 + the "kantede" look at large sizes.
-- **W64: WebGPU compositing polish** — winner-take-all color softening at smin midpoint + W40 refraction PNG alpha edge handling.
+- **W63: WebGPU shape smoothness** (Catmull-Rom subdivision) — fixes 16-facet outline + "kantede" look at larger sizes.
+- **W64: WebGPU compositing polish** — winner-take-all color softening + W40 refraction PNG alpha edges.
 - **W65: re-enable framework tabs + publish `0.2.0-rc.1`.**
-- W66 deferred: WebGPU `device.lost` auto-rebuild as Canvas2D (carried over from W41).
-- W61 follow-up (low priority): investigate wasm-bindgen version bump or `panic=unwind` profile to eliminate the residual `WasmRefCell` race entirely (today: invisible via auto-recovery).
-- W55 follow-up: update slot[4] interaction_state during lerp window so hover reacts within 150ms post-scroll.
-- `preserveBackgrounds: true` + tight rest-shape: midpoint-spline traces interior, clip excludes; invisible until hover/drag/impulse. Tune default OR add clip-inset option.
+- W66: WebGPU `device.lost` auto-rebuild (deferred from W41).
+- W61 follow-up: investigate wasm-bindgen bump / `panic=unwind` to eliminate residual WasmRefCell race.
+- W55 follow-up: slot[4] interaction_state during lerp window.

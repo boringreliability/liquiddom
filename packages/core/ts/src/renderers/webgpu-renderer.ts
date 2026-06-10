@@ -4,6 +4,21 @@
 // perimeter particles. Matches Canvas2D output at visual rest (with documented
 // drift during deformation per Decision §3 / Risk R3). W38 replaces the
 // geometry with SDF rendering; W37 establishes the pipeline scaffolding.
+//
+// EntityGPU layout (W40 + W62):
+//   floats 0..3:   color (premul rgba)
+//   floats 4..7:   aabb (minX, minY, maxX, maxY) — CSS px, includes softness margin
+//   floats 8..11:  clipRect (DOM x, y, w, h) — zero-padded for FreeDrop
+//   float  12:     params.x — softness
+//   float  13:     params.y — clipBorderRadius
+//   float  14:     params.z — kind discriminator (W62): 0 = soft-body polygon, 1 = FreeDrop circle
+//   float  15:     params.w — reserved
+// The kind discriminator selects the SDF source in both blob-sdf.wgsl
+// (fs_main) and fusion-sdf.wgsl (entitySdf helper). For FreeDrop (kind=1)
+// the AABB MUST be square — the shader recovers `radius = halfExtent.x - softness`
+// and `center = (aabb.xy + aabb.zw) * 0.5` from this layout. A non-square
+// AABB would render as a stretched ellipse-ish shape silently, which is
+// why the droplet-loop comment + W62 test #5 both lock the invariant.
 
 import {
   FLOATS_PER_ENTITY,
@@ -447,9 +462,19 @@ export class WebGPURenderer implements Renderer {
       scratch[sOff + 11] = h;                       // clipRect.h
       scratch[sOff + 12] = softness;
       scratch[sOff + 13] = clipBorderRadius;
-      // sOff+14, +15 are padding (already zero from fill).
+      // W62: explicit kind=0 lock for soft-body. Already zero from `scratch.fill(0)`
+      // above, but writing it explicitly makes the contract self-documenting
+      // and survives any future refactor that removes the fill.
+      scratch[sOff + 14] = 0;
+      // sOff+15 is padding (already zero from fill).
     }
 
+    // W62: FreeDrop droplets pack a SQUARE AABB = (cx ± r ± softness). The
+    // shader's analytical sdCircle recovers center = AABB midpoint and
+    // radius = halfExtent.x - softness from this layout. Square-AABB is a
+    // load-bearing invariant — extending FreeDrop to per-axis radius / non-
+    // uniform softness requires adding a new `kind` enum value (kind = 2)
+    // rather than stretching the existing path.
     for (const id of frame.dropletIds) {
       const off = id * FLOATS_PER_ENTITY;
       const diameter = frame.entities[off + 2];
@@ -474,6 +499,8 @@ export class WebGPURenderer implements Renderer {
       scratch[sOff + 11] = 0;
       scratch[sOff + 12] = softness;
       scratch[sOff + 13] = 0;
+      // W62: kind=1 selects analytical sdCircle in both blob-sdf and fusion-sdf.
+      scratch[sOff + 14] = 1;
     }
     device.queue.writeBuffer(
       this.entityBuffer!, 0,

@@ -29,7 +29,8 @@ struct EntityGPU {
   color: vec4<f32>,
   aabb: vec4<f32>,
   clipRect: vec4<f32>,
-  params: vec4<f32>,  // (softness, clipBorderRadius, _, _)
+  params: vec4<f32>,  // (softness, clipBorderRadius, kind, _)
+                      //  kind: 0 = soft-body polygon, 1 = FreeDrop circle (W62)
 };
 
 @group(0) @binding(0) var<uniform> globals: Globals;
@@ -75,15 +76,45 @@ fn smin(a: f32, b: f32, k: f32) -> f32 {
   return min(a, b) - h * h * k * 0.25;
 }
 
+// Ward 062: per-entity SDF dispatch used by BOTH fs_main's main loop AND
+// combinedSdf below. Picks the SDF source based on params.z (0 = soft-body
+// 16-gon polygon, 1 = FreeDrop analytical circle). Circle center + radius
+// are recovered from the AABB: TS packs AABB = (center ± r ± softness),
+// so center = midpoint and radius = halfExtent.x - softness. Square-AABB
+// invariant locked by W62 test #5.
+//
+// PRECONDITION: callers MUST guard against inactive slots BEFORE invoking
+// entitySdf. Both current call sites (fs_main main loop + combinedSdf)
+// have an "if (entities[i].color.a == 0.0) continue" check upstream. An
+// inactive slot has all-zero AABB + params, which would produce a
+// plausible-looking polygon SDF over particles[0..16] and a degenerate
+// circle SDF (radius = -0) — neither of which has meaningful geometry.
+//
+// DO NOT rewrite the if/else as select(...) — see the matching comment
+// in blob-sdf.wgsl for the Chromium WGSL rendering bug that motivated
+// the explicit if/else form.
+fn entitySdf(p: vec2<f32>, i: u32) -> f32 {
+  let e = entities[i];
+  let isFreeDrop = e.params.z > 0.5;
+  if (isFreeDrop) {
+    let center = (e.aabb.xy + e.aabb.zw) * 0.5;
+    let halfExtent = (e.aabb.zw - e.aabb.xy) * 0.5;
+    let radius = halfExtent.x - e.params.x;  // softness == params.x
+    return sdCircle(p, center, radius);
+  }
+  return sdPolygon(p, i * PARTICLES_PER_BODY, PARTICLES_PER_BODY);
+}
+
 // Ward 040: helper for central-difference gradient sampling. Same MAX_ENTITIES
 // bound as fs_main's main loop (Decision §8). Guarded against k=0 (auto-promote
 // path where fusionRadius=0): smin's divide-by-k would NaN, so fall back to min.
+// W62: now dispatches per-entity SDF via entitySdf instead of inlining sdPolygon.
 fn combinedSdf(p: vec2<f32>) -> f32 {
   var d: f32 = 1e9;
   let k = globals.flags.y;
   for (var i: u32 = 0u; i < MAX_ENTITIES; i = i + 1u) {
     if (entities[i].color.a == 0.0) { continue; }
-    let dEntity = sdPolygon(p, i * PARTICLES_PER_BODY, PARTICLES_PER_BODY);
+    let dEntity = entitySdf(p, i);
     d = select(min(d, dEntity), smin(d, dEntity, k), k > 0.0);
   }
   return d;
@@ -101,9 +132,11 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   // MAX_ENTITIES = 64 (Decision §4). Storage buffer OOB reads return zeroed
   // entries (WebGPU robust-buffer-access guarantee for storage), so iterating
   // past frame.capacity is safe — color.a == 0 triggers continue.
+  // W62: per-entity dispatch via entitySdf(p, i) — picks polygon or circle
+  // based on params.z. Same call lives in combinedSdf above.
   for (var i: u32 = 0u; i < MAX_ENTITIES; i = i + 1u) {
     if (entities[i].color.a == 0.0) { continue; }
-    let d = sdPolygon(p, i * PARTICLES_PER_BODY, PARTICLES_PER_BODY);
+    let d = entitySdf(p, i);
     // Epsilon-stable winner comparison (Decision §m2) — suppresses 1-px
     // color flicker at the smin midpoint where d1 ≈ d2 due to FP rounding.
     if (d < minD - 0.001) {

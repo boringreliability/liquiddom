@@ -1,26 +1,52 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { PhantomObserver, FLOATS_PER_ENTITY } from "../src/phantom-observer";
 import { renderWithFakeCtx } from "./_render-helper";
 
-/** Lightweight mock with no-op event listeners */
+// jsdom doesn't ship ResizeObserver — minimal polyfill so observe() doesn't
+// throw on the W42 resize subscription. Idempotent across test files.
+if (typeof globalThis.ResizeObserver === "undefined") {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+}
+
+/**
+ * Real DOM element with `getBoundingClientRect` overridden. Pre-W42 this
+ * test used a plain JS object cast to `HTMLElement`, but W42 added
+ * `window.getComputedStyle(el)` inside `observe()` for border-radius
+ * resolution — jsdom rejects non-Element values with a TypeError.
+ * Using `document.createElement` produces a real Element that satisfies
+ * both `getComputedStyle` AND the ResizeObserver subscription added in W42.
+ */
 function mockElement(
   x: number,
   y: number,
   width: number,
   height: number,
 ): HTMLElement {
-  return {
-    getBoundingClientRect: () => ({
-      x, y, width, height,
-      top: y, left: x, right: x + width, bottom: y + height,
-      toJSON: () => {},
-    }),
-    addEventListener: () => {},
-    removeEventListener: () => {},
-  } as unknown as HTMLElement;
+  const el = document.createElement("div");
+  el.getBoundingClientRect = () => ({
+    x, y, width, height,
+    top: y, left: x, right: x + width, bottom: y + height,
+    toJSON: () => {},
+  });
+  document.body.appendChild(el);
+  return el;
 }
 
 describe("PhantomObserver", () => {
+  // W62 regression-fix follow-up: `mockElement` and `mockInteractiveElement`
+  // both `appendChild` to document.body so jsdom's `getComputedStyle` accepts
+  // them. Without per-test cleanup, leaked nodes accumulate across tests and
+  // could interfere with future capacity-based tests that count active slots.
+  afterEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+  });
+
   it("initializes with correct capacity", () => {
     const observer = new PhantomObserver(10);
     const buffer = observer.getBuffer();
@@ -67,21 +93,20 @@ describe("PhantomObserver", () => {
     // Start position
     let currentX = 10;
     let currentY = 20;
-    const el = {
-      getBoundingClientRect: () => ({
-        x: currentX,
-        y: currentY,
-        width: 100,
-        height: 50,
-        top: currentY,
-        left: currentX,
-        right: currentX + 100,
-        bottom: currentY + 50,
-        toJSON: () => {},
-      }),
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    } as unknown as HTMLElement;
+    // Real DOM element so W42's `window.getComputedStyle(el)` works under jsdom.
+    const el = document.createElement("div");
+    el.getBoundingClientRect = () => ({
+      x: currentX,
+      y: currentY,
+      width: 100,
+      height: 50,
+      top: currentY,
+      left: currentX,
+      right: currentX + 100,
+      bottom: currentY + 50,
+      toJSON: () => {},
+    });
+    document.body.appendChild(el);
 
     observer.observe(el);
     const buf = observer.getBuffer();
@@ -167,32 +192,26 @@ describe("PhantomObserver", () => {
 
   // ── Ward 11: Interaction State tests ──
 
-  /** Mock element with event listener support for hover simulation */
+  /**
+   * Real DOM element with `getBoundingClientRect` overridden. Pre-W42 this
+   * was a plain object with hand-rolled addEventListener/dispatchEvent —
+   * but `document.createElement` gives us those for free and (critically)
+   * satisfies `window.getComputedStyle()` which W42 added inside observe().
+   */
   function mockInteractiveElement(
     x: number,
     y: number,
     width: number,
     height: number,
   ): HTMLElement {
-    const listeners: Record<string, Set<EventListener>> = {};
-    return {
-      getBoundingClientRect: () => ({
-        x, y, width, height,
-        top: y, left: x, right: x + width, bottom: y + height,
-        toJSON: () => {},
-      }),
-      addEventListener: (type: string, fn: EventListener) => {
-        if (!listeners[type]) listeners[type] = new Set();
-        listeners[type].add(fn);
-      },
-      removeEventListener: (type: string, fn: EventListener) => {
-        listeners[type]?.delete(fn);
-      },
-      dispatchEvent: (event: Event) => {
-        listeners[event.type]?.forEach((fn) => fn(event));
-        return true;
-      },
-    } as unknown as HTMLElement;
+    const el = document.createElement("div");
+    el.getBoundingClientRect = () => ({
+      x, y, width, height,
+      top: y, left: x, right: x + width, bottom: y + height,
+      toJSON: () => {},
+    });
+    document.body.appendChild(el);
+    return el;
   }
 
   it("hover updates interaction_state", () => {
