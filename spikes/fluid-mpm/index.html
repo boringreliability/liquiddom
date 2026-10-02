@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fluid MPM spike</title>
+    <style>
+      :root {
+        --bg: #f3f0e8;
+        --ink: #1d1b22;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font: 15px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        overflow: hidden;
+        user-select: none;
+      }
+      #liquid {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 0;
+        pointer-events: none;
+      }
+      main {
+        position: relative;
+        z-index: 1;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 32px;
+      }
+      .row { display: flex; gap: 24px; }
+      /* The DOM stays real (text, focus, a11y); the liquid behind it IS its body. */
+      .liquid-el {
+        background: transparent;
+        border: 0;
+        color: #fff;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+        touch-action: none;
+      }
+      button.liquid-el {
+        width: 140px;
+        height: 48px;
+        border-radius: 24px;
+        font: 600 16px/1 inherit;
+        font-family: inherit;
+        cursor: grab;
+      }
+      button.liquid-el.dragging { cursor: grabbing; }
+      button.liquid-el:focus-visible { outline: 3px solid #1d1b22; outline-offset: 4px; }
+      .card {
+        width: 320px;
+        height: 180px;
+        border-radius: 16px;
+        padding: 22px 24px;
+        cursor: pointer;
+      }
+      .card:focus:not(:focus-visible) { outline: none; }
+      .card:focus-visible { outline: 3px solid #1d1b22; outline-offset: 4px; }
+      .card h2 { margin: 0 0 8px; font-size: 20px; }
+      .card p { margin: 0; font-size: 14px; opacity: 0.95; }
+      #hud {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        z-index: 2;
+        font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+        background: rgba(255, 255, 255, 0.82);
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        border-radius: 8px;
+        padding: 8px 10px;
+        min-width: 210px;
+        user-select: text;
+      }
+      #hud .k { color: #6b6672; }
+      #hud select { font: inherit; }
+      #hud .help { margin-top: 6px; color: #6b6672; }
+    </style>
+  </head>
+  <body>
+    <canvas id="liquid" aria-hidden="true"></canvas>
+    <div id="hud" role="status" aria-live="off">
+      <div><span class="k">fps</span> <span id="h-fps">-</span></div>
+      <div><span class="k">physics</span> <span id="h-phys">-</span> ms/tick</div>
+      <div><span class="k">render</span> <span id="h-rend">-</span> ms/frame</div>
+      <div><span class="k">particles</span> <span id="h-n">-</span></div>
+      <div><span class="k">grid</span> <span id="h-grid">-</span></div>
+      <div>
+        <label class="k" for="n-select">n</label>
+        <select id="n-select">
+          <option value="2000">2000</option>
+          <option value="5000">5000</option>
+          <option value="10000">10000</option>
+        </select>
+      </div>
+      <div class="help">click = splash · drag button = merge<br />S shake · R reset · D debug</div>
+    </div>
+    <main>
+      <div class="row">
+        <button class="liquid-el" data-color="#2f6bff" type="button">Splash</button>
+        <button class="liquid-el" data-color="#ff6b57" type="button">Split</button>
+        <button class="liquid-el" data-color="#13a89e" type="button">Merge</button>
+      </div>
+      <div class="card liquid-el" data-color="#7a4cf0" tabindex="0" role="article" aria-label="Liquid card">
+        <h2>MLS-MPM card</h2>
+        <p>This card is a real DOM element. The violet liquid behind it is simulated in Rust/WASM and always crawls back to this shape.</p>
+      </div>
+    </main>
+    <script type="module" src="/web/main.ts"></script>
+  </body>
+</html>
