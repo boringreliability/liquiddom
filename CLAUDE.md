@@ -6,29 +6,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `liquiddom` is a WASM-driven soft-body physics library that animates real DOM elements via a hidden `<canvas>` overlay while preserving accessibility. Rust computes the physics; TypeScript orchestrates DOM observation, the RAF loop, pointer/scroll/visibility events, and rendering. They share a pre-allocated `Float32Array` in WASM linear memory — there is no JSON over the FFI boundary.
 
-As of W51 the repo is an npm workspace with three publishable packages: `liquiddom` (core), `@liquiddom/react`, and `@liquiddom/vue`. Rust source and `Cargo.toml` stay at repo root (one Rust crate produces one `pkg/` consumed by `packages/core/`). Entry point: `packages/core/ts/src/index.ts` exporting `LiquidDOM.create()`.
+The repo is an npm workspace (`packages/*`, `examples/*`, `site`) with three publishable packages: `liquiddom` (core), `@liquiddom/react`, and `@liquiddom/vue` (split in W51). `site/` is the private Astro marketing/docs site `@liquiddom/site` (W58+, deployed to `liquiddom.vsplat.io`). Rust source and `Cargo.toml` stay at repo root (one Rust crate produces one `pkg/` consumed by `packages/core/`). Entry point: `packages/core/ts/src/index.ts` exporting `LiquidDOM.create()`.
 
 ## Commands
 
 ### Build
-- `npm run build` — Full pipeline from root: `wasm-pack` then `tsc` in each `packages/*` (topological via peer-dep order). Always required after Rust changes.
-- `npm run build:wasm` — Rust → WASM only.
-- `npm run build:ts` — Workspace-fanned TS build (`npm run build --workspaces --if-present`).
-- `npm run build -w liquiddom` — Build a single package.
+- `npm run build` — Full pipeline from root: `wasm-pack` then the workspace-fanned TS builds. Always required after Rust changes.
+- `npm run build:wasm` — Rust → WASM only (`pkg/`, gitignored).
+- `npm run build:ts` — Workspace-fanned build (`npm run build --workspaces --if-present`; includes `site` and `examples/react`).
+- `npm run build -w liquiddom` — Build a single package. Core's build is `tsc` **then** `scripts/copy-wasm.mjs`, which copies `pkg/` into `packages/core/dist/wasm/`, deletes wasm-pack's `.gitignore: *` (otherwise npm drops the binary from the tarball), and rewrites the emitted `../../../../pkg/liquiddom.js` import to the colocated copy. Fails if `pkg/` is missing.
 
 ### Develop
-- `npm run dev` — Builds WASM, then runs Vite against `demo/` (with `demo/scenes/*.html` for individual scenarios: `dragable-cards.html`, `scroll-hero.html`).
+- `npm run dev` — Builds WASM, then runs Vite against `demo/`. Individual scenarios live in `demo/scenes/*.html` (dragable-cards, scroll-hero, fusion, refraction, splash-buttons, tilt-bowl, playground).
+- `npm run dev -w @liquiddom/site` — Astro dev server for the public site (needs core built first; consumes `liquiddom` via workspace).
 - `npm run build -w liquiddom-react-example` — Build the React example app.
 
 ### Test
-- `npm test` — Vitest workspace-mode (`vitest.workspace.ts` runs all three packages in one process). jsdom env per package config.
+- `npm test` — Vitest 4 multi-project run: root `vitest.config.ts` lists `test.projects` = core, react, vue, **site** (there is no `vitest.workspace.ts`). jsdom env per project config.
 - `npm test -- -t "snippet"` — Filter by name pattern.
 - `npm test -w @liquiddom/react` — Run only one package's tests.
 - `cargo test` — All Rust unit tests (in-file `#[cfg(test)]` modules under `src/`).
 - `cargo test --lib physics::` — Filter by module path.
 
 ### Lint / Format
-- `cargo clippy` — Required to pass with zero warnings.
+- `npm run clippy` — `cargo clippy --all-targets --all-features -- -D warnings`; must be clean (CI runs exactly this).
 - `cargo fmt` — Required.
 - TypeScript correctness is enforced via `tsc` through `npm run build:ts`.
 
@@ -44,7 +45,7 @@ As of W51 the repo is an npm workspace with three publishable packages: `liquidd
 
 ### The Rule of Two
 - **Rust is DOM-blind and color-blind.** It only does math: positions, velocities, springs, neighbor constraints, area preservation. Never reads `document`, never knows about CSS or themes. Enforced — do not violate.
-- **TypeScript owns DOM/render.** `PhantomObserver` reads `getBoundingClientRect`, writes per-entity `[x, y, w, h, ...]` into the shared buffer, then renders particle positions back to the canvas as splines.
+- **TypeScript owns DOM/render.** `PhantomObserver` reads `getBoundingClientRect`, writes per-entity `[x, y, w, h, ...]` into the shared buffer, then packages post-tick state into a `RenderFrame` (`observer.buildFrame()`). A `Renderer` backend draws that frame — renderers never touch the DOM either.
 
 ### FFI contract — DO NOT change without coordinated edits
 
@@ -68,7 +69,7 @@ A single flat `Float32Array` in WASM memory is the only data channel. Two views:
 
 2. **Particle buffer** — `PARTICLES_PER_BODY * 2` floats per entity (currently `16 * 2 = 32`). Rust writes particle positions; TS reads to render splines.
 
-The constants `FLOATS_PER_ENTITY` and `PARTICLES_PER_BODY` are duplicated in `src/buffer.rs` / `src/api.rs` (Rust) and `packages/core/ts/src/phantom-observer.ts` (TS). They MUST stay in sync.
+The constants `FLOATS_PER_ENTITY` and `PARTICLES_PER_BODY` are duplicated in `src/buffer.rs` / `src/api.rs` (Rust) and `packages/core/ts/src/phantom-observer.ts` (TS; re-exported by `renderers/renderer.ts`). `PARTICLES_PER_BODY` is **also hardcoded as `16u`** in `renderers/shaders/blob-sdf.wgsl.ts` and `fusion-sdf.wgsl.ts`. All of these MUST stay in sync. (The WebGPU renderer repacks entities into its own 16-float / 64-byte `EntityGPU` struct; that is a GPU-side layout, not the FFI stride.)
 
 Per-strategy slot reinterpretation: under `liquid_type=4` (Shake) slot[6]/[7] are per-frame impulse; under `liquid_type=6` (FreeDrop) they are one-time initial velocity. The buffer layout itself is fixed — the meaning of slot[6]/[7] is selected by slot[5]'s dispatch.
 
@@ -170,12 +171,30 @@ Strict-mode safe via idempotent `observe` (W14 invariant). SSR-safe — provider
 ### Per-frame loop semantics (`packages/core/ts/src/index.ts`)
 
 Order matters:
-1. Cache `getBoundingClientRect` once, set `coordOffset` for container mode.
-2. `ctx.setTransform(dpr, 0, 0, dpr, 0, 0)` — DPR via setTransform per frame; never use cumulative `scale()`.
-3. `clearRect`.
-4. `observer.sync()` — DOM → buffer.
-5. `core.tick(physicsDt, ...)` — `physicsDt = 0` if `reducedMotion || scrolling` (sync/render still run).
-6. `observer.render(ctx, ...)` — particles → canvas splines.
+1. Container mode: cache `getBoundingClientRect` once, `observer.setCoordOffset(...)`.
+2. W61 defensive rebind: if `bridge.isStale()`, `bridge.rebind()` + `observer.setViews()` (another instance's allocation may have grown/detached memory).
+3. `runScrollSnapLerp()` if the W55 lerp map is non-empty, else `observer.sync()` — DOM → buffer.
+4. `core.tick(physicsDt, ...)` — `physicsDt = 0` if `reducedMotion || scrolling` (sync/render still run). Guarded by `tickFailed` / `inTick` / module-level `wasmCallInFlight` and wrapped in try/catch (see Multi-instance below).
+5. `observer.buildFrame(viewport, reducedMotion)` → `renderer.render(frame)`. Clearing and DPR handling live inside the renderer (Canvas2D uses `ctx.setTransform(dpr, …)` per frame — never cumulative `scale()`).
+
+### Renderer layer (Wards 036–041, 062)
+
+`packages/core/ts/src/renderers/` holds the `Renderer` interface (`init / render(RenderFrame) / resize / destroy / setBackgroundTexture?`) and two backends:
+
+- **`Canvas2DRenderer`** — Bezier-midpoint splines; the original path.
+- **`WebGPURenderer`** — SDF blobs (`shaders/blob-sdf.wgsl.ts`), metaball fusion via smooth-min (`fusion-sdf.wgsl.ts`, W39), background refraction from a host-supplied `ImageBitmap` (`instance.setBackgroundTexture`, W40). FreeDrops use an analytical-circle SDF branch (W62). Fusion and refraction are WebGPU-only; Canvas2D ignores them (refraction warns once).
+
+`LiquidOptions.renderer: 'auto' | 'canvas2d' | 'webgpu'` (default `'auto'`). `'auto'` tries WebGPU and falls back to Canvas2D **only** on `WebGPUUnavailableError` (any other error is rethrown so bugs surface). The fallback removes and remounts the canvas, because a canvas that already got a WebGPU context can't hand out a 2D one. It logs one `console.info` unless `silentFallback` is set. Explicit `'webgpu'` always rethrows. `instance.activeRenderer` reports the backend that actually initialized — gate behavior on that, not on the requested option. `renderer.resize()` is called AFTER the canvas backing-store write.
+
+### Multi-instance & panic recovery (Ward 061)
+
+wasm32 builds use `panic = "abort"`, so a Rust panic inside a wasm-bindgen `&mut self` method leaves that `LiquidCore`'s `WasmRefCell` borrowed **forever**. Under multiple instances, GC-triggered `FinalizationRegistry` frees could land mid-`tick`. Mitigations in `index.ts`, all of which must be preserved:
+
+- `activeCores` — module-level `Set` pinning every live core as a GC root; removed only right before `core.free()` in `destroy()`.
+- `wasmCallInFlight` (module-level) + `inTick` (per-instance) — drop nested/re-entrant wasm calls.
+- `tickFailed` — after a caught `tick()` panic the instance stops ticking and dispatches a bubbling `liquiddom:instance-panic` `CustomEvent` (on the container, or `window` in fullscreen mode). **Recovery is host-driven:** the orchestrator must `destroy()` and `LiquidDOM.create()` again. In-place core recreation was tried and left the renderer frozen.
+
+Currently only the site orchestrators (`site/src/lib/demo-embed-runtime.ts`, `live-hero-mount.ts`) listen for the event; the React/Vue adapters do not yet, despite comments suggesting otherwise. The underlying race is mitigated, not eliminated.
 
 ### Container vs. fullscreen mode
 Triggered by `options.container`. Affects canvas mount (absolute inside container vs. fixed body), pointer coords (subtract container rect), resize (`ResizeObserver` vs. `window.resize`), and auto-discover root.
@@ -186,7 +205,7 @@ Triggered by `options.container`. Affects canvas mount (absolute inside containe
 - **Pre-allocated buffer pool, no entity churn.** Capacity is fixed at `create()`; explicit `grow()` is the only way to expand.
 - **No framework dependencies.** This is a vanilla web library.
 - **Don't move canvas above DOM.** `backdrop-filter` is a documented limitation.
-- **`Vite` resolves WASM via dynamic `import("../../pkg/liquiddom.js")`** — packaging path is sensitive (Ward 35 explicitly addresses this).
+- **WASM is loaded via dynamic `import("../../../../pkg/liquiddom.js")`** in `index.ts`. The path is load-bearing: `scripts/copy-wasm.mjs` string-rewrites exactly this specifier in `dist/index.js` for publishing (W24/W35/W51). Change both together.
 
 ## WDD (Ward-Driven Development) workflow
 
@@ -195,11 +214,16 @@ This repo is governed by `.wdd/` — `PROJECT.md`, `PROGRESS.md`, `CONTEXT.md`, 
 - Use the `wdd` CLI to change ward status (`wdd complete`, `wdd ward status`, `wdd progress`). Do NOT hand-edit ward frontmatter for status transitions.
 - The repo also exposes plugin skills `ward`, `ward-new`, and `wdd`. Invoke them when starting/continuing ward work — they enforce the checkpoint discipline.
 - **Critical rule:** AI never marks a ward `complete`. Stop after `gold` (all tests green) and present results for human approval. Sequence: `planned → red → approved → gold → STOP → human → complete`.
-- `.wdd/PROGRESS.md` is the source of truth for ward counts. As of last context refresh, 34/35 wards complete, Ward 35 ("Demo Hardening, Runtime Truth, and Showcase Polish") in `gold`.
+- `.wdd/PROGRESS.md` is the source of truth for ward counts and status — read it (or run `wdd progress`) rather than trusting a number cached here. `.wdd/CONTEXT.md` holds the architecture-decisions table and known limitations; ward specs in `.wdd/wards/ward-NNN.md` carry the detailed decision rationale (`Decision §N`) that code comments reference.
+- `.cursor/rules/wdd.mdc` mirrors the same checkpoint discipline: STOP after writing tests (red) for human approval, and STOP again at gold.
+
+## Public site (`site/`, Wards 058–060)
+
+Astro 6 + Tailwind 4, deployed to GitHub Pages at `liquiddom.vsplat.io` by `.github/workflows/deploy-site.yml` on pushes to `master` touching site/packages/Rust sources. Showcases (`site/src/showcases/`) are mounted through `site/src/lib/demo-embed-runtime.ts` (`wireDemoEmbed`) and `live-hero-mount.ts`. Both own instance lifecycle, including renderer-toggle remounts (`renderer-store.ts`) and W61 panic recovery. The site's own Vitest project runs as part of `npm test`.
 
 ## Test conventions
 
-- TS tests live in `packages/{core,react,vue}/__tests__/` and `packages/core/ts/__tests__/*.test.ts`. The "runtime-truth" file (Ward 35) catches "looks green but isn't true at runtime" failures — extend it when wiring new public API surface. `packages/core/__tests__/workspace-publish.test.ts` (W51) asserts the publishable shape of all three packages.
+- TS tests live in `packages/{core,react,vue}/__tests__/`, `packages/core/ts/__tests__/*.test.ts`, and `site/__tests__/` (site build output, deploy workflow, and snippet-canary checks). WebGPU tests (`webgpu-*.test.ts`) run against a mocked `navigator.gpu`; there's no real GPU under jsdom. The "runtime-truth" file (Ward 35) catches "looks green but isn't true at runtime" failures — extend it when wiring new public API surface. `packages/core/__tests__/workspace-publish.test.ts` (W51) asserts the publishable shape of all three packages.
 - `liquiddom-api.test.ts` covers the full public `LiquidDOM` instance API.
 - Rust tests are colocated with the module under `#[cfg(test)] mod tests` in `src/*.rs`.
 - Vitest uses `jsdom`. Mocks for `pkg/liquiddom.js` are required because WASM does not load under jsdom — the codebase falls back to a "mock mode" if WASM `import` fails. Tests should still verify the buffer-write contract is correct.
