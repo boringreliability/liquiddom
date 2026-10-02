@@ -68,10 +68,10 @@ The elements **are** liquid, and so is their text. They splash, split, merge wit
 - F,
 - the per-element rest state.
 
-**Versioning:**
-- Run `changeset pre enter alpha` and use minor-bump changesets.
-- Put the three packages in a changesets `fixed` group so their versions move together.
-- The result is `0.3.0-alpha.x`.
+**Versioning** *(amended 2026-10-03; a simulation with `@changesets/assemble-release-plan` showed that minor bumps from `0.2.0-rc.0` give `0.2.0-alpha.1` or `1.0.0-alpha.1`)*:
+- The three packages are hand-set to `0.3.0-alpha.0`, with peers `^0.3.0-alpha.0`.
+- A changesets `fixed` group, plus `onlyUpdatePeerDependentsWhenOutOfRange: true`.
+- `changeset pre enter alpha`, then minor changesets, giving `0.3.0-alpha.1`.
 - What happens to the published `0.2.0-rc.0` (npm deprecate, or leave it) is open (§7).
 
 ## 2. The fluid engine (Rust)
@@ -103,8 +103,9 @@ The elements **are** liquid, and so is their text. They splash, split, merge wit
 
 **Grid:**
 - The cell size is decided **once** at `create()` from the particle density, clamped to 4–8 px. It is independent of the viewport, so the numerical behaviour (and visual regression) does not depend on window size.
-- The grid is pre-allocated to cover `screen.width × screen.height` plus a margin (or the container's maximum in container mode).
-- A larger resize triggers one explicit, logged reallocation.
+- The grid is pre-allocated to cover `max(screen.width, innerWidth) × max(screen.height, innerHeight)` plus a margin (or the container's maximum in container mode).
+- A resize beyond that is clamped to the walls in slices 1–5. One explicit, logged reallocation is added in slice 6 (resize). *(Amended 2026-10-03 after plan verification.)*
+- Each grid substep only touches a dirty region: the particle AABB plus 2 cells.
 
 **Walls and off-screen elements:**
 - The grid covers the viewport plus a margin of 1 element height, at least 200 px. Walls sit at the grid edges.
@@ -204,8 +205,8 @@ This is a coordinated contract change. It replaces the 9-float soft-body layout.
    | 8 | `viscosity` | Per-element override in [0,1]. NaN = material default |
    | 9 | `recovery` | Per-element override in seconds. NaN = material default |
 
-2. **Dynamic particle view**, written by Rust: SoA `x, y, f00, f01, f10, f11` as **one contiguous block**. TS uploads it with a single `writeBuffer(buf, 0, memory.buffer, ptr, n_active·24)` and takes the view from `WasmBridge` every frame, never a cached view.
-3. **Static particle view**, written by Rust at redistribution: SoA `home, rest_u, rest_v, flags`. TS reads it only when the generation counter changes.
+2. **Dynamic particle view**, written by Rust: SoA `x, y, f00, f01, f10, f11, flags` (7 floats per particle) as **one contiguous block**. `flags` sits here because `torn` is set during simulation. TS uploads it with a single `writeBuffer(buf, 0, memory.buffer, ptr, particleCapacity·7·4)` and takes the view from `WasmBridge` every frame, never a cached view.
+3. **Static particle view**, written by Rust at redistribution: SoA `home, rest_u, rest_v`. TS reads it only when the generation counter changes.
 4. **Element state view**, written by Rust every step: 4 floats per element, `s, maxDev, restAlpha, reserved`.
 5. **Scalar calls** (no buffer, no JSON):
    - `tick(raw_dt_s, px, py, pvx, pvy, pointer_active, gx, gy)`
