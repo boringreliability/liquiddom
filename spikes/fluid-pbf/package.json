@@ -1,0 +1,13 @@
+{
+  "name": "fluid-pbf-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:wasm": "wasm-pack build --release --target web --out-dir pkg --no-typescript",
+    "dev": "npm run build:wasm && vite",
+    "bench": "npm run build:wasm && node bench.mjs"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}

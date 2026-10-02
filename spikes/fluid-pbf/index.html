@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fluid PBF spike</title>
+    <style>
+      :root {
+        --bg: #f3f1ec;
+        --ink: #1f2430;
+        --muted: #6b7080;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      #liquid {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 0;
+        pointer-events: none;
+      }
+      main {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding-top: 22vh;
+        gap: 44px;
+      }
+      .row { display: flex; gap: 28px; }
+      .liquid-el {
+        background: transparent;
+        color: #fff;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+        user-select: none;
+        touch-action: none;
+      }
+      button.liquid-el {
+        width: 140px;
+        height: 48px;
+        border-radius: 24px;
+        border: 0;
+        font: 600 16px/1 system-ui, -apple-system, sans-serif;
+        letter-spacing: 0.02em;
+        cursor: grab;
+      }
+      button.liquid-el:focus-visible { outline: 2px dashed var(--ink); outline-offset: 4px; }
+      .card {
+        width: 320px;
+        height: 180px;
+        border-radius: 16px;
+        padding: 22px 24px;
+        cursor: grab;
+      }
+      .card h2 { margin: 0 0 8px; font-size: 20px; }
+      .card p { margin: 0; font-size: 14px; opacity: 0.95; }
+      #hud {
+        position: fixed;
+        z-index: 2;
+        left: 12px;
+        top: 12px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.82);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+        font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: var(--ink);
+        min-width: 230px;
+      }
+      #hud .k { color: var(--muted); }
+      #hud label { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+      #hud input { flex: 1; }
+      #help {
+        position: fixed;
+        z-index: 2;
+        bottom: 14px;
+        left: 0;
+        right: 0;
+        text-align: center;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      kbd {
+        font: 12px ui-monospace, monospace;
+        border: 1px solid #c9c6bf;
+        border-bottom-width: 2px;
+        border-radius: 4px;
+        padding: 0 4px;
+        background: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="liquid" aria-hidden="true"></canvas>
+    <main>
+      <div class="row">
+        <button class="liquid-el" data-color="#3b6cf6">Splash</button>
+        <button class="liquid-el" data-color="#ff6f61">Split</button>
+        <button class="liquid-el" data-color="#14b8a6">Merge</button>
+      </div>
+      <div class="liquid-el card" data-color="#8b5cf6" role="group" aria-label="Liquid card">
+        <h2>Liquid card</h2>
+        <p>This is a real DOM element. The violet blob behind it is ~half the particles. Click to splash, drag a button onto it to merge.</p>
+      </div>
+    </main>
+    <div id="hud" aria-live="off">
+      <div><span class="k">solver</span> PBF + shape matching</div>
+      <div><span class="k">fps</span> <span id="fps">-</span></div>
+      <div><span class="k">physics</span> <span id="phys">-</span> ms/tick</div>
+      <div><span class="k">render</span> <span id="rend">-</span> ms/frame</div>
+      <div><span class="k">particles</span> <span id="count">-</span></div>
+      <div><span class="k">damage</span> <span id="dmg">-</span></div>
+      <label><span class="k">n</span>
+        <input id="nslider" type="range" min="0" max="2" step="1" value="0" aria-label="Particle count" />
+        <span id="nval">2000</span>
+      </label>
+    </div>
+    <div id="help">
+      move = poke &middot; click = splash &middot; drag a button onto another = merge &middot;
+      <kbd>S</kbd> shake &middot; <kbd>R</kbd> reset &middot; <kbd>D</kbd> debug particles
+    </div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
