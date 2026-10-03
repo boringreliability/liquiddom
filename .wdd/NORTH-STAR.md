@@ -69,7 +69,7 @@ What a person sees and feels. Every ward moves at least one of these closer, or 
 3. **Direction gate before `red`.** Each technique, architecture or scope choice is a `### D<NN>-<k>` item in the ward's `## Decisions`. Present it to Dennis in chat as a named decision with its consequence. Record it with `saga_record_decision`, write `Decision: APPROVED YYYY-MM-DD — <choice> (saga dec_…)`, and add a row to *Plan decisions* below. A ward cannot move to `red` while any line says `Decision: PENDING`.
 4. **Whole-picture checks** (below). The next slice is planned only after one.
 5. **Spikes** are time-boxed and answer one question. Their code never becomes production code.
-6. Unchanged: `planned → red → (human approves tests) → approved → gold → (human approves) → complete`. AI never marks a ward complete.
+6. Unchanged: `planned → red → (human approves tests) → approved → gold → (human approves) → complete`. AI never decides on its own that a ward is complete: it stops at `gold` and waits for Dennis' approval. Once Dennis has approved gold, AI may run `wdd complete`.
 
 ## Whole-picture checks
 

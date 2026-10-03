@@ -240,7 +240,7 @@ This repo is governed by `.wdd/` — `PROJECT.md`, `NORTH-STAR.md`, `PROGRESS.md
 
 - Use the `wdd` CLI to change ward status (`wdd complete`, `wdd ward status`, `wdd progress`). Do NOT hand-edit ward frontmatter for status transitions.
 - The repo also exposes plugin skills `ward`, `ward-new`, and `wdd`. Invoke them when starting/continuing ward work — they enforce the checkpoint discipline.
-- **Critical rule:** AI never marks a ward `complete`. Stop after `gold` (all tests green) and present results for human approval. Sequence: `planned → red → approved → gold → STOP → human → complete`.
+- **Critical rule:** AI never decides on its own that a ward is complete: it stops at `gold` and waits for Dennis' approval. Once Dennis has approved gold, AI may run `wdd complete`. Sequence: `planned → red → approved → gold → STOP → human approves → complete` (the `wdd complete` command itself may be run by AI after that approval).
 - `.wdd/PROGRESS.md` is the source of truth for ward counts and status — read it (or run `wdd progress`) rather than trusting a number cached here. `.wdd/CONTEXT.md` holds the architecture-decisions table and known limitations; ward specs in `.wdd/wards/ward-NNN.md` carry the detailed decision rationale (`Decision §N`) that code comments reference.
 - `.cursor/rules/wdd.mdc` mirrors the same checkpoint discipline: STOP after writing tests (red) for human approval, and STOP again at gold.
 

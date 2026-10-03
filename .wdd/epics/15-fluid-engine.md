@@ -35,4 +35,4 @@ Slices 1–2 = W63–W69. Slices 3–6 (WebGPU liquid, liquid text, drag and mer
 - Whole-picture checks after slices 2, 4 and 6 are recorded in `.wdd/memory/whole-picture/`, with recordings inspected with vision.
 - No soft-body code remains, and `npm run verify` and `cargo clippy --all-targets --all-features -- -D warnings` are green.
 - The three packages are published together as `0.3.0-alpha.x` (changesets fixed group).
-- Every ward was completed by Dennis via `wdd complete`. AI never marks a ward complete.
+- Every ward was approved at gold by Dennis before `wdd complete` (run by Dennis or, after his approval, by AI).

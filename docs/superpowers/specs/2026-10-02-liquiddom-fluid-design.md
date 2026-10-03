@@ -473,7 +473,7 @@ The page is `demo/scenes/acceptance.html`: three buttons ("Splash", "Split", "Me
 3. **A direction gate, separate from test approval.** A technique, architecture or scope choice is presented in chat as a named decision with its consequence. Dennis approves it, it is logged with `saga_record_decision`, and it gets a "Decision" line in the ward spec. **The ward cannot move to `red` without it.**
 4. **Whole-picture check** after slices 2, 4 and 6: a video or GIF of the acceptance scene in every renderer that exists at that slice (after slice 2 that is Canvas2D only, because the WebGPU fluid renderer arrives in slice 3), plus status against the north star. The next slice is planned only afterwards. *(Amended 2026-10-03.)*
 5. **Spikes** are allowed and time-boxed. They produce an answer, and their code never becomes production code (D2 re-implements).
-6. Unchanged: `planned → red → (human approves tests) → approved → gold → (human approves) → complete`. AI never marks a ward complete.
+6. Unchanged: `planned → red → (human approves tests) → approved → gold → (human approves) → complete`. AI never decides on its own that a ward is complete: it stops at `gold` and waits for Dennis' approval. Once Dennis has approved gold, AI may run `wdd complete`.
 
 ### Slices
 

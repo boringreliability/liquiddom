@@ -185,3 +185,7 @@ The plan was produced as follows:
 5. Revision of each ward.
 
 After that, the blockers were verified once more (see `_verification.md`).
+
+## Amendment 2026-10-03: who runs `wdd complete`
+
+Dennis clarified that AI has always been allowed to run `wdd complete`. The rule is that AI never *decides* a ward is complete: it stops at gold and waits for Dennis' explicit approval. Wherever the ward plans say "AI never runs `wdd complete`" or "Dennis runs `wdd complete` himself", read it as: **after Dennis has approved gold, the controller runs `wdd complete NN`**. CLAUDE.md, NORTH-STAR.md, Epic 15 and the spec have been updated to match.
