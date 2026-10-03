@@ -25,6 +25,17 @@ mod tests {
     }
 
     #[test]
+    fn given_raw_dt_50ms_when_advanced_then_exactly_3_steps_and_remainders_carry() {
+        let mut c = FixedClock::default();
+        assert_eq!(c.advance(0.05), 3);
+        assert!(c.accumulator_s() < 1e-6, "{}", c.accumulator_s());
+        // 40 ms = 2 steps + 6.67 ms carried; 10 ms more makes the third step due.
+        let mut c = FixedClock::default();
+        assert_eq!(c.advance(0.04), 2);
+        assert_eq!(c.advance(0.01), 1);
+    }
+
+    #[test]
     fn given_nan_or_negative_dt_when_advanced_then_zero_steps() {
         let mut c = FixedClock::default();
         for dt in [f32::NAN, -0.016, f32::INFINITY, f32::NEG_INFINITY, 0.0] {

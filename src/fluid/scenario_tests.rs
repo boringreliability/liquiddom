@@ -5,9 +5,26 @@
 use super::api::FluidCore;
 use super::clock::SUBSTEPS;
 use super::elements::REST_MAX_DEV_PX;
-use super::grid::REGION_PAD_CELLS;
-use super::layout::{ELEMENT_STRIDE, ST_MAX_DEV, ST_REST_ALPHA};
-use super::sampling::rounded_rect_area;
+use super::grid::{CELL_MIN_PX, REGION_PAD_CELLS};
+use super::layout::{ELEMENT_STRIDE, HOME_NONE, HOVER_SWELL, ST_MAX_DEV, ST_REST_ALPHA};
+use super::sampling::{inside_rounded_rect, rounded_rect_area};
+use super::solver::{SPRING_K, SPRING_ZETA};
+
+/// The rest threshold as a literal (D64-13), so the scenarios cannot be satisfied by
+/// loosening the implementation's constant.
+const REST_MAX_DEV: f32 = 0.75;
+
+#[test]
+fn given_the_approved_decisions_when_reading_the_constants_then_they_equal_the_literals() {
+    assert_eq!(REST_MAX_DEV_PX, 0.75);
+    assert_eq!(SPRING_K, 220.0);
+    assert_eq!(SPRING_ZETA, 0.8);
+    assert_eq!(HOVER_SWELL, 0.02);
+    assert_eq!(HOME_NONE, -1.0);
+    assert_eq!(SUBSTEPS, 8);
+    assert_eq!(REGION_PAD_CELLS, 2);
+    assert_eq!(CELL_MIN_PX, 4.0);
+}
 
 pub const SEED: u32 = 1;
 pub const AREA_HINT_PX2: f32 = 76_057.0;
@@ -63,14 +80,14 @@ fn given_elements_at_rest_when_ticking_120_frames_then_max_dev_below_0_75px() {
     let mut c = acceptance_core(SEED);
     assert_eq!(frames(&mut c, 120), 120);
     for id in 0..4 {
-        assert!(max_dev(&c, id) < REST_MAX_DEV_PX, "element {id}: {}", max_dev(&c, id));
+        assert!(max_dev(&c, id) < REST_MAX_DEV, "element {id}: {}", max_dev(&c, id));
         assert_eq!(rest_alpha(&c, id), 1.0);
     }
     assert_eq!(c.mean_j(), 1.0);
 }
 
 #[test]
-fn given_particles_displaced_10px_when_ticking_3s_then_max_dev_below_0_75px_and_rest_alpha_1() {
+fn given_particles_displaced_10px_when_ticking_1s_then_max_dev_below_0_75px_and_rest_alpha_1() {
     let mut c = acceptance_core(SEED);
     displace_all(&mut c, 10.0);
     frames(&mut c, 1);
@@ -78,9 +95,9 @@ fn given_particles_displaced_10px_when_ticking_3s_then_max_dev_below_0_75px_and_
         assert!(max_dev(&c, id) > 5.0, "element {id}: {}", max_dev(&c, id));
         assert_eq!(rest_alpha(&c, id), 0.0);
     }
-    frames(&mut c, 180);
+    frames(&mut c, 60);
     for id in 0..4 {
-        assert!(max_dev(&c, id) < REST_MAX_DEV_PX, "element {id}: {}", max_dev(&c, id));
+        assert!(max_dev(&c, id) < REST_MAX_DEV, "element {id}: {}", max_dev(&c, id));
         assert_eq!(rest_alpha(&c, id), 1.0);
     }
 }
@@ -93,13 +110,24 @@ fn given_rect_moved_50px_when_ticking_then_particles_converge_to_new_rect_target
     c.write_element(CARD, slot(card));
     frames(&mut c, 1);
     assert!(max_dev(&c, CARD) > 40.0, "{}", max_dev(&c, CARD));
-    frames(&mut c, 180);
-    assert!(max_dev(&c, CARD) < REST_MAX_DEV_PX, "{}", max_dev(&c, CARD));
+    frames(&mut c, 60);
+    assert!(max_dev(&c, CARD) < REST_MAX_DEV, "{}", max_dev(&c, CARD));
     assert_eq!(rest_alpha(&c, CARD), 1.0);
     for i in 0..8000 {
         if c.home(i) == CARD as u32 {
-            let (_, y) = c.particle_px(i);
-            assert!(y >= card[1] - 1.0 && y <= card[1] + card[3] + 1.0, "particle {i}: y = {y}");
+            let (x, y) = c.particle_px(i);
+            // Inside the new rounded rect, inflated by the rest threshold.
+            let t = REST_MAX_DEV;
+            assert!(
+                inside_rounded_rect(
+                    x - (card[0] - t),
+                    y - (card[1] - t),
+                    card[2] + 2.0 * t,
+                    card[3] + 2.0 * t,
+                    card[4] + t
+                ),
+                "particle {i}: ({x}, {y})"
+            );
         }
     }
 }

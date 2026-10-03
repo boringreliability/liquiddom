@@ -42,7 +42,8 @@ mod tests {
             card[1] += 50.0;
             c.write_element(3, slot(card));
             frames(&mut c, 200);
-            c.views.dynamic.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+            let bits = |v: &[f32]| v.iter().map(|f| f.to_bits()).collect::<Vec<_>>();
+            (bits(&c.views.dynamic), bits(&c.views.statics))
         };
         assert_eq!(run(7), run(7));
         assert_ne!(run(7), run(8));
