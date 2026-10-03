@@ -29,3 +29,5 @@ pub mod views;
 
 #[cfg(test)]
 mod scenario_tests;
+
+pub use api::FluidCore;

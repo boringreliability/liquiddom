@@ -188,7 +188,12 @@ impl Grid {
     /// `REGION_PAD_CELLS`, clamped to the grid.
     pub fn set_region(&mut self, min_gx: f32, min_gy: f32, max_gx: f32, max_gy: f32) {
         let lo = |v: f32| (v.max(0.0).floor() as usize).saturating_sub(REGION_PAD_CELLS);
-        let hi = |v: f32, n: usize| ((v.max(0.0).floor() as usize) + REGION_PAD_CELLS + 1).min(n);
+        let hi = |v: f32, n: usize| {
+            (v.max(0.0).floor() as usize)
+                .saturating_add(REGION_PAD_CELLS)
+                .saturating_add(1)
+                .min(n)
+        };
         self.region = Region {
             x0: lo(min_gx),
             y0: lo(min_gy),
