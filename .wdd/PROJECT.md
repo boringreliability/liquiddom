@@ -5,6 +5,9 @@
 - **One-liner:** WASM/WGPU-driven fluid dynamics on web elements via hidden canvas, preserving a11y
 - **License:** MIT
 
+## North Star
+The vision written as experiences, the canonical acceptance scene and the slice matrix live in [NORTH-STAR.md](NORTH-STAR.md). Every ward spec names the scene step(s) it moves (`North star:`), and every technique or scope choice passes a direction gate (`Decision:`) before the ward goes `red`. The fluid engine (Epic 15, W63+) replaces the soft-body model described under Architecture Overview; the soft-body engine is retired in W66.
+
 ## Architecture Overview
 Rust er DOM-blind og Farve-blind — `wasm.tick()` genererer udelukkende matematisk fysik-tilstand (bounding boxes, partikler, fjedre). TypeScript ejer Render Loop, DOM-aflæsning og Theming. Kommunikation sker via en pre-allokeret flat `Float32Array` buffer i WASM memory (zero GC).
 
