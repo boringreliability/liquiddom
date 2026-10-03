@@ -1,6 +1,149 @@
 //! `redistribute()`: area apportionment, home assignment, rest sampling and
 //! first placement (spec §2 "Particle pool and elements", decision D64-3,
 //! plan resolutions B3 and B4).
+//!
+//! Stable assignment: each element's rest set is a progressive sequence
+//! seeded by `(seed, slot)`, and a particle keeps its `rank` in that
+//! sequence. A particle whose home is still active and whose rank is still
+//! below the new count keeps its home AND its exact `rest_uv`. Only the
+//! surplus ranks are freed and refilled. Never-placed particles snap to their
+//! target; already-placed particles keep `x, y` (they crawl, never snap).
+
+use super::access::{positive, rd, rd_or, rd_u32, wr, wr_u32};
+use super::elements::Elements;
+use super::grid::Grid;
+use super::particles::{NO_HOME, Particles};
+use super::rng::Rng;
+use super::sampling::{apportion, rounded_rect_area, sample_rounded_rect};
+
+/// Pre-allocated scratch so `redistribute` never allocates (B7).
+pub struct PoolScratch {
+    pub weights: Vec<f32>,
+    pub counts: Vec<u32>,
+    pub starts: Vec<u32>,
+    pub next: Vec<u32>,
+    pub u: Vec<f32>,
+    pub v: Vec<f32>,
+}
+
+impl PoolScratch {
+    pub fn new(particles: usize, elements: usize) -> PoolScratch {
+        PoolScratch {
+            weights: vec![0.0; elements],
+            counts: vec![0; elements],
+            starts: vec![0; elements],
+            next: vec![0; elements],
+            u: vec![0.5; particles],
+            v: vec![0.5; particles],
+        }
+    }
+}
+
+/// Returns the number of particles with a home: 0 when no element is
+/// active, otherwise exactly `p.cap` (B3).
+pub fn redistribute(
+    p: &mut Particles,
+    e: &mut Elements,
+    g: &Grid,
+    seed: u32,
+    reduced_motion: bool,
+    s: &mut PoolScratch,
+) -> u32 {
+    // 1. Counts proportional to rounded-rect area (largest remainder).
+    for id in 0..e.cap {
+        let area = e.rect(id).map_or(0.0, |r| rounded_rect_area(r.w, r.h, r.r));
+        wr(&mut s.weights, id, area);
+    }
+    let total = u32::try_from(p.cap).unwrap_or(u32::MAX);
+    let assigned = apportion(&s.weights, total, &mut s.counts);
+
+    // 2. Rest samples per element, stored contiguously by element id.
+    let mut start = 0usize;
+    for id in 0..e.cap {
+        let n = rd_u32(&s.counts, id) as usize;
+        wr_u32(&mut s.starts, id, u32::try_from(start).unwrap_or(u32::MAX));
+        wr_u32(&mut s.next, id, 0);
+        let rect = e.rect(id);
+        if let Some(r) = rect
+            && n > 0
+            && let (Some(ou), Some(ov)) =
+                (s.u.get_mut(start..start + n), s.v.get_mut(start..start + n))
+        {
+            let mut rng = Rng::derive(seed, u32::try_from(id).unwrap_or(u32::MAX));
+            sample_rounded_rect(r.w, r.h, r.r, &mut rng, ou, ov);
+        }
+        let area = rd(&s.weights, id);
+        wr_u32(&mut e.counts, id, u32::try_from(n).unwrap_or(u32::MAX));
+        wr(
+            &mut e.area_per_particle,
+            id,
+            if n > 0 { area / n as f32 } else { 0.0 },
+        );
+        wr(&mut e.rest_w, id, rect.map_or(0.0, |r| r.w));
+        wr(&mut e.rest_h, id, rect.map_or(0.0, |r| r.h));
+        start += n;
+    }
+
+    // 3. Keep pass: home still active and rank still inside the new count.
+    for i in 0..p.cap {
+        match p.home_of(i) {
+            Some(h) if rd_u32(&p.rank, i) < rd_u32(&s.counts, h) => {
+                let k = rd_u32(&s.next, h);
+                wr_u32(&mut s.next, h, k.saturating_add(1));
+            }
+            _ => wr_u32(&mut p.home, i, NO_HOME),
+        }
+    }
+
+    // 4. Freed particles fill the missing ranks, in index order.
+    let mut cursor = 0usize;
+    for i in 0..p.cap {
+        if p.home_of(i).is_some() {
+            continue;
+        }
+        while cursor < e.cap && rd_u32(&s.next, cursor) >= rd_u32(&s.counts, cursor) {
+            cursor += 1;
+        }
+        if cursor >= e.cap {
+            break;
+        }
+        let k = rd_u32(&s.next, cursor);
+        wr_u32(&mut p.home, i, u32::try_from(cursor).unwrap_or(NO_HOME));
+        wr_u32(&mut p.rank, i, k);
+        wr_u32(&mut s.next, cursor, k.saturating_add(1));
+    }
+
+    // 5. Rest uv, per-generation mass (B4) and first placement.
+    let cell2 = g.cell_px * g.cell_px;
+    for i in 0..p.cap {
+        let Some(h) = p.home_of(i) else {
+            wr(&mut p.mass, i, 0.0);
+            continue;
+        };
+        let k = rd_u32(&s.starts, h) as usize + rd_u32(&p.rank, i) as usize;
+        let (u, v) = (rd_or(&s.u, k, 0.5), rd_or(&s.v, k, 0.5));
+        wr(&mut p.rest_u, i, u);
+        wr(&mut p.rest_v, i, v);
+        let app = rd(&e.area_per_particle, h);
+        wr(
+            &mut p.mass,
+            i,
+            if positive(app) { app / cell2 } else { 0.0 },
+        );
+        let placed = p.placed.get(i).copied().unwrap_or(true);
+        if !placed && let Some((tx, ty)) = e.target_px(h, u, v, reduced_motion) {
+            let (gx, gy) = g.to_grid(tx, ty);
+            let (gx, gy) = g.clamp_pos(gx, gy);
+            wr(&mut p.x, i, gx);
+            wr(&mut p.y, i, gy);
+            p.reset_kinematics(i);
+            if let Some(flag) = p.placed.get_mut(i) {
+                *flag = true;
+            }
+        }
+    }
+    assigned
+}
 
 #[cfg(test)]
 #[allow(clippy::needless_range_loop)]
