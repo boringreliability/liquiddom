@@ -216,3 +216,18 @@ fn given_one_small_element_in_1280x800_world_when_ticking_then_grid_work_is_boun
     assert!(region.cells() <= max_w * max_h, "{} > {}", region.cells(), max_w * max_h);
     assert!(region.cells() * 100 < g.w * g.h, "{} of {}", region.cells(), g.w * g.h);
 }
+
+#[test]
+fn given_huge_finite_home_offset_for_5_frames_when_restored_then_particles_finite_and_rest_within_60_frames()
+ {
+    let mut c = acceptance_core(SEED);
+    let mut huge = slot(LAYOUT[CARD]);
+    huge[6] = 1e38;
+    c.write_element(CARD, huge);
+    frames(&mut c, 5);
+    c.write_element(CARD, slot(LAYOUT[CARD]));
+    frames(&mut c, 60);
+    assert!(c.dynamic_view().iter().all(|v| v.is_finite()));
+    assert!(max_dev(&c, CARD) < REST_MAX_DEV, "{}", max_dev(&c, CARD));
+    assert_eq!(rest_alpha(&c, CARD), 1.0);
+}

@@ -49,7 +49,10 @@ pub fn compute_targets(
             .home_of(i)
             .and_then(|h| e.target_px(h, rd(&p.rest_u, i), rd(&p.rest_v, i), reduced_motion));
         let (tx, ty) = match target {
-            Some((x, y)) => g.to_grid(x, y),
+            Some((x, y)) => {
+                let (gx, gy) = g.to_grid(x, y);
+                g.clamp_pos(gx, gy)
+            }
             None => (f32::NAN, f32::NAN),
         };
         wr(&mut s.tgt_x, i, tx);
@@ -88,7 +91,7 @@ pub fn substep(p: &mut Particles, g: &mut Grid, e: &Elements, inp: &StepInput, s
         if m <= 0.0 {
             continue;
         }
-        let (x, y) = (rd(&p.x, i), rd(&p.y, i));
+        let (x, y) = g.clamp_pos(rd(&p.x, i), rd(&p.y, i));
         let (mut vx, mut vy) = (rd(&p.vx, i), rd(&p.vy, i));
         let (tx, ty) = (rd_or(&s.tgt_x, i, f32::NAN), rd_or(&s.tgt_y, i, f32::NAN));
         let has_target = tx.is_finite() && ty.is_finite();
@@ -98,9 +101,15 @@ pub fn substep(p: &mut Particles, g: &mut Grid, e: &Elements, inp: &StepInput, s
             vx += (k * (tx - x) - damp * vx) * dt;
             vy += (k * (ty - y) - damp * vy) * dt;
         }
+        if !(vx.is_finite() && vy.is_finite()) {
+            (vx, vy) = (0.0, 0.0);
+        }
         wr(&mut p.vx, i, vx);
         wr(&mut p.vy, i, vy);
-        let [c00, c01, c10, c11] = rd4(&p.c, i, [0.0; 4]);
+        let [mut c00, mut c01, mut c10, mut c11] = rd4(&p.c, i, [0.0; 4]);
+        if ![c00, c01, c10, c11].iter().all(|v| v.is_finite()) {
+            (c00, c01, c10, c11) = (0.0, 0.0, 0.0, 0.0);
+        }
         let st = g.stencil(x, y);
         g.p2g(&st, m, m * vx, m * vy, [m * c00, m * c01, m * c10, m * c11]);
     }
@@ -109,9 +118,12 @@ pub fn substep(p: &mut Particles, g: &mut Grid, e: &Elements, inp: &StepInput, s
         if p.home_of(i).is_none() || rd(&p.mass, i) <= 0.0 {
             continue;
         }
-        let (x, y) = (rd(&p.x, i), rd(&p.y, i));
+        let (x, y) = g.clamp_pos(rd(&p.x, i), rd(&p.y, i));
         let st = g.stencil(x, y);
-        let (vx, vy, c) = g.g2p(&st);
+        let (mut vx, mut vy, mut c) = g.g2p(&st);
+        if !(vx.is_finite() && vy.is_finite() && c.iter().all(|v| v.is_finite())) {
+            (vx, vy, c) = (0.0, 0.0, [0.0; 4]);
+        }
         wr(&mut p.vx, i, vx);
         wr(&mut p.vy, i, vy);
         wr4(&mut p.c, i, c);
