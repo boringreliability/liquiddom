@@ -108,3 +108,21 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D63-4 | Slice 2 re-sliced: W67 splash and shake, W68 pointer, hover and material | W63 | dec_e3b8a07c |
 | D63-5 | Spec amendments: 6963d7d (B2/B14/versioning) plus residuals | W63 | dec_c0218e5d |
 | D63-6 | Direction gate enforced by `wdd-docs.test.ts` | W63 | dec_98e30762 |
+| D64-1 | Cell size and density budget | W64 | dec_63b2ee30 |
+| D64-2 | Interim binary restAlpha | W64 | dec_a755108e |
+| D64-3 | Stable progressive redistribution | W64 | dec_006a27f1 |
+| D64-4 | Full FFI surface now | W64 | dec_1a50aec1 |
+| D64-5 | A null 2d context rejects create | W64 | dec_23485a8f |
+| D64-6 | Reduced-motion detection, the matchMedia change listener and set_reduced_motion land here | W64 | dec_7ba30333 |
+| D64-7 | The bridge class is named FluidBridge | W64 | dec_cf8b4244 |
+| D64-8 | The internal entry is runtime.ts | W64 | dec_9a1f9037 |
+| D64-9 | Interim scene CSS | W64 | dec_fce07c35 |
+| D64-10 | Type files, names and defaults | W64 | dec_ec4c5ce2 |
+| D64-11 | Canvas2D renderer | W64 | dec_961e6084 |
+| D64-12 | World and margin | W64 | dec_7447fa0f |
+| D64-13 | At-rest physics in W64 | W64 | dec_38532b3a |
+| D64-14 | Canvas resize and DPR | W64 | dec_4016ae3d |
+| D64-15 | copy-wasm rewrite | W64 | dec_622c0bd6 |
+| D64-16 | Cargo profiles | W64 | dec_bc44838f |
+| D64-17 | RenderFrame shape | W64 | dec_d6ad5a80 |
+| D64-18 | Registry contract | W64 | dec_c732986e |

@@ -56,79 +56,94 @@ The soft-body engine is untouched and keeps passing until W66 removes it.
 
 ## Decisions
 ### D64-1: Cell size and density budget
-Proposal: the cell size is decided once at create: `cell = clamp(√(4·A_hint/N), 4, 8)` px, where `A_hint` is the rounded-rect area measured from `initialElements`; with no hint the cell is 8 px. Observed area above `N·cell²/2` gives one `console.warn` per runtime and no reallocation (B2, B5). The spec §2 resize reallocation moves to slice 6.
-Consequence: the bare `create()` then `observe()` pattern gets 8 px cells (W66 restores parity by measuring the `autoObserve` candidates). The scene's hint of 76 057 px² gives ≈ 6.17 px.
-Decision: PENDING
+Proposal: The cell size is decided once at create: `cell = clamp(√(4·A_hint/N), 4, 8)` px, where `A_hint` is measured from `initialElements`. With no hint the cell is 8 px. Observed area above `N·cell²/2` gives one `console.warn` per runtime and no reallocation. The spec §2 resize reallocation moves to slice 6. (B2, B5)
+Consequence: the bare `create()` then `observe()` pattern gets 8 px cells. The scene's hint of 76 057 px² gives ≈ 6.17 px.
+Decision: APPROVED 2026-10-03 — cell = clamp(√(4·A_hint/N), 4, 8) px decided at create; 8 px without a hint; one warn on over-budget area, no reallocation (saga dec_63b2ee30)
 
 ### D64-2: Interim binary restAlpha
 Proposal: `restAlpha = 1` iff `s > 0.98 && maxDev < 0.75 px` (always under reduced motion), and `s ≡ 1` until W67.
-Consequence: the roundRect pops in and out with no fade (nothing moves in slice 1). Hold and fade arrive in W67.
-Decision: PENDING
+Consequence: the roundRect pops in and out with no fade. Hold and fade arrive in W67.
+Decision: APPROVED 2026-10-03 — restAlpha = 1 iff s > 0.98 && maxDev < 0.75 px (always under reduced motion); s ≡ 1 until W67 (saga dec_a755108e)
 
 ### D64-3: Stable progressive redistribution
-Proposal: each element's rest set is an R2 low-discrepancy sequence seeded by `(seed, slot)`. Every particle keeps its rank; a particle whose home is still active and whose rank is below the new count keeps its home and its bit-identical `rest_uv`. Surplus ranks are freed and refilled in index order. Never-placed particles snap to their target; placed particles keep `x, y` and crawl. Per generation `p_vol = area_per_particle / cell²` and `p_mass = p_vol` (B4).
-Consequence: the particle count is always constant, and "total mass constant" holds between redistributions only. There is no slip drift before W67, so particles moved to a new home through other liquid may not arrive in W64; this is not visible in the scene, which has a single generation.
-Decision: PENDING
+Proposal: Each element's rest set is an R2 low-discrepancy sequence seeded by `(seed, slot)`. Every particle keeps its rank. A particle whose home is still active and whose rank is below the new count keeps its home and its bit-identical `rest_uv`. Surplus ranks are freed and refilled in index order. Never-placed particles snap to their target. Placed particles keep `x, y` and crawl.
+Consequence: there is no slip drift before W67, so particles moved to a new home through other liquid may not arrive in W64. This is not visible in the scene, which has a single generation.
+Decision: APPROVED 2026-10-03 — stable progressive redistribution: R2 rest sets seeded by (seed, slot), particles keep rank and bit-identical rest_uv, never-placed particles snap (saga dec_006a27f1)
 
 ### D64-4: Full FFI surface now
-Proposal: the constructor is frozen at 7 arguments: `new(particles, max_elements, world_w_px, world_h_px, area_hint_px2, max_element_h_px, seed)` (B15: `max_element_h_px` sizes the grid margin). Every other `FluidCore` method from the contract exists in W64. `splash`/`shake` are no-op stubs with `_`-prefixed parameters (B8). `tick` returns the number of fixed steps simulated: 0 to 3, and always 0 under reduced motion.
-Consequence: the FFI is frozen from W64 on. W67/W68 fill in the bodies without changing it, and the W65 perf metric "tick per step" has its denominator.
-Decision: PENDING
+Proposal: `splash`/`shake` are no-op stubs with `_` parameters (B8). `tick` returns the number of fixed steps simulated: 0 to 3, and always 0 under reduced motion. **The constructor takes a 7th argument `max_element_h_px` before `seed`** (B15 needs it): `new(particles, max_elements, world_w_px, world_h_px, area_hint_px2, max_element_h_px, seed)`.
+Consequence: the FFI is frozen from W64 on. W67 fills in the bodies without changing it.
+Decision: APPROVED 2026-10-03 — full FFI surface now: stub splash/shake, tick returns 0..3 steps, constructor takes max_element_h_px before seed (saga dec_1a50aec1)
 
 ### D64-5: A null 2d context rejects create
-Proposal: `FluidCanvas2DRenderer.init` rejects when `getContext('2d')` is null; there is no silent mode. The renderer only uses `ctx.createImageData` and a canvas from `document.createElement("canvas")`, never `new ImageData` or `new OffscreenCanvas`. jsdom tests use the shared `_fake-canvas.ts` (A6).
-Consequence: every jsdom test that creates a runtime, including the W66 facade and the adapter tests, must call `installFakeCanvas2D()`. A browser without Canvas2D gets a rejected promise instead of an invisible page.
-Decision: PENDING
+Proposal: There is no silent mode. jsdom tests use the shared `_fake-canvas.ts` (A6).
+Consequence: every jsdom test that creates a runtime, including the W66 facade and the adapter tests, must install the fake canvas. A browser without Canvas2D gets a rejected promise instead of an invisible page.
+Decision: APPROVED 2026-10-03 — a null 2d context rejects create; jsdom tests use the shared _fake-canvas.ts (saga dec_23485a8f)
 
-### D64-6: Reduced-motion detection, the matchMedia change listener and set_reduced_motion land here [BOUNDARY]
-Proposal: `forceReducedMotion: true` forces reduced motion on; otherwise `matchMedia("(prefers-reduced-motion: reduce)")` decides and drives `core.set_reduced_motion`. The media `change` listener is attached and tested in W64 (C5). W68 keeps only the input gating.
-Consequence: S1 step 8 (reduced motion ✅) is met by W64. W68 must not add a second media-query listener.
-Decision: PENDING
+### D64-6: Reduced-motion detection, the matchMedia change listener and set_reduced_motion land here
+Proposal: [BOUNDARY] Reduced-motion detection, the `matchMedia` change listener and `set_reduced_motion` land here. `forceReducedMotion: true` forces it on. Otherwise the media query decides. W68 keeps only the input gating. (C5)
+Consequence: S1/8 is satisfied in W64. W68 must not add a second media-query listener.
+Decision: APPROVED 2026-10-03 — reduced-motion detection, matchMedia change listener and set_reduced_motion land in W64; forceReducedMotion forces it on (saga dec_7ba30333)
 
 ### D64-7: The bridge class is named FluidBridge
-Proposal: `FluidBridge` plays the role the spec calls "WasmBridge": the sole owner of pointers and views.
+Proposal: The class is named `FluidBridge`. The spec calls it "WasmBridge"; the role is the same.
 Consequence: the old `WasmBridge` (soft-body) and `FluidBridge` coexist until W66 deletes the old engine, with no name clash.
-Decision: PENDING
+Decision: APPROVED 2026-10-03 — the bridge class is FluidBridge (spec "WasmBridge", same role) (saga dec_cf8b4244)
 
 ### D64-8: The internal entry is runtime.ts
-Proposal: `createFluidRuntime()` in `runtime.ts` is the W64 entry point. The scene imports it by the relative source path `../../packages/core/ts/src/runtime`; `index.ts` does not export it.
-Consequence: there is no public API change in W64. W66 owns the public `LiquidDOM.create()` that wraps it. The two `Renderer`/`RenderFrame` types (old `renderers/renderer.ts`, new `renderers/frame.ts`) coexist internally until W66.
-Decision: PENDING
+Proposal: The internal entry is `runtime.ts`, imported by the scene through a relative source path. `index.ts` does not export it.
+Consequence: there is no public API change in W64. W66 owns the public `LiquidDOM.create()` that wraps it.
+Decision: APPROVED 2026-10-03 — the internal entry is runtime.ts, imported by the scene via a relative path and not exported from index.ts (saga dec_9a1f9037)
 
-### D64-9: Interim scene CSS [BOUNDARY]
-Proposal: `.scene-liquid { position: relative; z-index: 1; background/border/box-shadow transparent !important }`, added *after* `observe()` snapshots the colour. W66's injected stylesheet replaces it.
-Consequence: the scene shows the liquid under the DOM text without W66's stylesheet. A colour snapshot taken after the class is added would read transparent, so the order in `acceptance.ts` is load-bearing. W66 must delete this CSS.
-Decision: PENDING
+### D64-9: Interim scene CSS
+Proposal: [BOUNDARY] `.scene-liquid { position: relative; z-index: 1; background/border/box-shadow transparent !important }`, added *after* `observe()` snapshots the colour. W66 removes it.
+Consequence: the scene shows the liquid under the DOM text without W66's injected stylesheet. A colour snapshot taken after the class is added would read transparent, so the order in `acceptance.ts` is load-bearing.
+Decision: APPROVED 2026-10-03 — interim .scene-liquid CSS added after observe() snapshots the colour; W66 removes it (saga dec_fce07c35)
 
 ### D64-10: Type files, names and defaults
-Proposal: `options.ts` holds only `ElementOptions { viscosity?, recovery? }`; `material.ts` holds `Material { viscosity, cohesion, recovery }` and `DEFAULT_MATERIAL = { 0.5, 0.5, 0.7 }` (A5). W66 adds `LiquidOptions`/`resolveOptions`/validation, and W68 adds presets and `SplashOptions`. `HOME_NONE = -1`. The canvas class is `liquid-canvas` with `aria-hidden="true"`. `DEFAULT_LIQUID_COLOR = rgb(83, 52, 131)` (opaque), and the default text colour is black.
-Consequence: `ElementRegistry` and `FluidRuntimeOptions.material` compile in W64. W66 and W68 extend these files instead of creating them, and the W65 e2e selectors rely on `canvas.liquid-canvas`.
-Decision: PENDING
+Proposal: [PROPOSED] `options.ts` holds only `ElementOptions { viscosity?, recovery? }`. `material.ts` holds `Material { viscosity, cohesion, recovery }` and `DEFAULT_MATERIAL = { 0.5, 0.5, 0.7 }`. W66 adds `LiquidOptions`/`resolveOptions`/validation, and W68 adds presets and `SplashOptions`. `HOME_NONE = -1`. The canvas class is `liquid-canvas`, and `aria-hidden="true"` is already set in W64. `DEFAULT_LIQUID_COLOR = rgb(83, 52, 131)` (the soft-body default, made opaque), and the default text colour is black. (A5)
+Consequence: W66 and W68 extend these files instead of creating them. The W65 e2e selectors rely on `canvas.liquid-canvas`.
+Decision: APPROVED 2026-10-03 — type files, names and defaults as specified (ElementOptions, Material, DEFAULT_MATERIAL, HOME_NONE, liquid-canvas, DEFAULT_LIQUID_COLOR) (saga dec_ec4c5ce2)
 
 ### D64-11: Canvas2D renderer
-Proposal: the density cell is 2 CSS px, with kernel `(1−r²/R²)²/(πR²/3)` and `R = min(2.3·spacing, 8 px)`, per-element mass normalisation and a density-weighted colour blend. The edge is a smoothstep from 0.4 to 0.6, so it crosses 0.5 at the rect edge, and the result is upscaled bilinearly. The rest contour is a `roundRect` at the home rect (DOM rect + `(home_dx, home_dy)`, swelled by `HOVER_SWELL = 0.02` when `interaction == 1` and not reduced motion, B1) with `globalAlpha = restAlpha·bgAlpha`; particles of a `restAlpha = 1` element add no density. Particles whose `home` is `HOME_NONE` or whose paint record is missing are skipped (B12).
-Consequence: at rest the shapes are pixel-exact roundRects; in motion the silhouette is soft at about 2 px resolution. Text is always DOM text (no liquid text in Canvas2D). In W64 the swell term exists but `interaction` is always 0.
-Decision: PENDING
+Proposal: [PROPOSED] The density cell is 2 CSS px, with kernel `(1−r²/R²)²/(πR²/3)` and `R = min(2.3·spacing, 8 px)`. The edge is a smoothstep from 0.4 to 0.6, so it crosses 0.5 at the rect edge, and the result is upscaled bilinearly. The rest contour is a `roundRect` at the home rect with `globalAlpha = restAlpha·bgAlpha`. The home rect is DOM rect + `(home_dx, home_dy)`, swelled by `HOVER_SWELL = 0.02` around its centre when `interaction == 1` and not reduced motion (B1). `HOVER_SWELL` is a Rust const and a `fluid-layout.ts` const, and a test asserts they are equal. In W64 `interaction` is always 0. Particles whose `home` is `HOME_NONE`, or whose paint record is missing, are skipped. Paint records are kept until the generation bump that reassigns their slot (B12).
+Consequence: at rest the shapes are pixel-exact roundRects. In motion the silhouette is soft at about 2 px resolution. Text is always DOM text (no liquid text in Canvas2D).
+Decision: APPROVED 2026-10-03 — Canvas2D renderer with a 2 CSS px density cell, smoothstep edge 0.4-0.6, roundRect rest contour and HOVER_SWELL = 0.02 (saga dec_961e6084)
 
 ### D64-12: World and margin
-Proposal: the world is `max(screen, inner)` per axis, or `max(client, scroll)` in container mode, clamped to 64–8192 px. The margin is `max(200, tallest initial element)` px, passed to the constructor as `max_element_h_px` (B2, B15). In container mode the buffer origin is the container's padding box (`rect + clientLeft/Top`), because that is where the absolute canvas sits.
-Consequence: the grid is never reallocated in W64. A window grown beyond the screen size, or liquid thrown beyond the margin, meets the wall (a stated limit until slice 6).
-Decision: PENDING
+Proposal: The world is `max(screen, inner)` per axis, or `max(client, scroll)` in container mode, clamped to 64–8192 px. The margin is `max(200, tallest initial element)`. This is a stated limit, and anything beyond it is clamped to the walls. In container mode the buffer origin is the container's padding box (`rect + clientLeft/Top`), because that is where the absolute canvas sits. (B2, B15)
+Consequence: the grid is never reallocated in W64. A window grown beyond the screen size, or liquid thrown beyond the margin, meets the wall.
+Decision: APPROVED 2026-10-03 — world is max(screen, inner) per axis clamped to 64-8192 px; margin is max(200, tallest initial element); no grid reallocation in W64 (saga dec_7447fa0f)
 
 ### D64-13: At-rest physics in W64
-Proposal: APIC transfer plus the home spring, with `SPRING_K = 220 /s²` and `ζ = 0.8`, damping the absolute particle velocity. No stress, J update, CFL cap, drag, slip or wobble; W67 owns all of them.
+Proposal: APIC transfer plus the home spring, with `SPRING_K = 220 /s²` and `ζ = 0.8`, damping the absolute particle velocity. No stress, J update, CFL cap, drag, slip or wobble. W67 owns all of them.
 Consequence: displaced liquid re-forms rigidly in about 0.5 s.
-Decision: PENDING
+Decision: APPROVED 2026-10-03 — at-rest physics: APIC transfer plus home spring (SPRING_K = 220 /s², ζ = 0.8); no stress, J, CFL, drag, slip or wobble (saga dec_38532b3a)
 
 ### D64-14: Canvas resize and DPR
-Proposal: fullscreen mode listens to `window` `resize`; container mode uses one `ResizeObserver` on the container (disconnected in `destroy`). The backing store is `max(1, round(css · devicePixelRatio))` per axis, and `renderer.resize(backingW, backingH, dpr)` resizes the density buffer to `css / 2 px`. DPR is re-read on every resize event; `setTransform(dpr, 0, 0, dpr, 0, 0)` is applied every frame (C2).
-Consequence: container mode works from slice 1. A DPR change without a resize event (moving the window to another monitor) is picked up on the next resize; browser zoom fires `resize`, so it is covered. The MPM grid world is not resized (D64-12).
-Decision: PENDING
+Proposal: [PROPOSED] Fullscreen mode listens to `window` `resize`. Container mode uses one `ResizeObserver` on the container (disconnected in `destroy`). The backing store is `max(1, round(css · devicePixelRatio))` per axis. `renderer.resize(backingW, backingH, dpr)` resizes the density buffer to `css / 2 px`. DPR is re-read on every resize event. W64 has no separate DPR `matchMedia` listener. (C2)
+Consequence: a DPR change without a resize event (moving the window to another monitor) is picked up on the next resize. Browser zoom fires `resize`, so it is covered. The MPM grid world is not resized (D64-12).
+Decision: APPROVED 2026-10-03 — canvas resize via window resize or one container ResizeObserver; backing store max(1, round(css·dpr)); DPR re-read per resize (saga dec_4016ae3d)
 
 ### D64-15: copy-wasm rewrite
-Proposal: only files directly in `ts/src/` may import the repo-root `pkg/` glue. `scripts/copy-wasm.mjs` rewrites every `(../)+pkg/` specifier in every `dist/**/*.js` to `wasm/`, with the prefix computed from the file's depth (D3). `FluidBackend` is declared structurally in `wasm-loader.ts`, and `wasm-loader.ts` uses `//` header comments, so no `.d.ts` mentions `pkg/`.
+Proposal: [PROPOSED] Only files directly in `ts/src/` may import the repo-root `pkg/` glue. `scripts/copy-wasm.mjs` rewrites every `(../)+pkg/` specifier in every `dist/**/*.js` to `wasm/`, with the prefix computed from the file's depth. `wasm-loader.ts` uses `//` header comments, so no `.d.ts` mentions `pkg/`. (D3)
 Consequence: the published tarball is self-contained. An import of `pkg/` from a subdirectory fails `wasm-import-paths.test.ts` instead of breaking consumers.
-Decision: PENDING
+Decision: APPROVED 2026-10-03 — copy-wasm rewrites every (../)+pkg/ specifier in dist/**/*.js to wasm/; only ts/src/ files import pkg/ (saga dec_622c0bd6)
+
+### D64-16: Cargo profiles
+Proposal: [PROPOSED] `[profile.release] opt-level = 3, lto = true, codegen-units = 1` is provisional. W65 measures 3 vs `"s"` (C1). `[profile.test] opt-level = 2`. Measured: the fluid scenario tests take about 97 s unoptimised and about 3 s at opt-level 2.
+Consequence: `cargo test` compiles slower but runs the 8000-particle scenarios quickly. The release size/speed trade-off stays open until W65.
+Decision: APPROVED 2026-10-03 — [profile.release] opt-level 3 + lto + codegen-units 1 (provisional until W65), [profile.test] opt-level 2 (saga dec_bc44838f)
+
+### D64-17: RenderFrame shape
+Proposal: It carries `particleCapacity` (the SoA stride) and `activeParticles`. `paints: ReadonlyArray<ElementPaint | undefined>` is **indexed by slot id**. It is rebuilt only on a generation bump and kept until the bump that reassigns the slot. (B3, B12)
+Consequence: every renderer (Canvas2D now, WebGPU in slice 3) reads the same frame. Changing it later is a cross-ward contract change.
+Decision: APPROVED 2026-10-03 — RenderFrame carries particleCapacity and activeParticles; paints indexed by slot id, rebuilt only on a generation bump (saga dec_d6ad5a80)
+
+### D64-18: Registry contract
+Proposal: `RegistryDeps.scheduleRedistribute` keeps its skeleton name. The caller batches through the exported `createMicrotaskBatcher(run)`. The registry adds `get(id)` and `observedArea()`.
+Consequence: any number of `observe`/`unobserve` calls in one task cost one `redistribute()`. W66 reuses the batcher for `autoObserve`.
+Decision: APPROVED 2026-10-03 — scheduleRedistribute keeps its name, batched by createMicrotaskBatcher(run); registry adds get(id) and observedArea() (saga dec_c732986e)
 
 ## Specification
 - **Shared constants** (Rust `src/fluid/layout.rs` = TS `fluid-layout.ts`, which MUST match; `fluid-layout.test.ts` parses `layout.rs` and checks both directions):
@@ -316,7 +331,7 @@ The 115 tests W64 writes (47 Rust in `src/fluid/`, 68 TS), grouped by file in W6
 - Pass JSON over the FFI.
 
 ## Must DO
-- Gate D64-1 … D64-15 before `wdd ward status 64 red`, and log them in NORTH-STAR (W64.1 appends D64-16 … D64-18).
+- Gate D64-1 … D64-18 before `wdd ward status 64 red`, and log them in NORTH-STAR.
 - Reconcile this Tests table with the tests actually written, in the red commit.
 - Run `npm run build:wasm` before `npm test` from this ward on (D4). `fluid-ffi` and `multi-instance-wasm` need a fresh `pkg/` containing `FluidCore`.
 - Keep `cargo clippy --all-targets --all-features -- -D warnings` and `cargo fmt --check` clean.
