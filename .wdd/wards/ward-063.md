@@ -146,7 +146,7 @@ Decision: APPROVED 2026-10-03 — direction gate enforced by wdd-docs.test.ts (s
 3. Run: `wdd graph`
    Verify: wards 63 → 64 → 65 → 66 → 67 → 68 → 69 appear as a chain, and 66 also depends on 62.
 4. Run: `wdd ready`
-   Verify: 63 is listed (no dependencies), and 64–69 are not.
+   Verify: 64–69 are not listed. They are blocked, and 64 waits for 63.
 
 ### Pass criteria
 - [ ] All 27 doc-lint tests are green, and `npm run verify` is green.

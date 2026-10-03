@@ -77,6 +77,7 @@ Decision: PENDING
 - Gate D69-1 and D69-2 before `wdd ward status 69 red`, and log them in NORTH-STAR.
 - Reconcile this Tests table in the red commit.
 - Inspect the GIF with vision before writing any status.
+- Before slice 3 is planned: extend `wdd-docs.test.ts` so the direction gate covers every `epic: "fluid-engine"` ward (discover ward files instead of a hardcoded 63..69 list; allow `D\d{2,}-\d+` ids). This needs Dennis' approval as a test change.
 
 ## Manual Smoke Test
 ### Setup

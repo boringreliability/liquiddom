@@ -85,6 +85,8 @@ The recording is inspected with vision before the status is written. Each status
 
 ### Design decisions (spec §0)
 
+Rows are copied verbatim from the spec; 'this spec' and § references mean the design spec.
+
 | # | Decision | Saga |
 |---|---|---|
 | D1 | Goal: play with real fluid simulation. No launch | `dec_4a8a1817` |

@@ -316,7 +316,7 @@ The 115 tests W64 writes (47 Rust in `src/fluid/`, 68 TS), grouped by file in W6
 - Pass JSON over the FFI.
 
 ## Must DO
-- Gate every D64 decision before `wdd ward status 64 red` (D64-1 … D64-15 here, plus D64-16 … D64-18, which W64.1 appends), and add each approved one to the NORTH-STAR plan decision log.
+- Gate D64-1 … D64-15 before `wdd ward status 64 red`, and log them in NORTH-STAR (W64.1 appends D64-16 … D64-18).
 - Reconcile this Tests table with the tests actually written, in the red commit.
 - Run `npm run build:wasm` before `npm test` from this ward on (D4). `fluid-ffi` and `multi-instance-wasm` need a fresh `pkg/` containing `FluidCore`.
 - Keep `cargo clippy --all-targets --all-features -- -D warnings` and `cargo fmt --check` clean.

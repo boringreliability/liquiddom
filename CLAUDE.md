@@ -242,7 +242,7 @@ This repo is governed by `.wdd/` — `PROJECT.md`, `NORTH-STAR.md`, `PROGRESS.md
 - The repo also exposes plugin skills `ward`, `ward-new`, and `wdd`. Invoke them when starting/continuing ward work — they enforce the checkpoint discipline.
 - **Critical rule:** AI never marks a ward `complete`. Stop after `gold` (all tests green) and present results for human approval. Sequence: `planned → red → approved → gold → STOP → human → complete`.
 - `.wdd/PROGRESS.md` is the source of truth for ward counts and status — read it (or run `wdd progress`) rather than trusting a number cached here. `.wdd/CONTEXT.md` holds the architecture-decisions table and known limitations; ward specs in `.wdd/wards/ward-NNN.md` carry the detailed decision rationale (`Decision §N`) that code comments reference.
-- `.cursor/rules/wdd.mdc` mirrors the same checkpoint discipline: STOP after writing tests (red) for human approval, and - `.cursor/rules/wdd.mdc` mirrors the same checkpoint discipline: STOP after writing tests (red) for human approval, and STOP again at gold.
+- `.cursor/rules/wdd.mdc` mirrors the same checkpoint discipline: STOP after writing tests (red) for human approval, and STOP again at gold.
 
 ### North star and direction gate (W63+, binding for every ward from W63 on)
 
@@ -277,5 +277,5 @@ Astro 6 + Tailwind 4, deployed to GitHub Pages at `liquiddom.vsplat.io` by `.git
 - TS tests live in `packages/{core,react,vue}/__tests__/`, `packages/core/ts/__tests__/*.test.ts`, and `site/__tests__/` (site build output, deploy workflow, and snippet-canary checks). WebGPU tests (`webgpu-*.test.ts`) run against a mocked `navigator.gpu`; there's no real GPU under jsdom. The "runtime-truth" file (Ward 35) catches "looks green but isn't true at runtime" failures — extend it when wiring new public API surface. `packages/core/__tests__/workspace-publish.test.ts` (W51) asserts the publishable shape of all three packages.
 - `liquiddom-api.test.ts` covers the full public `LiquidDOM` instance API.
 - Rust tests are colocated with the module under `#[cfg(test)] mod tests` in `src/*.rs`.
-- Vitest uses `jsdom`. Mocks for `pkg/liquiddom.js` are required because WASM does not load under jsdom — the codebase falls back to a "mock mode" if WASM `import` fails. Tests should still verify the buffer-write contract is correct.
+- Vitest uses `jsdom`. Mocks for `pkg/liquiddom.js` are required because WASM does not load under jsdom — the codebase falls back to a "mock mode" (soft-body engine only, until W66; the fluid engine has no silent mock mode — see the Fluid engine note) if WASM `import` fails. Tests should still verify the buffer-write contract is correct.
 
