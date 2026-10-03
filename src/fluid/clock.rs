@@ -4,6 +4,46 @@
 //! of blowing up). The accumulator is f64 with an epsilon so a 60 Hz RAF gives
 //! exactly one step per frame (skeleton review focus #5).
 
+pub const FIXED_DT_S: f32 = 1.0 / 60.0;
+pub const MAX_RAW_DT_S: f32 = 0.1;
+pub const MAX_STEPS_PER_TICK: u32 = 3;
+pub const SUBSTEPS: u32 = 8;
+const EPS_S: f64 = 1e-6;
+
+#[derive(Clone, Debug, Default)]
+pub struct FixedClock {
+    acc_s: f64,
+}
+
+impl FixedClock {
+    /// Adds `raw_dt_s` and returns how many fixed steps are due (0-3).
+    /// NaN, infinite, zero or negative input adds nothing.
+    pub fn advance(&mut self, raw_dt_s: f32) -> u32 {
+        if !raw_dt_s.is_finite() || raw_dt_s <= 0.0 {
+            return 0;
+        }
+        self.acc_s += f64::from(raw_dt_s.min(MAX_RAW_DT_S));
+        let fixed = f64::from(FIXED_DT_S);
+        let mut steps = 0;
+        while self.acc_s + EPS_S >= fixed {
+            if steps == MAX_STEPS_PER_TICK {
+                self.acc_s = 0.0;
+                break;
+            }
+            self.acc_s -= fixed;
+            steps += 1;
+        }
+        if self.acc_s < 0.0 {
+            self.acc_s = 0.0;
+        }
+        steps
+    }
+
+    pub fn accumulator_s(&self) -> f64 {
+        self.acc_s
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
