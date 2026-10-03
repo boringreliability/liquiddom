@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Identity
 
-`liquiddom` is a WASM-driven soft-body physics library that animates real DOM elements via a hidden `<canvas>` overlay while preserving accessibility. Rust computes the physics; TypeScript orchestrates DOM observation, the RAF loop, pointer/scroll/visibility events, and rendering. They share a pre-allocated `Float32Array` in WASM linear memory — there is no JSON over the FFI boundary.
+`liquiddom` is a WASM-driven physics library (soft-body today, being replaced by an MLS-MPM fluid engine in Epic 15, see "Fluid engine (in progress, Epic 15)" below) that animates real DOM elements via a hidden `<canvas>` overlay while preserving accessibility. Rust computes the physics; TypeScript orchestrates DOM observation, the RAF loop, pointer/scroll/visibility events, and rendering. They share a pre-allocated `Float32Array` in WASM linear memory — there is no JSON over the FFI boundary.
 
 The repo is an npm workspace (`packages/*`, `examples/*`, `site`) with three publishable packages: `liquiddom` (core), `@liquiddom/react`, and `@liquiddom/vue` (split in W51). `site/` is the private Astro marketing/docs site `@liquiddom/site` (W58+, deployed to `liquiddom.vsplat.io`). Rust source and `Cargo.toml` stay at repo root (one Rust crate produces one `pkg/` consumed by `packages/core/`). Entry point: `packages/core/ts/src/index.ts` exporting `LiquidDOM.create()`.
 
@@ -42,6 +42,33 @@ The repo is an npm workspace (`packages/*`, `examples/*`, `site`) with three pub
 `npm run verify` — runs `build + test:rust + test + clippy`. Add `npm pack --dry-run --workspaces` to inspect publish output.
 
 ## Architecture (high-level)
+
+### Fluid engine (in progress, Epic 15)
+
+> **Status:** the soft-body engine described in the rest of this section is being replaced by a 2D MLS-MPM fluid engine. The soft-body engine is **retired as of W66**: W66 deletes `src/{api,buffer,entity,math,physics}.rs`, `phantom-observer.ts`, `wasm-bridge.ts`, `box-shadow.ts` and the old renderers/shaders, and rewrites this section. Its last state is tagged `softbody-final` (`515f54d`). Until W66, both engines live side by side and the soft-body subsections below stay true for the old code.
+
+- **North star:** `.wdd/NORTH-STAR.md` is canonical for the vision, the acceptance scene (`demo/scenes/acceptance.html`) and the slice matrix. Design: `docs/superpowers/specs/2026-10-02-liquiddom-fluid-design.md`. Epic: `.wdd/epics/15-fluid-engine.md` (W63–W69 = slices 1–2).
+- **Rust (`src/fluid/`, W64+):** `#[wasm_bindgen] FluidCore` is the whole FFI surface:
+  - constructor `new(particles, max_elements, world_w_px, world_h_px, area_hint_px2, max_element_h_px, seed)` (7 arguments, frozen in W64 D64-4; `max_element_h_px` is the tallest initial element height and sets the grid margin `max(200, max_element_h_px)` px);
+  - pointers `elements_ptr` / `dynamic_ptr` / `static_ptr` / `state_ptr`;
+  - `tick(raw_dt_s, px, py, pvx, pvy, pointer_active, gx, gy) -> steps`;
+  - `splash(id, x, y, strength)`, `shake(strength)`, `set_material(viscosity, cohesion, recovery)`;
+  - `redistribute()`, `generation()`, `set_reduced_motion(on)`.
+
+  Rust owns the fixed-step accumulator (dt clamp 100 ms, ≤ 3 steps of 1/60 s, 8 substeps). `src/fluid/` denies `clippy::indexing_slicing` and allocates nothing on the hot path.
+- **FFI strides.** Rust `src/fluid/layout.rs` and TS `packages/core/ts/src/fluid-layout.ts` MUST match, and a test asserts it:
+  - `ELEMENT_STRIDE = 10`: TS writes `x, y, w, h, radius_px, interaction, home_dx, home_dy, viscosity, recovery` (`w == 0` = inactive slot; NaN = material default).
+  - `STATE_STRIDE = 4`: Rust writes `s, maxDev, restAlpha, reserved` every step.
+  - `DYNAMIC_FIELDS = 7`: Rust writes SoA `x, y, f00, f01, f10, f11, flags` every tick. The field stride is the particle capacity, and TS takes a fresh view every frame.
+  - `STATIC_FIELDS = 3`: Rust writes SoA `home, rest_u, rest_v` at `redistribute()`, and TS re-reads it only when `generation()` changes.
+- **TS:**
+  - `fluid-bridge.ts` (`FluidBridge`, sole owner of pointers and views, the role `WasmBridge` has today);
+  - `wasm-loader.ts` (single-flight init, `LiquidWasmLoadError`; the only fluid-engine file that imports `pkg/`, and like every `pkg/` importer it sits directly in `ts/src/` so `scripts/copy-wasm.mjs` can rewrite the specifier by depth);
+  - `element-registry.ts`;
+  - `runtime.ts` (`createFluidRuntime()`, the internal entry until W66 puts `LiquidDOM.create()` on top);
+  - `renderers/fluid-canvas2d.ts` (density grid plus an exact `roundRect` at rest).
+- **No silent mock mode for the fluid engine.** jsdom tests pass the `@internal` `testBackend` (`packages/core/ts/__tests__/_fluid-test-backend.ts`) and install `_fake-canvas.ts`. From W64 on, run `npm run build:wasm` before `npm test`.
+- **Real-browser verification (W65+):** Playwright under `e2e/`, with projects `canvas2d` (blocking) and `webgpu` (soft, smoke only until slice 3).
 
 ### The Rule of Two
 - **Rust is DOM-blind and color-blind.** It only does math: positions, velocities, springs, neighbor constraints, area preservation. Never reads `document`, never knows about CSS or themes. Enforced — do not violate.
@@ -209,13 +236,37 @@ Triggered by `options.container`. Affects canvas mount (absolute inside containe
 
 ## WDD (Ward-Driven Development) workflow
 
-This repo is governed by `.wdd/` — `PROJECT.md`, `PROGRESS.md`, `CONTEXT.md`, `epics/`, `wards/`, plus the global `wdd` CLI tool.
+This repo is governed by `.wdd/` — `PROJECT.md`, `NORTH-STAR.md`, `PROGRESS.md`, `CONTEXT.md`, `epics/`, `wards/`, plus the global `wdd` CLI tool.
 
 - Use the `wdd` CLI to change ward status (`wdd complete`, `wdd ward status`, `wdd progress`). Do NOT hand-edit ward frontmatter for status transitions.
 - The repo also exposes plugin skills `ward`, `ward-new`, and `wdd`. Invoke them when starting/continuing ward work — they enforce the checkpoint discipline.
 - **Critical rule:** AI never marks a ward `complete`. Stop after `gold` (all tests green) and present results for human approval. Sequence: `planned → red → approved → gold → STOP → human → complete`.
 - `.wdd/PROGRESS.md` is the source of truth for ward counts and status — read it (or run `wdd progress`) rather than trusting a number cached here. `.wdd/CONTEXT.md` holds the architecture-decisions table and known limitations; ward specs in `.wdd/wards/ward-NNN.md` carry the detailed decision rationale (`Decision §N`) that code comments reference.
-- `.cursor/rules/wdd.mdc` mirrors the same checkpoint discipline: STOP after writing tests (red) for human approval, and STOP again at gold.
+- `.cursor/rules/wdd.mdc` mirrors the same checkpoint discipline: STOP after writing tests (red) for human approval, and - `.cursor/rules/wdd.mdc` mirrors the same checkpoint discipline: STOP after writing tests (red) for human approval, and STOP again at gold.
+
+### North star and direction gate (W63+, binding for every ward from W63 on)
+
+- **`.wdd/NORTH-STAR.md` is canonical** for the vision (written as experiences), the acceptance scene, its 8 steps and the slice matrix. The spec links to it. `packages/core/__tests__/wdd-docs.test.ts` fails if the steps or the matrix drift from spec §6. Change both in one commit.
+- **Every ward spec has a `North star:` line** directly under its title, naming the scene step(s) it moves (or `none — <reason>`).
+- **Every ward spec has a `## Decisions` section.** Each technique, architecture or scope choice is a `### D<NN>-<k>: <name>` item with `Proposal:`, `Consequence:` and exactly one `Decision:` line (template: `.wdd/templates/ward.md`).
+- **Direction gate before `red`, separate from test approval.**
+  1. Present each decision to Dennis in chat as a named decision with its consequence.
+  2. On his answer, record it with `saga_record_decision`.
+  3. Rewrite its line as `Decision: APPROVED YYYY-MM-DD — <choice> (saga dec_xxxxxxxx)`, or `AMENDED …` when he changed it.
+  4. Add the row to NORTH-STAR's "Plan decisions" log.
+
+  **A ward cannot move to `red` while any line says `Decision: PENDING`.** `wdd-docs.test.ts` enforces this for every fluid ward past `planned`.
+- **Vertical slices.** Every ward ends in something visible in the acceptance scene. No "data structures first" wards.
+- **Whole-picture check** after slices 2, 4 and 6 (W69 is the first, canvas2d only): a recording of the acceptance scene in every renderer the slice has, inspected with vision, plus a status per scene step against the matrix (`.wdd/memory/whole-picture/`). The next slice is planned only afterwards.
+- **Spikes** are time-boxed and answer one question. Their code is never copied into production (`spike/fluid-mpm` is reference only).
+
+### Fluid ward files: deviation from `/ward-new` (D63-1)
+
+The fluid wards are **hand-created flat files** `.wdd/wards/ward-063.md` … `ward-069.md`, copied from `.wdd/templates/ward.md`, not created with `wdd ward create`. This deviates from the `/ward-new` skill on purpose. `wdd ward create --epic fluid-engine` writes `.wdd/wards/fluid-engine/ward-001.md` (per-epic numbering, scoped id `fluid-engine-001`) and ignores `.wdd/templates/ward.md`, and a bare `wdd ward status 1 …` would then hit legacy W1.
+- Address the fluid wards by their bare numbers, e.g. `wdd ward status 64 red`. Never create `.wdd/wards/fluid-engine/`; a test guards against it.
+- Creating a ward file by hand is not a status transition. Every transition after creation goes through `wdd ward status`.
+- Wards after W69 follow the same pattern (next free flat number), until the wdd CLI can create flat ids.
+- Epic 15 is the hand-created `.wdd/epics/15-fluid-engine.md` (`epic: "fluid-engine"`), matching the `NN-` naming of the other epics (`wdd epic create` would write `fluid-engine.md`).
 
 ## Public site (`site/`, Wards 058–060)
 
