@@ -3,7 +3,7 @@ ward: 64
 revision: null
 name: "Liquid at rest, end to end"
 epic: "fluid-engine"
-status: "planned"
+status: "approved"
 dependencies: [63]
 layer: "both"
 estimated_tests: 115
