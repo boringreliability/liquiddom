@@ -51,7 +51,9 @@ pub fn acceptance_core(seed: u32) -> FluidCore {
 
 /// Ticks `n` frames at 60 Hz; returns the fixed steps simulated.
 pub fn frames(c: &mut FluidCore, n: usize) -> u32 {
-    (0..n).map(|_| c.tick(1.0 / 60.0, 0.0, 0.0, 0.0, 0.0, false, 0.0, 0.0)).sum()
+    (0..n)
+        .map(|_| c.tick(1.0 / 60.0, 0.0, 0.0, 0.0, 0.0, false, 0.0, 0.0))
+        .sum()
 }
 
 fn max_dev(c: &FluidCore, id: usize) -> f32 {
@@ -80,7 +82,11 @@ fn given_elements_at_rest_when_ticking_120_frames_then_max_dev_below_0_75px() {
     let mut c = acceptance_core(SEED);
     assert_eq!(frames(&mut c, 120), 120);
     for id in 0..4 {
-        assert!(max_dev(&c, id) < REST_MAX_DEV, "element {id}: {}", max_dev(&c, id));
+        assert!(
+            max_dev(&c, id) < REST_MAX_DEV,
+            "element {id}: {}",
+            max_dev(&c, id)
+        );
         assert_eq!(rest_alpha(&c, id), 1.0);
     }
     assert_eq!(c.mean_j(), 1.0);
@@ -97,7 +103,11 @@ fn given_particles_displaced_10px_when_ticking_1s_then_max_dev_below_0_75px_and_
     }
     frames(&mut c, 60);
     for id in 0..4 {
-        assert!(max_dev(&c, id) < REST_MAX_DEV, "element {id}: {}", max_dev(&c, id));
+        assert!(
+            max_dev(&c, id) < REST_MAX_DEV,
+            "element {id}: {}",
+            max_dev(&c, id)
+        );
         assert_eq!(rest_alpha(&c, id), 1.0);
     }
 }
@@ -139,7 +149,11 @@ fn given_reduced_motion_when_ticking_then_every_particle_equals_target_and_rest_
     displace_all(&mut c, 10.0);
     assert_eq!(frames(&mut c, 1), 0);
     for i in 0..8000 {
-        assert!(dist_to_target(&c, i) < 1e-3, "particle {i}: {}", dist_to_target(&c, i));
+        assert!(
+            dist_to_target(&c, i) < 1e-3,
+            "particle {i}: {}",
+            dist_to_target(&c, i)
+        );
     }
     for id in 0..4 {
         assert_eq!(rest_alpha(&c, id), 1.0);
@@ -160,7 +174,10 @@ fn given_reduced_motion_when_rect_moves_then_particles_follow_in_same_tick() {
         if c.home(i) == CARD as u32 {
             assert!(dist_to_target(&c, i) < 1e-3);
             let (_, y) = c.particle_px(i);
-            assert!(y > card[1] && y < card[1] + card[3], "particle {i}: y = {y}");
+            assert!(
+                y > card[1] && y < card[1] + card[3],
+                "particle {i}: y = {y}"
+            );
         }
     }
 }
@@ -170,7 +187,10 @@ fn given_ticks_between_redistributions_when_running_then_particle_count_and_tota
     let mut c = acceptance_core(SEED);
     let m0 = c.total_mass();
     let cell = f64::from(c.cell_px());
-    let area: f64 = LAYOUT.iter().map(|l| f64::from(rounded_rect_area(l[2], l[3], l[4]))).sum();
+    let area: f64 = LAYOUT
+        .iter()
+        .map(|l| f64::from(rounded_rect_area(l[2], l[3], l[4])))
+        .sum();
     assert!((m0 - area / (cell * cell)).abs() / m0 < 1e-3);
     assert_eq!(c.active_particles(), 8000);
     for k in 0..300 {
@@ -213,8 +233,18 @@ fn given_one_small_element_in_1280x800_world_when_ticking_then_grid_work_is_boun
     let cell = c.cell_px();
     let max_w = (100.0 / cell).ceil() as usize + 2 * REGION_PAD_CELLS + 2;
     let max_h = (50.0 / cell).ceil() as usize + 2 * REGION_PAD_CELLS + 2;
-    assert!(region.cells() <= max_w * max_h, "{} > {}", region.cells(), max_w * max_h);
-    assert!(region.cells() * 100 < g.w * g.h, "{} of {}", region.cells(), g.w * g.h);
+    assert!(
+        region.cells() <= max_w * max_h,
+        "{} > {}",
+        region.cells(),
+        max_w * max_h
+    );
+    assert!(
+        region.cells() * 100 < g.w * g.h,
+        "{} of {}",
+        region.cells(),
+        g.w * g.h
+    );
 }
 
 #[test]

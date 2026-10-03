@@ -70,9 +70,18 @@ mod tests {
         let mut v = Views::new(4);
         v.write_static(&p);
         assert_eq!(v.statics.len(), 4 * STATIC_FIELDS);
-        assert_eq!(&v.statics[STAT_HOME * 4..STAT_HOME * 4 + 4], &[2.0, HOME_NONE, 0.0, 1.0]);
-        assert_eq!(&v.statics[STAT_REST_U * 4..STAT_REST_U * 4 + 4], &[0.1, 0.2, 0.3, 0.4]);
-        assert_eq!(&v.statics[STAT_REST_V * 4..STAT_REST_V * 4 + 4], &[0.5, 0.6, 0.7, 0.8]);
+        assert_eq!(
+            &v.statics[STAT_HOME * 4..STAT_HOME * 4 + 4],
+            &[2.0, HOME_NONE, 0.0, 1.0]
+        );
+        assert_eq!(
+            &v.statics[STAT_REST_U * 4..STAT_REST_U * 4 + 4],
+            &[0.1, 0.2, 0.3, 0.4]
+        );
+        assert_eq!(
+            &v.statics[STAT_REST_V * 4..STAT_REST_V * 4 + 4],
+            &[0.5, 0.6, 0.7, 0.8]
+        );
     }
 
     #[test]
@@ -91,7 +100,13 @@ mod tests {
         assert!((at(DYN_X, 1) - 640.0).abs() < 1e-3 && (at(DYN_Y, 1) - 400.0).abs() < 1e-3);
         for i in 0..2 {
             assert_eq!(
-                [at(DYN_F00, i), at(DYN_F01, i), at(DYN_F10, i), at(DYN_F11, i), at(DYN_FLAGS, i)],
+                [
+                    at(DYN_F00, i),
+                    at(DYN_F01, i),
+                    at(DYN_F10, i),
+                    at(DYN_F11, i),
+                    at(DYN_FLAGS, i)
+                ],
                 [1.0, 0.0, 0.0, 1.0, 0.0]
             );
         }

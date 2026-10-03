@@ -222,13 +222,33 @@ mod tests {
 
     #[test]
     fn given_hover_and_motion_when_home_rect_then_swelled_2_percent_about_centre() {
-        let e = with([100.0, 200.0, 140.0, 48.0, 24.0, 1.0, 5.0, -3.0, f32::NAN, f32::NAN]);
+        let e = with([
+            100.0,
+            200.0,
+            140.0,
+            48.0,
+            24.0,
+            1.0,
+            5.0,
+            -3.0,
+            f32::NAN,
+            f32::NAN,
+        ]);
         let r = e.home_rect(0, false).unwrap();
         let k = 1.0 + HOVER_SWELL;
         assert!((r.w - 140.0 * k).abs() < 1e-4 && (r.h - 48.0 * k).abs() < 1e-4);
         assert!((r.x + r.w / 2.0 - 175.0).abs() < 1e-4 && (r.y + r.h / 2.0 - 221.0).abs() < 1e-4);
         let calm = e.home_rect(0, true).unwrap();
-        assert_eq!(calm, Rect { x: 105.0, y: 197.0, w: 140.0, h: 48.0, r: 24.0 });
+        assert_eq!(
+            calm,
+            Rect {
+                x: 105.0,
+                y: 197.0,
+                w: 140.0,
+                h: 48.0,
+                r: 24.0
+            }
+        );
     }
 
     #[test]

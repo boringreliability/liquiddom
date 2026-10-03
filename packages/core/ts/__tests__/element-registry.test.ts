@@ -9,7 +9,7 @@ type Box = { x: number; y: number; w: number; h: number };
 type TestEl = HTMLElement & { box: Box };
 
 function el(box: Box, style: Record<string, string> = {}): TestEl {
-  const node = document.createElement("div") as TestEl;
+  const node = document.createElement("div") as unknown as TestEl;
   node.box = box;
   Object.assign(node.style, {
     backgroundColor: "rgb(47, 111, 222)",
