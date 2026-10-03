@@ -67,24 +67,33 @@ export function homeRect(
   id: number,
   reducedMotion: boolean,
 ): HomeRect | null {
+  const out: HomeRect = { x: 0, y: 0, w: 0, h: 0, r: 0 };
+  return homeRectInto(out, elementView, id, reducedMotion) ? out : null;
+}
+
+/** Allocation-free `homeRect`: writes into `out`; returns false for an inactive slot. */
+export function homeRectInto(
+  out: HomeRect,
+  elementView: Float32Array,
+  id: number,
+  reducedMotion: boolean,
+): boolean {
   const o = id * ELEMENT_STRIDE;
-  if (!Number.isInteger(id) || id < 0 || o + ELEMENT_STRIDE > elementView.length) return null;
+  if (!Number.isInteger(id) || id < 0 || o + ELEMENT_STRIDE > elementView.length) return false;
   const x = elementView[o + El.X];
   const y = elementView[o + El.Y];
   const w = elementView[o + El.W];
   const h = elementView[o + El.H];
   const active =
     Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(w) && w > 0 && Number.isFinite(h) && h > 0;
-  if (!active) return null;
+  if (!active) return false;
   const rawR = elementView[o + El.RADIUS];
   const r = Number.isFinite(rawR) && rawR > 0 ? Math.min(rawR, w / 2, h / 2) : 0;
-  const out: HomeRect = {
-    x: x + finiteOr0(elementView[o + El.HOME_DX]),
-    y: y + finiteOr0(elementView[o + El.HOME_DY]),
-    w,
-    h,
-    r,
-  };
+  out.x = x + finiteOr0(elementView[o + El.HOME_DX]);
+  out.y = y + finiteOr0(elementView[o + El.HOME_DY]);
+  out.w = w;
+  out.h = h;
+  out.r = r;
   const hovered = Math.abs(elementView[o + El.INTERACTION] - Interaction.HOVER) < 0.5;
   if (hovered && !reducedMotion) {
     const k = 1 + HOVER_SWELL;
@@ -94,5 +103,5 @@ export function homeRect(
     out.h = h * k;
     out.r = r * k;
   }
-  return out;
+  return true;
 }

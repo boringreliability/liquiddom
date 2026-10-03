@@ -9,14 +9,14 @@
  * density buffer is a `document.createElement("canvas")` and its pixels come
  * from `ctx.createImageData`.
  */
-import { Dyn, homeRect, St, STATE_STRIDE, Stat } from "../fluid-layout";
+import { Dyn, type HomeRect, homeRectInto, St, STATE_STRIDE, Stat } from "../fluid-layout";
 import {
   DEFAULT_SCALE_PX,
   DensityGrid,
   KERNEL_RADIUS_CAP_PX,
   KERNEL_RADIUS_PER_SPACING,
 } from "./density-grid";
-import type { RenderFrame, Renderer } from "./frame";
+import type { ElementPaint, RenderFrame, Renderer } from "./frame";
 
 const clamp01 = (v: number): number => (v > 0 ? (v < 1 ? v : 1) : 0);
 
@@ -26,6 +26,10 @@ export class FluidCanvas2DRenderer implements Renderer {
   private offCtx: CanvasRenderingContext2D | null = null;
   private img: ImageData | null = null;
   private readonly grid: DensityGrid;
+  private readonly scratch: HomeRect = { x: 0, y: 0, w: 0, h: 0, r: 0 };
+  // Per-slot fillStyle cache, keyed on paint object identity.
+  private readonly fillPaint: Array<ElementPaint | undefined> = [];
+  private readonly fillStyles: string[] = [];
 
   constructor(scalePx: number = DEFAULT_SCALE_PX) {
     this.grid = new DensityGrid(scalePx);
@@ -73,6 +77,8 @@ export class FluidCanvas2DRenderer implements Renderer {
     this.off = null;
     this.offCtx = null;
     this.img = null;
+    this.fillPaint.length = 0;
+    this.fillStyles.length = 0;
   }
 
   private splatMoving(frame: RenderFrame): void {
@@ -119,11 +125,15 @@ export class FluidCanvas2DRenderer implements Renderer {
       if (!paint) continue;
       const restAlpha = clamp01(stateView[id * STATE_STRIDE + St.REST_ALPHA]);
       if (restAlpha <= 0) continue;
-      const r = homeRect(elementView, id, reducedMotion);
-      if (!r) continue;
-      const [cr, cg, cb, ca] = paint.background;
-      ctx.globalAlpha = restAlpha * ca;
-      ctx.fillStyle = `rgb(${Math.round(cr)}, ${Math.round(cg)}, ${Math.round(cb)})`;
+      const r = this.scratch;
+      if (!homeRectInto(r, elementView, id, reducedMotion)) continue;
+      const bg = paint.background;
+      ctx.globalAlpha = restAlpha * bg[3];
+      if (this.fillPaint[id] !== paint) {
+        this.fillPaint[id] = paint;
+        this.fillStyles[id] = `rgb(${Math.round(bg[0])}, ${Math.round(bg[1])}, ${Math.round(bg[2])})`;
+      }
+      ctx.fillStyle = this.fillStyles[id];
       ctx.beginPath();
       ctx.roundRect(r.x, r.y, r.w, r.h, r.r);
       ctx.fill();
