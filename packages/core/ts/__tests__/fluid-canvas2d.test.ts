@@ -134,19 +134,26 @@ describe("W64 FluidCanvas2DRenderer", () => {
     expect(splat).toHaveBeenCalledTimes(Math.ceil(CAP / 3));
   });
 
-  it("given_dpr_2_when_rendering_each_frame_then_setTransform_dpr_not_cumulative_scale", async () => {
+  it("given_dpr_2_when_rendering_each_frame_then_setTransform_dpr_starts_the_frame_and_scale_is_never_called", async () => {
     const { renderer, ctx } = await setup(2);
-    renderer.render(makeFrame({ restAlpha: 1, dpr: 2 }));
-    renderer.render(makeFrame({ restAlpha: 1, dpr: 2 }));
-    expect(ctx.ops("setTransform").map((c) => c.args)).toEqual([
-      [2, 0, 0, 2, 0, 0],
-      [2, 0, 0, 2, 0, 0],
-    ]);
+    for (let f = 0; f < 2; f++) {
+      const from = ctx.calls.length;
+      renderer.render(makeFrame({ restAlpha: 1, dpr: 2 }));
+      const frameCalls = ctx.calls.slice(from);
+      expect(frameCalls[0].op).toBe("setTransform");
+      expect(frameCalls[0].args).toEqual([2, 0, 0, 2, 0, 0]);
+      expect(frameCalls.filter((c) => c.op === "clearRect").map((c) => c.args)).toEqual([[0, 0, 400, 300]]);
+    }
     expect(ctx.ops("scale")).toHaveLength(0);
-    expect(ctx.ops("clearRect").map((c) => c.args)).toEqual([
-      [0, 0, 400, 300],
-      [0, 0, 400, 300],
-    ]);
+  });
+
+  it("given_fractional_rest_alpha_and_background_alpha_when_rendering_then_global_alpha_is_their_product", async () => {
+    const { renderer, ctx } = await setup();
+    renderer.render(makeFrame({ restAlpha: 0.5, paints: [{ ...paint(0), background: [47, 111, 222, 0.5] }] }));
+    const fills = ctx.ops("fill");
+    expect(fills).toHaveLength(1);
+    expect(fills[0].globalAlpha).toBeCloseTo(0.25, 6);
+    expect(ctx.globalAlpha).toBe(1);
   });
 
   it("given_hover_interaction_at_rest_when_rendering_then_roundRect_at_swelled_home_rect", async () => {

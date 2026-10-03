@@ -31,6 +31,28 @@ describe("W64 colour", () => {
     expect(snapshotColors(el)).toEqual({ background: [47, 111, 222, 1], text: [255, 255, 255, 1] });
   });
 
+  it("given_liquid_element_class_makes_colors_transparent_when_snapshotted_before_vs_after_then_only_before_keeps_the_authored_colors", () => {
+    const style = document.createElement("style");
+    style.textContent =
+      ".card{background-color:rgb(47, 111, 222);color:rgb(255, 255, 255)}" +
+      ".card.liquid-element{background:transparent;color:transparent}";
+    document.head.appendChild(style);
+    try {
+      const el = document.createElement("div");
+      el.className = "card";
+      document.body.appendChild(el);
+      const before = snapshotColors(el);
+      expect(before).toEqual({ background: [47, 111, 222, 1], text: [255, 255, 255, 1] });
+      el.classList.add("liquid-element");
+      const after = snapshotColors(el);
+      // After the class the authored colours are gone: this is why the snapshot must come first.
+      expect(after.background).toEqual(DEFAULT_LIQUID_COLOR);
+      expect(after.background).not.toEqual(before.background);
+    } finally {
+      style.remove();
+    }
+  });
+
   it("given_transparent_background_when_snapshotted_then_default_liquid_color", () => {
     const el = document.createElement("div");
     el.style.backgroundColor = "transparent";

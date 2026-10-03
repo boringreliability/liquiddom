@@ -24,6 +24,44 @@ function lattice(g: DensityGrid, x: number, y: number, w: number, h: number, spa
 const cell = (px: number) => Math.floor(px / 2);
 
 describe("W64 DensityGrid", () => {
+  it("given_kernel_constants_when_read_then_pinned_to_spec_values", () => {
+    expect(KERNEL_RADIUS_PER_SPACING).toBe(2.3);
+    expect(KERNEL_RADIUS_CAP_PX).toBe(8);
+    expect(DENSITY_THRESHOLD).toBe(0.5);
+  });
+
+  it("given_densities_around_the_threshold_when_writing_image_then_alpha_follows_smoothstep_0_4_to_0_6", () => {
+    const smooth = (d: number) => {
+      const t = Math.min(1, Math.max(0, (d - 0.4) / 0.2));
+      return t * t * (3 - 2 * t) * 255;
+    };
+    const alphaAt = (massScale: number) => {
+      const g = new DensityGrid(2);
+      g.resize(400, 300);
+      lattice(g, 50, 40, 100, 60, 2, RED, massScale);
+      const data = new Uint8ClampedArray(g.width * g.height * 4);
+      g.writeImage(data);
+      const d = g.density(cell(101), cell(71));
+      return { d, a: data[(cell(71) * g.width + cell(101)) * 4 + 3] };
+    };
+    const lo = alphaAt(0.3);
+    expect(lo.a).toBe(0);
+    const mid = alphaAt(0.5);
+    expect(Math.abs(mid.d - 0.5)).toBeLessThan(0.05);
+    expect(Math.abs(mid.a - smooth(mid.d))).toBeLessThanOrEqual(1);
+    const edgeLo = alphaAt(0.4);
+    expect(Math.abs(edgeLo.d - 0.4)).toBeLessThan(0.05);
+    expect(Math.abs(edgeLo.a - smooth(edgeLo.d))).toBeLessThanOrEqual(1);
+    const edgeHi = alphaAt(0.6);
+    expect(Math.abs(edgeHi.d - 0.6)).toBeLessThan(0.05);
+    expect(Math.abs(edgeHi.a - smooth(edgeHi.d))).toBeLessThanOrEqual(1);
+    expect(alphaAt(0.7).a).toBe(255);
+    // Monotone: more density never lowers alpha.
+    expect(lo.a).toBeLessThanOrEqual(edgeLo.a);
+    expect(edgeLo.a).toBeLessThanOrEqual(mid.a);
+    expect(mid.a).toBeLessThanOrEqual(edgeHi.a);
+  });
+
   it("given_uniform_particles_of_one_element_when_splatted_then_interior_density_near_1_and_0_5_crossing_at_rect_edge", () => {
     const g = new DensityGrid(2);
     g.resize(400, 300);

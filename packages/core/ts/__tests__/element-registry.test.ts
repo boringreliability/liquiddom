@@ -153,6 +153,28 @@ describe("W64 ElementRegistry", () => {
     expect(slotOf(bridge, 0)[El.RADIUS]).toBe(10);
   });
 
+  it("given_stylesheet_that_clears_colors_under_liquid_element_when_observed_before_the_class_then_record_keeps_pre_class_colors_through_sync", () => {
+    const style = document.createElement("style");
+    style.textContent =
+      ".card{background-color:rgb(47, 111, 222);color:rgb(255, 255, 255)}" +
+      ".card.liquid-element{background:transparent;color:transparent}";
+    document.head.appendChild(style);
+    try {
+      const { registry } = setup();
+      const a = el({ x: 0, y: 0, w: 10, h: 10 }, { backgroundColor: "", color: "" });
+      a.className = "card";
+      const id = registry.observe(a);
+      expect(registry.get(id)?.background).toEqual([47, 111, 222, 1]);
+      expect(registry.get(id)?.text).toEqual([255, 255, 255, 1]);
+      a.classList.add("liquid-element"); // what the adapter does AFTER observe()
+      registry.sync();
+      expect(registry.get(id)?.background).toEqual([47, 111, 222, 1]);
+      expect(registry.get(id)?.text).toEqual([255, 255, 255, 1]);
+    } finally {
+      style.remove();
+    }
+  });
+
   it("given_element_with_background_when_observed_then_record_carries_snapshotted_colors", () => {
     const { registry } = setup();
     const id = registry.observe(el({ x: 0, y: 0, w: 10, h: 10 }));

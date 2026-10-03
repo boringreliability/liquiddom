@@ -239,6 +239,64 @@ describe("W64 fluid runtime", () => {
     expect(tallest).toBe(180);
   });
 
+  it("given_created_runtime_when_inspecting_canvas_then_class_literal_aria_hidden_and_no_pointer_events", async () => {
+    expect(LIQUID_CANVAS_CLASS).toBe("liquid-canvas");
+    const { rt } = await create();
+    expect(rt.canvas.className).toContain("liquid-canvas");
+    expect(rt.canvas.getAttribute("aria-hidden")).toBe("true");
+    expect(rt.canvas.style.pointerEvents).toBe("none");
+  });
+
+  it("given_unobserve_before_the_batched_redistribute_when_frame_runs_then_paint_is_kept_until_the_generation_bump", async () => {
+    const render = vi.spyOn(FluidCanvas2DRenderer.prototype, "render");
+    const { rt } = await create();
+    const el = addElement(10, 10, 100, 40);
+    rt.observe(el);
+    await flushMicrotasks();
+    rt.frame(0);
+    expect((render.mock.calls.at(-1)![0] as RenderFrame).paints[0]).toBeDefined();
+    rt.unobserve(el);
+    rt.frame(16); // same task: the batched redistribute has not run, no generation bump yet
+    expect((render.mock.calls.at(-1)![0] as RenderFrame).paints[0]).toBeDefined();
+    await flushMicrotasks(); // redistribute runs, generation bumps
+    rt.frame(32);
+    expect((render.mock.calls.at(-1)![0] as RenderFrame).paints[0]).toBeUndefined();
+  });
+
+  it("given_container_mode_when_created_then_exactly_one_ResizeObserver_and_no_window_resize_listener", async () => {
+    const constructed = vi.fn();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor() {
+          constructed();
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const add = vi.spyOn(window, "addEventListener");
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    Object.defineProperty(container, "clientWidth", { value: 400, configurable: true });
+    Object.defineProperty(container, "clientHeight", { value: 300, configurable: true });
+    await create({ container });
+    expect(constructed).toHaveBeenCalledTimes(1);
+    expect(add.mock.calls.filter(([type]) => type === "resize")).toHaveLength(0);
+  });
+
+  it("given_fractional_dpr_when_created_then_backing_store_is_max_1_round_css_times_dpr", async () => {
+    setWindow("devicePixelRatio", 1.5);
+    setWindow("innerWidth", 801);
+    setWindow("innerHeight", 601);
+    const { rt } = await create();
+    expect([rt.canvas.width, rt.canvas.height]).toEqual([
+      Math.max(1, Math.round(801 * 1.5)),
+      Math.max(1, Math.round(601 * 1.5)),
+    ]);
+    expect([rt.canvas.width, rt.canvas.height]).toEqual([1202, 902]);
+  });
+
   it("given_observed_element_when_frame_runs_then_render_frame_carries_capacity_active_count_and_paint_by_slot", async () => {
     const render = vi.spyOn(FluidCanvas2DRenderer.prototype, "render");
     const { rt } = await create();
