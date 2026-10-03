@@ -15,7 +15,7 @@
  * works under jsdom.
  */
 import { describe, it, expect } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,7 +31,13 @@ const EPIC_14 = resolve(WDD, "epics/14-public-site.md");
 const CLAUDE_MD = resolve(ROOT, "CLAUDE.md");
 const SPEC = resolve(ROOT, "docs/superpowers/specs/2026-10-02-liquiddom-fluid-design.md");
 
-const FLUID_WARDS = [63, 64, 65, 66, 67, 68, 69] as const;
+/**
+ * Slice 1-2 fluid wards. Used ONLY to assert discovery finds at least these, so a
+ * broken discovery cannot make the direction gate vacuous. Do not iterate over it.
+ */
+const EXPECTED_SLICE_1_2_WARDS = [63, 64, 65, 66, 67, 68, 69] as const;
+/** Every `epic: "fluid-engine"` ward under .wdd/wards (flat files), so the gate follows new slices. */
+const FLUID_WARDS = discoverFluidWards(resolve(WDD, "wards"));
 const DROPPED_EPIC_14_WARDS = [63, 64, 65, 66, 67, 68] as const;
 const WDD_STATUSES = ["planned", "red", "approved", "gold", "complete", "blocked"];
 /** Statuses in which a ward's direction gate may still be open. */
@@ -132,12 +138,12 @@ interface DecisionBlock {
   decisionLines: string[];
 }
 
-/** `### D<NN>-<k>: …` items of `## Decisions` and the `Decision:` lines inside each. */
+/** `### D<NN+>-<k>: …` items of `## Decisions` and the `Decision:` lines inside each. */
 function decisionBlocks(md: string): DecisionBlock[] {
   const blocks: DecisionBlock[] = [];
   let current: DecisionBlock | undefined;
   for (const line of section(md, "## Decisions")) {
-    const head = /^### (D\d{2}-\d+)\b/.exec(line);
+    const head = /^### (D\d{2,}-\d+)\b/.exec(line);
     if (head) {
       current = { id: head[1], decisionLines: [] };
       blocks.push(current);
@@ -150,6 +156,31 @@ function decisionBlocks(md: string): DecisionBlock[] {
 
 function isGated(md: string): boolean {
   return !UNGATED_STATUSES.includes(String(frontmatter(md).status));
+}
+
+/**
+ * Ward numbers of every flat `ward-NNN.md` in `wardsDir` whose frontmatter says
+ * `epic: "fluid-engine"`, ascending. Scoped subdirectories are not scanned.
+ */
+function discoverFluidWards(wardsDir: string): number[] {
+  return readdirSync(wardsDir)
+    .map((name) => /^ward-(\d{3})\.md$/.exec(name))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .filter((m) => frontmatter(read(resolve(wardsDir, m[0]))).epic === "fluid-engine")
+    .map((m) => Number(m[1]))
+    .sort((a, b) => a - b);
+}
+
+/**
+ * Direction gate (spec §6 rule 3), pure: a ward past `planned` must have every
+ * decision APPROVED/AMENDED with a saga id. Returns one message per violation.
+ */
+function gateViolations(wardText: string, wardNo: number): string[] {
+  if (!isGated(wardText)) return [];
+  const status = String(frontmatter(wardText).status);
+  return decisionBlocks(wardText)
+    .filter((block) => !APPROVED_DECISION.test(block.decisionLines[0] ?? ""))
+    .map((block) => `ward ${wardNo} is ${status} but ${block.id} has not passed the direction gate`);
 }
 
 describe("W63 north star (.wdd/NORTH-STAR.md)", () => {
@@ -365,15 +396,7 @@ describe("W63 fluid ward files (.wdd/wards/ward-063…069.md)", () => {
 
   it("given_fluid_ward_past_planned_when_read_then_every_decision_is_approved_with_a_saga_id", () => {
     for (const n of FLUID_WARDS) {
-      const md = read(wardPath(n));
-      if (!isGated(md)) continue;
-      const status = String(frontmatter(md).status);
-      for (const block of decisionBlocks(md)) {
-        expect(
-          block.decisionLines[0] ?? "",
-          `ward ${n} is ${status} but ${block.id} has not passed the direction gate`,
-        ).toMatch(APPROVED_DECISION);
-      }
+      expect(gateViolations(read(wardPath(n)), n), `ward ${n} direction gate`).toEqual([]);
     }
   });
 });
@@ -428,5 +451,59 @@ describe("W63 CLAUDE.md", () => {
 describe("W63 wdd validate prerequisites", () => {
   it("given_wdd_dir_when_listed_then_reviews_dir_exists_so_wdd_validate_passes", () => {
     expect(existsSync(resolve(WDD, "reviews/.gitkeep"))).toBe(true);
+  });
+});
+
+describe("W63 direction gate discovery", () => {
+  it("given_wards_dir_when_scanned_then_fluid_engine_wards_include_63_to_69", () => {
+    const found = discoverFluidWards(resolve(WDD, "wards"));
+    for (const n of EXPECTED_SLICE_1_2_WARDS) {
+      expect(found, `discovery finds ward ${n}`).toContain(n);
+    }
+    expect(found).toEqual([...found].sort((a, b) => a - b));
+  });
+
+  it("given_hypothetical_ward_070_past_planned_with_pending_decision_when_gated_then_violation_reported", () => {
+    const fixture = [
+      "---",
+      "ward: 70",
+      'name: "Fixture"',
+      'epic: "fluid-engine"',
+      'status: "red"',
+      "---",
+      "# Ward 070: Fixture",
+      "",
+      "## Decisions",
+      "",
+      "### D70-1: X",
+      "Decision: PENDING",
+      "",
+      "## Specification",
+      "",
+    ].join("\n");
+    const violations = gateViolations(fixture, 70);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain("D70-1");
+  });
+
+  it("given_hypothetical_ward_100_with_approved_decision_when_gated_then_no_violation", () => {
+    const fixture = [
+      "---",
+      "ward: 100",
+      'name: "Fixture"',
+      'epic: "fluid-engine"',
+      'status: "red"',
+      "---",
+      "# Ward 100: Fixture",
+      "",
+      "## Decisions",
+      "",
+      "### D100-1: X",
+      "Decision: APPROVED 2026-10-03 — x (saga dec_0123abcd)",
+      "",
+      "## Specification",
+      "",
+    ].join("\n");
+    expect(gateViolations(fixture, 100)).toEqual([]);
   });
 });
