@@ -156,8 +156,8 @@ F's cost (+4 floats of SoA plus an SVD per substep) is benchmarked in slice 4. I
   - Rust divides the pool by area.
   - Rust bumps a **generation counter**, which is an FFI getter.
 - **Density constraint:** MPM needs at least 2 particles per cell. The total observed area therefore has to satisfy `≤ particles · cell² / 2`. With 8000 particles and 8 px cells that is about 256k px², roughly one 600×400 card plus a few buttons. Beyond that:
-  - `console.warn`,
-  - the coarser cell size (8 px) is used,
+  - `console.warn` (once),
+  - the cell size chosen at `create()` stays (8 px when no area hint was given); there is no reallocation before slice 6,
   - the liquid gets visibly noisier.
   This is a documented limit, not a crash.
 - Particle data is SoA: `x, y, vx, vy, C(4), J, F(4), home, rest_u, rest_v, flags`.
@@ -415,7 +415,7 @@ StrictMode is safe because of single-flight init plus idempotent `observe`.
 
 ### The acceptance scene
 
-`.wdd/NORTH-STAR.md` is **canonical** for the scene. `PROJECT.md` and this spec link to it.
+[`.wdd/NORTH-STAR.md`](../../../.wdd/NORTH-STAR.md) is **canonical** for the scene. `PROJECT.md` and this spec link to it.
 
 The page is `demo/scenes/acceptance.html`: three buttons ("Splash", "Split", "Merge"), a card with a heading and two lines of text, a fixed `seed`, and a fixed viewport of 1280×800 in Playwright.
 
@@ -471,7 +471,7 @@ The page is `demo/scenes/acceptance.html`: three buttons ("Splash", "Split", "Me
 1. **`.wdd/NORTH-STAR.md`** describes the vision as experiences and contains the acceptance scene and the slice matrix. Every ward spec gets a line: *"North star: which scene step(s) does this move?"*.
 2. **Vertical slices.** Every ward ends in something visible in the acceptance scene. No "data structures first" wards.
 3. **A direction gate, separate from test approval.** A technique, architecture or scope choice is presented in chat as a named decision with its consequence. Dennis approves it, it is logged with `saga_record_decision`, and it gets a "Decision" line in the ward spec. **The ward cannot move to `red` without it.**
-4. **Whole-picture check** after slices 2, 4 and 6: a video or GIF of the acceptance scene in both renderers, plus status against the north star. The next slice is planned only afterwards.
+4. **Whole-picture check** after slices 2, 4 and 6: a video or GIF of the acceptance scene in every renderer that exists at that slice (after slice 2 that is Canvas2D only, because the WebGPU fluid renderer arrives in slice 3), plus status against the north star. The next slice is planned only afterwards. *(Amended 2026-10-03.)*
 5. **Spikes** are allowed and time-boxed. They produce an answer, and their code never becomes production code (D2 re-implements).
 6. Unchanged: `planned → red → (human approves tests) → approved → gold → (human approves) → complete`. AI never marks a ward complete.
 
@@ -513,7 +513,7 @@ Slices 1–2 are detailed in the plan. Slices 3–6 are re-planned after each wh
 | The F text smears or shows doubled strokes under large deformation | Render-only F without plastic projection, the SVD clamp, torn fade. Verified visually in slice 4 |
 | Slip drift looks "magical" in the wrong way | Tuned in the playground. Scaled by `s²` |
 | WebGPU in CI on SwiftShader is flaky or slow | Smoke job in slice 1. The project stays "soft" until 10 green runs. GPU perf is not measured there |
-| Too large an observed area for the pool (> ~256k px² at 8000/8 px) | Warning plus coarser cells. Documented limit. Consumers can raise `particles` |
+| Too large an observed area for the pool (> ~256k px² at 8000/8 px) | Warning (once); the cell size chosen at `create()` stays and the liquid gets noisier. Documented limit. Consumers can raise `particles` |
 | Splat overdraw is heavy on mobile iGPUs (≈1.6M fragments at 1× DPR in the scene) | Kernel cap of 8 px, density at 0.5×, text only for moving elements. Fragments per frame logged |
 | The liquid lags 1 frame behind native scroll | DOM text at rest means the text never lags. Measured in slice 6. Alternative: a canvas that scrolls with the content |
 | Stacking contexts in consumer CSS | Documented. The injected rule covers the common case |
