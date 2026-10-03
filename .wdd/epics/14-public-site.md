@@ -18,12 +18,12 @@ Build a unified public site that doubles as landing page AND documentation, with
 | 60 | Live Hero (Canvas2D-correct, WebGPU bugs deferred to W61-W64) | complete |
 | **61** | **Multi-instance recursion fix** (core Rust/TS — investigation + patch + regression-lock tests) | planned |
 | **62** | **WebGPU FreeDrop SDF dispatch branch** (WGSL — adds FreeDrop entity rendering, matches W56 Canvas2D) | planned |
-| **63** | **WebGPU shape smoothness** (WGSL Catmull-Rom segment subdivision — fixes faceted-look + 16-facet outline limitation) | planned |
-| **64** | **WebGPU compositing polish** (winner-take-all color softening at fusion midpoint + W40 refraction PNG alpha) | planned |
-| **65** | **Re-enable Try-it-now + framework tabs + publish `0.2.0-rc.1`** | planned |
-| 66 | WebGPU device.lost auto-rebuild as Canvas2D (deferred from W41) | planned |
-| 67 | Demo Migration: remaining 6 scenes → Astro islands; delete `demo/` | planned |
-| 68 | Polish: API reference autogen + search + dark mode + SEO + `<LiquidElement>` auto-CSS-resets | planned |
+| 63 | WebGPU shape smoothness — dropped 2026-10-03 (D63-3): soft-body renderer retired; number reused by Epic 15 | dropped |
+| 64 | WebGPU compositing polish — dropped 2026-10-03 (D63-3): soft-body renderer retired; number reused by Epic 15 | dropped |
+| 65 | Re-enable Try-it-now + framework tabs + publish `0.2.0-rc.1` — dropped 2026-10-03 (D63-3): next publish is `0.3.0-alpha.x` (Epic 15 W66) | dropped |
+| 66 | WebGPU device.lost auto-rebuild as Canvas2D — dropped 2026-10-03 (D63-3): returns in fluid slice 3 | dropped |
+| 67 | Demo Migration to Astro islands — dropped 2026-10-03 (D63-3): site rebuilt as fluid playground in slice 6 | dropped |
+| 68 | Polish: API reference, search, dark mode, SEO — dropped 2026-10-03 (D63-3): revisited with the slice-6 site | dropped |
 
 ## Integration Points
 - **Epic 10 (WebGPU Rendering):** the renderer-toggle leans on W41's `'auto'` default and `instance.activeRenderer` getter.

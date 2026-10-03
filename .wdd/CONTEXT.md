@@ -10,7 +10,7 @@ W61 ships a 5-layer defense against the wasm-bindgen `"recursive use of an objec
 
 New public surface: `LiquidInstancePanicDetail` interface (event detail type, marked `@internal`).
 
-Prior-ward summaries snapshotted in `.wdd/memory/snapshots/ward-NNN-complete.md`. Recent sequence: W36 Render Abstraction → W37 WebGPU Pipeline → W38 SDF Blob → W39 Metaball Fusion → W40 Background Refraction → W41 Canvas2D Fallback → W58 Site Foundation → W59 DemoEmbed → W60 Live Hero → W61 Multi-instance Recursion Fix. Next: W62 WebGPU FreeDrop SDF dispatch branch (then W63 shape smoothness, W64 compositing polish, W65 republish 0.2.0-rc.1).
+Prior-ward summaries snapshotted in `.wdd/memory/snapshots/ward-NNN-complete.md`. Recent sequence: W36 Render Abstraction → W37 WebGPU Pipeline → W38 SDF Blob → W39 Metaball Fusion → W40 Background Refraction → W41 Canvas2D Fallback → W58 Site Foundation → W59 DemoEmbed → W60 Live Hero → W61 Multi-instance Recursion Fix. Next: Epic 15 Fluid Engine (W63–W69 = slices 1–2; canonical scene in `.wdd/NORTH-STAR.md`). Epic 14's unbuilt W63–W68 plans are dropped (D63-3).
 
 ## Architecture Decisions Made
 Older decisions snapshotted in `.wdd/memory/snapshots/`. Active load-bearing decisions:
@@ -62,9 +62,7 @@ Older decisions snapshotted in `.wdd/memory/snapshots/`. Active load-bearing dec
 - W61: residual wasm-bindgen WasmRefCell race under V8 GC timing still fires on boot but is INVISIBLE — `liquiddom:instance-panic` event triggers orchestrator destroy+remount in <100ms.
 
 ## What Comes Next
-- **W63: WebGPU shape smoothness** (Catmull-Rom subdivision) — fixes 16-facet outline + "kantede" look at larger sizes.
-- **W64: WebGPU compositing polish** — winner-take-all color softening + W40 refraction PNG alpha edges.
-- **W65: re-enable framework tabs + publish `0.2.0-rc.1`.**
-- W66: WebGPU `device.lost` auto-rebuild (deferred from W41).
-- W61 follow-up: investigate wasm-bindgen bump / `panic=unwind` to eliminate residual WasmRefCell race.
-- W55 follow-up: slot[4] interaction_state during lerp window.
+- **Epic 15 — Fluid Engine** (`.wdd/epics/15-fluid-engine.md`): W63 north star + WDD rules → W64 liquid at rest → W65 verification harness → W66 public API swap + soft-body retirement → W67 splash and shake → W68 pointer, hover and material → W69 playground + whole-picture check (slice 2, canvas2d).
+- Slices 3–6 are planned only after each whole-picture check (`.wdd/NORTH-STAR.md`).
+- Epic 14's W63–W68 plans are dropped (D63-3): device.lost returns in fluid slice 3, the site in slice 6.
+- The W61 and W55 follow-ups are moot once W66 retires the soft-body engine.
