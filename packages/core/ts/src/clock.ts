@@ -55,6 +55,7 @@ export function createManualClock(startMs = 0): ManualClock {
       if (!Number.isFinite(dtMs) || dtMs < 0) {
         throw new TypeError(`[liquiddom] ManualClock.advance: dtMs must be finite and >= 0, got ${dtMs}`);
       }
+      if (running) throw new Error("re-entrant advance");
       for (let f = 0; f < frames; f += 1) {
         nowMs += dtMs;
         // Callbacks requested during this frame run on the next one (RAF semantics).

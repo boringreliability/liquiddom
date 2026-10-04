@@ -76,7 +76,8 @@ async function start(): Promise<FluidRuntime> {
     maxElements: MAX_ELEMENTS,
     seed: params.seed,
     initialElements: elements,
-    forceReducedMotion: params.reducedMotion,
+    // Pass only ?rm so the media-query path runs through the runtime's own listener; params.reducedMotion stays the effective flag for the hook.
+    forceReducedMotion: parsed.reducedMotion,
     clock,
   });
   for (const el of elements) rt.observe(el);

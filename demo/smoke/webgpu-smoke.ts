@@ -106,6 +106,11 @@ async function run(): Promise<WebGpuSmokeResult> {
   } catch (e) {
     return fail("requestDevice", e, { adapterInfo });
   }
+  let lostReason: string | null = null;
+  void device.lost.then((info) => {
+    lostReason = info.message;
+  });
+  const lost = () => (lostReason ? ` (device lost: ${lostReason})` : "");
   const uncaptured: string[] = [];
   device.addEventListener("uncapturederror", (ev) => {
     uncaptured.push((ev as GPUUncapturedErrorEvent).error.message);
@@ -133,12 +138,23 @@ async function run(): Promise<WebGpuSmokeResult> {
     renderPass(encoder, ctx.getCurrentTexture().createView(), BLACK, makePipeline(device, module, format));
   }
   device.queue.submit([encoder.finish()]);
-  const validation = await device.popErrorScope();
-  if (validation) return fail("validation", validation.message, { adapterInfo });
+  let validation: GPUError | null;
+  try {
+    validation = await device.popErrorScope();
+  } catch (e) {
+    return fail("popErrorScope", `${e instanceof Error ? e.message : String(e)}${lost()}`, { adapterInfo });
+  }
+  if (validation) return fail("validation", `${validation.message}${lost()}`, { adapterInfo });
 
-  const clearPixels = await readPixels(clearTarget.readback);
-  const drawPixels = await readPixels(drawTarget.readback);
-  if (uncaptured.length > 0) return fail("uncapturederror", uncaptured.join("; "), { adapterInfo, clearPixels, drawPixels });
+  let clearPixels: number[][];
+  let drawPixels: number[][];
+  try {
+    clearPixels = await readPixels(clearTarget.readback);
+    drawPixels = await readPixels(drawTarget.readback);
+  } catch (e) {
+    return fail("readback", `${e instanceof Error ? e.message : String(e)}${lost()}`, { adapterInfo });
+  }
+  if (uncaptured.length > 0) return fail("uncapturederror", `${uncaptured.join("; ")}${lost()}`, { adapterInfo, clearPixels, drawPixels });
   return { ok: true, stage: "done", adapterInfo, clearPixels, drawPixels, error: null };
 }
 
