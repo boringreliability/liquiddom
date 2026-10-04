@@ -300,7 +300,7 @@ Decision: APPROVED 2026-10-04 — injected CSS in `@layer liquiddom` with `!impo
 | 147 | given_core_dist_when_listed_then_no_soft_body_artifacts_remain_D66_9 | retirement [D66-9] (site freeze, versioning, pkg hygiene) |
 | 148 | given_pre_json_when_read_then_mode_pre_tag_alpha_and_initial_versions_0_3_0_alpha_0 | D66-9 versioning (site freeze, versioning, pkg hygiene) |
 | 149 | given_pending_changesets_when_release_plan_computed_then_all_three_bump_to_0_3_0_alpha_1 | D66-9 versioning (site freeze, versioning, pkg hygiene) |
-| 150 | given_core_build_scripts_when_read_then_they_remove_core_dist_and_the_tsbuildinfo_before_tsc_D66_9 | D66-9 dist/pkg [D66-9] (site freeze, versioning, pkg hygiene) |
+| 150 | given_core_build_scripts_when_read_then_a_reachable_removal_call_deletes_core_dist_and_the_tsbuildinfo_before_tsc_D66_9 | D66-9 dist/pkg [D66-9] (site freeze, versioning, pkg hygiene) |
 | 151 | npm_pack_dry_run_for_core_contains_only_expected_files | modified #2: dist/wasm-loader.js in tarball (D66-9) |
 | 152 | adapter_packages_declare_peer_deps | modified #5: peers ^0.3.0-alpha.0 (A1, D66-9) |
 | 153 | core_dist_wasm_dynamic_import_resolves_to_packaged_file | modified #8: dynamic import lives in dist/wasm-loader.js (D3) |

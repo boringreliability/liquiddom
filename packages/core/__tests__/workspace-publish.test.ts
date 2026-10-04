@@ -421,33 +421,51 @@ describe("W66: site freeze, versioning, pkg-specifier hygiene", () => {
     }
   });
 
-  it("given_core_build_scripts_when_read_then_they_remove_core_dist_and_the_tsbuildinfo_before_tsc_D66_9", () => {
-    // Mechanism-agnostic: the build script plus any npm script / node script file it calls must
-    // delete packages/core/dist and packages/tsconfig.build.tsbuildinfo, otherwise a stale
-    // tsbuildinfo makes tsc skip re-emitting and deleted soft-body .js files stay in the tarball.
+  it("given_core_build_scripts_when_read_then_a_reachable_removal_call_deletes_core_dist_and_the_tsbuildinfo_before_tsc_D66_9", () => {
+    // A stale tsbuildinfo makes tsc skip re-emitting, and deleted soft-body .js files stay in
+    // dist and in the tarball. Only steps reachable from `build` count: `prebuild` (npm runs it
+    // first), then each `&&` segment of `build`, following `npm run X` and `node file.mjs`
+    // transitively. Everything before the first `tsc` segment is the "clean phase".
     const pkg = readJson(resolve(CORE, "package.json"));
     const scripts = pkg.scripts as Record<string, string>;
-    const chain: string[] = [];
+    const stripComments = (t: string): string => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+    const cleanPhase: Array<{ kind: "shell" | "node"; text: string }> = [];
+    let sawTsc = false;
     const seen = new Set<string>();
-    const visit = (name: string): void => {
-      if (seen.has(name) || scripts[name] === undefined) return;
+    const walkScript = (name: string): void => {
+      if (sawTsc || seen.has(name) || scripts[name] === undefined) return;
       seen.add(name);
-      chain.push(scripts[name]!);
-      for (const m of scripts[name]!.matchAll(/npm run ([\w:-]+)/g)) visit(m[1]!);
-      for (const m of scripts[name]!.matchAll(/node\s+(\S+\.m?js)/g)) {
-        const file = resolve(CORE, m[1]!);
-        if (!file.endsWith("copy-wasm.mjs") && existsSync(file)) chain.push(readFileSync(file, "utf-8"));
+      walkScript(`pre${name}`); // npm runs pre<name> automatically
+      for (const segment of scripts[name]!.split("&&").map((x) => x.trim())) {
+        if (sawTsc) return;
+        if (/^tsc\b/.test(segment)) {
+          sawTsc = true;
+          return;
+        }
+        const run = segment.match(/^npm run ([\w:-]+)/);
+        if (run) {
+          walkScript(run[1]!);
+          continue;
+        }
+        const node = segment.match(/^node\s+(\S+\.m?js)/);
+        if (node) {
+          const file = resolve(CORE, node[1]!);
+          if (existsSync(file)) cleanPhase.push({ kind: "node", text: stripComments(readFileSync(file, "utf-8")) });
+          continue;
+        }
+        cleanPhase.push({ kind: "shell", text: segment });
       }
     };
-    visit("prebuild");
-    visit("clean");
-    visit("build");
-    const text = chain.join("\n");
-    expect(text).toMatch(/rmSync|rimraf|rm\s+-rf|rmdir|unlinkSync/);
-    expect(text).toMatch(/\bdist\b/);
-    expect(text).toMatch(/tsconfig\.build\.tsbuildinfo/);
-    // And the clean runs before tsc.
-    expect(scripts.build!.indexOf("tsc")).toBeGreaterThan(-1);
-    expect(scripts.prebuild !== undefined || /^(?!tsc)/.test(scripts.build!)).toBe(true);
+    walkScript("build");
+    expect(sawTsc, "build must reach a tsc step").toBe(true);
+    const removal = /\b(?:rmSync|rmdirSync|rm|rimraf|unlinkSync)\(\s*[^;]*?/;
+    const nodeRemoves = (text: string, path: RegExp): boolean =>
+      new RegExp(removal.source + path.source).test(text);
+    const dist = /\bdist\b/;
+    const info = /tsconfig\.build\.tsbuildinfo/;
+    const nodeText = cleanPhase.filter((c) => c.kind === "node").map((c) => c.text).join("\n");
+    const shellOk = cleanPhase.some((c) => c.kind === "shell" && /\brm\s[^&;|]*\bdist\b[^&;|]*tsconfig\.build\.tsbuildinfo|\brm\s[^&;|]*tsconfig\.build\.tsbuildinfo[^&;|]*\bdist\b/.test(c.text));
+    const nodeOk = nodeRemoves(nodeText, dist) && nodeRemoves(nodeText, info);
+    expect(shellOk || nodeOk, "a removal call before tsc must name both dist and tsconfig.build.tsbuildinfo").toBe(true);
   });
 });
