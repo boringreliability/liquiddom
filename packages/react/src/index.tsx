@@ -82,7 +82,7 @@ function pickElementOptions(opts?: ElementOptions): ElementOptions | undefined {
 /**
  * Callback ref that auto-observes the attached element. Safe before the
  * provider's instance is ready (the effect re-runs when it arrives). Options
- * are captured on first render, like the old liquidType (D66-4).
+ * are captured once, on first render (D66-4).
  *
  * Strict-mode safe: cleanup unobserves, remount re-observes; observe is idempotent.
  */
