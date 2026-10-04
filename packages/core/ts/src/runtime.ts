@@ -156,8 +156,28 @@ function startRuntime(
   renderer: Renderer,
   activeRenderer: ActiveRenderer,
 ): FluidRuntime {
-  const clock: FrameClock = opts.clock ?? rafClock;
   const releaseStyles = acquireLiquidStyles(document);
+  try {
+    return buildRuntime(opts, core, bridge, canvas, renderer, activeRenderer, releaseStyles);
+  } catch (err) {
+    // A synchronous failure after the styles/renderer were acquired: undo both,
+    // createFluidRuntime's catch removes the canvas and frees the core.
+    releaseStyles();
+    renderer.destroy();
+    throw err;
+  }
+}
+
+function buildRuntime(
+  opts: FluidRuntimeOptions,
+  core: FluidCoreLike,
+  bridge: FluidBridge,
+  canvas: HTMLCanvasElement,
+  renderer: Renderer,
+  activeRenderer: ActiveRenderer,
+  releaseStyles: () => void,
+): FluidRuntime {
+  const clock: FrameClock = opts.clock ?? rafClock;
   const container = opts.container;
   let destroyed = false;
   let lastMs: number | null = null;
@@ -296,7 +316,9 @@ function startRuntime(
   };
 
   // D66-12: user pause and hidden-tab pause are independent; frames go through W65's clock.
-  const loop = new LoopController(clock, frame, document);
+  const loop = new LoopController(clock, frame, document, () => {
+    lastMs = null; // the dt must not span a pause
+  });
   loop.start();
 
   return {
@@ -334,7 +356,7 @@ function startRuntime(
       return activeRenderer;
     },
     refresh(el: HTMLElement) {
-      if (destroyed) return;
+      if (destroyed || registry.idOf(el) === undefined) return;
       registry.refresh(el);
       paintsDirty = true;
     },

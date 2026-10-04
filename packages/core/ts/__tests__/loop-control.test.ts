@@ -97,4 +97,19 @@ describe("W66: LoopController", () => {
     clock.advance(3);
     expect(frames).toHaveLength(0);
   });
+
+  it("fix2_given_paused_to_running_when_resumed_then_onResume_fires_once_per_transition", () => {
+    const clock = createManualClock();
+    let n = 0;
+    const loop = new LoopController(clock, () => undefined, document, () => n++);
+    loop.start();
+    clock.advance(2);
+    expect(n).toBe(0);
+    loop.pause();
+    loop.resume();
+    expect(n).toBe(1);
+    loop.resume();
+    expect(n).toBe(1);
+    loop.destroy();
+  });
 });
