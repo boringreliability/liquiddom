@@ -11,23 +11,24 @@ npm workspaces: `packages/*` (`liquiddom`, `@liquiddom/react`, `@liquiddom/vue`,
 ## Commands
 
 ### Build
-- `npm run build`: `wasm-pack` then workspace builds. Core's build is `scripts/clean-core-dist.mjs` → `tsc` → `scripts/copy-wasm.mjs`. copy-wasm copies `pkg/` into `dist/wasm/` and rewrites every `dist/**/*.js` pkg specifier by depth, failing on a wrong one.
+- `npm run build`: `wasm-pack` then workspace builds. Core's build is `scripts/clean-core-dist.mjs` → `tsc` → `scripts/copy-wasm.mjs`. copy-wasm copies `pkg/` into `dist/wasm/` and rewrites every `dist/**/*.js` pkg specifier by depth, failing on a wrong one or when `dist/wasm-loader.js` does not end up on `./wasm/`. It also deletes wasm-pack's `.gitignore: *` (npm would drop the binary) and fails if `pkg/` is missing.
 - `npm run build:wasm`: Rust → `pkg/`. **Run it before `npm test`** (the real-WASM tests import `pkg/`).
 
 ### Develop
 - `npm run dev`: builds WASM, then Vite on `demo/`. `liquiddom` is aliased to `packages/core/ts/src/index.ts`, so scenes run from source. Scenes: `scenes/acceptance.html` (`?seed&renderer&clock=manual&rm=1&test=1`, hook `window.__liquidTest`) and `scenes/stress.html?n=2..4` (report `window.__stress`). Hook types live in `demo/test-hooks.ts`.
 
 ### Test
-- `npm test`: Vitest 4 projects core, react and vue (jsdom). The adapter tests exercise core's **dist**: run `npm run build -w liquiddom` first.
-- `npx playwright test --project=canvas2d`: blocking browser suite (real WASM). The `webgpu` project is soft and smoke-only until slice 3. `e2e/perf.spec.ts` is non-blocking.
-- Linux baselines only: `npm run e2e:update` (`scripts/e2e-docker.sh`, pinned image, `linux/amd64`). The `e2e-update-baselines` job in `ci.yml` can be dispatched with `gh workflow run ci.yml --ref <branch>` only once `ci.yml` is on `master`. Ask before pushing a branch.
-- `cargo test`, `cargo test --lib fluid::`; `npm run clippy` (`-D warnings`); `cargo fmt`.
+- `npm test`: Vitest 4 projects core, react and vue (jsdom). The adapter tests exercise core's **dist**: run `npm run build -w liquiddom` first. Filter with `npm test -- -t "snippet"` or `npm test -w @liquiddom/react`.
+- `npm run e2e:canvas2d` (`playwright test --project=canvas2d`): blocking browser suite, real WASM, Vite on :4173 with `--strictPort` and `BROWSER=none`; run `npm run build:wasm` first. `npm run e2e:webgpu` (SwiftShader smoke on new headless Chromium) is soft and smoke-only until slice 3; `npm run e2e:perf` records p95 and is non-blocking. Every spec imports `test` from `e2e/fixtures.ts`, which fails on `console.error`, `pageerror` and panics. `npm run e2e:typecheck` type-checks the specs.
+- Linux baselines only: `npm run e2e:update` (`scripts/e2e-docker.sh`, pinned image, `linux/amd64`, Docker required). Baselines live in `e2e/__screenshots__/`; visual specs skip on macOS. Commit a baseline only after a vision check. The `e2e-update-baselines` job in `ci.yml` can be dispatched with `gh workflow run ci.yml --ref <branch>` only once `ci.yml` is on `master`. Ask before pushing a branch.
+- `cargo test`, `cargo test --lib fluid::`; `npm run clippy` (`cargo clippy --all-targets --all-features -- -D warnings`, exactly what CI runs); `cargo fmt`.
+- `npm run bench:opt-level`: FluidCore tick benchmark, opt-level 3 vs "s" (W65).
 
 ### Release
 - Pre mode `alpha`: `npm run changeset` → `npm run version` → tag `v*` → `release.yml` runs `changeset publish`.
 
 ### Verification
-`npm run verify` (build + test:rust + test + clippy), plus `npx playwright test --project=canvas2d` for visual wards.
+`npm run verify` (build + test:rust + test + clippy), plus `npm run e2e:canvas2d` for visual wards. `npm pack --dry-run --workspaces` inspects the publish output.
 
 ## Architecture (high-level)
 
@@ -53,9 +54,9 @@ The soft-body engine (W6–W62) is retired as of W66; its last state is the git 
 - **Static view** (Rust writes at redistribute): SoA `home, rest_u, rest_v`. Read it only when `generation()` changes.
 - **State view**: 4 floats per element, `s, maxDev, restAlpha, reserved`.
 - **Scalar calls:**
-  - `tick(raw_dt_s, px, py, pvx, pvy, pointer_active, gx, gy)`. Rust owns the accumulator: 100 ms clamp, at most 3 × 1/60 s.
+  - `tick(raw_dt_s, px, py, pvx, pvy, pointer_active, gx, gy)`. Rust owns the accumulator: 100 ms clamp, at most 3 × 1/60 s, 8 substeps each.
   - `splash`, `shake`, `set_material`, `redistribute`, `generation`, `set_reduced_motion`.
-- The constructor is `FluidCore(particles, maxElements, worldWPx, worldHPx, areaHintPx2, maxElementHPx, seed)`.
+- The constructor is `FluidCore(particles, maxElements, worldWPx, worldHPx, areaHintPx2, maxElementHPx, seed)` (frozen in D64-4). `maxElementHPx` is the tallest initial element and sets the grid margin `max(200, maxElementHPx)` px.
 
 ### Internal runtime and public facade
 - `runtime.ts` `createFluidRuntime()` (internal) sets up:
