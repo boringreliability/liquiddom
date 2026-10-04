@@ -6,7 +6,9 @@
  * Elements deliberately carry NO data-liquid (W66 autoObserve would make every
  * instance observe every element — W66 passes autoObserve: false here).
  */
-import { createFluidRuntime } from "../../packages/core/ts/src/runtime";
+import { LiquidDOM, type LiquidDOMInstance } from "liquiddom";
+import { runtimeOf } from "../../packages/core/ts/src/internal";
+import type { FluidRuntime, FluidRuntimeOptions } from "../../packages/core/ts/src/runtime";
 import { rafClock, type FrameClock } from "../../packages/core/ts/src/clock";
 import { loadFluidWasm, type FluidBackend } from "../../packages/core/ts/src/wasm-loader";
 import type { SceneParams, StressReport } from "../test-hooks";
@@ -91,6 +93,34 @@ function countingClock(counter: { frames: number }): FrameClock {
   };
 }
 
+/** W66: the public facade instances behind the stress page (D66-5). */
+const stressInstances: LiquidDOMInstance[] = [];
+
+/**
+ * Drop-in replacement for createFluidRuntime: creates through the public API.
+ * W65's counting loader and counting clock go through the @internal `loader`
+ * and `clock` options (D66-1), so instantiation and frame counting are unchanged.
+ */
+async function createStressInstance(opts: FluidRuntimeOptions): Promise<FluidRuntime> {
+  const instance = await LiquidDOM.create({
+    particles: opts.particles,
+    maxElements: opts.maxElements,
+    seed: opts.seed,
+    container: opts.container,
+    forceReducedMotion: opts.forceReducedMotion,
+    material: opts.material,
+    loader: opts.loader,
+    clock: opts.clock,
+    testBackend: opts.testBackend,
+    autoObserve: false,
+  });
+  stressInstances.push(instance);
+  const runtime = runtimeOf(instance);
+  if (!runtime) throw new Error("[stress] runtimeOf(instance) returned undefined");
+  for (const el of opts.initialElements ?? []) instance.observe(el);
+  return runtime;
+}
+
 async function main(): Promise<void> {
   const q = new URLSearchParams(window.location.search);
   const n = intParam(q, "n", 2, 4, 2);
@@ -105,7 +135,7 @@ async function main(): Promise<void> {
   const counters = els.map(() => ({ frames: 0 }));
   // All n creates start synchronously in this task (spec §6, race3.mjs).
   const pending = els.map((el, i) =>
-    createFluidRuntime({
+    createStressInstance({
       particles: PARTICLES_PER_INSTANCE,
       maxElements: 4,
       seed: i + 1,

@@ -81,19 +81,6 @@
         font-size: 16px;
         line-height: 24px;
       }
-      /*
-       * Decision D64-9 (interim until W66's injected stylesheet): stack the
-       * observed elements above the liquid canvas (z-index 0) and hide their
-       * own background. acceptance.ts adds this class AFTER observe() has
-       * snapshotted the colours.
-       */
-      .scene-liquid {
-        position: relative;
-        z-index: 1;
-        background: transparent !important;
-        border-color: transparent !important;
-        box-shadow: none !important;
-      }
     </style>
   </head>
   <body>

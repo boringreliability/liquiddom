@@ -8,14 +8,15 @@
  *   ?test=1             install window.__liquidTest
  *   ?perf=1             tick/RAF perf probe (RAF clock only, D65-8)
  */
-import { createFluidRuntime, type FluidRuntime } from "../../packages/core/ts/src/runtime";
+import { LiquidDOM, type LiquidDOMInstance } from "liquiddom";
+import { runtimeOf } from "../../packages/core/ts/src/internal";
+import type { FluidRuntime, FluidRuntimeOptions } from "../../packages/core/ts/src/runtime";
 import { createManualClock, rafClock, type FrameClock, type ManualClock } from "../../packages/core/ts/src/clock";
 import type { LiquidTestHook, ScenePerfProbe, ScenePerfSnapshot } from "../test-hooks";
 import { parseSceneParams } from "./scene-params";
 
 const PARTICLES = 8000;
 const MAX_ELEMENTS = 32;
-const INTERIM_STACK_CLASS = "scene-liquid"; // W64's D64-9 class, removed in W66
 
 const parsed = parseSceneParams(window.location.search);
 // Effective reduced motion: ?rm=1 OR the media query (specs emulate the latter).
@@ -67,11 +68,35 @@ function installTickProbe(rt: FluidRuntime): void {
   };
 }
 
+/** W66: the public facade instance behind the scene (D66-5). */
+let sceneInstance: LiquidDOMInstance | null = null;
+
+/** Drop-in replacement for createFluidRuntime: creates through the public API. */
+async function createSceneInstance(opts: FluidRuntimeOptions): Promise<FluidRuntime> {
+  // autoObserve finds the scene's [data-liquid] elements, which are exactly W65's
+  // `initialElements`, so the area hint (D66-13) and the step-1 baseline do not move.
+  const instance = await LiquidDOM.create({
+    particles: opts.particles,
+    maxElements: opts.maxElements,
+    seed: opts.seed,
+    container: opts.container,
+    forceReducedMotion: opts.forceReducedMotion,
+    material: opts.material,
+    renderer: opts.renderer,
+    clock: opts.clock,
+    autoObserve: true,
+  });
+  sceneInstance = instance;
+  const runtime = runtimeOf(instance);
+  if (!runtime) throw new Error("[acceptance] runtimeOf(instance) returned undefined");
+  return runtime;
+}
+
 async function start(): Promise<FluidRuntime> {
   if (elements.length !== 4) {
     throw new Error(`[acceptance] expected 4 [data-liquid] elements, found ${elements.length}`);
   }
-  const rt = await createFluidRuntime({
+  const rt = await createSceneInstance({
     particles: PARTICLES,
     maxElements: MAX_ELEMENTS,
     seed: params.seed,
@@ -79,9 +104,9 @@ async function start(): Promise<FluidRuntime> {
     // Pass only ?rm so the media-query path runs through the runtime's own listener; params.reducedMotion stays the effective flag for the hook.
     forceReducedMotion: parsed.reducedMotion,
     clock,
+    renderer: params.renderer,
   });
   for (const el of elements) rt.observe(el);
-  for (const el of elements) el.classList.add(INTERIM_STACK_CLASS);
   await new Promise<void>((resolve) => queueMicrotask(resolve)); // let the batched redistribute run
   if (params.perf) installTickProbe(rt);
   runtime = rt;
@@ -125,7 +150,7 @@ const hook: LiquidTestHook = {
   },
   // A getter, not an assigned field: W66 Step 6 swaps its body for the public instance.
   get instance(): unknown {
-    return runtime;
+    return sceneInstance;
   },
   params,
   perf: perfProbe,

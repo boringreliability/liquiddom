@@ -1,3 +1,4 @@
+// HISTORICAL (W66): uses the retired LiquidCore; run against a `git checkout softbody-final` build. The fluid port is packages/core/ts/__tests__/multi-instance-wasm.test.ts and demo/scenes/stress.ts.
 import { readFileSync } from "node:fs";
 const PKG = new URL("../../../../../pkg/", import.meta.url).pathname; // repo-root pkg/ (run `npm run build:wasm` first)
 const bytes = readFileSync(PKG + "liquiddom_bg.wasm");
