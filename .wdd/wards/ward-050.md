@@ -3,7 +3,7 @@ ward: 50
 revision: null
 name: "Web Worker Offload (Optional)"
 epic: "framework-adapters-dx"
-status: "planned"
+status: "blocked"
 dependencies: []
 layer: "typescript"
 estimated_tests: 4

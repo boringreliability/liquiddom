@@ -3,7 +3,7 @@ ward: 62
 revision: null
 name: "WebGPU FreeDrop SDF dispatch branch"
 epic: "public-site"
-status: "gold"
+status: "red"
 dependencies: []
 layer: "typescript"
 estimated_tests: 6
@@ -197,3 +197,6 @@ npm run dev
 3. Visual screenshot captured at `.wdd/memory/snapshots/ward-062-screenshot.png`.
 4. `npm run verify` finishes green (only the 11 pre-existing baseline failures, no new regressions). Zero new clippy warnings, zero TS errors.
 5. `.wdd/CONTEXT.md` updated: W62 fix-target removed from Known Limitations; W62 row added to Architecture Decisions table.
+
+## Rejection — 2026-10-04
+superseded by the fluid engine (W66 deletes the soft-body WebGPU path)
