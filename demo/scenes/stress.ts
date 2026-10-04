@@ -12,7 +12,7 @@ import { loadFluidWasm, type FluidBackend } from "../../packages/core/ts/src/was
 import type { SceneParams, StressReport } from "../test-hooks";
 
 // Count SUCCESSFUL instantiations (race3 counts calls; a MIME fallback would double-count calls).
-// Patched at module evaluation, before the first loadFluidWasm() imports the glue lazily.
+// Patched at module evaluation, before the first loadFluidWasm() imports the glue lazily; keep it ahead of any (future static) glue import.
 let instantiations = 0;
 const originalStreaming = WebAssembly.instantiateStreaming.bind(WebAssembly);
 const originalInstantiate = WebAssembly.instantiate.bind(WebAssembly) as (...args: unknown[]) => Promise<unknown>;
@@ -126,7 +126,7 @@ async function main(): Promise<void> {
     const s = rt.elementState(els[i]);
     return s ? { s: s.s, maxDev: s.maxDev, restAlpha: s.restAlpha } : null;
   });
-  report.particlesPerInstance = runtimes.map((rt) => rt.bridge.particleCapacity);
+  report.particlesPerInstance = runtimes.map((rt) => rt.bridge.core.active_particles());
   for (const rt of runtimes) rt.destroy();
   // D65-10: a second destroy() must be a silent no-op (throwing lands in main()'s catch -> ok stays false).
   for (const rt of runtimes) rt.destroy();
