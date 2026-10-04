@@ -86,3 +86,17 @@ export function snapshotColors(el: HTMLElement): { background: RGBA; text: RGBA 
     text: parseCssColor(cs.color) ?? DEFAULT_TEXT_COLOR,
   };
 }
+
+/**
+ * W66 (spec §3 "Colour"): re-read colours of an element that carries the
+ * liquid class by lifting the class for the duration of the read.
+ */
+export function snapshotColorsWithout(el: HTMLElement, className: string): { background: RGBA; text: RGBA } {
+  if (!el.classList.contains(className)) return snapshotColors(el);
+  el.classList.remove(className);
+  try {
+    return snapshotColors(el);
+  } finally {
+    el.classList.add(className);
+  }
+}

@@ -1,8 +1,9 @@
 import { parseBorderRadius } from "./border-radius";
-import { snapshotColors, type RGBA } from "./color";
+import { snapshotColors, snapshotColorsWithout, type RGBA } from "./color";
 import type { FluidBridge } from "./fluid-bridge";
 import { ELEMENT_STRIDE, El, roundedRectArea } from "./fluid-layout";
 import type { ElementOptions } from "./options";
+import { ELEMENT_CLASS, decorateElement, undecorateElement, type Decoration } from "./stylesheet";
 
 export interface ElementRecord {
   readonly id: number;
@@ -59,6 +60,7 @@ interface InternalRecord extends ElementRecord {
 export class ElementRegistry {
   private readonly slots: Array<InternalRecord | undefined>;
   private readonly byEl = new Map<HTMLElement, InternalRecord>();
+  private readonly decorations = new Map<HTMLElement, Decoration>();
 
   constructor(
     private readonly bridge: FluidBridge,
@@ -117,6 +119,7 @@ export class ElementRegistry {
     v[o + El.VISCOSITY] = typeof opts.viscosity === "number" ? opts.viscosity : NaN;
     v[o + El.RECOVERY] = typeof opts.recovery === "number" ? opts.recovery : NaN;
     this.writeRect(rec, v, this.deps.coordOffset());
+    if (!this.decorations.has(el)) this.decorations.set(el, decorateElement(el));
     this.deps.scheduleRedistribute();
     return id;
   }
@@ -129,7 +132,23 @@ export class ElementRegistry {
     this.slots[rec.id] = undefined;
     const o = rec.id * ELEMENT_STRIDE;
     this.bridge.elementView().fill(0, o, o + ELEMENT_STRIDE);
+    const decoration = this.decorations.get(el);
+    if (decoration) {
+      undecorateElement(el, decoration);
+      this.decorations.delete(el);
+    }
     this.deps.scheduleRedistribute();
+  }
+
+  /** W66: re-snapshot an observed element's colours (D66-10: unobserved → no-op). */
+  refresh(el: HTMLElement): void {
+    for (const rec of this.entries()) {
+      if (rec.el !== el) continue;
+      const colors = snapshotColorsWithout(el, ELEMENT_CLASS);
+      rec.background = colors.background;
+      rec.text = colors.text;
+      return;
+    }
   }
 
   unobserveAll(): void {
