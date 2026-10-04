@@ -151,4 +151,4 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D66-12 | Known regressions documented: no colour auto-refresh until slice 4; separate pause sources | W66 | dec_8393ca6e |
 | D66-13 | Area hint comes from autoObserve candidates | W66 | dec_4189fd3e |
 | D66-14 | Resolved options carry a full Material | W66 | dec_1e47c536 |
-| D66-15 | Injected CSS in @layer liquiddom with !important; revert-layer in print/forced-colors; two axe passes | W66 | dec_2911ef26 |
+| D66-15 | Injected CSS in @layer liquiddom with !important; AMENDED 2026-10-04: paint/stacking rules scoped to screen and forced-colors: none instead of revert-layer (reverted to the UA default in print; was dec_2911ef26); two axe passes | W66 | dec_d05913c9 |

@@ -128,7 +128,7 @@ Decision: APPROVED 2026-10-04 — `resolveOptions` merges partial `material` ove
 ### D66-15: Injected CSS in @layer liquiddom with !important, checked by two axe passes
 Proposal: The paint-neutralising and stacking declarations live in `@layer liquiddom` with `!important`, so they beat author rules, `:hover` and inline styles; `@media print, (forced-colors: active)` hides the canvas (`display: none !important`) and neutralises both classes with `revert-layer !important`; axe runs on screen with WCAG 2.1 A/AA and `color-contrast` disabled, then under print media with `color-contrast` only (spec §4 "contrast identical to the original").
 Consequence: Needs `revert-layer` (Chrome 99, Firefox 97, Safari 15.4); jsdom ignores layers, so jsdom tests assert the CSS text and Playwright asserts the behaviour.
-Decision: APPROVED 2026-10-04 — injected CSS in `@layer liquiddom` with `!important`; `@media print, (forced-colors: active)` hides the canvas and neutralises both classes with `revert-layer !important`; two axe passes (screen WCAG 2.1 A/AA without `color-contrast`, then print with `color-contrast` only) (saga dec_2911ef26)
+Decision: AMENDED 2026-10-04 — injected CSS in `@layer liquiddom` with `!important`, its paint and stacking rules scoped to `@media screen and (forced-colors: none)` (no `revert-layer`: in Chromium it reverts to the UA default, not the author background, found in W66.6); `@media print, (forced-colors: active)` hides the canvas; two axe passes as approved (saga dec_d05913c9)
 
 ## Specification
 - **Public API** (spec §5):
