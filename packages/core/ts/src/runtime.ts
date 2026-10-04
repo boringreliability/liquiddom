@@ -12,8 +12,10 @@ import { FluidBridge } from "./fluid-bridge";
 import { El, ELEMENT_STRIDE, roundedRectArea, St, STATE_STRIDE, Stat } from "./fluid-layout";
 import { DEFAULT_MATERIAL, type Material } from "./material";
 import type { ElementOptions } from "./options";
-import { FluidCanvas2DRenderer } from "./renderers/fluid-canvas2d";
-import type { ElementPaint, RenderFrame, RenderViewport } from "./renderers/frame";
+import type { ElementPaint, RenderFrame, Renderer, RenderViewport } from "./renderers/frame";
+import { LoopController } from "./loop-control";
+import { acquireLiquidStyles, mountLiquidCanvas } from "./stylesheet";
+import { selectRenderer, type ActiveRenderer, type RendererChoice } from "./renderers/select";
 import { loadFluidWasm, type FluidBackend, type FluidCoreLike } from "./wasm-loader";
 
 export const LIQUID_CANVAS_CLASS = "liquid-canvas";
@@ -38,6 +40,8 @@ export interface FluidRuntimeOptions {
   loader?: () => Promise<FluidBackend>;
   /** @internal W65 (D65-1): frame scheduling seam. Default: requestAnimationFrame. */
   clock?: FrameClock;
+  /** W66: renderer choice; the facade passes the resolved option. Default "canvas2d". */
+  renderer?: RendererChoice;
 }
 
 export interface FluidElementState {
@@ -55,6 +59,12 @@ export interface FluidRuntime {
   readonly canvas: HTMLCanvasElement;
   readonly bridge: FluidBridge;
   readonly reducedMotion: boolean;
+  pause(): void;
+  resume(): void;
+  readonly isPaused: boolean;
+  readonly activeRenderer: ActiveRenderer;
+  /** Re-snapshot colours of an observed element (no-op otherwise). */
+  refresh(el: HTMLElement): void;
   /** Idempotent. */
   destroy(): void;
 }
@@ -104,29 +114,6 @@ function readOffset(container: HTMLElement): Offset {
   return { x: r.left + container.clientLeft, y: r.top + container.clientTop };
 }
 
-function mountCanvas(container?: HTMLElement): HTMLCanvasElement {
-  const canvas = document.createElement("canvas");
-  canvas.className = LIQUID_CANVAS_CLASS;
-  canvas.setAttribute("aria-hidden", "true");
-  const s = canvas.style;
-  s.pointerEvents = "none";
-  s.zIndex = "0";
-  s.top = "0";
-  s.left = "0";
-  if (container) {
-    s.position = "absolute";
-    s.width = "100%";
-    s.height = "100%";
-    container.appendChild(canvas);
-  } else {
-    s.position = "fixed";
-    s.width = "100vw";
-    s.height = "100vh";
-    document.body.appendChild(canvas);
-  }
-  return canvas;
-}
-
 export async function createFluidRuntime(opts: FluidRuntimeOptions): Promise<FluidRuntime> {
   assertInt("particles", opts.particles, 16, 65_536);
   assertInt("maxElements", opts.maxElements, 1, 256);
@@ -149,10 +136,11 @@ export async function createFluidRuntime(opts: FluidRuntimeOptions): Promise<Flu
     const bridge = new FluidBridge(backend, core);
     const material = opts.material ?? DEFAULT_MATERIAL;
     core.set_material(material.viscosity, material.cohesion, material.recovery);
-    canvas = mountCanvas(opts.container);
-    const renderer = new FluidCanvas2DRenderer();
-    await renderer.init(canvas);
-    return startRuntime(opts, core, bridge, canvas, renderer);
+    canvas = mountLiquidCanvas(opts.container);
+    // D66-2. selectRenderer destroys a renderer whose init failed; the catch below
+    // (W64) then removes the canvas and frees the core exactly once.
+    const selected = await selectRenderer(opts.renderer ?? "canvas2d", canvas);
+    return startRuntime(opts, core, bridge, canvas, selected.renderer, selected.active);
   } catch (err) {
     canvas?.remove();
     core.free();
@@ -165,9 +153,11 @@ function startRuntime(
   core: FluidCoreLike,
   bridge: FluidBridge,
   canvas: HTMLCanvasElement,
-  renderer: FluidCanvas2DRenderer,
+  renderer: Renderer,
+  activeRenderer: ActiveRenderer,
 ): FluidRuntime {
   const clock: FrameClock = opts.clock ?? rafClock;
+  const releaseStyles = acquireLiquidStyles(document);
   const container = opts.container;
   let destroyed = false;
   let lastMs: number | null = null;
@@ -175,6 +165,7 @@ function startRuntime(
   let frameOffset: Offset = ZERO;
   let warnedArea = false;
   let activeParticles = core.active_particles();
+  let paintsDirty = false;
   let paints: Array<ElementPaint | undefined> = new Array<ElementPaint | undefined>(
     bridge.elementCapacity,
   ).fill(undefined);
@@ -294,19 +285,19 @@ function startRuntime(
     try {
       registry.sync();
       core.tick(dtS, 0, 0, 0, 0, false, 0, 0);
-      if (bridge.syncGeneration()) rebuildPaints();
+      if (bridge.syncGeneration() || paintsDirty) {
+        paintsDirty = false;
+        rebuildPaints();
+      }
       renderer.render(buildFrame());
     } finally {
       inFrame = false;
     }
   };
 
-  let rafId = 0;
-  const loop = (t: number): void => {
-    frame(t);
-    if (!destroyed) rafId = clock.request(loop);
-  };
-  rafId = clock.request(loop);
+  // D66-12: user pause and hidden-tab pause are independent; frames go through W65's clock.
+  const loop = new LoopController(clock, frame, document);
+  loop.start();
 
   return {
     observe(el, elementOpts) {
@@ -330,12 +321,30 @@ function startRuntime(
     get reducedMotion() {
       return reducedMotion;
     },
+    pause() {
+      loop.pause();
+    },
+    resume() {
+      loop.resume();
+    },
+    get isPaused() {
+      return loop.isPaused;
+    },
+    get activeRenderer() {
+      return activeRenderer;
+    },
+    refresh(el: HTMLElement) {
+      if (destroyed) return;
+      registry.refresh(el);
+      paintsDirty = true;
+    },
     destroy() {
       if (destroyed) return;
       destroyed = true;
-      clock.cancel(rafId);
+      loop.destroy();
       batcher.cancel();
       registry.unobserveAll();
+      releaseStyles();
       mql?.removeEventListener("change", onMotionChange);
       resizeObserver?.disconnect();
       window.removeEventListener("resize", resizeCanvas);
