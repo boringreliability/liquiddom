@@ -3,7 +3,7 @@ ward: 66
 revision: null
 name: "Public API swap and soft-body retirement"
 epic: "fluid-engine"
-status: "approved"
+status: "gold"
 dependencies: [65, 62]
 layer: "both"
 estimated_tests: 154
@@ -344,3 +344,29 @@ W63's planned rows are covered as follows: border-radius.test.ts keeps its 4 pur
 
 ## Verification
 `npm run verify` is green, CI e2e (canvas2d) is green, the vision-inspected screenshots are attached, and Dennis approves.
+
+## Gold notes
+
+**North-star steps moved (canvas2d):**
+- Step 1 (idle, crisp roundRect plus DOM text) now runs through the public `LiquidDOM.create()`. Baseline `e2e/__screenshots__/acceptance.spec.ts/acceptance-step1-canvas2d-linux.png`. Vision: three pills and the card at their DOM positions, crisp roundRects, no density fur, DOM text on top, no border or shadow. It changed only because the Split and Merge colours were darkened for WCAG AA (1db78bc).
+- Step 8 (reduced motion and print) now runs through the public API. Baselines `modes.spec.ts/step8-reduced-motion-{media,option}-canvas2d-linux.png`. Vision: same layout as the W65 baselines (the card was moved on purpose by the spec, and it is crisp at its new place); only the button colours differ. Print (local screenshot): the canvas is hidden, the author backgrounds are back, and the axe print pass reports 0 contrast violations.
+- Step 4 groundwork: baseline `a11y.spec.ts/a11y-focus-split-canvas2d-linux.png`. Vision: a continuous focus ring all the way around Split, drawn above the liquid.
+- Local screenshots (scratch, not committed): rest, reduced motion (identical to rest), stress `n=4` (four instances, nothing drawn across), print, and two instances on the same elements (colours kept; the card's anti-aliased edge is slightly heavier from two overlapping canvases, as expected).
+
+**Decisions changed during execution:**
+- D66-15 AMENDED (saga dec_d05913c9). Inside the layer, `revert-layer !important` reverted to the UA default in Chromium, so print showed a grey button. The paint and stacking rules are now scoped to `@media screen and (forced-colors: none)`.
+- Controller rulings are in the SDD ledger: stacking of static elements with an explicit z, the shared-element decoration refcount, colour snapshots safe under transitions, a warning for a static container (the library does not force a position), and the loop stopping for good when a frame throws.
+
+**Code review:**
+- Each task was reviewed and its fix rounds re-reviewed.
+- Whole-ward opus review: 2 Important and 3 Minor fixed in 745ed1f, test-first, including a Playwright colour-refresh test.
+- Carried to W69's whole-picture check: no browser loads the published `dist` (M4); smoke-test `examples/react` or a packed tarball.
+- No action: the `@internal` hooks are visible in the public `.d.ts`, covered by D66-1 and D66-8.
+
+**Verification:**
+- `npm run verify`: cargo 50 (fluid only), vitest 330 passed and 4 skipped (gravity, slice 6), clippy clean.
+- canvas2d: 17 passed and 3 visual specs skipped on macOS. The Linux Docker run (`npm run e2e:update`) passed 18/18.
+
+**Perf (recorded, not gated):** local tick p95 3.31 ms per step (mean 3.06 ms); RAF p95 3.40 ms (n = 300).
+
+**Retired:** 43 files, 10,295 lines (5 Rust modules, 5 TS sources plus shaders, 13 test files, 16 demo files). The last state is the tag `softbody-final`.
