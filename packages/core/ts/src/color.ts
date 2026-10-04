@@ -114,11 +114,14 @@ export function snapshotColorsWithout(el: HTMLElement, className: string): { bac
     // event then sees no background change, so restoring the author transition
     // starts nothing. Without this flush Chromium starts a red→transparent
     // transition on the restored element (verified by e2e/colour-refresh.spec.ts).
-    void getComputedStyle(el).backgroundColor;
-    // Chromium serialises a CSSOM-mutated style attribute lazily; without first
-    // syncing it (the getAttribute read), removeAttribute is later undone as style="".
-    el.getAttribute("style");
-    if (prevStyle === null) el.removeAttribute("style");
-    else el.setAttribute("style", prevStyle);
+    try {
+      void getComputedStyle(el).backgroundColor;
+    } finally {
+      // Chromium serialises a CSSOM-mutated style attribute lazily; without first
+      // syncing it (the getAttribute read), removeAttribute is later undone as style="".
+      el.getAttribute("style");
+      if (prevStyle === null) el.removeAttribute("style");
+      else el.setAttribute("style", prevStyle);
+    }
   }
 }
