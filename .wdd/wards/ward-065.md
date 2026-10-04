@@ -117,27 +117,51 @@ Decision: APPROVED 2026-10-04 — window.__liquidTest contract in demo/test-hook
 ## Tests
 | # | Test Name | Verifies |
 |---|-----------|----------|
-| 1 | given_manual_clock_when_advance_3_then_callbacks_run_3_times_with_fixed_dt | clock |
+| 1 | given_manual_clock_when_advance_3_then_callbacks_run_3_times_with_fixed_dt | clock (D65-1) |
 | 2 | given_manual_clock_when_cancelled_then_callback_not_run | clock |
-| 3 | given_two_runtimes_same_seed_manual_clock_when_advanced_120_frames_then_dynamic_views_identical | determinism |
-| 4 | given_manual_clock_at_one_sixtieth_when_frames_run_then_tick_returns_one_step_each | step count |
-| 5 | given a page that logs console.error when the guard fixture runs then the test fails | guard |
-| 6 | given a page throwing pageerror when the guard fixture runs then the test fails | guard |
-| 7 | step 1 – given the acceptance scene at seed 1 when idle 2 s then every element has restAlpha 1 and DOM text is visible | step 1 |
-| 8 | step 1 – given rest when screenshotted then it matches the baseline (maxDiffPixelRatio 0.01) | step 1 visual |
-| 9 | step 8 – given prefers-reduced-motion reduce when the scene loads then restAlpha is 1 on the first frame and two frames 1 s apart are identical | step 8 RM |
-| 10 | step 8 – given print media when emulated then the liquid canvas is display none | step 8 print (fixme → W66) |
-| 11 | given 2, 3 and 4 instances created in the same task when the page runs 3 s then no console error, pageerror or panic | multi-instance |
-| 12 | given the stress page when reloaded 50 times then no console error, pageerror or panic | multi-instance |
-| 13 | given SwiftShader WebGPU when requesting an adapter then adapter.info incl. isFallbackAdapter is logged | webgpu smoke |
-| 14 | given a known clear colour when rendered and read back then the pixel matches | webgpu smoke |
-| 15 | given_ci_yml_when_parsed_then_e2e_job_needs_test_and_uses_playwright_image_matching_the_exact_devDependency_version | CI pin |
-| 16 | given_ci_yml_when_parsed_then_canvas2d_step_is_blocking_and_webgpu_step_continue_on_error | CI policy |
-| 17 | given_ci_yml_when_parsed_then_pkg_artifact_is_uploaded_by_test_and_downloaded_by_e2e | CI artifact |
-| 18 | given_ci_yml_when_parsed_then_e2e_update_baselines_job_is_workflow_dispatch_and_uploads_baselines | D65-6 |
-| 19 | given_playwright_config_when_loaded_then_webgpu_project_matches_only_the_smoke_spec | D65-7 |
-| 20 | given_e2e_docker_script_when_read_then_it_pins_platform_linux_amd64 | D65-6 |
-| 21 | perf – given the acceptance scene at 8000 particles in canvas2d when 600 RAF frames run then p95 tick per fixed step and RAF p95 are written to the perf artifact | D65-8 (non-blocking) |
+| 3 | given_callback_cancelled_by_an_earlier_callback_in_the_same_frame_when_advancing_then_it_does_not_run | clock RAF semantics |
+| 4 | given_callback_requested_during_a_frame_when_advancing_one_frame_then_it_runs_on_the_next_frame | clock RAF semantics |
+| 5 | given_explicit_dt_when_advancing_then_timestamps_step_by_that_dt | clock |
+| 6 | given_invalid_frames_or_dt_or_start_when_used_then_TypeError | clock validation |
+| 7 | given_rafClock_when_request_and_cancel_then_delegates_to_requestAnimationFrame | rafClock |
+| 8 | given_two_runtimes_same_seed_manual_clock_when_advanced_120_frames_then_dynamic_views_identical | determinism |
+| 9 | given_two_runtimes_different_seeds_manual_clock_when_advanced_then_dynamic_views_differ | seed |
+| 10 | given_manual_clock_at_one_sixtieth_when_frames_run_then_tick_returns_one_step_each | step count |
+| 11 | given_clock_option_when_runtime_runs_then_requestAnimationFrame_is_never_called | clock seam |
+| 12 | given_manual_clock_without_advance_when_real_time_passes_then_no_frame_runs | clock seam |
+| 13 | given_empty_query_when_parsed_then_seed_1_raf_clock_canvas2d_and_all_flags_off | scene params (D65-11) |
+| 14 | given_seed_7_clock_manual_rm_1_test_1_when_parsed_then_all_fields_set | scene params |
+| 15 | given_perf_1_with_raf_clock_and_max_u32_seed_when_parsed_then_perf_true | scene params |
+| 16 | given_invalid_query_%s_when_parsed_then_TypeError (it.each, 10 cases) | scene params validation |
+| 17 | given_perf_with_manual_clock_when_parsed_then_TypeError | scene params validation |
+| 18 | given_ci_yml_when_parsed_then_e2e_job_needs_test_and_uses_playwright_image_matching_the_exact_devDependency_version | CI pin (D65-6) |
+| 19 | given_ci_yml_when_parsed_then_canvas2d_step_is_blocking_and_webgpu_step_continue_on_error | CI policy (D65-3) |
+| 20 | given_ci_yml_when_parsed_then_pkg_artifact_is_uploaded_by_test_and_downloaded_by_e2e | CI artifact |
+| 21 | given_ci_yml_when_parsed_then_perf_step_is_non_blocking_and_its_json_is_uploaded | perf in CI (D65-8) |
+| 22 | given_ci_yml_when_parsed_then_e2e_update_baselines_job_is_workflow_dispatch_and_uploads_baselines | D65-7 |
+| 23 | given_playwright_config_when_loaded_then_webgpu_project_matches_only_the_smoke_spec | D65-5 (C8) |
+| 24 | given_e2e_spec_files_when_routed_then_canvas2d_runs_every_spec_except_smoke_and_perf | routing |
+| 25 | given_project_table_when_read_then_only_canvas2d_is_blocking_and_perf_runs_only_perf_spec | routing (D65-3) |
+| 26 | given_webgpu_launch_args_when_read_then_they_equal_the_spec_swiftshader_flags | D65-5 |
+| 27 | given_playwright_config_when_loaded_then_webgpu_runs_new_headless_chromium_and_web_server_has_BROWSER_none_and_strictPort | D65-5, D65-2 |
+| 28 | given_samples_when_summarized_then_nearest_rank_p50_p95_mean_and_max | perf stats |
+| 29 | given_gitignore_when_checked_then_baselines_are_tracked_even_when_named_w_star_and_reports_are_ignored | D65-2 |
+| 30 | given_e2e_docker_script_when_read_then_it_pins_platform_linux_amd64 | D65-7 |
+| 31 | given a page that logs console.error when the guard fixture runs then the test fails | guard |
+| 32 | given a page throwing pageerror when the guard fixture runs then the test fails | guard |
+| 33 | given a page that logs a Rust panic message at info level when the guard fixture runs then the test fails | guard |
+| 34 | given a clean page when the guard fixture runs then the test passes | guard |
+| 35 | step 1 – given the acceptance scene at seed 1 when idle 2 s then every element has restAlpha 1 and DOM text is visible | step 1 |
+| 36 | step 1 – given rest when screenshotted then it matches the baseline (maxDiffPixelRatio 0.01) | step 1 visual (Linux only) |
+| 37 | step 8 – given prefers-reduced-motion reduce when the scene loads then restAlpha is 1 on the first frame and two frames 1 s apart are identical | step 8 RM |
+| 38 | step 8 – given ?rm=1 (forceReducedMotion) when the scene loads then restAlpha is 1 on the first frame | step 8 RM |
+| 39 | step 8 – given print media when emulated then the liquid canvas is display none | step 8 print (fixme → W66, D65-4) |
+| 40 | given 2, 3 and 4 instances created in the same task when the page runs 3 s then no console error, pageerror or panic | multi-instance (D65-10) |
+| 41 | given the stress page when reloaded 50 times then no console error, pageerror or panic | multi-instance (D65-10) |
+| 42 | given SwiftShader WebGPU when requesting an adapter then adapter.info incl. isFallbackAdapter is logged | webgpu smoke |
+| 43 | given a known clear colour when rendered and read back then the pixel matches | webgpu smoke |
+| 44 | given a WGSL pipeline drawing a full-screen triangle when rendered and read back then the pixel matches | webgpu smoke |
+| 45 | perf – given 8000 particles in the acceptance scene when 5 s of RAF frames are sampled then p95 tick per fixed step and RAF p95 are recorded | D65-8 (non-blocking) |
 
 ## Must NOT
 - Make the `webgpu` project blocking (that needs 10 green runs in a row).
