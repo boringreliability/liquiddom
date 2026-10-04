@@ -6,6 +6,7 @@
  * it by relative source path.
  */
 import { parseBorderRadius } from "./border-radius";
+import { rafClock, type FrameClock } from "./clock";
 import { createMicrotaskBatcher, ElementRegistry } from "./element-registry";
 import { FluidBridge } from "./fluid-bridge";
 import { El, ELEMENT_STRIDE, roundedRectArea, St, STATE_STRIDE, Stat } from "./fluid-layout";
@@ -35,6 +36,8 @@ export interface FluidRuntimeOptions {
   testBackend?: FluidBackend;
   /** @internal Defaults to the module-level single-flight `loadFluidWasm`. */
   loader?: () => Promise<FluidBackend>;
+  /** @internal W65 (D65-1): frame scheduling seam. Default: requestAnimationFrame. */
+  clock?: FrameClock;
 }
 
 export interface FluidElementState {
@@ -164,6 +167,7 @@ function startRuntime(
   canvas: HTMLCanvasElement,
   renderer: FluidCanvas2DRenderer,
 ): FluidRuntime {
+  const clock: FrameClock = opts.clock ?? rafClock;
   const container = opts.container;
   let destroyed = false;
   let lastMs: number | null = null;
@@ -300,9 +304,9 @@ function startRuntime(
   let rafId = 0;
   const loop = (t: number): void => {
     frame(t);
-    if (!destroyed) rafId = requestAnimationFrame(loop);
+    if (!destroyed) rafId = clock.request(loop);
   };
-  rafId = requestAnimationFrame(loop);
+  rafId = clock.request(loop);
 
   return {
     observe(el, elementOpts) {
@@ -329,7 +333,7 @@ function startRuntime(
     destroy() {
       if (destroyed) return;
       destroyed = true;
-      cancelAnimationFrame(rafId);
+      clock.cancel(rafId);
       batcher.cancel();
       registry.unobserveAll();
       mql?.removeEventListener("change", onMotionChange);
