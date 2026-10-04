@@ -93,10 +93,13 @@ export function snapshotColors(el: HTMLElement): { background: RGBA; text: RGBA 
  */
 export function snapshotColorsWithout(el: HTMLElement, className: string): { background: RGBA; text: RGBA } {
   if (!el.classList.contains(className)) return snapshotColors(el);
+  // Restore the exact attribute string (class order included), not just the class.
+  const prev = el.getAttribute("class");
   el.classList.remove(className);
   try {
     return snapshotColors(el);
   } finally {
-    el.classList.add(className);
+    if (prev === null) el.removeAttribute("class");
+    else el.setAttribute("class", prev);
   }
 }

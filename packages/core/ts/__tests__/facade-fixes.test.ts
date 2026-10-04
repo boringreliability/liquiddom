@@ -9,6 +9,8 @@ import { LiquidDOM } from "../src/index";
 import { runtimeOf } from "../src/internal";
 import { ELEMENT_CLASS, STACK_ATTR } from "../src/stylesheet";
 import type { FluidBackend } from "../src/wasm-loader";
+import { ElementRegistry } from "../src/element-registry";
+import { FluidBridge } from "../src/fluid-bridge";
 import { addLiquid, freshBackend, instanceTracker, mockRect, resetDom, setupFacadeTestEnv } from "./_facade-helpers";
 
 const tracker = instanceTracker();
@@ -80,6 +82,33 @@ describe("W66.5 fix 1: an element shared by two instances", () => {
     expect(el.classList.contains(ELEMENT_CLASS)).toBe(true);
     b.unobserve(el);
     expect(el.hasAttribute("class")).toBe(false);
+  });
+});
+
+describe("W66.5 fix round 2: the second observer's colour snapshot", () => {
+  function registry(): ElementRegistry {
+    const backend = freshBackend();
+    const core = new backend.FluidCore(256, 4, 1280, 800, 0, 0, 1);
+    return new ElementRegistry(new FluidBridge(backend, core), { coordOffset: () => ({ x: 0, y: 0 }), scheduleRedistribute: () => {} });
+  }
+
+  it("given_element_decorated_by_instance_A_when_instance_B_observes_then_B_snapshots_the_author_background_not_transparent", () => {
+    // jsdom applies this cascade: with the class, the computed background is rgba(0, 0, 0, 0).
+    const style = document.createElement("style");
+    style.textContent = `.${ELEMENT_CLASS} { background-color: transparent !important }`;
+    document.head.appendChild(style);
+    const el = addLiquid("button", [0, 0, 100, 40], document.body, false);
+    el.setAttribute("style", "background-color: rgb(10, 20, 30)");
+    const a = registry();
+    const b = registry();
+    const idA = a.observe(el);
+    expect(el.classList.contains(ELEMENT_CLASS)).toBe(true);
+    const idB = b.observe(el);
+    expect(Array.from(a.get(idA)!.background)).toEqual([10, 20, 30, 1]);
+    expect(Array.from(b.get(idB)!.background)).toEqual([10, 20, 30, 1]);
+    expect(el.classList.contains(ELEMENT_CLASS)).toBe(true); // the class is put back after the read
+    b.unobserve(el);
+    a.unobserve(el);
   });
 });
 

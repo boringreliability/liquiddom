@@ -1,5 +1,5 @@
 import { parseBorderRadius } from "./border-radius";
-import { snapshotColors, snapshotColorsWithout, type RGBA } from "./color";
+import { snapshotColorsWithout, type RGBA } from "./color";
 import type { FluidBridge } from "./fluid-bridge";
 import { ELEMENT_STRIDE, El, roundedRectArea } from "./fluid-layout";
 import type { ElementOptions } from "./options";
@@ -100,7 +100,9 @@ export class ElementRegistry {
         `[liquiddom] observe(): all ${this.slots.length} element slots are in use (maxElements = ${this.slots.length}). unobserve() an element first or raise maxElements.`,
       );
     }
-    const { background, text } = snapshotColors(el);
+    // W66.5 fix round 2: another instance may already have decorated `el`; read the
+    // author colours with the liquid class lifted (no-op when it is absent). Snapshot first, then decorate.
+    const { background, text } = snapshotColorsWithout(el, ELEMENT_CLASS);
     const cs = getComputedStyle(el);
     const rec: InternalRecord = {
       id,
