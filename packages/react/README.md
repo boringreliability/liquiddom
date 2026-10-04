@@ -29,7 +29,7 @@ export function App() {
 | `<LiquidProvider config?>` | Owns one `LiquidDOMInstance`; `config` is read once on mount |
 | `LiquidContext` | The raw context (instance or `null`) |
 | `useLiquid()` | The instance, or `null` before init / outside a provider |
-| `useLiquidRef<T>({ viscosity?, recovery? }?)` | Callback ref that observes on attach and unobserves on detach; options are captured at first attach |
+| `useLiquidRef<T>({ viscosity?, recovery? }?)` | Callback ref that observes on attach and unobserves on detach; options are captured on first render |
 | `<LiquidElement as? viscosity? recovery? …rest>` | Convenience tag around `useLiquidRef`; every other prop is forwarded |
 
 StrictMode-safe (single-flight WASM init plus idempotent `observe`). SSR-safe (the provider effect only runs in the browser).

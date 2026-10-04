@@ -15,7 +15,7 @@ npm workspaces: `packages/*` (`liquiddom`, `@liquiddom/react`, `@liquiddom/vue`,
 - `npm run build:wasm`: Rust → `pkg/`. **Run it before `npm test`** (the real-WASM tests import `pkg/`).
 
 ### Develop
-- `npm run dev`: builds WASM, then Vite on `demo/`. `liquiddom` is aliased to `packages/core/ts/src/index.ts`, so scenes run from source. Scenes: `scenes/acceptance.html` (`?seed&renderer&clock=manual&rm=1&test=1`, hook `window.__liquidTest`) and `scenes/stress.html?n=2..4` (report `window.__stress`). Hook types live in `demo/test-hooks.ts`.
+- `npm run dev`: builds WASM, then Vite on `demo/`. `liquiddom` is aliased to `packages/core/ts/src/index.ts`, so scenes run from source. Scenes: `scenes/acceptance.html` (`?seed&renderer&clock=manual&rm=1&test=1`, hook `window.__liquidTest`) and `scenes/stress.html?n=2..4` (report `window.__stress`). Hook shapes live in `demo/test-hooks.ts`.
 
 ### Test
 - `npm test`: Vitest 4 projects core, react and vue (jsdom). The adapter tests exercise core's **dist**: run `npm run build -w liquiddom` first. Filter with `npm test -- -t "snippet"` or `npm test -w @liquiddom/react`.
@@ -93,7 +93,7 @@ Gravity is validated but has no effect until slice 6. Container mode works. Scro
 - No panics on JS input in `src/fluid`: `clippy::indexing_slicing` is denied and there is no unwrap. No hot-path allocation.
 - The canvas stays below the DOM (D7). Rendering never touches the DOM.
 - Only `ts/src/wasm-loader.ts` imports `../../../../pkg/liquiddom.js` (enforced by workspace-publish).
-- The spike (`spikes/fluid-mpm`) is reference only; never copy its code (D2).
+- The spike (branch `spike/fluid-mpm`) is reference only; never copy its code (D2).
 
 ## WDD (Ward-Driven Development) workflow
 
