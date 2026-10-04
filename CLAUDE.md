@@ -27,6 +27,9 @@ The repo is an npm workspace (`packages/*`, `examples/*`, `site`) with three pub
 - `npm test -w @liquiddom/react` — Run only one package's tests.
 - `cargo test` — All Rust unit tests (in-file `#[cfg(test)]` modules under `src/`).
 - `cargo test --lib physics::` — Filter by module path.
+- `npm run e2e:canvas2d` — Playwright against `demo/` (Vite on :4173 with `--strictPort` and `BROWSER=none`, real WASM; run `npm run build:wasm` first). `canvas2d` is blocking in CI; `npm run e2e:webgpu` (SwiftShader smoke on new headless Chromium, soft until 10 green runs, smoke spec only until slice 3) and `npm run e2e:perf` (non-blocking p95 recording) are separate projects. Every spec imports `test` from `e2e/fixtures.ts` (fails on console.error / pageerror / panic).
+- `npm run e2e:update` — regenerate the Linux visual baselines in the pinned image as linux/amd64 (`scripts/e2e-docker.sh`, Docker required). Baselines live in `e2e/__screenshots__/`, are Linux-only, and are committed only after a vision check; visual specs skip on macOS.
+- `npm run bench:opt-level` — opt-level 3 vs "s" FluidCore tick benchmark (W65).
 
 ### Lint / Format
 - `npm run clippy` — `cargo clippy --all-targets --all-features -- -D warnings`; must be clean (CI runs exactly this).
@@ -39,7 +42,7 @@ The repo is an npm workspace (`packages/*`, `examples/*`, `site`) with three pub
 - Tag `v*` on `master` → `.github/workflows/release.yml` runs `npx changeset publish` with `NPM_TOKEN`.
 
 ### Verification (use before claiming a ward is gold)
-`npm run verify` — runs `build + test:rust + test + clippy`. Add `npm pack --dry-run --workspaces` to inspect publish output.
+`npm run verify` — runs `build + test:rust + test + clippy`. Add `npm pack --dry-run --workspaces` to inspect publish output. For harness/scene wards also run `npm run e2e:canvas2d` (and `npm run e2e:update` when a baseline legitimately changes).
 
 ## Architecture (high-level)
 
