@@ -137,6 +137,21 @@ describe("W66 T5: @liquiddom/react", () => {
     expect(btn.hasAttribute("recovery")).toBe(false);
   });
 
+  it("given_LiquidElement_rerendered_with_new_viscosity_when_observed_then_captured_once_D66_4", async () => {
+    const tree = (v: number) => (
+      <LiquidProvider config={config}>
+        <LiquidElement as="button" viscosity={v}>go</LiquidElement>
+      </LiquidProvider>
+    );
+    const { container, rerender } = render(tree(0.25));
+    const btn = container.querySelector("button")!;
+    await waitFor(() => expect(calls.some((c) => c.el === btn)).toBe(true));
+    rerender(tree(0.9));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.filter((c) => c.el === btn)).toHaveLength(1);
+    expect(slotsOf(btn)[El.VISCOSITY]).toBe(0.25);
+  });
+
   it("useLiquid_returns_null_outside_provider", () => {
     const { result } = renderHook(() => useLiquid());
     expect(result.current).toBeNull();

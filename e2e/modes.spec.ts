@@ -106,4 +106,26 @@ test.describe("step 8 – modes (slice 1)", () => {
       await expect(el).not.toHaveClass(/liquid-text/);
     }
   });
+
+  // D66-15: the same rule block covers forced-colors, not only print.
+  test("step 8 – given forced-colors active when emulated then the canvas is display none and author backgrounds are restored", async ({ page }) => {
+    await gotoScene(page, { seed: 1, clock: "manual" });
+    await advance(page, 1);
+    const splash = page.getByRole("button", { name: "Splash" });
+    expect(await splash.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
+    await page.emulateMedia({ forcedColors: "active" });
+    await expect(page.locator("canvas.liquid-canvas")).toHaveCSS("display", "none");
+    expect(await splash.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+  });
+
+  // D66-15: the layered !important rule beats inline styles and :hover on screen.
+  test("step 8 – given an inline red background and hover on #splash when on screen then the computed background stays transparent", async ({ page }) => {
+    await gotoScene(page, { seed: 1, clock: "manual" });
+    await advance(page, 1);
+    const splash = page.locator("#splash");
+    await splash.evaluate((el) => { (el as HTMLElement).style.background = "red"; });
+    await splash.hover();
+    await advance(page, 2);
+    expect(await splash.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
+  });
 });

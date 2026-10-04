@@ -144,6 +144,27 @@ describe("W66 T5: @liquiddom/vue", () => {
     expect(btn.hasAttribute("viscosity")).toBe(false);
   });
 
+  it("given_LiquidElement_with_reactive_viscosity_changed_after_mount_then_captured_once_D66_4", async () => {
+    const { instanceRef, Capture } = makeCapture();
+    const visc = ref(0.25);
+    const TestRoot = defineComponent({
+      setup: () => () => h(LiquidProvider, { config }, {
+        default: () => [h(Capture), h(LiquidElement, { as: "button", viscosity: visc.value }, { default: () => "go" })],
+      }),
+    });
+    lastWrapper = mount(TestRoot, { attachTo: document.body });
+    const btn = lastWrapper.find("button").element;
+    mockRect(btn, 0, 0, 100, 40);
+    await waitForInstance(instanceRef);
+    await vi.waitFor(() => expect(calls.some((c) => c.el === btn)).toBe(true));
+    visc.value = 0.9;
+    await flushPromises();
+    await nextTick();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.filter((c) => c.el === btn)).toHaveLength(1);
+    expect(slotsOf(btn)[El.VISCOSITY]).toBe(0.25);
+  });
+
   it("useLiquid_returns_null_outside_provider", async () => {
     const { instanceRef, Capture } = makeCapture();
     lastWrapper = mount(Capture, { attachTo: document.body });

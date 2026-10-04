@@ -69,6 +69,22 @@ describe("W66: LoopController", () => {
     loop.destroy();
   });
 
+  it("given_pause_then_hidden_then_resume_while_hidden_when_advancing_then_still_paused_until_visible_D66_12", () => {
+    const { clock, frames, loop } = harness();
+    loop.start();
+    loop.pause();
+    setVisibility("hidden");
+    loop.resume(); // user resume must not override the hidden-tab pause
+    expect(loop.isPaused).toBe(true);
+    clock.advance(4);
+    expect(frames).toHaveLength(0);
+    setVisibility("visible");
+    expect(loop.isPaused).toBe(false);
+    clock.advance(2);
+    expect(frames).toHaveLength(2);
+    loop.destroy();
+  });
+
   it("given_destroyed_when_advancing_then_no_frames_listener_removed_and_idempotent", () => {
     const { clock, frames, loop } = harness();
     loop.start();

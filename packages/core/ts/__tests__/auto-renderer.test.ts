@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { LiquidDOM, WebGPUUnavailableError } from "../src/index";
+import { createManualClock } from "../src/clock";
 import {
   freedOf, installNavigatorGpu, installWebGpuCanvasContext, instanceTracker, makeGpuMock,
   resetDom, setupFacadeTestEnv, spyBackend,
@@ -61,6 +62,22 @@ describe("W66: renderer selection (D66-2)", () => {
       expect(inst.activeRenderer).toBe("webgpu");
       expect(warn).toHaveBeenCalledTimes(1);
       expect(String(warn.mock.calls[0]![0])).toMatch(/infrastructure-only/);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("given_webgpu_renderer_when_frames_run_then_still_one_warn_per_instance_and_second_instance_adds_one", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      withGpu();
+      const clock = createManualClock();
+      tracker.track(await LiquidDOM.create({ ...base, testBackend: spyBackend().backend, clock, renderer: "webgpu" }));
+      clock.advance(5);
+      expect(warn).toHaveBeenCalledTimes(1);
+      tracker.track(await LiquidDOM.create({ ...base, testBackend: spyBackend().backend, clock, renderer: "webgpu" }));
+      clock.advance(5);
+      expect(warn).toHaveBeenCalledTimes(2);
     } finally {
       warn.mockRestore();
     }

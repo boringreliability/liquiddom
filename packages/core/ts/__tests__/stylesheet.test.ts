@@ -108,6 +108,7 @@ describe("W66 T2: stacking (D66-3)", () => {
     expect(stackingFor("relative", "")).toBe("z");
     expect(stackingFor("fixed", "3")).toBeNull();
     expect(stackingFor("sticky", "0")).toBeNull();
+    expect(stackingFor("static", "3")).toBe("relative"); // z-index is inert on static (D66-3 "static → relative")
   });
 
   it("given_static_element_when_observed_then_class_and_stack_relative_z1", async () => {
@@ -118,6 +119,7 @@ describe("W66 T2: stacking (D66-3)", () => {
     inst.observe(el);
     expect(el.classList.contains(ELEMENT_CLASS)).toBe(true);
     expect(el.getAttribute(STACK_ATTR)).toBe("relative");
+    expect(el.getAttribute("style")).toBeNull(); // D66-3: no inline style writes
     expect(LIQUID_CSS).toContain(`.liquid-element[${STACK_ATTR}="relative"] { position: relative !important; z-index: 1 !important; }`);
   });
 
@@ -127,8 +129,10 @@ describe("W66 T2: stacking (D66-3)", () => {
     el.style.position = "absolute";
     mockRect(el, 0, 0, 100, 40);
     document.body.appendChild(el);
+    const styleBefore = el.getAttribute("style");
     inst.observe(el);
     expect(el.getAttribute(STACK_ATTR)).toBe("z");
+    expect(el.getAttribute("style")).toBe(styleBefore); // D66-3: no inline style writes
     expect(LIQUID_CSS).toContain(`.liquid-element[${STACK_ATTR}="z"] { z-index: 1 !important; }`);
   });
 
@@ -139,9 +143,28 @@ describe("W66 T2: stacking (D66-3)", () => {
     el.style.zIndex = "5";
     mockRect(el, 0, 0, 100, 40);
     document.body.appendChild(el);
+    const styleBefore = el.getAttribute("style");
     inst.observe(el);
     expect(el.classList.contains(ELEMENT_CLASS)).toBe(true);
     expect(el.hasAttribute(STACK_ATTR)).toBe(false);
+    expect(el.getAttribute("style")).toBe(styleBefore); // D66-3: untouched, no inline writes
+  });
+
+  it("given_static_element_with_explicit_z_index_when_observed_then_relative_because_z_index_is_inert_on_static_and_no_inline_write", async () => {
+    // D66-3 reads "static → relative": z-index has no effect on a static element, so the
+    // element still needs position:relative to rise above the canvas. Pinned interpretation.
+    const inst = await create();
+    const el = document.createElement("div");
+    el.style.zIndex = "3";
+    mockRect(el, 0, 0, 100, 40);
+    document.body.appendChild(el);
+    const styleBefore = el.getAttribute("style");
+    inst.observe(el);
+    expect(el.getAttribute(STACK_ATTR)).toBe("relative");
+    expect(el.getAttribute("style")).toBe(styleBefore);
+    inst.unobserve(el);
+    expect(el.hasAttribute(STACK_ATTR)).toBe(false);
+    expect(el.getAttribute("style")).toBe(styleBefore);
   });
 
   it("given_unobserve_when_called_then_element_class_and_attr_exactly_restored", async () => {

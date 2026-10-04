@@ -420,4 +420,34 @@ describe("W66: site freeze, versioning, pkg-specifier hygiene", () => {
       quiet.mockRestore();
     }
   });
+
+  it("given_core_build_scripts_when_read_then_they_remove_core_dist_and_the_tsbuildinfo_before_tsc_D66_9", () => {
+    // Mechanism-agnostic: the build script plus any npm script / node script file it calls must
+    // delete packages/core/dist and packages/tsconfig.build.tsbuildinfo, otherwise a stale
+    // tsbuildinfo makes tsc skip re-emitting and deleted soft-body .js files stay in the tarball.
+    const pkg = readJson(resolve(CORE, "package.json"));
+    const scripts = pkg.scripts as Record<string, string>;
+    const chain: string[] = [];
+    const seen = new Set<string>();
+    const visit = (name: string): void => {
+      if (seen.has(name) || scripts[name] === undefined) return;
+      seen.add(name);
+      chain.push(scripts[name]!);
+      for (const m of scripts[name]!.matchAll(/npm run ([\w:-]+)/g)) visit(m[1]!);
+      for (const m of scripts[name]!.matchAll(/node\s+(\S+\.m?js)/g)) {
+        const file = resolve(CORE, m[1]!);
+        if (!file.endsWith("copy-wasm.mjs") && existsSync(file)) chain.push(readFileSync(file, "utf-8"));
+      }
+    };
+    visit("prebuild");
+    visit("clean");
+    visit("build");
+    const text = chain.join("\n");
+    expect(text).toMatch(/rmSync|rimraf|rm\s+-rf|rmdir|unlinkSync/);
+    expect(text).toMatch(/\bdist\b/);
+    expect(text).toMatch(/tsconfig\.build\.tsbuildinfo/);
+    // And the clean runs before tsc.
+    expect(scripts.build!.indexOf("tsc")).toBeGreaterThan(-1);
+    expect(scripts.prebuild !== undefined || /^(?!tsc)/.test(scripts.build!)).toBe(true);
+  });
 });

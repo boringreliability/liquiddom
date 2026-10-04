@@ -224,6 +224,8 @@ describe("W66 T4: retirement and release notes", () => {
     expect(md).toMatch(/strength/);
     expect(md).toMatch(/MutationObserver/);
     expect(md).toContain("refresh(el)");
+    expect(md).toMatch(/pause\(\)/); // D66-12: pause() semantics changed (regression 2)
+    expect(md).toMatch(/visib|hidden/i);
     for (const name of Object.keys(OLD_INSTANCE_MEMBERS).filter((n) => OLD_INSTANCE_MEMBERS[n]!.kind !== "kept")) {
       expect(md, name).toContain(name);
     }

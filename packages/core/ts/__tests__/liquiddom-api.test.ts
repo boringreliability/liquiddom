@@ -101,7 +101,35 @@ describe("W66 T3: autoObserve and autoDiscover", () => {
     expect(sb.ctorArgs[0]![4]).toBeCloseTo(24000, 3);
     const sb2 = spyBackend();
     await create({ testBackend: sb2.backend, autoObserve: false });
-    expect(sb2.ctorArgs[0]![4] > 0).toBe(false);
+    expect(sb2.ctorArgs[0]![4]).toBe(0);
+    const sb3 = spyBackend();
+    await create({ testBackend: sb3.backend, autoObserve: true }); // no candidates in the DOM
+    expect(sb3.ctorArgs[0]![4]).toBe(0);
+  });
+
+  it("given_seed_and_material_options_when_create_then_reach_the_core_D66_7_D66_14", async () => {
+    const sb = spyBackend();
+    await create({ testBackend: sb.backend, seed: 42, material: { cohesion: 0.9 } });
+    expect(sb.ctorArgs[0]![6]).toBe(42); // 7th ctor arg is the seed
+    const sets = sb.calls.filter((c) => c.method === "set_material").map((c) => c.args);
+    expect(sets.length).toBeGreaterThan(0);
+    expect(sets.at(-1)).toEqual([0.5, 0.9, 0.7]); // full resolved triple: viscosity, cohesion, recovery
+  });
+
+  it("given_maxElements_1_and_autoDiscover_when_two_data_liquid_added_then_one_warn_and_extra_skipped_D66_10", async () => {
+    const inst = await create({ maxElements: 1 });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      inst.autoDiscover();
+      const a = addLiquid("button", [0, 0, 100, 40]);
+      const b = addLiquid("button", [0, 60, 100, 40]);
+      await vi.waitFor(() => expect([isLiquid(a), isLiquid(b)]).toEqual([true, false]));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]![0])).toMatch(/maxElements/);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("given_more_data_liquid_elements_than_maxElements_when_create_then_extra_skipped_with_one_warn", async () => {
@@ -133,10 +161,12 @@ describe("W66 T3: autoObserve and autoDiscover", () => {
   it("given_stopAutoDiscover_when_nodes_added_then_not_observed", async () => {
     const inst = await create();
     inst.autoDiscover();
+    const first = addLiquid("button", [0, 0, 100, 40]);
+    await vi.waitFor(() => expect(isLiquid(first)).toBe(true)); // positive control: the observer works
     inst.stopAutoDiscover();
-    const el = addLiquid("button", [0, 0, 100, 40]);
+    const second = addLiquid("button", [0, 60, 100, 40]);
     await new Promise((r) => setTimeout(r, 0));
-    expect(isLiquid(el)).toBe(false);
+    expect(isLiquid(second)).toBe(false);
   });
 
   it("given_container_option_when_create_then_canvas_inside_container_and_autoObserve_scoped_to_it", async () => {
@@ -221,5 +251,7 @@ describe("W66 T3: pause, visibility, destroy", () => {
     await expect(inst.requestOrientationPermission()).rejects.toThrow(/destroyed/);
     expect(typeof inst.isPaused).toBe("boolean");
     expect(inst.particleCapacity).toBe(1024);
+    expect(inst.activeRenderer).toBe("canvas2d");
+    expect(inst.elementCapacity).toBe(4);
   });
 });
