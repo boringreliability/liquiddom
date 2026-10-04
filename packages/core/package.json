@@ -21,7 +21,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node ../../scripts/copy-wasm.mjs",
+    "build": "node ../../scripts/clean-core-dist.mjs && tsc -p tsconfig.build.json && node ../../scripts/copy-wasm.mjs",
     "test": "vitest run"
   },
   "keywords": [

@@ -1,10 +1,13 @@
 #!/usr/bin/env node
-import { cpSync, readFileSync, writeFileSync, existsSync, rmSync, readdirSync } from "node:fs";
-import { resolve, dirname, sep } from "node:path";
+// Copies pkg/ into packages/core/dist/wasm/ and rewrites every emitted pkg
+// import specifier in dist/**/*.js to the colocated copy (W24/W35/W51; per
+// file depth since W64/W66 D3). Only ts/src/wasm-loader.ts may import pkg
+// (asserted by workspace-publish); a specifier with the wrong depth fails the build.
+import { cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const root = resolve(__dirname, "..");
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pkgDir = resolve(root, "pkg");
 const distDir = resolve(root, "packages", "core", "dist");
 const distWasmDir = resolve(distDir, "wasm");
@@ -14,38 +17,41 @@ if (!existsSync(pkgDir)) {
   process.exit(1);
 }
 if (!existsSync(distDir)) {
-  console.error("[copy-wasm] packages/core/dist/ does not exist — run tsc first.");
+  console.error("[copy-wasm] packages/core/dist does not exist — run tsc first.");
   process.exit(1);
 }
 
 cpSync(pkgDir, distWasmDir, { recursive: true });
-
-// wasm-pack writes a `.gitignore: *` into pkg/ which npm honors during pack,
-// excluding our WASM binary from the published tarball. Drop it.
+// wasm-pack writes `.gitignore: *`, which npm honours during pack and would drop the binary.
 const distGitignore = resolve(distWasmDir, ".gitignore");
-if (existsSync(distGitignore)) {
-  rmSync(distGitignore);
+if (existsSync(distGitignore)) rmSync(distGitignore);
+
+function* jsFiles(dir) {
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    if (p === distWasmDir) continue;
+    if (statSync(p).isDirectory()) yield* jsFiles(p);
+    else if (name.endsWith(".js")) yield p;
+  }
 }
 
-// W64 (decision D64-15, plan resolution D3): tsc emits the repo-root specifier
-// `../../../../pkg/liquiddom.js` verbatim into every dist file whose source
-// imports the glue (index.js and wasm-loader.js today). Rewrite each one to
-// the colocated dist/wasm/ copy, with the prefix computed from the file's
-// depth below dist/, so the published tarball is self-contained.
-const PKG_SPECIFIER = /(["'])(?:\.\.\/)+pkg\//g;
+const SPECIFIER = /(["'])((?:\.\.\/)+)pkg\//g;
 let patched = 0;
-for (const entry of readdirSync(distDir, { recursive: true })) {
-  const rel = String(entry);
-  if (!rel.endsWith(".js") || rel === "wasm" || rel.startsWith(`wasm${sep}`)) continue;
-  const file = resolve(distDir, rel);
-  const depth = rel.split(sep).length - 1;
-  const prefix = depth === 0 ? "./" : "../".repeat(depth);
+for (const file of jsFiles(distDir)) {
+  const depth = relative(distDir, dirname(file)).split(sep).filter(Boolean).length;
+  const expectedUps = 4 + depth; // packages/core/ts/src/<depth dirs>/x.ts → repo root
+  const target = depth === 0 ? "./wasm/" : `${"../".repeat(depth)}wasm/`;
   const original = readFileSync(file, "utf-8");
-  const next = original.replace(PKG_SPECIFIER, (_match, quote) => `${quote}${prefix}wasm/`);
+  const next = original.replace(SPECIFIER, (_match, quote, ups) => {
+    const count = ups.length / 3;
+    if (count !== expectedUps) {
+      throw new Error(`[copy-wasm] ${relative(root, file)}: pkg specifier climbs ${count} levels, expected ${expectedUps}`);
+    }
+    return `${quote}${target}`;
+  });
   if (next !== original) {
     writeFileSync(file, next);
     patched += 1;
   }
 }
-
-console.log(`[copy-wasm] WASM copied to packages/core/dist/wasm; pkg/ specifier patched in ${patched} file(s).`);
+console.log(`[copy-wasm] WASM copied to packages/core/dist/wasm; pkg specifier rewritten in ${patched} file(s).`);
