@@ -56,82 +56,79 @@ Also in this ward:
 
 ## Decisions
 ### D66-1: Removed and unknown options throw TypeError naming the replacement
-Proposal: `resolveOptions` is a whitelist. `capacity` → "use maxElements"; `physics` → "use material"; `colorDefault`, `colorHover`, `colorSource`, `theme`, `refraction`, `preserveBackgrounds`, `snapDurationMs`, `canvasZIndex` and `maxDt` → "removed, see the migration notes". An unknown key → `TypeError`.
-Consequence: an old config fails loudly at `create()` instead of being silently ignored.
-Decision: PENDING
+Proposal: `resolveOptions` is a whitelist. Removed and unknown options throw `TypeError`, and a removed option's message names its replacement. The removed options are `capacity`, `physics`, `colorDefault`, `colorHover`, `colorSource`, `theme`, `refraction`, `preserveBackgrounds`, `snapDurationMs`, `canvasZIndex` and `maxDt`. The whitelist also holds three undocumented `@internal` hooks: `testBackend`, `loader` and `clock`.
+Consequence: 0.2 configs fail loudly at `create()` instead of being silently ignored.
+Decision: APPROVED 2026-10-04 — `resolveOptions` whitelist; removed (`capacity`, `physics`, `colorDefault`, `colorHover`, `colorSource`, `theme`, `refraction`, `preserveBackgrounds`, `snapDurationMs`, `canvasZIndex`, `maxDt`) and unknown options throw `TypeError` naming the replacement; `testBackend`, `loader`, `clock` kept as undocumented `@internal` hooks (saga dec_49026e5f)
 
 ### D66-2: auto means Canvas2D until slice 3
-Proposal: `renderer: 'auto'` → Canvas2D without probing. Explicit `'webgpu'` → an infrastructure-only WebGPU renderer that clears, plus one `console.warn`. `isFallbackAdapter` handling moves to slice 3. `silentFallback` is validated but has no effect in slices 1–2 (B13).
-Consequence: `activeRenderer` is `'canvas2d'` for every `auto` user until slice 3.
-Decision: PENDING
+Proposal: `renderer: 'auto'` means Canvas2D and never probes WebGPU. `'webgpu'` gives an infra-only WebGPU renderer that only clears the canvas, plus one `console.warn` per instance. `isFallbackAdapter` handling moves to slice 3. `silentFallback` is only validated in slices 1–2 (B13), because there is no fallback log to silence.
+Consequence: `activeRenderer` is always `'canvas2d'` unless the caller forces `'webgpu'`, in which case nothing is drawn.
+Decision: APPROVED 2026-10-04 — `renderer: 'auto'` = Canvas2D without probing WebGPU; `'webgpu'` = infra-only clear-only renderer plus one `console.warn` per instance; `isFallbackAdapter` moves to slice 3; `silentFallback` only validated in slices 1–2 (B13) (saga dec_a6c048ad)
 
 ### D66-3: Stacking via the data-liquid-stack attribute
-Proposal: on `observe`, a statically positioned element gets `data-liquid-stack="relative"` (`position: relative; z-index: 1`); a positioned element with `z-index: auto` gets `data-liquid-stack="z"` (`z-index: 1`); an explicit z-index is left alone. `unobserve` restores the element exactly.
-Consequence: no inline style writes, and the stacking is visible in devtools.
-Decision: PENDING
+Proposal: Stacking uses `data-liquid-stack="relative" | "z"`, decided once at `observe()` from the computed `position`/`z-index`: static → `relative` (`position: relative; z-index: 1`), positioned with `z-index: auto` → `z` (`z-index: 1`), explicit z-index → untouched. There are no inline style writes, and `unobserve()` restores the element exactly.
+Consequence: A later change to the element's position is not re-evaluated until it is re-observed.
+Decision: APPROVED 2026-10-04 — stacking via `data-liquid-stack="relative" | "z"` decided once at `observe()` (static → `relative`, positioned with `z-index: auto` → `z`, explicit z-index untouched), no inline style writes, `unobserve()` restores exactly (saga dec_a225efa1)
 
 ### D66-4: Adapter element options are flat props
-Proposal: React `useLiquidRef({ viscosity, recovery })` and `<LiquidElement viscosity recovery>`, and the same in Vue, captured at observe time.
-Consequence: `liquidType` disappears from the adapters. The prop types keep their names but change shape (B10).
-Decision: PENDING
+Proposal: The flat props `viscosity` and `recovery`, captured at first attach. React captures them in a `useRef`; Vue captures them in `setup`.
+Consequence: Changing the prop after mount has no effect until the element is remounted. This matches the old `liquidType` semantics. The prop types keep their names but change shape (B10).
+Decision: APPROVED 2026-10-04 — adapter element options are flat props `viscosity` and `recovery`, captured at first attach (React `useRef`, Vue `setup`); later changes have no effect until remount (saga dec_9942525f)
 
 ### D66-5: The old instance getters and types are removed, with a complete mapping
-Proposal:
-- `isReducedMotion`, `isScrolling` and `pointerActive` are removed.
-- The old→new mapping in the migration test and changeset covers every member of spec §5 plus `isReducedMotion`, `isScrolling`, `pointerActive`, `LiquidPhysicsConfig`, the old `SplashOptions` (`threshold/count/jitter…`, now `{strength, at}`; B9), `UseLiquidRefOptions` and `LiquidElementProps` (B10).
-
-Consequence: a complete migration story; the three getters have no replacement.
-Decision: PENDING
+Proposal: Drop `isReducedMotion`, `isScrolling` and `pointerActive`. The full B10 mapping (`LiquidPhysicsConfig`, the old `SplashOptions`, `UseLiquidRefOptions`, `LiquidElementProps`) is asserted at runtime by `api-migration.test.ts` and at type level by the D66-11 fixture. The demo scenes reach element state and the core only through an internal `runtimeOf(instance)` WeakMap in `internal.ts`, never exported from `index.ts`; the scenes import it by relative source path.
+Consequence: Consumers can no longer read the reduced-motion state or element state from the instance.
+Decision: APPROVED 2026-10-04 — drop `isReducedMotion`, `isScrolling`, `pointerActive`; full B10 mapping asserted by `api-migration.test.ts` and the D66-11 fixture; demo scenes use an internal `runtimeOf(instance)` WeakMap in `internal.ts`, never exported from `index.ts` (saga dec_9e687208)
 
 ### D66-6: Capacity bounds
-Proposal: `particles` must be an integer in [256, 65536] and `maxElements` an integer in [1, 256]; anything else is a `TypeError`.
-Consequence: protects WASM memory sizing from accidental huge values.
-Decision: PENDING
+Proposal: `particles` is an integer in [256, 65536]. `maxElements` is an integer in [1, 256]. Anything else is a `TypeError`.
+Consequence: `particles: 100` throws.
+Decision: APPROVED 2026-10-04 — `particles` integer in [256, 65536], `maxElements` integer in [1, 256], anything else is a `TypeError` (saga dec_20f0ebc2)
 
 ### D66-7: The default seed is a random u32
-Proposal: when `seed` is omitted, a random u32 (`crypto.getRandomValues`) is used.
-Consequence: different splashes per page load unless a seed is fixed. Scenes and tests always fix it.
-Decision: PENDING
+Proposal: When `seed` is omitted it is a random u32 from `crypto.getRandomValues`, falling back to `Math.random`.
+Consequence: Runs are not reproducible unless the caller passes `seed`. The scene always passes one.
+Decision: APPROVED 2026-10-04 — omitted `seed` is a random u32 from `crypto.getRandomValues`, falling back to `Math.random` (saga dec_85afadab)
 
 ### D66-8: validateMaterial lands here [BOUNDARY]
-Proposal: `validateMaterial(m: Partial<Material>)` (`@internal`) throws `TypeError` on NaN or out-of-range values: viscosity and cohesion in [0,1], recovery in [0.2,3] s.
+Proposal: `validateMaterial` (@internal) lands here and throws `TypeError` on NaN or out-of-range values: viscosity and cohesion in [0, 1], recovery in [0.2, 3] s. W64 created `Material`/`DEFAULT_MATERIAL` (A5).
 Consequence: `resolveOptions` and the later `setMaterial` (W68) share one validator.
-Decision: PENDING
+Decision: APPROVED 2026-10-04 — `validateMaterial` (@internal) throws `TypeError` on NaN or out-of-range values (viscosity and cohesion in [0, 1], recovery in [0.2, 3] s), shared by `resolveOptions` and later `setMaterial` (W68) (saga dec_b90481c1)
 
 ### D66-9: Versioning per the amended spec
-Proposal:
-- Hand-set all three packages to `0.3.0-alpha.0`, peers to `^0.3.0-alpha.0`, and the example's deps to `"*"`.
-- `.changeset/config.json` gets `fixed: [["liquiddom","@liquiddom/react","@liquiddom/vue"]]` and `"___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH": { "onlyUpdatePeerDependentsWhenOutOfRange": true }`.
-- Run `npx changeset pre enter alpha` and add minor changesets.
-- The release-plan test uses `@changesets/get-release-plan` (no git, no `sinceRef`) and expects `0.3.0-alpha.1` for all three.
-
-Consequence: replaces the skeleton's D66-9 range, which changesets cannot satisfy (simulation: `0.2.0-alpha.1` or `1.0.0-alpha.1`). What happens to the published `0.2.0-rc.0` stays open (spec §7).
-Decision: PENDING
+Proposal: Hand-set the three packages to `0.3.0-alpha.0`; peers become `^0.3.0-alpha.0`; `examples/react` deps become `"*"`. `.changeset/config.json` gets `fixed: [["liquiddom","@liquiddom/react","@liquiddom/vue"]]` and `___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH.onlyUpdatePeerDependentsWhenOutOfRange: true`. Run `changeset pre enter alpha`, then add minor changesets; the release plan is expected to give `0.3.0-alpha.1` (simulated 2026-10-03). The core build first deletes `packages/core/dist` and core's tsbuildinfo (`packages/tsconfig.build.tsbuildinfo`).
+Consequence: Every `changeset` command prints a harmless red "must depend on the current version … vs `*`" line for the ignored example. Every core build is a full build (a few seconds). Without the clean step, deleted soft-body `.js` files would stay in `dist/` and ship in the tarball. The fate of the published `0.2.0-rc.0` stays open (§7).
+Decision: APPROVED 2026-10-04 — three packages hand-set to `0.3.0-alpha.0`, peers `^0.3.0-alpha.0`, example deps `"*"`, changeset `fixed` group plus `onlyUpdatePeerDependentsWhenOutOfRange`, `changeset pre enter alpha` with minor changesets giving `0.3.0-alpha.1`, core build cleans `packages/core/dist` and core's tsbuildinfo first (saga dec_91b80476)
 
 ### D66-10: Errors after capacity and after destroy
-Proposal: `observe` beyond `maxElements` throws `RangeError`. Every method after `destroy()` throws `Error`, except `unobserve` and `destroy`, which are silent no-ops.
-Consequence: matches the old API's lifecycle strictness, and StrictMode double-unmounts stay quiet.
-Decision: PENDING
+Proposal: `observe` beyond `maxElements` throws `RangeError`. When there are more `[data-liquid]` elements than slots, `autoObserve` and `autoDiscover` log one `console.warn` and skip the extras instead of throwing. After `destroy()`, every method throws `Error` except `unobserve`/`destroy`, which are silent no-ops; getters stay readable. `refresh(el)` on an unobserved element is a no-op.
+Consequence: Matches the old API's lifecycle strictness, and StrictMode double-unmounts stay quiet.
+Decision: APPROVED 2026-10-04 — `observe` beyond `maxElements` throws `RangeError`; `autoObserve`/`autoDiscover` warn once and skip extras; after `destroy()` every method throws `Error` except silent no-op `unobserve`/`destroy`, getters stay readable; `refresh(el)` on an unobserved element is a no-op (saga dec_e82c98e2)
 
 ### D66-11: Type-level absence is checked by a tsc fixture
-Proposal: `packages/core/ts/__tests__/__fixtures__/api-migration-types/` (following the pattern of `__fixtures__/types-smoke`) uses `// @ts-expect-error` imports of `LiquidInstancePanicDetail`, `SpawnDropletOptions`, `LiquidPhysicsConfig` and the old `SplashOptions` fields. A vitest runs it with `npx tsc --noEmit -p` (A3).
-Consequence: erased types are really checked, because test files themselves are never type-checked.
-Decision: PENDING
+Proposal: The fixture lives at `__fixtures__/api-migration-types/` in the repo root, next to the existing `__fixtures__/types-smoke` (A3); W63's draft said `packages/core/ts/__tests__/__fixtures__/`, and W67 and W68 edit the root path. It holds one `@ts-expect-error` line per removed 0.2 type, member and option, plus compiling 0.3 lines. `api-migration.test.ts` checks it with `npx tsc --noEmit -p`; an unused `@ts-expect-error` is a failure.
+Consequence: The test needs `npm run build` (the `dist/*.d.ts` of all three packages) and costs about 10–20 s. It is the only place type-level removals are enforced, because vitest does not type-check.
+Decision: APPROVED 2026-10-04 — tsc fixture at root `__fixtures__/api-migration-types/` with one `@ts-expect-error` per removed 0.2 type, member and option plus compiling 0.3 lines, checked by `api-migration.test.ts` via `npx tsc --noEmit -p` (saga dec_3a584830)
 
 ### D66-12: Known regression documented
-Proposal: the changeset documents that the per-element MutationObserver colour auto-refresh (W52/W54) is gone until slice 4, so colour changes need `refresh(el)`. It also calls out the `SplashOptions` shape change (B9).
-Consequence: an honest alpha changelog.
-Decision: PENDING
+Proposal: Two 0.2 → 0.3 behaviour changes, both documented in the changeset: (1) the per-element MutationObserver colour auto-refresh (W52/W54) is gone until slice 4, so colour changes need `refresh(el)`, and the `SplashOptions` shape change (B9) is called out too; (2) the user pause and the hidden-tab pause are tracked separately (`LoopController`), and `isPaused` is `user || hidden`.
+Consequence: An honest alpha changelog. A tab becoming visible again does not undo an explicit `pause()`; the old code did undo it.
+Decision: APPROVED 2026-10-04 — changeset documents two 0.2 → 0.3 changes: no MutationObserver colour auto-refresh until slice 4 (use `refresh(el)`; `SplashOptions` shape change B9), and separate user and hidden-tab pause sources (`LoopController`, `isPaused` is `user || hidden`) (saga dec_8393ca6e)
 
 ### D66-13: The area hint comes from the autoObserve candidates
-Proposal: the facade computes `A_hint` from the rounded-rect areas of the `[data-liquid]` candidates (when `autoObserve`) plus any `initialElements`, and passes it to the `FluidCore` constructor (B5).
-Consequence: the acceptance scene keeps the same cell size before and after W66, so the W65 and W68 baselines do not shift.
-Decision: PENDING
+Proposal: With `autoObserve`, `LiquidDOM.create` passes the `[data-liquid]` candidates as `initialElements`, so the runtime's `area_hint` (D64-1) is the sum of their rounded-rect areas. With `autoObserve: false`, or with no candidates, the hint is 0, which gives the default 8 px cell (B5).
+Consequence: The acceptance scene keeps the cell size it had in W64/W65, so the step-1 baseline does not move for this reason. Elements observed later through `observe()` do not change the cell size until the slice-6 reallocation.
+Decision: APPROVED 2026-10-04 — with `autoObserve`, the `[data-liquid]` candidates are passed as `initialElements` so `area_hint` is the sum of their rounded-rect areas; with `autoObserve: false` or no candidates the hint is 0 (default 8 px cell) (saga dec_4189fd3e)
 
 ### D66-14: Resolved options carry a full Material
-Proposal: `ResolvedOptions.material: Material` (fully resolved, not `Partial`) (B11).
-Consequence: downstream code never re-applies defaults.
-Decision: PENDING
+Proposal: `resolveOptions` merges the partial `material` option over `DEFAULT_MATERIAL` into a fresh, complete `Material`, never the frozen default object. `ResolvedOptions.material` is `Material`, not `Partial`, and the runtime always receives that complete Material (B11).
+Consequence: `material: { cohesion: 0.9 }` means viscosity 0.5 and recovery 0.7. There is no "unset" material, and W68's `getMaterial()` returns a full object.
+Decision: APPROVED 2026-10-04 — `resolveOptions` merges partial `material` over `DEFAULT_MATERIAL` into a fresh complete `Material` (never the frozen default); `ResolvedOptions.material` is `Material`, not `Partial` (saga dec_1e47c536)
+
+### D66-15: Injected CSS in @layer liquiddom with !important, checked by two axe passes
+Proposal: The paint-neutralising and stacking declarations live in `@layer liquiddom` with `!important`, so they beat author rules, `:hover` and inline styles; `@media print, (forced-colors: active)` hides the canvas (`display: none !important`) and neutralises both classes with `revert-layer !important`; axe runs on screen with WCAG 2.1 A/AA and `color-contrast` disabled, then under print media with `color-contrast` only (spec §4 "contrast identical to the original").
+Consequence: Needs `revert-layer` (Chrome 99, Firefox 97, Safari 15.4); jsdom ignores layers, so jsdom tests assert the CSS text and Playwright asserts the behaviour.
+Decision: APPROVED 2026-10-04 — injected CSS in `@layer liquiddom` with `!important`; `@media print, (forced-colors: active)` hides the canvas and neutralises both classes with `revert-layer !important`; two axe passes (screen WCAG 2.1 A/AA without `color-contrast`, then print with `color-contrast` only) (saga dec_2911ef26)
 
 ## Specification
 - **Public API** (spec §5):
@@ -219,7 +216,7 @@ Decision: PENDING
 - Publish anything (versioning is prepared, not released).
 
 ## Must DO
-- Gate D66-1 … D66-14 before `wdd ward status 66 red`, and log them in NORTH-STAR.
+- Gate D66-1 … D66-15 before `wdd ward status 66 red`, and log them in NORTH-STAR.
 - Reconcile this Tests table in the red commit.
 - Rebuild core before the adapter tests (they import core's `dist`).
 - Regenerate `package-lock.json` after the workspaces change; `npm ci` must pass.

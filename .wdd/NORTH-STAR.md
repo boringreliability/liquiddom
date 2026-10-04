@@ -137,3 +137,18 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D65-9 | opt-level 3 vs "s" by measurement, decided at gold | W65 | dec_facdf083 |
 | D65-10 | Multi-instance stress page (1 instantiation, 1 memory, 50 reloads) | W65 | dec_5e69c474 |
 | D65-11 | window.__liquidTest contract; [data-liquid] in DOM order | W65 | dec_dd763d4e |
+| D66-1 | Removed and unknown options throw TypeError naming the replacement; whitelist keeps testBackend/loader/clock as @internal | W66 | dec_49026e5f |
+| D66-2 | renderer auto = Canvas2D until slice 3; webgpu = infra-only clear plus one warn | W66 | dec_a6c048ad |
+| D66-3 | Stacking via data-liquid-stack attribute, decided once at observe() | W66 | dec_a225efa1 |
+| D66-4 | Adapter element options are flat props viscosity/recovery, captured at first attach | W66 | dec_9942525f |
+| D66-5 | Old getters/types removed with full mapping; internal runtimeOf WeakMap for scenes | W66 | dec_9e687208 |
+| D66-6 | Capacity bounds: particles [256, 65536], maxElements [1, 256] | W66 | dec_20f0ebc2 |
+| D66-7 | Default seed is a random u32 | W66 | dec_85afadab |
+| D66-8 | validateMaterial lands in W66 (viscosity/cohesion [0, 1], recovery [0.2, 3] s) | W66 | dec_b90481c1 |
+| D66-9 | Versioning 0.3.0-alpha.0 to alpha.1 via changeset pre alpha; core build cleans dist and tsbuildinfo | W66 | dec_91b80476 |
+| D66-10 | RangeError beyond maxElements, warn-and-skip for auto-observe, throw after destroy | W66 | dec_e82c98e2 |
+| D66-11 | Type-level absence checked by root tsc fixture api-migration-types | W66 | dec_3a584830 |
+| D66-12 | Known regressions documented: no colour auto-refresh until slice 4; separate pause sources | W66 | dec_8393ca6e |
+| D66-13 | Area hint comes from autoObserve candidates | W66 | dec_4189fd3e |
+| D66-14 | Resolved options carry a full Material | W66 | dec_1e47c536 |
+| D66-15 | Injected CSS in @layer liquiddom with !important; revert-layer in print/forced-colors; two axe passes | W66 | dec_2911ef26 |
