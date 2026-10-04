@@ -425,6 +425,8 @@ describe("W63 CLAUDE.md", () => {
   });
 
   it("given_claude_md_when_read_then_architecture_marks_fluid_engine_in_progress_with_FluidCore_and_strides", () => {
+    // W63 test 26, updated by W66 in the same commit as the CLAUDE.md rewrite (W63.7):
+    // the fluid-engine summary stays; every soft-body section is gone.
     const md = read(CLAUDE_MD);
     const architecture = md.indexOf("## Architecture (high-level)");
     const fluid = md.indexOf("### Fluid engine (in progress, Epic 15)");
@@ -435,6 +437,7 @@ describe("W63 CLAUDE.md", () => {
     const note = section(md, "### Fluid engine (in progress, Epic 15)").join("\n");
     for (const s of [
       "FluidCore",
+      "FluidBridge",
       "ELEMENT_STRIDE = 10",
       "STATE_STRIDE = 4",
       "DYNAMIC_FIELDS = 7",
@@ -443,7 +446,10 @@ describe("W63 CLAUDE.md", () => {
       "softbody-final",
       ".wdd/NORTH-STAR.md",
     ]) {
-      expect(note).toContain(s);
+      expect(note, s).toContain(s);
+    }
+    for (const gone of ["### The Rule of Two", "PhantomObserver", "FLOATS_PER_ENTITY", "## Public site", "liquid_type` dispatch", "WasmBridge`"]) {
+      expect(md, gone).not.toContain(gone);
     }
   });
 });
