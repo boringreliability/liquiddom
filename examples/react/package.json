@@ -11,8 +11,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@liquiddom/react": "0.2.0-rc.0",
-    "liquiddom": "0.2.0-rc.0",
+    "@liquiddom/react": "*",
+    "liquiddom": "*",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

@@ -1,6 +1,6 @@
 {
   "name": "@liquiddom/react",
-  "version": "0.2.0-rc.0",
+  "version": "0.3.0-alpha.0",
   "description": "React bindings for liquiddom",
   "type": "module",
   "main": "./dist/index.js",
@@ -24,7 +24,7 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "liquiddom": "^0.2.0-rc.0",
+    "liquiddom": "^0.3.0-alpha.0",
     "react": "^18.0.0 || ^19.0.0"
   },
   "author": "Dennis Schmock",

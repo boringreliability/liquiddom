@@ -1,6 +1,6 @@
 {
   "name": "liquiddom",
-  "version": "0.2.0-rc.0",
+  "version": "0.3.0-alpha.0",
   "description": "WASM-driven fluid dynamics on web elements via hidden canvas",
   "type": "module",
   "main": "./dist/index.js",
