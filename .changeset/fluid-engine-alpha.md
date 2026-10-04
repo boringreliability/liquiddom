@@ -11,14 +11,15 @@
 | 0.2 | 0.3 |
 |---|---|
 | option `capacity` | `maxElements` (fixed; `observe()` beyond it throws `RangeError`) |
-| option `physics` (`LiquidPhysicsConfig`), `presets` (goo/jelly/firm) | `material: { viscosity, cohesion, recovery }`; material presets `water`/`honey`/`jelly` arrive in the next alpha |
+| option `physics` (`LiquidPhysicsConfig`) | `material: { viscosity, cohesion, recovery }` |
+| export `presets` (goo/jelly/firm) | removed; material presets `water`/`honey`/`jelly` arrive in the next alpha |
 | options `colorDefault`, `colorHover`, `colorSource`, `theme`, `refraction`, `preserveBackgrounds`, `snapDurationMs`, `canvasZIndex`, `maxDt` | removed; `create()` throws a `TypeError` naming the replacement |
 | `observe(el, liquidType)` | `observe(el, { viscosity?, recovery? })` |
 | `grow()`, `tween()`, `getBuffer()`, `spawnDroplet()`, `despawnDroplet()`, `setBackgroundTexture()` | removed |
 | `impulse()` | removed; `splash(el, opts)` arrives in the next alpha |
 | `setPhysicsConfig()`, `getPhysicsConfig()`, `validatePhysicsConfig` | removed; `setMaterial()` / `getMaterial()` arrive in the next alpha; `validateMaterial` (@internal) |
 | `refreshTheme()`, `refreshShadow()` | `refresh(el)` |
-| `capacity` | `elementCapacity`, plus the new `particleCapacity` |
+| instance property `capacity` | `elementCapacity`, plus the new `particleCapacity` |
 | `isReducedMotion`, `isScrolling`, `pointerActive`, `pointerX`, `pointerY`, `preserveBackgrounds`, `isScrollSnapping` | removed |
 | `LiquidInstancePanicDetail`, the `liquiddom:instance-panic` event, `SpawnDropletOptions` | removed (WASM init is single-flight; there is nothing to recover from) |
 | React/Vue `useLiquidRef({ liquidType })`, `<LiquidElement liquidType>` | `useLiquidRef({ viscosity?, recovery? })`, `<LiquidElement viscosity recovery>` (type names `UseLiquidRefOptions` / `LiquidElementProps` are kept, their shape changed) |
