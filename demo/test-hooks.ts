@@ -62,6 +62,12 @@ export interface StressReport {
   loaderCalls: number;
   distinctMemories: number;
   frames: number[];
+  /** Params the stress page parsed (D65-1: the stress runs on the real RAF clock). */
+  params: SceneParams;
+  /** Active particles per instance (W65: 2000 each). */
+  particlesPerInstance: number[];
+  /** D65-10: true when destroying every instance a second time was a silent no-op (no throw, no panic). */
+  destroyIdempotent: boolean;
   states: Array<StressElementState | null>;
   error: string | null;
 }

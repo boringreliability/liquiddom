@@ -39,6 +39,62 @@ export async function restAlpha(page: Page): Promise<number[]> {
   return page.evaluate(() => window.__liquidTest!.restAlpha());
 }
 
+export interface Rgba {
+  r: number;
+  g: number;
+  b: number;
+  a: number;
+}
+
+export interface MoveResult {
+  oldRect: { x: number; y: number; width: number; height: number };
+  newRect: { x: number; y: number; width: number; height: number };
+}
+
+/**
+ * Perturbation for the reduced-motion specs (W65 has no pointer field or splash yet):
+ * move #card by 80 px so a motion-free implementation must show it at the new rect at once.
+ */
+export async function moveCard(page: Page, dy = 80): Promise<MoveResult> {
+  return page.evaluate((delta) => {
+    const card = document.querySelector<HTMLElement>("#card")!;
+    const r0 = card.getBoundingClientRect();
+    card.style.transform = `translateY(${delta}px)`;
+    const r1 = card.getBoundingClientRect();
+    const box = (r: DOMRect) => ({ x: r.x, y: r.y, width: r.width, height: r.height });
+    return { oldRect: box(r0), newRect: box(r1) };
+  }, dy);
+}
+
+/** Canvas pixel at a viewport (client) coordinate; the canvas is mapped by its CSS rect. */
+export async function canvasPixelAt(page: Page, clientX: number, clientY: number): Promise<Rgba> {
+  return page.evaluate(
+    ([cx, cy]) => {
+      const canvas = document.querySelector("canvas")!;
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.floor(((cx - rect.left) * canvas.width) / rect.width);
+      const y = Math.floor(((cy - rect.top) * canvas.height) / rect.height);
+      const d = canvas.getContext("2d")!.getImageData(x, y, 1, 1).data;
+      return { r: d[0], g: d[1], b: d[2], a: d[3] };
+    },
+    [clientX, clientY],
+  );
+}
+
+/** True when any canvas pixel has non-zero alpha. */
+export async function canvasHasContent(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const canvas = document.querySelector("canvas")!;
+    const d = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
+    for (let i = 3; i < d.length; i += 4) if (d[i] !== 0) return true;
+    return false;
+  });
+}
+
+export function rgbaDiffers(a: Rgba, b: Rgba, tol = 8): boolean {
+  return Math.max(Math.abs(a.r - b.r), Math.abs(a.g - b.g), Math.abs(a.b - b.b), Math.abs(a.a - b.a)) > tol;
+}
+
 /** Alpha of a computed CSS colour as Chromium serialises it: `rgb(r, g, b)` or `rgba(r, g, b, a)`. */
 export function cssAlpha(color: string): number {
   const m = /^rgba?\(([^)]*)\)$/.exec(color.trim());

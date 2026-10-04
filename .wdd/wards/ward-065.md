@@ -162,6 +162,9 @@ Decision: APPROVED 2026-10-04 — window.__liquidTest contract in demo/test-hook
 | 43 | given a known clear colour when rendered and read back then the pixel matches | webgpu smoke |
 | 44 | given a WGSL pipeline drawing a full-screen triangle when rendered and read back then the pixel matches | webgpu smoke |
 | 45 | perf – given 8000 particles in the acceptance scene when 5 s of RAF frames are sampled then p95 tick per fixed step and RAF p95 are recorded | D65-8 (non-blocking) |
+| 46 | D65-11 – given the scene when loaded then restAlpha indices map to #splash, #split, #merge, #card and advance throws unless the clock is manual | scene hook (D65-11) |
+| 47 | step 8 visual – given reduced motion (media) and a moved card when screenshotted then it matches the baseline | step 8 RM visual (Linux only) |
+| 48 | step 8 visual – given reduced motion (option) and a moved card when screenshotted then it matches the baseline | step 8 RM visual (Linux only) |
 
 ## Must NOT
 - Make the `webgpu` project blocking (that needs 10 green runs in a row).

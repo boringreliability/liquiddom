@@ -49,6 +49,27 @@ test.describe("acceptance scene – slice 1 (canvas2d)", () => {
     await page.screenshot({ path: testInfo.outputPath("w65-step1.png") });
   });
 
+  test("D65-11 – given the scene when loaded then restAlpha indices map to #splash, #split, #merge, #card and advance throws unless the clock is manual", async ({ page }) => {
+    await gotoScene(page, { seed: 1, clock: "raf" });
+    expect(await page.evaluate(() => Array.from(document.querySelectorAll("[data-liquid]")).map((e) => e.id))).toEqual([
+      "splash",
+      "split",
+      "merge",
+      "card",
+    ]);
+    expect(await restAlpha(page)).toHaveLength(4);
+    const err = await page.evaluate(() => {
+      try {
+        window.__liquidTest!.advance(1);
+        return null;
+      } catch (e) {
+        return (e as Error).message;
+      }
+    });
+    expect(err, "advance() must throw with ?clock=raf").not.toBeNull();
+    await expect(page.locator("[data-liquid]")).toHaveCount(4);
+  });
+
   test("step 1 – given rest when screenshotted then it matches the baseline (maxDiffPixelRatio 0.01)", async ({ page }) => {
     test.skip(!VISUAL_ENABLED, VISUAL_SKIP_REASON);
     await gotoScene(page, { seed: 1, clock: "manual" });

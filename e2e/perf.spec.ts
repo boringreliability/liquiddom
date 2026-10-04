@@ -17,6 +17,9 @@ interface PerfBaseline {
 test("perf – given 8000 particles in the acceptance scene when 5 s of RAF frames are sampled then p95 tick per fixed step and RAF p95 are recorded", async ({ page }, testInfo) => {
   test.setTimeout(60_000);
   await gotoScene(page, { seed: 1, clock: "raf", perf: true });
+  const params = await page.evaluate(() => window.__liquidTest!.params);
+  expect(params.clock, "perf runs on the real RAF clock").toBe("raf");
+  expect(params.renderer, "perf measures the canvas2d renderer").toBe("canvas2d");
   await page.waitForTimeout(1000); // warm-up: JIT, first redistribution, first renders
   await page.evaluate(() => window.__liquidTest!.perf!.start());
   await page.waitForTimeout(5000);
@@ -50,6 +53,10 @@ test("perf – given 8000 particles in the acceptance scene when 5 s of RAF fram
   expect.soft(report.raf.p95, `RAF p95 ≤ ${RAF_P95_BUDGET_MS} ms`).toBeLessThanOrEqual(RAF_P95_BUDGET_MS);
   if (existsSync(BASELINE)) {
     const baseline = JSON.parse(readFileSync(BASELINE, "utf8")) as PerfBaseline;
+    expect(
+      Number.isFinite(baseline.tickP95MsPerStep) && baseline.tickP95MsPerStep > 0,
+      "e2e/perf-baseline.json must have a positive numeric tickP95MsPerStep",
+    ).toBe(true);
     expect
       .soft(report.tick.p95, `tick p95/step ≤ ${TICK_BUDGET_FACTOR}× baseline ${baseline.tickP95MsPerStep} ms`)
       .toBeLessThanOrEqual(TICK_BUDGET_FACTOR * baseline.tickP95MsPerStep);

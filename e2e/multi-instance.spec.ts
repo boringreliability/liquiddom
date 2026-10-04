@@ -14,6 +14,9 @@ function expectHealthy(report: StressReport, n: number, minFrames: number): void
   expect(report.instantiations, "WebAssembly instantiations on this load (W61: exactly 1)").toBe(1);
   expect(report.distinctMemories, "distinct WebAssembly.Memory objects across instances").toBe(1);
   expect(report.loaderCalls).toBe(n);
+  expect(report.params.clock, "the stress runs on the real RAF clock (D65-1)").toBe("raf");
+  expect(report.destroyIdempotent, "destroying every instance twice is a silent no-op (D65-10)").toBe(true);
+  expect(report.particlesPerInstance).toEqual(Array(n).fill(2000));
   expect(report.frames).toHaveLength(n);
   for (const f of report.frames) expect(f).toBeGreaterThanOrEqual(minFrames);
   expect(report.states).toHaveLength(n);
