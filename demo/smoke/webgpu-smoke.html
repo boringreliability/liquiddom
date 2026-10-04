@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>liquiddom · WebGPU smoke</title>
+    <style>
+      body { margin: 0; background: #111111; color: #eeeeee; font: 14px/1.4 system-ui, sans-serif; }
+      #smoke-canvas { display: block; width: 256px; height: 256px; margin: 24px; }
+      pre { margin: 0 24px; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <canvas id="smoke-canvas" width="256" height="256" aria-label="WebGPU smoke frame"></canvas>
+    <pre id="smoke-status">running…</pre>
+    <script type="module" src="./webgpu-smoke.ts"></script>
+  </body>
+</html>
