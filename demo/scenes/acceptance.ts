@@ -148,7 +148,7 @@ const hook: LiquidTestHook = {
     if (!manual) throw new Error("[acceptance] __liquidTest.advance() needs ?clock=manual");
     manual.advance(frames);
   },
-  // A getter, not an assigned field: W66 Step 6 swaps its body for the public instance.
+  // A getter: returns the public facade instance (W66, D66-5).
   get instance(): unknown {
     return sceneInstance;
   },

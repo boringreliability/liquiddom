@@ -169,7 +169,7 @@ Decision: AMENDED 2026-10-04 — injected CSS in `@layer liquiddom` with `!impor
 | 16 | given_two_instances_when_created_then_one_style_element_per_document | D66-15 stylesheet (injected stylesheet and stacking) |
 | 17 | given_last_instance_destroyed_when_destroying_then_style_element_removed | D66-15 stylesheet (injected stylesheet and stacking) |
 | 18 | given_style_element_removed_externally_when_next_acquire_then_reinserted_and_refcount_kept | D66-15 stylesheet (injected stylesheet and stacking) |
-| 19 | given_css_text_when_read_then_print_and_forced_colors_hide_canvas_and_neutralise_classes_with_important | D66-3 colour snapshot (injected stylesheet and stacking) |
+| 19 | given_css_text_when_read_then_paint_and_stacking_scoped_to_screen_without_forced_colors_and_print_and_forced_colors_hide_canvas | D66-15 stylesheet, amended (injected stylesheet and stacking) |
 | 20 | given_stackingFor_table_when_evaluated_then_static_relative_auto_z_else_null | D66-3 stacking (injected stylesheet and stacking) |
 | 21 | given_static_element_when_observed_then_class_and_stack_relative_z1 | D66-3 stacking (injected stylesheet and stacking) |
 | 22 | given_positioned_element_with_z_auto_when_observed_then_only_z1 | injected stylesheet and stacking (D66-3, D66-15) |

@@ -2,8 +2,12 @@
  * Injected stylesheet, stacking and canvas mount (spec §4, D7, D8; W66 D66-3, D66-15).
  * One <style id="liquiddom-styles"> per document, refcounted across instances.
  * All rules live in `@layer liquiddom` with !important so they beat author
- * rules (including :hover and inline styles); print and forced-colors revert
- * the layer with `revert-layer !important`.
+ * rules (including :hover and inline styles). D66-15 (amended): the paint,
+ * stacking and text rules are scoped to `@media screen and (forced-colors: none)`,
+ * so print and forced colours simply never apply them and the author styles
+ * show unchanged. No `revert-layer`: inside a layer, Chromium reverts it to
+ * the UA default, not the author background. Print and forced colours hide
+ * the canvas.
  */
 export const STYLE_ELEMENT_ID = "liquiddom-styles";
 export const ELEMENT_CLASS = "liquid-element";
@@ -14,15 +18,14 @@ export type StackMode = "relative" | "z";
 
 export const LIQUID_CSS = [
   "@layer liquiddom {",
-  "  .liquid-element { background: transparent !important; border-color: transparent !important; box-shadow: none !important; }",
-  `  .liquid-element[${STACK_ATTR}="relative"] { position: relative !important; z-index: 1 !important; }`,
-  `  .liquid-element[${STACK_ATTR}="z"] { z-index: 1 !important; }`,
-  "  .liquid-text { color: transparent !important; }",
+  "  @media screen and (forced-colors: none) {",
+  "    .liquid-element { background: transparent !important; border-color: transparent !important; box-shadow: none !important; }",
+  `    .liquid-element[${STACK_ATTR}="relative"] { position: relative !important; z-index: 1 !important; }`,
+  `    .liquid-element[${STACK_ATTR}="z"] { z-index: 1 !important; }`,
+  "    .liquid-text { color: transparent !important; }",
+  "  }",
   "  @media print, (forced-colors: active) {",
   "    canvas.liquid-canvas { display: none !important; }",
-  "    .liquid-element { background: revert-layer !important; border-color: revert-layer !important; box-shadow: revert-layer !important; }",
-  `    .liquid-element[${STACK_ATTR}] { position: revert-layer !important; z-index: revert-layer !important; }`,
-  "    .liquid-text { color: revert-layer !important; }",
   "  }",
   "}",
 ].join("\n");

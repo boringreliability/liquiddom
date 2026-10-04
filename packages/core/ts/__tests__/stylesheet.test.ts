@@ -86,17 +86,28 @@ describe("W66 T2: injected stylesheet", () => {
     expect(document.getElementById(STYLE_ELEMENT_ID)).toBeNull();
   });
 
-  it("given_css_text_when_read_then_print_and_forced_colors_hide_canvas_and_neutralise_classes_with_important", () => {
+  it("given_css_text_when_read_then_paint_and_stacking_scoped_to_screen_without_forced_colors_and_print_and_forced_colors_hide_canvas", () => {
+    // D66-15 AMENDED (saga dec_d05913c9): scope instead of revert-layer.
     expect(LIQUID_CSS.startsWith("@layer liquiddom {")).toBe(true);
-    expect(LIQUID_CSS).toMatch(/\.liquid-element \{[^}]*background: transparent !important;[^}]*border-color: transparent !important;[^}]*box-shadow: none !important;/);
-    expect(LIQUID_CSS).toMatch(/\.liquid-text \{ color: transparent !important; \}/);
-    const at = LIQUID_CSS.indexOf("@media print, (forced-colors: active) {");
+    expect(LIQUID_CSS).not.toMatch(/revert-layer/);
+    const screenOpen = "@media screen and (forced-colors: none) {";
+    const at = LIQUID_CSS.indexOf(screenOpen);
     expect(at).toBeGreaterThan(0);
-    const media = LIQUID_CSS.slice(at);
-    expect(media).toMatch(/canvas\.liquid-canvas \{ display: none !important; \}/);
-    expect(media).toMatch(/\.liquid-element \{[^}]*background: revert-layer !important;[^}]*border-color: revert-layer !important;[^}]*box-shadow: revert-layer !important;/);
-    expect(media).toMatch(/\.liquid-element\[data-liquid-stack\] \{ position: revert-layer !important; z-index: revert-layer !important; \}/);
-    expect(media).toMatch(/\.liquid-text \{ color: revert-layer !important; \}/);
+    // The screen block, up to its closing brace at the block's indentation.
+    const rest = LIQUID_CSS.slice(at + screenOpen.length);
+    const end = rest.indexOf("\n  }");
+    expect(end).toBeGreaterThan(0);
+    const screen = rest.slice(0, end);
+    expect(screen).toMatch(/\.liquid-element \{[^}]*background: transparent !important;[^}]*border-color: transparent !important;[^}]*box-shadow: none !important;/);
+    expect(screen).toMatch(/\.liquid-element\[data-liquid-stack="relative"\] \{ position: relative !important; z-index: 1 !important; \}/);
+    expect(screen).toMatch(/\.liquid-element\[data-liquid-stack="z"\] \{ z-index: 1 !important; \}/);
+    expect(screen).toMatch(/\.liquid-text \{ color: transparent !important; \}/);
+    // Nothing paint-, stacking- or text-related outside the screen block.
+    const outside = LIQUID_CSS.slice(0, at) + rest.slice(end);
+    expect(outside).not.toMatch(/\.liquid-element|\.liquid-text/);
+    const hideAt = LIQUID_CSS.indexOf("@media print, (forced-colors: active) {");
+    expect(hideAt).toBeGreaterThan(0);
+    expect(LIQUID_CSS.slice(hideAt)).toMatch(/canvas\.liquid-canvas \{ display: none !important; \}/);
   });
 });
 
