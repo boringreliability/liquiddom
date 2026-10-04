@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createFluidRuntime, type FluidRuntime } from "../src/runtime";
 import { createManualClock, type FrameClock } from "../src/clock";
@@ -27,7 +28,7 @@ let backend: FluidBackend;
 let fakeCanvas: FakeCanvasHandle | undefined;
 
 beforeAll(async () => {
-  const wasmBytes = readFileSync(fileURLToPath(new URL("../../../../pkg/liquiddom_bg.wasm", import.meta.url)));
+  const wasmBytes = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../../../../pkg/liquiddom_bg.wasm"));
   const mod = await import("../../../../pkg/liquiddom.js");
   const exports = mod.initSync({ module: wasmBytes });
   backend = { memory: exports.memory, FluidCore: mod.FluidCore as unknown as FluidCoreCtor };
@@ -98,6 +99,18 @@ async function start(seed: number, clock: FrameClock, log?: number[]): Promise<F
   });
   for (const el of els) rt.observe(el);
   await new Promise<void>((resolve) => queueMicrotask(resolve)); // flush the batched redistribute
+  // The scene is at rest, so nothing would move. Identically perturb every run: shift the
+  // first element's rect by a fixed offset; the next frame's sync moves its home and the
+  // particles crawl toward it.
+  const moved = els[0]!;
+  const original = moved.getBoundingClientRect.bind(moved);
+  moved.getBoundingClientRect = () => {
+    const r = original();
+    return {
+      x: r.x + 40, y: r.y + 12, left: r.left + 40, top: r.top + 12,
+      width: r.width, height: r.height, right: r.right + 40, bottom: r.bottom + 12, toJSON: () => ({}),
+    } as DOMRect;
+  };
   live.push(rt);
   return rt;
 }
