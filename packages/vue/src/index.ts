@@ -16,7 +16,7 @@ import {
   type PropType,
   type Ref,
 } from "vue";
-import { LiquidDOM, type LiquidDOMInstance, type LiquidOptions } from "liquiddom";
+import { LiquidDOM, type ElementOptions, type LiquidDOMInstance, type LiquidOptions } from "liquiddom";
 
 /** Injection key used by both `<LiquidProvider>` and `LiquidPlugin`. */
 export const LiquidKey: InjectionKey<Ref<LiquidDOMInstance | null>> = Symbol("LiquidDOM");
@@ -98,32 +98,32 @@ export function useLiquid(): Ref<LiquidDOMInstance | null> {
   return inject(LiquidKey, () => ref<LiquidDOMInstance | null>(null), true);
 }
 
-export interface UseLiquidRefOptions {
-  liquidType?: number;
+/** Element options (viscosity, recovery), captured once at setup (D66-4). */
+export type UseLiquidRefOptions = ElementOptions;
+
+function pickElementOptions(opts?: ElementOptions): ElementOptions | undefined {
+  if (!opts) return undefined;
+  const out: ElementOptions = {};
+  if (opts.viscosity !== undefined) out.viscosity = opts.viscosity;
+  if (opts.recovery !== undefined) out.recovery = opts.recovery;
+  return out.viscosity === undefined && out.recovery === undefined ? undefined : out;
 }
 
 /**
  * Template-ref composable: auto-observes when both element and instance are ready.
- *
- * `flush: "post"` is required so the watch fires AFTER Vue's DOM commit — observing
- * earlier would miss the mounted node. `liquidType` is captured once at setup;
- * changes to a `:liquidType="..."` binding after mount are NOT reactive (v1 limitation).
+ * `flush: "post"` so the watch fires after Vue's DOM commit. Options are read
+ * once at setup; changing a bound prop later has no effect (v1 limitation).
  */
-export function useLiquidRef<T extends HTMLElement = HTMLElement>(
-  opts?: UseLiquidRefOptions,
-): Ref<T | null> {
+export function useLiquidRef<T extends HTMLElement = HTMLElement>(opts?: UseLiquidRefOptions): Ref<T | null> {
   const instance = useLiquid();
-  // Vue's generic Ref<T> erases to Ref<UnwrapRef<T> | null> through `ref()`,
-  // which doesn't structurally match the function signature `Ref<T | null>`.
-  // Casting at the type-construction site keeps the public API contract clean.
   const elRef = ref<T | null>(null) as Ref<T | null>;
-  const liquidType = opts?.liquidType;
+  const elementOptions = pickElementOptions(opts);
 
   watch(
     [elRef, instance],
     ([el, inst], _prev, onCleanup) => {
       if (!el || !inst) return;
-      inst.observe(el as T, liquidType);
+      inst.observe(el as T, elementOptions);
       onCleanup(() => {
         inst.unobserve(el as T);
       });
@@ -139,10 +139,11 @@ export const LiquidElement = defineComponent({
   inheritAttrs: false,
   props: {
     as: { type: String, default: "div" },
-    liquidType: { type: Number, default: undefined },
+    viscosity: { type: Number, default: undefined },
+    recovery: { type: Number, default: undefined },
   },
   setup(props, { slots, attrs }) {
-    const elRef = useLiquidRef<HTMLElement>({ liquidType: props.liquidType });
+    const elRef = useLiquidRef<HTMLElement>({ viscosity: props.viscosity, recovery: props.recovery });
     return () => h(props.as, { ...attrs, ref: elRef }, slots.default?.());
   },
 });
