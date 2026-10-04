@@ -91,15 +91,17 @@ test.describe("step 8 – modes (slice 1)", () => {
     });
   }
 
-  // D65-4: the print rule ships with W66's injected stylesheet; W66 removes `.fixme`.
-  test.fixme("step 8 – given print media when emulated then the liquid canvas is display none", async ({ page }) => {
+  // D65-4 → W66 (D66-15): the injected stylesheet hides the canvas in print and restores the author paint.
+  test("step 8 – given print media when emulated then the liquid canvas is display none", async ({ page }) => {
     await gotoScene(page, { seed: 1, clock: "manual" });
     await advance(page, 1);
-    const canvas = page.locator("canvas.liquid-canvas");
-    await expect(canvas, "canvas is shown in screen media").toBeVisible();
-    await expect(canvas).not.toHaveCSS("display", "none");
+    const splash = page.getByRole("button", { name: "Splash" });
+    const screenBg = await splash.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(screenBg).toBe("rgba(0, 0, 0, 0)"); // the liquid carries the background on screen
     await page.emulateMedia({ media: "print" });
-    await expect(canvas).toHaveCSS("display", "none");
+    await expect(page.locator("canvas.liquid-canvas")).toHaveCSS("display", "none");
+    const printBg = await splash.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(printBg).not.toBe("rgba(0, 0, 0, 0)"); // classes neutralised: the author background is back
     for (const el of await page.locator("[data-liquid]").all()) {
       await expect(el).not.toHaveClass(/liquid-text/);
     }

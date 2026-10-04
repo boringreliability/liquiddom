@@ -1,290 +1,177 @@
 /**
  * @vitest-environment jsdom
- *
- * Ward 047: @liquiddom/react Adapter Package — red phase tests.
- * Tests #1-#9 per ward-047.md spec §Tests.
+ * W66 T5: @liquiddom/react on the fluid API. `liquiddom` resolves to core's
+ * dist; the shared core helpers are imported by relative path (A6).
  */
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach, type MockInstance } from "vitest";
 import { render, renderHook, waitFor, fireEvent, cleanup } from "@testing-library/react";
-import { StrictMode, type ReactNode } from "react";
+import { StrictMode } from "react";
 import { renderToString } from "react-dom/server";
-import {
-  LiquidProvider,
-  LiquidElement,
-  useLiquid,
-  useLiquidRef,
-} from "../src/index";
-import type { LiquidDOMInstance } from "liquiddom";
+import { LiquidDOM, type LiquidDOMInstance, type LiquidOptions } from "liquiddom";
+import * as adapter from "../src/index";
+import { LiquidProvider, LiquidElement, useLiquid, useLiquidRef } from "../src/index";
+import { elementSlots, freedOf, mockRect, setupFacadeTestEnv, spyBackend, type SpyBackend } from "../../core/ts/__tests__/_facade-helpers";
+import { El } from "../../core/ts/src/fluid-layout";
 
-// jsdom polyfills — match runtime-truth.test.ts:11-18 pattern
-if (typeof globalThis.ResizeObserver === "undefined") {
-  globalThis.ResizeObserver = class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  } as unknown as typeof ResizeObserver;
-}
+interface ObserveCall { el: HTMLElement; opts: unknown; id: number }
+let createSpy: MockInstance | null = null;
+let sb: SpyBackend;
+let calls: ObserveCall[];
+let config: LiquidOptions;
 
+beforeEach(() => {
+  setupFacadeTestEnv();
+  sb = spyBackend();
+  calls = [];
+  config = { testBackend: sb.backend, autoObserve: false, particles: 1024, maxElements: 4 };
+  const original = LiquidDOM.create.bind(LiquidDOM);
+  createSpy = vi.spyOn(LiquidDOM, "create").mockImplementation(async (options?: LiquidOptions) => {
+    const inst = await original(options);
+    const observe = inst.observe.bind(inst);
+    inst.observe = (el, opts) => {
+      const id = observe(el, opts);
+      calls.push({ el, opts, id });
+      return id;
+    };
+    return inst;
+  });
+});
 afterEach(() => {
   cleanup();
-  while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
+  createSpy?.mockRestore();
+  createSpy = null;
+  document.body.replaceChildren();
 });
 
-function mockedButton(opts: { x: number; y: number; w: number; h: number }) {
+function detachedButton(): HTMLButtonElement {
   const el = document.createElement("button");
-  el.getBoundingClientRect = () => ({
-    x: opts.x,
-    y: opts.y,
-    width: opts.w,
-    height: opts.h,
-    top: opts.y,
-    left: opts.x,
-    right: opts.x + opts.w,
-    bottom: opts.y + opts.h,
-    toJSON: () => {},
-  });
-  el.setPointerCapture = () => {};
-  el.releasePointerCapture = () => {};
+  mockRect(el, 10, 20, 100, 50);
   return el;
 }
-
 function makeCapture() {
   const ref: { current: LiquidDOMInstance | null } = { current: null };
   function Capture() {
-    const inst = useLiquid();
-    ref.current = inst;
+    ref.current = useLiquid();
     return null;
   }
   return { ref, Capture };
 }
+const slotsOf = (el: HTMLElement) => {
+  const call = calls.filter((c) => c.el === el).at(-1)!;
+  return elementSlots(sb, sb.cores.at(-1)!, call.id);
+};
 
-describe("Ward 047: LiquidProvider", () => {
-  // ── Test #1: provider creates instance on mount ──
+describe("W66 T5: @liquiddom/react", () => {
+  it("given_adapter_index_when_imported_then_exports_are_kept", () => {
+    expect(Object.keys(adapter).sort()).toEqual(["LiquidContext", "LiquidElement", "LiquidProvider", "useLiquid", "useLiquidRef"]);
+  });
+
   it("provider_creates_instance_after_mount", async () => {
     const { ref, Capture } = makeCapture();
-
-    render(
-      <LiquidProvider>
-        <Capture />
-      </LiquidProvider>,
-    );
-
+    render(<LiquidProvider config={config}><Capture /></LiquidProvider>);
     await waitFor(() => expect(ref.current).not.toBeNull());
-    expect(document.querySelector("canvas")).not.toBeNull();
+    expect(document.querySelector("canvas.liquid-canvas")).not.toBeNull();
   });
 
-  // ── Test #2: provider destroys instance on unmount (spied) ──
   it("provider_destroys_instance_on_unmount", async () => {
     const { ref, Capture } = makeCapture();
-
-    const { unmount } = render(
-      <LiquidProvider>
-        <Capture />
-      </LiquidProvider>,
-    );
-
+    const { unmount } = render(<LiquidProvider config={config}><Capture /></LiquidProvider>);
     await waitFor(() => expect(ref.current).not.toBeNull());
-    expect(document.querySelector("canvas")).not.toBeNull();
-
     const destroySpy = vi.spyOn(ref.current!, "destroy");
     unmount();
-
     expect(destroySpy).toHaveBeenCalledOnce();
     expect(document.querySelector("canvas")).toBeNull();
+    expect(freedOf(sb)).toHaveLength(sb.cores.length);
   });
-});
 
-describe("Ward 047: useLiquidRef", () => {
-  // ── Test #3: ref attached → observe called → slot[0] holds element x ──
   it("useLiquidRef_observes_element_when_attached", async () => {
-    const { ref, Capture } = makeCapture();
-    const el = mockedButton({ x: 10, y: 20, w: 100, h: 50 });
-
+    const el = detachedButton();
     function HookButton() {
       const refCb = useLiquidRef<HTMLButtonElement>();
-      return <span ref={() => refCb(el as unknown as HTMLButtonElement)} />;
+      return <span ref={() => refCb(el)} />;
     }
-
-    render(
-      <LiquidProvider config={{ capacity: 1, autoObserve: false }}>
-        <Capture />
-        <HookButton />
-      </LiquidProvider>,
-    );
-
-    await waitFor(() => expect(ref.current).not.toBeNull());
-    await waitFor(() => {
-      const buf = ref.current!.getBuffer();
-      expect(buf).not.toBeNull();
-      expect(buf![0]).toBe(10);
-    });
+    render(<LiquidProvider config={config}><HookButton /></LiquidProvider>);
+    await waitFor(() => expect(el.classList.contains("liquid-element")).toBe(true));
+    expect(slotsOf(el)[El.X]).toBe(10);
+    expect(slotsOf(el)[El.W]).toBe(100);
   });
 
-  // ── Test #4: ref detaches → unobserve called → slot[2] (width) zeroed ──
   it("useLiquidRef_unobserves_on_unmount", async () => {
-    const { ref, Capture } = makeCapture();
-    const el = mockedButton({ x: 10, y: 20, w: 100, h: 50 });
-
+    const el = detachedButton();
     function HookButton() {
       const refCb = useLiquidRef<HTMLButtonElement>();
-      return <span ref={() => refCb(el as unknown as HTMLButtonElement)} />;
+      return <span ref={() => refCb(el)} />;
     }
-
-    function Conditional({ show }: { show: boolean }) {
-      return show ? <HookButton /> : null;
-    }
-
-    const { rerender } = render(
-      <LiquidProvider config={{ capacity: 1, autoObserve: false }}>
-        <Capture />
-        <Conditional show={true} />
-      </LiquidProvider>,
-    );
-
-    await waitFor(() => expect(ref.current).not.toBeNull());
-    await waitFor(() => expect(ref.current!.getBuffer()![2]).toBe(100));
-
-    rerender(
-      <LiquidProvider config={{ capacity: 1, autoObserve: false }}>
-        <Capture />
-        <Conditional show={false} />
-      </LiquidProvider>,
-    );
-
-    await waitFor(() => expect(ref.current!.getBuffer()![2]).toBe(0));
+    const tree = (show: boolean) => <LiquidProvider config={config}>{show ? <HookButton /> : null}</LiquidProvider>;
+    const { rerender } = render(tree(true));
+    await waitFor(() => expect(el.classList.contains("liquid-element")).toBe(true));
+    rerender(tree(false));
+    await waitFor(() => expect(el.classList.contains("liquid-element")).toBe(false));
+    expect(slotsOf(el)[El.W]).toBe(0);
   });
 
-  // ── Test #9: liquidType option forwarded to observe → slot[5] ──
-  it("useLiquidRef_forwards_liquidType_to_observe", async () => {
-    const { ref, Capture } = makeCapture();
-    const el = mockedButton({ x: 10, y: 20, w: 100, h: 50 });
-
+  it("given_useLiquidRef_with_viscosity_when_attached_then_observe_called_with_element_options", async () => {
+    const el = detachedButton();
     function HookButton() {
-      const refCb = useLiquidRef<HTMLButtonElement>({ liquidType: 4 });
-      return <span ref={() => refCb(el as unknown as HTMLButtonElement)} />;
+      const refCb = useLiquidRef<HTMLButtonElement>({ viscosity: 0.25 });
+      return <span ref={() => refCb(el)} />;
     }
+    render(<LiquidProvider config={config}><HookButton /></LiquidProvider>);
+    await waitFor(() => expect(calls.some((c) => c.el === el)).toBe(true));
+    expect(calls.find((c) => c.el === el)!.opts).toEqual({ viscosity: 0.25 });
+    expect(slotsOf(el)[El.VISCOSITY]).toBe(0.25);
+    expect(Number.isNaN(slotsOf(el)[El.RECOVERY])).toBe(true);
+  });
 
-    render(
-      <LiquidProvider config={{ capacity: 1, autoObserve: false }}>
-        <Capture />
-        <HookButton />
+  it("given_LiquidElement_with_viscosity_and_recovery_props_when_mounted_then_observe_receives_them", async () => {
+    const { container } = render(
+      <LiquidProvider config={config}>
+        <LiquidElement as="button" viscosity={0.25} recovery={1.5}>go</LiquidElement>
       </LiquidProvider>,
     );
-
-    await waitFor(() => expect(ref.current).not.toBeNull());
-    await waitFor(() => {
-      // slot[5] = liquid_type per FFI contract (CLAUDE.md entity buffer table)
-      expect(ref.current!.getBuffer()![5]).toBe(4);
-    });
+    const btn = container.querySelector("button")!;
+    await waitFor(() => expect(calls.some((c) => c.el === btn)).toBe(true));
+    expect(calls.find((c) => c.el === btn)!.opts).toEqual({ viscosity: 0.25, recovery: 1.5 });
+    expect(slotsOf(btn)[El.RECOVERY]).toBe(1.5);
+    expect(btn.hasAttribute("viscosity")).toBe(false);
+    expect(btn.hasAttribute("recovery")).toBe(false);
   });
-});
 
-describe("Ward 047: useLiquid outside provider", () => {
-  // ── Test #5: no provider → null ──
   it("useLiquid_returns_null_outside_provider", () => {
     const { result } = renderHook(() => useLiquid());
     expect(result.current).toBeNull();
   });
-});
 
-describe("Ward 047: strict mode", () => {
-  // ── Test #6: strict-mode tree mounts cleanly; observe is idempotent ──
-  // Note: React 18 strict-mode double-invokes effects only on the *initial*
-  // mount of the strict-mode tree. The provider's effect therefore double-
-  // invokes during initial mount (creating two instances; the first is
-  // destroyed via the cancellation flag, the second is kept). When useLiquidRef's
-  // first invocation runs with instance=null it bails; the eventual setInstance
-  // triggers a single observe on the surviving instance. The strict-mode
-  // invariant we verify is: the final state is correct AND observe is
-  // idempotent (W14) — so any double-invocations cannot corrupt the slot.
   it("strict_mode_tree_observes_correctly_and_is_idempotent", async () => {
     const { ref, Capture } = makeCapture();
-    const el = mockedButton({ x: 10, y: 20, w: 100, h: 50 });
-
+    const el = detachedButton();
     function HookButton() {
       const refCb = useLiquidRef<HTMLButtonElement>();
-      return <span ref={() => refCb(el as unknown as HTMLButtonElement)} />;
+      return <span ref={() => refCb(el)} />;
     }
-
-    render(
-      <StrictMode>
-        <LiquidProvider config={{ capacity: 1, autoObserve: false }}>
-          <Capture />
-          <HookButton />
-        </LiquidProvider>
-      </StrictMode>,
-    );
-
-    await waitFor(() => expect(ref.current).not.toBeNull());
-    // The strict-mode tree's eventual state must be correct: width === rect.
-    // If the provider's double-invoke had failed (e.g., setInstance on the
-    // destroyed first instance), this assertion would fail.
-    await waitFor(() => expect(ref.current!.getBuffer()![2]).toBe(100));
-
-    // W14 idempotency directly: re-observing the same element returns same id.
-    // This is the guarantee that allows useLiquidRef to be strict-mode safe
-    // even if React internals invoke observe more than once.
-    const firstId = ref.current!.observe(el);
-    const secondId = ref.current!.observe(el);
-    expect(firstId).toBe(secondId);
+    render(<StrictMode><LiquidProvider config={config}><Capture /><HookButton /></LiquidProvider></StrictMode>);
+    await waitFor(() => expect(el.classList.contains("liquid-element")).toBe(true));
+    expect(slotsOf(el)[El.W]).toBe(100);
+    expect(ref.current!.observe(el)).toBe(ref.current!.observe(el));
   });
-});
 
-describe("Ward 047: LiquidElement", () => {
-  // ── Test #7: forwards HTML attrs, uses `as` prop, AND observes ──
   it("liquidElement_forwards_html_attrs_and_uses_as_prop", async () => {
     const onClick = vi.fn();
-    const { ref, Capture } = makeCapture();
-
-    function App({ showElement }: { showElement: boolean }) {
-      return (
-        <LiquidProvider config={{ capacity: 1, autoObserve: false }}>
-          <Capture />
-          {showElement && (
-            <LiquidElement
-              as="button"
-              className="my-button"
-              data-test="x"
-              onClick={onClick}
-            >
-              child text
-            </LiquidElement>
-          )}
-        </LiquidProvider>
-      );
-    }
-
-    const { container, rerender } = render(<App showElement={false} />);
-    await waitFor(() => expect(ref.current).not.toBeNull());
-
-    // Verify LiquidElement actually goes through useLiquidRef → observe.
-    const observeSpy = vi.spyOn(ref.current!, "observe");
-    rerender(<App showElement={true} />);
-
-    await waitFor(() => {
-      const btn = container.querySelector("button");
-      expect(btn).not.toBeNull();
-      expect(btn!.className).toBe("my-button");
-      expect(btn!.getAttribute("data-test")).toBe("x");
-      expect(btn!.textContent).toBe("child text");
-    });
-
-    expect(observeSpy).toHaveBeenCalled();
-
-    fireEvent.click(container.querySelector("button")!);
+    const { container } = render(
+      <LiquidProvider config={config}>
+        <LiquidElement as="button" className="my-button" data-test="x" onClick={onClick}>child text</LiquidElement>
+      </LiquidProvider>,
+    );
+    const btn = container.querySelector("button")!;
+    await waitFor(() => expect(btn.classList.contains("liquid-element")).toBe(true));
+    expect(btn.classList.contains("my-button")).toBe(true);
+    expect(btn.getAttribute("data-test")).toBe("x");
+    expect(btn.textContent).toBe("child text");
+    fireEvent.click(btn);
     expect(onClick).toHaveBeenCalledOnce();
   });
-});
 
-describe("Ward 047: SSR safety", () => {
-  // ── Test #8: renderToString does not throw ──
   it("ssr_renderToString_does_not_throw", () => {
-    expect(() =>
-      renderToString(
-        <LiquidProvider>
-          <div>content</div>
-        </LiquidProvider>,
-      ),
-    ).not.toThrow();
+    expect(() => renderToString(<LiquidProvider><div>content</div></LiquidProvider>)).not.toThrow();
   });
 });

@@ -148,66 +148,157 @@ Decision: APPROVED 2026-10-04 — injected CSS in `@layer liquiddom` with `!impo
 - **Retirement:** after this ward, `git grep -nE "PhantomObserver|liquid_type|FLOATS_PER_ENTITY|instance-panic|wasmCallInFlight" -- src packages demo examples` returns nothing.
 
 ## Tests
+
 | # | Test Name | Verifies |
 |---|-----------|----------|
-| 1 | given_no_options_when_resolved_then_defaults_8000_particles_32_elements_auto_material_defaults_gravity_none_autoObserve_true_forceReducedMotion_false_silentFallback_false_random_u32_seed | defaults (C4) |
-| 2 | given_non_integer_or_out_of_range_particles_or_maxElements_when_resolved_then_TypeError | D66-6 |
-| 3 | given_removed_option_capacity_physics_colorDefault_colorHover_colorSource_theme_refraction_preserveBackgrounds_snapDurationMs_canvasZIndex_maxDt_when_resolved_then_TypeError_naming_replacement | D66-1 |
-| 4 | given_unknown_option_when_resolved_then_TypeError | whitelist |
-| 5 | given_material_out_of_range_or_nan_when_resolved_then_TypeError | D66-8 |
-| 6 | given_gravity_options_when_resolved_then_validated_and_accepted | gravity option |
-| 7 | given_silentFallback_when_resolved_then_validated_boolean_and_inert_in_slices_1_2 | B13 |
-| 8 | given_two_instances_when_created_then_one_style_element_per_document | stylesheet |
-| 9 | given_last_instance_destroyed_when_destroying_then_style_element_removed | refcount |
-| 10 | given_static_element_when_observed_then_class_and_stack_relative_z1 | D66-3 |
-| 11 | given_positioned_element_with_z_auto_when_observed_then_only_z1 | D66-3 |
-| 12 | given_positioned_element_with_explicit_z_when_observed_then_stacking_untouched | D66-3 |
-| 13 | given_css_text_when_read_then_print_and_forced_colors_hide_canvas_and_neutralise_classes_with_important | modes |
-| 14 | given_unobserve_when_called_then_element_class_and_attr_exactly_restored | exact restore |
-| 15 | given_canvas_when_mounted_then_aria_hidden_true_pointer_events_none_fixed_z0_last_in_body | canvas |
-| 16 | given_container_mode_when_mounted_then_canvas_inside_container | container |
-| 17 | given_element_with_background_when_observed_then_color_snapshotted_before_class | colour |
-| 18 | given_refresh_when_called_then_class_temporarily_removed_and_colors_reread | refresh |
-| 19 | given_transparent_background_when_observed_then_default_liquid_color | colour |
-| 20 | given_testBackend_when_create_then_instance_with_particleCapacity_and_elementCapacity | facade |
-| 21 | given_maxElements_reached_when_observe_then_RangeError | D66-10 |
-| 22 | given_observe_with_viscosity_2_when_called_then_TypeError | element options (C3) |
-| 23 | given_autoObserve_when_create_then_data_liquid_elements_observed | autoObserve |
-| 24 | given_autoObserve_candidates_when_create_then_area_hint_is_their_summed_rounded_rect_area | D66-13 |
-| 25 | given_autoDiscover_when_data_liquid_node_added_or_removed_then_observed_or_unobserved | autoDiscover |
-| 26 | given_pause_when_called_then_no_frames_and_isPaused_true_and_resume_restarts | pause |
-| 27 | given_hidden_tab_when_visibilitychange_then_paused_and_resumed | visibility |
-| 28 | given_destroy_when_called_twice_then_idempotent_and_methods_throw_after | D66-10 |
-| 29 | given_renderer_auto_when_create_then_activeRenderer_canvas2d | D66-2 |
-| 30 | given_renderer_webgpu_unavailable_when_create_then_WebGPUUnavailableError | webgpu |
-| 31 | given_wasm_load_failure_without_testBackend_when_create_then_rejects_LiquidWasmLoadError | loud failure |
-| 32 | given_two_instances_when_one_destroyed_then_other_keeps_ticking | multi-instance |
-| 33 | given_gravity_option_when_create_then_accepted_but_tick_receives_zero_gravity | gravity interim |
-| 34 | gravity effect tests `it.skip("slice 6 ward: …")` | slice-6 reference |
-| 35 | requestOrientationPermission_* (kept) | orientation |
-| 36 | given_root_index_when_imported_then_export_keys_equal_whitelist | whitelist |
-| 37 | given_instance_when_inspected_then_grow_tween_impulse_spawnDroplet_despawnDroplet_setPhysicsConfig_getPhysicsConfig_refreshTheme_refreshShadow_setBackgroundTexture_getBuffer_pointerX_pointerY_preserveBackgrounds_isScrollSnapping_capacity_isReducedMotion_isScrolling_pointerActive_absent | retirement |
-| 38 | given_observe_with_number_when_called_then_TypeError_mentioning_liquidType_removed | migration hint |
-| 39 | given_no_listener_when_running_then_no_liquiddom_instance_panic_event | W61 workaround gone |
-| 40 | given_index_when_imported_then_validatePhysicsConfig_absent_and_no_physics_shaped_presets | A2 |
-| 41 | given_api_migration_types_fixture_when_tsc_noEmit_then_exit_code_0 | D66-11 |
-| 42 | given_useLiquidRef_with_viscosity_when_attached_then_observe_called_with_element_options | React |
-| 43 | given_LiquidElement_with_viscosity_and_recovery_props_when_mounted_then_observe_receives_them | React + Vue |
-| 44 | provider_creates_instance_after_mount (ported to `config={{ testBackend }}`) | adapters |
-| 45 | strict-mode and SSR tests (ported; `getBuffer` assertions removed) | adapters |
-| 46 | core_dist_wasm_dynamic_import_resolves_to_packaged_file (→ `dist/wasm-loader.js`) | publish |
-| 47 | given_root_package_when_read_then_site_not_in_workspaces_and_no_site_override | site freeze |
-| 48 | given_vitest_config_when_read_then_site_not_in_projects | site freeze |
-| 49 | given_deploy_site_yml_when_read_then_only_workflow_dispatch | site freeze |
-| 50 | given_example_react_package_when_read_then_liquiddom_deps_are_star | D66-9 |
-| 51 | peer dependency test #5 → `^0.3.0-alpha.0` | D66-9 |
-| 52 | peer range test #10 → satisfied by `0.3.0-alpha.0` | D66-9 |
-| 53 | changeset_config_matches_spec (fixed group + onlyUpdatePeerDependentsWhenOutOfRange) | D66-9 |
-| 54 | given_pre_json_when_read_then_mode_pre_tag_alpha | pre mode |
-| 55 | given_pending_changesets_when_release_plan_computed_then_all_three_bump_to_0_3_0_alpha_1 | D66-9 |
-| 56 | step 8 – given print media when emulated then the liquid canvas is display none (un-fixme'd) | step 8 print |
-| 57 | step 8 – given the acceptance scene when axe runs then 0 violations and the canvas is aria-hidden | a11y |
-| 58 | given focus on Split via Tab when screenshotted then the focus ring is drawn above the liquid | focus (step 4 groundwork) |
+| 1 | given_no_options_when_resolved_then_defaults_8000_particles_32_elements_auto_material_defaults_gravity_none | options/material validation (D66-1, D66-6, D66-8, C3, C4) |
+| 2 | given_seed_omitted_when_resolved_repeatedly_then_each_seed_is_a_u32_and_not_all_equal | options/material validation (D66-1, D66-6, D66-8, C3, C4) |
+| 3 | given_explicit_seed_when_resolved_then_kept_and_invalid_seed_TypeError | options/material validation (D66-1, D66-6, D66-8, C3, C4) |
+| 4 | given_non_integer_or_out_of_range_particles_or_maxElements_when_resolved_then_TypeError | options/material validation (D66-1, D66-6, D66-8, C3, C4) |
+| 5 | given_removed_option_capacity_physics_colorDefault_colorHover_colorSource_theme_refraction_preserveBackgrounds_snapDurationMs_canvasZIndex_maxDt_when_resolved_then_TypeError_naming_replacement | options/material validation (D66-1, D66-6, D66-8, C3, C4) |
+| 6 | given_unknown_option_when_resolved_then_TypeError | options/material validation (D66-1, D66-6, D66-8, C3, C4) |
+| 7 | given_material_out_of_range_or_nan_when_resolved_then_TypeError | options/material validation (D66-1, D66-6, D66-8, C3, C4) |
+| 8 | given_gravity_options_when_resolved_then_validated_and_accepted | options/material validation (D66-1, D66-6, D66-8, C3, C4) |
+| 9 | given_renderer_option_when_resolved_then_only_auto_webgpu_canvas2d_accepted | options/material validation (D66-1, D66-6, D66-8, C3, C4) |
+| 10 | given_boolean_options_when_non_boolean_then_TypeError_and_silentFallback_is_validated_only | options/material validation (D66-1, D66-6, D66-8, C3, C4) |
+| 11 | given_container_testBackend_loader_or_clock_of_wrong_shape_when_resolved_then_TypeError | options/material validation (D66-1, D66-6, D66-8, C3, C4) |
+| 12 | given_option_whitelist_when_read_then_equals_spec_section_5_plus_internal_hooks | options/material validation (D66-1, D66-6, D66-8, C3, C4) |
+| 13 | given_valid_partial_when_validated_then_no_throw_and_input_not_mutated | options/material validation (D66-1, D66-6, D66-8, C3, C4) |
+| 14 | given_non_object_or_unknown_key_when_validated_then_TypeError | options/material validation (D66-1, D66-6, D66-8, C3, C4) |
+| 15 | given_element_options_out_of_range_nan_or_unknown_when_validated_then_TypeError | options/material validation (D66-1, D66-6, D66-8, C3, C4) |
+| 16 | given_two_instances_when_created_then_one_style_element_per_document | injected stylesheet, stacking, colour snapshot (D66-3, D66-15) |
+| 17 | given_last_instance_destroyed_when_destroying_then_style_element_removed | injected stylesheet, stacking, colour snapshot (D66-3, D66-15) |
+| 18 | given_style_element_removed_externally_when_next_acquire_then_reinserted_and_refcount_kept | injected stylesheet, stacking, colour snapshot (D66-3, D66-15) |
+| 19 | given_css_text_when_read_then_print_and_forced_colors_hide_canvas_and_neutralise_classes_with_important | injected stylesheet, stacking, colour snapshot (D66-3, D66-15) |
+| 20 | given_stackingFor_table_when_evaluated_then_static_relative_auto_z_else_null | injected stylesheet, stacking, colour snapshot (D66-3, D66-15) |
+| 21 | given_static_element_when_observed_then_class_and_stack_relative_z1 | injected stylesheet, stacking, colour snapshot (D66-3, D66-15) |
+| 22 | given_positioned_element_with_z_auto_when_observed_then_only_z1 | injected stylesheet, stacking, colour snapshot (D66-3, D66-15) |
+| 23 | given_positioned_element_with_explicit_z_when_observed_then_stacking_untouched | injected stylesheet, stacking, colour snapshot (D66-3, D66-15) |
+| 24 | given_unobserve_when_called_then_element_class_and_attr_exactly_restored | injected stylesheet, stacking, colour snapshot (D66-3, D66-15) |
+| 25 | given_canvas_when_mounted_then_aria_hidden_true_pointer_events_none_fixed_z0_last_in_body | injected stylesheet, stacking, colour snapshot (D66-3, D66-15) |
+| 26 | given_container_mode_when_mounted_then_canvas_inside_container | injected stylesheet, stacking, colour snapshot (D66-3, D66-15) |
+| 27 | given_element_with_background_when_observed_then_color_snapshotted_before_class | injected stylesheet, stacking, colour snapshot (D66-3, D66-15) |
+| 28 | given_refresh_when_called_then_class_temporarily_removed_and_colors_reread | injected stylesheet, stacking, colour snapshot (D66-3, D66-15) |
+| 29 | given_transparent_background_when_observed_then_default_liquid_color | injected stylesheet, stacking, colour snapshot (D66-3, D66-15) |
+| 30 | given_class_present_when_snapshotColorsWithout_then_reads_original_colour_and_restores_class | colour snapshot with class lifted (D66-3) |
+| 31 | given_class_absent_when_snapshotColorsWithout_then_equals_snapshotColors_and_class_not_added | colour snapshot with class lifted (D66-3) |
+| 32 | given_started_loop_when_clock_advances_3_then_onFrame_runs_3_times | loop control (D66-12) |
+| 33 | given_paused_when_advancing_then_no_frames_and_resume_restarts | loop control (D66-12) |
+| 34 | given_hidden_document_when_visibilitychange_then_paused_until_visible | loop control (D66-12) |
+| 35 | given_user_paused_when_tab_becomes_visible_then_still_paused | loop control (D66-12) |
+| 36 | given_destroyed_when_advancing_then_no_frames_listener_removed_and_idempotent | loop control (D66-12) |
+| 37 | given_runtime_when_created_then_canvas_has_liquid_canvas_class_aria_hidden_and_styles_injected | runtime additions (D66-2, D66-12) |
+| 38 | given_renderer_init_failure_when_creating_runtime_then_canvas_removed_and_core_freed | runtime additions (D66-2, D66-12) |
+| 39 | given_runtime_pause_when_frames_advance_then_no_tick_until_resume | runtime additions (D66-2, D66-12) |
+| 40 | given_webgpu_renderer_when_typed_then_satisfies_frame_Renderer_contract_and_error_is_reexported | infra-only WebGPU renderer (D66-2) |
+| 41 | given_navigator_gpu_missing_when_init_then_WebGPUUnavailableError | infra-only WebGPU renderer (D66-2) |
+| 42 | given_requestAdapter_null_or_throwing_when_init_then_WebGPUUnavailableError_with_cause | infra-only WebGPU renderer (D66-2) |
+| 43 | given_requestDevice_rejects_when_init_then_WebGPUUnavailableError_with_cause | infra-only WebGPU renderer (D66-2) |
+| 44 | given_getContext_webgpu_null_when_init_then_WebGPUUnavailableError_and_device_destroyed | infra-only WebGPU renderer (D66-2) |
+| 45 | given_successful_init_when_configured_then_alphaMode_premultiplied_and_no_shader_or_pipeline_created | infra-only WebGPU renderer (D66-2) |
+| 46 | given_initialised_renderer_when_render_then_one_clear_pass_transparent_and_submitted | infra-only WebGPU renderer (D66-2) |
+| 47 | given_device_lost_when_rendering_then_one_console_warn_and_render_noop | infra-only WebGPU renderer (D66-2) |
+| 48 | given_destroy_when_called_before_init_after_failure_and_twice_then_no_throw_and_device_destroyed_once | infra-only WebGPU renderer (D66-2) |
+| 49 | given_both_renderers_when_typed_then_satisfy_frame_Renderer_init_render_resize_destroy | single Renderer contract, retirement (D66-2, D64-5) |
+| 50 | given_soft_body_renderer_modules_when_checked_then_deleted | single Renderer contract, retirement (D66-2, D64-5) |
+| 51 | given_selectRenderer_auto_or_canvas2d_when_called_then_FluidCanvas2DRenderer_active_canvas2d | single Renderer contract, retirement (D66-2, D64-5) |
+| 52 | given_selectRenderer_canvas2d_with_null_2d_context_when_called_then_rejects_D64_5 | single Renderer contract, retirement (D66-2, D64-5) |
+| 53 | given_renderer_auto_when_create_then_activeRenderer_canvas2d_and_webgpu_never_probed | renderer selection (D66-2, B13) |
+| 54 | given_renderer_omitted_or_canvas2d_when_create_then_activeRenderer_canvas2d | renderer selection (D66-2, B13) |
+| 55 | given_renderer_webgpu_unavailable_when_create_then_WebGPUUnavailableError_and_nothing_left_behind | renderer selection (D66-2, B13) |
+| 56 | given_renderer_webgpu_available_when_create_then_activeRenderer_webgpu_and_one_console_warn | renderer selection (D66-2, B13) |
+| 57 | given_webgpu_init_bug_that_is_not_unavailable_when_create_then_rejects_with_that_error | renderer selection (D66-2, B13) |
+| 58 | given_silentFallback_true_or_false_when_create_with_auto_then_validated_and_no_console_info_B13 | renderer selection (D66-2, B13) [B13] |
+| 59 | given_testBackend_when_create_then_instance_with_particleCapacity_and_elementCapacity | public facade (T3, C3, D66-10, D66-12, D66-13) |
+| 60 | given_wasm_load_failure_without_testBackend_when_create_then_rejects_LiquidWasmLoadError | public facade (T3, C3, D66-10, D66-12, D66-13) |
+| 61 | given_root_index_when_imported_then_export_keys_equal_whitelist | public facade (T3, C3, D66-10, D66-12, D66-13) |
+| 62 | given_maxElements_reached_when_observe_then_RangeError | public facade (T3, C3, D66-10, D66-12, D66-13) |
+| 63 | given_observe_with_out_of_range_element_options_when_called_then_TypeError_and_valid_options_reach_slots_8_9 | public facade (T3, C3, D66-10, D66-12, D66-13) |
+| 64 | given_refresh_on_unobserved_element_when_called_then_noop | public facade (T3, C3, D66-10, D66-12, D66-13) |
+| 65 | given_autoObserve_when_create_then_data_liquid_elements_observed | public facade (T3, C3, D66-10, D66-12, D66-13) |
+| 66 | given_autoObserve_candidates_when_create_then_area_hint_comes_from_their_rects_B5 | public facade (T3, C3, D66-10, D66-12, D66-13) |
+| 67 | given_more_data_liquid_elements_than_maxElements_when_create_then_extra_skipped_with_one_warn | public facade (T3, C3, D66-10, D66-12, D66-13) |
+| 68 | given_autoDiscover_when_data_liquid_node_added_or_removed_then_observed_or_unobserved | public facade (T3, C3, D66-10, D66-12, D66-13) |
+| 69 | given_stopAutoDiscover_when_nodes_added_then_not_observed | public facade (T3, C3, D66-10, D66-12, D66-13) |
+| 70 | given_container_option_when_create_then_canvas_inside_container_and_autoObserve_scoped_to_it | public facade (T3, C3, D66-10, D66-12, D66-13) |
+| 71 | given_pause_when_called_then_no_frames_and_isPaused_true_and_resume_restarts | public facade (T3, C3, D66-10, D66-12, D66-13) |
+| 72 | given_hidden_tab_when_visibilitychange_then_paused_and_resumed | public facade (T3, C3, D66-10, D66-12, D66-13) |
+| 73 | given_user_pause_when_tab_becomes_visible_again_then_stays_paused_D66_12 | public facade (T3, C3, D66-10, D66-12, D66-13) [D66-12] |
+| 74 | given_destroy_when_called_twice_then_idempotent_and_methods_throw_after | public facade (T3, C3, D66-10, D66-12, D66-13) |
+| 75 | given_two_instances_created_in_one_task_when_resolved_then_two_canvases_two_cores_one_stylesheet | multi-instance facade (D66-3) |
+| 76 | given_two_instances_when_one_destroyed_then_other_keeps_ticking | multi-instance facade (D66-3) |
+| 77 | given_two_instances_when_destroyed_in_either_order_twice_then_idempotent_and_stylesheet_removed_after_last | multi-instance facade (D66-3) |
+| 78 | given_gravity_fixed_vector_when_create_then_accepted | gravity interim state (spec 6) |
+| 79 | given_gravity_source_none_default_when_create_then_no_throw | gravity interim state (spec 6) |
+| 80 | given_gravity_fixed_without_vector_when_create_then_no_throw | gravity interim state (spec 6) |
+| 81 | given_invalid_gravity_when_create_then_TypeError | gravity interim state (spec 6) |
+| 82 | given_gravity_option_when_create_then_accepted_but_tick_receives_zero_gravity | gravity interim state (spec 6) |
+| 83 | slice 6 ward: given_gravity_fixed_when_ticking_then_tick_receives_the_vector | skipped until slice 6 |
+| 84 | slice 6 ward: given_orientation_event_when_ticking_then_beta_gamma_mapped_to_gx_gy | skipped until slice 6 |
+| 85 | slice 6 ward: given_reduced_motion_when_ticking_then_gravity_clamped_to_zero | skipped until slice 6 |
+| 86 | slice 6 ward: given_orientation_source_when_destroyed_then_deviceorientation_listener_removed | skipped until slice 6 |
+| 87 | requestOrientationPermission_handles_unsupported_jsdom_default | gravity interim state (spec 6) |
+| 88 | requestOrientationPermission_handles_unsupported_explicit_stub | gravity interim state (spec 6) |
+| 89 | requestOrientationPermission_handles_ios_grant_and_deny | gravity interim state (spec 6) |
+| 90 | given_npm_pack_when_dry_run_then_tarball_ships_wasm_binary_and_wasm_loader_but_no_soft_body_files | runtime truth (D66-9, D3) |
+| 91 | given_root_export_when_imported_then_internals_are_not_leaked | runtime truth (D66-9, D3) |
+| 92 | given_pkg_glue_when_read_then_FluidCore_exported_and_LiquidCore_gone | runtime truth (D66-9, D3) |
+| 93 | given_public_create_with_testBackend_when_manual_frames_advance_then_core_tick_receives_raw_dt_in_seconds | runtime truth (D66-9, D3) |
+| 94 | given_old_instance_members_when_inspected_then_each_fate_holds | old to new migration (T4, B9, B10, D66-5, D66-11) |
+| 95 | given_instance_when_inspected_then_grow_tween_impulse_spawnDroplet_despawnDroplet_setPhysicsConfig_getPhysicsConfig_refreshTheme_refreshShadow_setBackgroundTexture_getBuffer_pointerX_pointerY_preserveBackgrounds_isScrollSnapping_capacity_absent | old to new migration (T4, B9, B10, D66-5, D66-11) |
+| 96 | given_instance_when_inspected_then_isReducedMotion_isScrolling_pointerActive_absent_D66_5 | old to new migration (T4, B9, B10, D66-5, D66-11) [D66-5] |
+| 97 | given_observe_with_number_when_called_then_TypeError_mentioning_liquidType_removed | old to new migration (T4, B9, B10, D66-5, D66-11) |
+| 98 | given_old_options_when_create_then_removed_ones_reject_TypeError_naming_replacement_and_kept_ones_are_accepted | old to new migration (T4, B9, B10, D66-5, D66-11) |
+| 99 | given_old_runtime_exports_when_imported_then_each_fate_holds | old to new migration (T4, B9, B10, D66-5, D66-11) |
+| 100 | given_index_when_imported_then_validatePhysicsConfig_absent_and_old_physics_presets_gone | old to new migration (T4, B9, B10, D66-5, D66-11) |
+| 101 | given_no_listener_when_running_then_no_liquiddom_instance_panic_event | old to new migration (T4, B9, B10, D66-5, D66-11) |
+| 102 | given_api_migration_type_fixture_when_tsc_checks_it_then_exit_code_0 | old to new migration (T4, B9, B10, D66-5, D66-11) |
+| 103 | given_soft_body_sources_when_checked_then_deleted_and_lib_rs_declares_only_fluid | old to new migration (T4, B9, B10, D66-5, D66-11) |
+| 104 | given_retired_demo_scenes_when_checked_then_deleted_and_acceptance_scene_kept | old to new migration (T4, B9, B10, D66-5, D66-11) |
+| 105 | given_changeset_when_read_then_SplashOptions_shape_change_colour_regression_and_removed_api_are_documented_B9_E | old to new migration (T4, B9, B10, D66-5, D66-11) [B9] |
+| 106 | given_adapter_index_when_imported_then_exports_are_kept | React adapter on fluid API (T5, B10) |
+| 107 | provider_creates_instance_after_mount | React adapter on fluid API (T5, B10) |
+| 108 | provider_destroys_instance_on_unmount | React adapter on fluid API (T5, B10) |
+| 109 | useLiquidRef_observes_element_when_attached | React adapter on fluid API (T5, B10) |
+| 110 | useLiquidRef_unobserves_on_unmount | React adapter on fluid API (T5, B10) |
+| 111 | given_useLiquidRef_with_viscosity_when_attached_then_observe_called_with_element_options | React adapter on fluid API (T5, B10) |
+| 112 | given_LiquidElement_with_viscosity_and_recovery_props_when_mounted_then_observe_receives_them | React adapter on fluid API (T5, B10) |
+| 113 | useLiquid_returns_null_outside_provider | React adapter on fluid API (T5, B10) |
+| 114 | strict_mode_tree_observes_correctly_and_is_idempotent | React adapter on fluid API (T5, B10) |
+| 115 | liquidElement_forwards_html_attrs_and_uses_as_prop | React adapter on fluid API (T5, B10) |
+| 116 | ssr_renderToString_does_not_throw | React adapter on fluid API (T5, B10) |
+| 117 | given_adapter_index_when_imported_then_exports_are_kept | Vue adapter on fluid API (T5, B10) |
+| 118 | provider_creates_instance_after_mount | Vue adapter on fluid API (T5, B10) |
+| 119 | provider_destroys_instance_on_unmount | Vue adapter on fluid API (T5, B10) |
+| 120 | useLiquidRef_observes_element_when_attached | Vue adapter on fluid API (T5, B10) |
+| 121 | useLiquidRef_unobserves_on_unmount | Vue adapter on fluid API (T5, B10) |
+| 122 | given_useLiquidRef_with_viscosity_when_attached_then_observe_called_with_element_options | Vue adapter on fluid API (T5, B10) |
+| 123 | given_LiquidElement_with_viscosity_and_recovery_props_when_mounted_then_observe_receives_them | Vue adapter on fluid API (T5, B10) |
+| 124 | useLiquid_returns_null_outside_provider | Vue adapter on fluid API (T5, B10) |
+| 125 | liquidElement_forwards_attrs_and_uses_as_prop | Vue adapter on fluid API (T5, B10) |
+| 126 | ssr_renderToString_does_not_throw | Vue adapter on fluid API (T5, B10) |
+| 127 | plugin_install_provides_instance | Vue adapter on fluid API (T5, B10) |
+| 128 | step 8 – given print media when emulated then the liquid canvas is display none | step 8 print (D66-15) |
+| 129 | step 8 – given the acceptance scene when axe runs then 0 violations and the canvas is aria-hidden | step 8 a11y (D66-3, D66-15) |
+| 130 | given focus on Split via Tab when screenshotted then the focus ring is drawn above the liquid | step 8 a11y (D66-3, D66-15) |
+| 131 | given_root_package_when_read_then_site_not_in_workspaces_and_no_site_override | site freeze, versioning, pkg hygiene (D66-9, A1, D3) |
+| 132 | given_vitest_config_when_read_then_site_not_in_projects | site freeze, versioning, pkg hygiene (D66-9, A1, D3) |
+| 133 | given_deploy_site_yml_when_read_then_only_workflow_dispatch | site freeze, versioning, pkg hygiene (D66-9, A1, D3) |
+| 134 | given_example_react_package_when_read_then_liquiddom_deps_are_star | site freeze, versioning, pkg hygiene (D66-9, A1, D3) |
+| 135 | given_publishable_packages_when_read_then_all_three_at_0_3_0_alpha_0_with_peers_caret_0_3_0_alpha_0 | site freeze, versioning, pkg hygiene (D66-9, A1, D3) |
+| 136 | given_ts_sources_when_scanned_then_only_depth_1_wasm_loader_imports_pkg_via_four_level_specifier_D3 | site freeze, versioning, pkg hygiene (D66-9, A1, D3) [D3] |
+| 137 | \\ | site freeze, versioning, pkg hygiene (D66-9, A1, D3) |
+| 138 | given_core_dist_when_scanned_then_no_js_or_d_ts_references_pkg_D3 | site freeze, versioning, pkg hygiene (D66-9, A1, D3) [D3] |
+| 139 | \\ | site freeze, versioning, pkg hygiene (D66-9, A1, D3) |
+| 140 | given_core_dist_when_listed_then_no_soft_body_artifacts_remain_D66_9 | site freeze, versioning, pkg hygiene (D66-9, A1, D3) [D66-9] |
+| 141 | given_pre_json_when_read_then_mode_pre_tag_alpha_and_initial_versions_0_3_0_alpha_0 | site freeze, versioning, pkg hygiene (D66-9, A1, D3) |
+| 142 | given_pending_changesets_when_release_plan_computed_then_all_three_bump_to_0_3_0_alpha_1 | site freeze, versioning, pkg hygiene (D66-9, A1, D3) |
+| 143 | npm_pack_dry_run_for_core_contains_only_expected_files | modified #2: dist/wasm-loader.js in tarball (D66-9) |
+| 144 | adapter_packages_declare_peer_deps | modified #5: peers ^0.3.0-alpha.0 (A1, D66-9) |
+| 145 | core_dist_wasm_dynamic_import_resolves_to_packaged_file | modified #8: dynamic import lives in dist/wasm-loader.js (D3) |
+| 146 | changeset_config_matches_spec | modified #12: fixed group and onlyUpdatePeerDependentsWhenOutOfRange (D66-9) |
+
+W63's planned rows are covered as follows: border-radius.test.ts keeps its 4 pure tests (A4, a deletion); W64/W65 tests are unchanged.
 
 ## Must NOT
 - Start before W62 is completed or closed and W50 is closed by Dennis.
