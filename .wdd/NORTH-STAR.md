@@ -126,3 +126,14 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D64-16 | Cargo profiles | W64 | dec_bc44838f |
 | D64-17 | RenderFrame shape | W64 | dec_d6ad5a80 |
 | D64-18 | Registry contract | W64 | dec_c732986e |
+| D65-1 | Manual FrameClock via @internal clock option; scene ?clock=manual | W65 | dec_f400307b |
+| D65-2 | Snapshot path, Linux-only baselines, vite :4173 --strictPort with BROWSER=none | W65 | dec_1b435f00 |
+| D65-3 | CI e2e job in pinned image; canvas2d blocking, webgpu/perf soft | W65 | dec_e9d448f0 |
+| D65-4 | Print spec fixme until W66 | W65 | dec_82109335 |
+| D65-5 | WebGPU project: new headless + SwiftShader, smoke only, soft until 10 green | W65 | dec_fb1d2378 |
+| D65-6 | @playwright/test 1.63.0 exact = image tag; yaml devDependency | W65 | dec_ee08361e |
+| D65-7 | Baselines via Docker linux/amd64 now, workflow_dispatch later | W65 | dec_736206f7 |
+| D65-8 | Perf recording non-blocking; no baseline file in W65 | W65 | dec_0ef7fed4 |
+| D65-9 | opt-level 3 vs "s" by measurement, decided at gold | W65 | dec_facdf083 |
+| D65-10 | Multi-instance stress page (1 instantiation, 1 memory, 50 reloads) | W65 | dec_5e69c474 |
+| D65-11 | window.__liquidTest contract; [data-liquid] in DOM order | W65 | dec_dd763d4e |

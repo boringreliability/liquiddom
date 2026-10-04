@@ -42,63 +42,73 @@ Real-browser verification from slice 1 onwards:
 
 ## Decisions
 ### D65-1: Manual clock via the internal clock option
-Proposal: `createManualClock()` (fixed dt, default 1000/60 ms, `advance(n)`) is injected via the `@internal` `clock` option, and the scene uses it when given `?clock=manual`.
-Consequence: visual baselines become deterministic. Recordings (W69) must use the RAF clock instead, or the video freezes.
-Decision: PENDING
+Proposal: a `FrameClock` seam in `packages/core/ts/src/clock.ts` (`rafClock`; `createManualClock()` with a fixed dt of 1000/60 ms and `advance(n)`). It is injected through the `@internal` `clock` option of `createFluidRuntime`. The scene uses it with `?clock=manual`, and frames then run only through `window.__liquidTest.advance(n)`. W66 moves it onto `LiquidOptions.clock` (@internal).
+Consequence: visual baselines and the reduced-motion check are deterministic and do not depend on machine speed. The perf and stress specs and W69's recordings keep the RAF clock; a manual clock would freeze the video.
+Decision: APPROVED 2026-10-04 — manual FrameClock via @internal clock option; scene ?clock=manual (saga dec_f400307b)
 
-### D65-2: Snapshot path and Linux-only baselines
-Proposal: `snapshotPathTemplate: "e2e/__screenshots__/{testFilePath}/{arg}-{projectName}-{platform}{ext}"`. Baselines are Linux only, and visual assertions are skipped off Linux unless `UPDATE=1`.
-Consequence: macOS runs check behaviour but not pixels. The `.gitignore` rule `w*-*.png` must not swallow baselines (negation added, and no baseline name may start with `w`).
-Decision: PENDING
+### D65-2: Playwright config: snapshot path, Linux-only baselines, web server
+Proposal:
+- `snapshotPathTemplate: "e2e/__screenshots__/{testFilePath}/{arg}-{projectName}-{platform}{ext}"`. Baselines exist for Linux only, and visual specs `test.skip` off Linux.
+- `.gitignore` gets `!e2e/__screenshots__/**` after the existing `w*-*.png` rule.
+- Web server: `npx vite --config demo/vite.config.ts demo --port 4173 --strictPort`, with `BROWSER=none` in its env, `reuseExistingServer: !process.env.CI`, viewport 1280×800 and `testDir: "e2e"`. Command, port and env are exported from `e2e/projects.ts`, so vitest asserts them.
+
+Consequence: macOS runs check behaviour but never pixels. Pixels are compared only in the pinned image (CI or `scripts/e2e-docker.sh`). `server.open: true` in `demo/vite.config.ts` never opens a browser, and the local dev server on :3000 is left alone.
+Decision: APPROVED 2026-10-04 — snapshot template e2e/__screenshots__/…-{platform}; Linux-only baselines; vite :4173 --strictPort with BROWSER=none (saga dec_1b435f00)
 
 ### D65-3: CI e2e job
 Proposal:
-- The `e2e` job `needs: test` and downloads the `pkg/` artifact uploaded by the Node-22 leg.
-- It runs in `container: mcr.microsoft.com/playwright:v<X.Y.Z>-noble`, the same version as the exact `@playwright/test` pin, with `timeout-minutes: 20`.
-- The `canvas2d` step is blocking; the `webgpu` step has `continue-on-error: true`.
+- The `e2e` job has `needs: test` and downloads the `wasm-pkg` artifact uploaded by the Node-22 leg.
+- It runs in `container: mcr.microsoft.com/playwright:v1.63.0-noble` (`--ipc=host`) with `timeout-minutes: 25`, and is skipped on `workflow_dispatch`.
+- `canvas2d` blocks. `webgpu` and `perf` have `continue-on-error: true` and `timeout-minutes: 5`.
+- One invocation per project, separated by `E2E_SUITE`.
 
-Consequence: CI time grows by one job, and the image version and the npm pin must be bumped together. A test asserts that they match.
-Decision: PENDING
+Consequence: CI time grows by one job, and the image tag and the npm pin must be bumped together (D65-6).
+Decision: APPROVED 2026-10-04 — e2e job needs test, wasm-pkg artifact, pinned image v1.63.0-noble; canvas2d blocking, webgpu/perf continue-on-error (saga dec_e9d448f0)
 
 ### D65-4: Print spec waits for W66 [BOUNDARY]
-Proposal: `step 8 – print` is `test.fixme("W66 stylesheet")` until the injected stylesheet exists.
-Consequence: S1 step 8 "print" is only ✅ after W66.
-Decision: PENDING
+Proposal: `step 8 – print` is written in full and marked `test.fixme("W66 stylesheet")` until W66's injected stylesheet exists. W66 removes the `.fixme`.
+Consequence: S1 step 8 "print" only reaches ✅ after W66.
+Decision: APPROVED 2026-10-04 — print spec test.fixme until W66 stylesheet (saga dec_82109335)
 
-### D65-5: WebGPU project runs new headless Chromium on SwiftShader
-Proposal: `channel: "chromium"` (new headless; the default is headless-shell) with `--enable-unsafe-webgpu --enable-features=Vulkan --use-webgpu-adapter=swiftshader`, and the page forces `renderer: 'webgpu'`.
-Consequence: software WebGPU in CI. GPU timing is not measured there.
-Decision: PENDING
+### D65-5: WebGPU project: new headless Chromium on SwiftShader, smoke only, soft
+Proposal: `channel: "chromium"` (new headless; the default is headless-shell) with `--enable-unsafe-webgpu --enable-features=Vulkan --use-webgpu-adapter=swiftshader`. `testMatch` is the smoke spec only until slice 3 (C8). It stays soft until 10 green CI runs in a row, logged under "WebGPU soft-run log" below.
+Consequence: WebGPU in CI is software-only, so no GPU timing is measured there, and `acceptance.spec.ts` cannot fail under a renderer that does not exist yet.
+Decision: APPROVED 2026-10-04 — webgpu: channel chromium + SwiftShader flags, smoke spec only until slice 3, soft until 10 green runs (saga dec_fb1d2378)
 
-### D65-6: Baselines are generated in CI
-Proposal: a `workflow_dispatch` job `e2e-update-baselines` runs `npm run e2e:update` in the pinned image and uploads `e2e/__screenshots__` as an artifact, which is committed by hand. The local helper `scripts/e2e-docker.sh` uses `--platform linux/amd64` and a Linux `node_modules` volume (D1).
-Consequence: no arm64 and amd64 Skia rasterisation mismatch between the M4 Mac and CI.
-Decision: PENDING
+### D65-6: Exact Playwright pin and yaml devDependency
+Proposal: `@playwright/test` is pinned exactly to `1.63.0`, which equals the image `v1.63.0-noble`. `yaml` `^2.9.1` becomes an explicit root devDependency for `ci-workflow.test.ts` (D2).
+Consequence: a Playwright upgrade bumps the devDependency and the image tag in `ci.yml` together, and a vitest test asserts that they match. There is one small dev dependency, and nothing relies on `js-yaml` arriving transitively.
+Decision: APPROVED 2026-10-04 — @playwright/test 1.63.0 exact = image v1.63.0-noble; yaml ^2.9.1 devDependency (saga dec_ee08361e)
 
-### D65-7: The webgpu project runs only the smoke spec until slice 3
-Proposal: `testMatch: /webgpu-smoke\.spec\.ts/` for the `webgpu` project (C8).
-Consequence: `acceptance.spec.ts` does not fail under a renderer that does not exist yet.
-Decision: PENDING
+### D65-7: Baseline generation: Docker now, workflow_dispatch later
+Proposal: during this ward, baselines are generated with `scripts/e2e-docker.sh`: the pinned image as `--platform linux/amd64`, the repo copied in without `node_modules`, and only `e2e/__screenshots__`, `test-results` and `playwright-report` copied back. Later re-baselines use the `workflow_dispatch` job `e2e-update-baselines`, which uploads an `e2e-baselines` artifact.
+Consequence: there is no arm64/amd64 Skia rasterisation mismatch between the M4 Mac and CI. GitHub only offers "Run workflow" once `ci.yml` is on `master`, so this ward's own baseline comes from Docker. A human commits every baseline after a vision check.
+Decision: APPROVED 2026-10-04 — baselines from scripts/e2e-docker.sh (linux/amd64) now, e2e-update-baselines later; human commits after vision (saga dec_736206f7)
 
-### D65-8: Perf baseline is non-blocking; opt-level by measurement
-Proposal: `e2e/perf.spec.ts` (canvas2d, 8000 particles, acceptance scene, 600 RAF frames) records the p95 of `tick` per fixed step and the RAF-callback p95, and CI uploads them as an artifact without failing the job. `scripts/bench-opt-level.mjs` builds with `opt-level = 3` and with `"s"`, benchmarks both, and the result goes into this ward's gold notes (C1).
-Consequence: the spec's budgets (≤ 1.2× the CI baseline, RAF p95 ≤ 12 ms) get their baseline. `[profile.release]` may change to `"s"` by measurement.
-Decision: PENDING
+### D65-8: Perf recording is non-blocking
+Proposal: a separate `perf` project (canvas2d, RAF clock). It records the p95 of `core.tick` wall time per returned step (the probe wraps `bridge.core.tick` under `?perf=1`) and the RAF-callback p95 (timing `FrameClock`). CI uploads both as `perf-canvas2d`. Budgets are `expect.soft`: RAF p95 ≤ 12 ms, and tick p95 ≤ 1.2 × `e2e/perf-baseline.json` when that file exists.
+Consequence: CI never fails on perf numbers. This ward writes no `perf-baseline.json`; at gold, Dennis decides whether the CI artifact becomes the baseline.
+Decision: APPROVED 2026-10-04 — perf project non-blocking; tick p95 ≤ 1.2× baseline + RAF p95 ≤ 12 ms soft budgets; no perf-baseline.json in W65 (saga dec_0ef7fed4)
 
-### D65-9: yaml is an explicit devDependency
-Proposal: add `yaml` to the root devDependencies to parse workflows in `ci-workflow.test.ts` (D2).
-Consequence: one small dev dependency. No reliance on `js-yaml` arriving transitively.
-Decision: PENDING
+### D65-9: opt-level 3 vs "s" by measurement
+Proposal: `scripts/bench-opt-level.mjs` builds twice through `CARGO_PROFILE_RELEASE_OPT_LEVEL=3|s` (Cargo.toml untouched). It times `FluidCore.tick` per step in Node at 8000 particles in the acceptance layout, over 3 alternating rounds of 600 ticks. It uses the 7-arg constructor, area hint 76 057 px² (the rounded-rect formula) and max_element_h_px 180, which is the configuration W64's scenario tests use.
+Consequence: the result goes into the gold notes. Whether `[profile.release]` changes is Dennis' decision at gold, not part of this ward.
+Decision: APPROVED 2026-10-04 — opt-level 3 vs "s" measured by bench-opt-level.mjs; Cargo.toml unchanged in W65 (saga dec_facdf083)
 
-### D65-10: Playwright web server
-Proposal: `BROWSER=none npx vite --config demo/vite.config.ts demo --port 4173 --strictPort`, with `reuseExistingServer: !process.env.CI`, viewport 1280×800 and `testDir: "e2e"`.
-Consequence: `server.open: true` never opens a browser in CI, and the local dev server on 3000 is untouched.
-Decision: PENDING
+### D65-10: Multi-instance stress page
+Proposal: `demo/scenes/stress.html?n=2..4&ms=` starts `n` `createFluidRuntime` calls synchronously in one task (`Promise.all`, the race3 shape). Each has its own element, 2000 particles and a counting clock, and all share a counting `loader` around `loadFluidWasm`. The page counts successful `WebAssembly.instantiate*` calls. Pass criteria: 1 instantiation, 1 distinct memory, every instance ticked, finite state, idempotent destroy, and no console.error, pageerror or panic, over n = 2, 3, 4 and 50 reloads.
+Consequence: the W61 multi-instance regression is checked in a real browser on every CI run. The page has no `data-liquid`, so W66 must pass `autoObserve: false` there.
+Decision: APPROVED 2026-10-04 — stress page: n = 2..4 creates in one task, 1 instantiation, 1 memory, 50 reloads (saga dec_5e69c474)
+
+### D65-11: Scene hook contract
+Proposal: `window.__liquidTest = { ready, restAlpha(), advance(n), instance, params, perf }`, typed in `demo/test-hooks.ts`, which the demo pages and `e2e/global.d.ts` share. The observed elements are the `[data-liquid]` nodes in DOM order: `#splash`, `#split`, `#merge`, `#card`.
+Consequence: W66 keeps these names and that order when it moves the scene to `LiquidDOM.create` (with `autoObserve`), and keeps `perf` working through an @internal path.
+Decision: APPROVED 2026-10-04 — window.__liquidTest contract in demo/test-hooks.ts; [data-liquid] in DOM order (saga dec_dd763d4e)
 
 ## Specification
 - The manual clock's `advance(n, dtMs = 1000/60)` runs queued callbacks `n` times with timestamps increasing by `dtMs`. `cancel(handle)` removes the callback.
-- `__liquidTest.restAlpha()` returns the `restAlpha` of every observed element, in id order.
-- The guard fixture collects `console` messages of type `error`, `pageerror` events and any text matching `/panicked at|RuntimeError: unreachable/`, and fails the test in `afterEach`.
+- `__liquidTest.restAlpha()` returns the `restAlpha` of every `[data-liquid]` element in DOM order (`#splash`, `#split`, `#merge`, `#card`).
+- The guard fixture collects `console` messages of type `error`, `pageerror` events and any text matching `/panicked at|RuntimeError: unreachable/`, and fails the test at fixture teardown.
 - Step 1 waits for `__liquidTest.ready`, advances 120 frames, asserts every `restAlpha === 1` and that the DOM text is visible, then takes a screenshot with `maxDiffPixelRatio: 0.01`.
 - Step 8 (reduced motion) uses `emulateMedia({ reducedMotion: "reduce" })`: `restAlpha` is 1 on the first frame, and two frames 1 s apart are identical.
 - The multi-instance spec opens `stress.html?n=2|3|4` for 3 s each, then reloads 50 times. Zero errors are allowed.
@@ -136,7 +146,7 @@ Decision: PENDING
 - Fail CI on perf numbers.
 
 ## Must DO
-- Gate D65-1 … D65-10 before `wdd ward status 65 red`, and log them in NORTH-STAR.
+- Gate D65-1 … D65-11 before `wdd ward status 65 red`, and log them in NORTH-STAR.
 - Reconcile this Tests table in the red commit.
 - Give every new HTML page `<link rel="icon" href="data:,">` (D5).
 - Record the `bench-opt-level.mjs` result and the first perf numbers in the gold notes.
@@ -151,7 +161,7 @@ Decision: PENDING
    Expected: all canvas2d specs pass. Visual assertions are skipped on macOS.
 2. Run: `npx playwright test e2e/webgpu-smoke.spec.ts --project=webgpu`
    Verify: the adapter info is logged and the pixel matches (or the job is reported soft).
-3. Run: `scripts/e2e-docker.sh --update`
+3. Run: `npm run e2e:update`
    Verify: `e2e/__screenshots__/…/acceptance-step1-canvas2d-linux.png` is written. Inspect it with vision.
 4. Run: `node scripts/bench-opt-level.mjs`
    Verify: it prints mean and p95 ms per step for `opt-level=3` and `opt-level="s"`.
@@ -163,3 +173,7 @@ Decision: PENDING
 
 ## Verification
 CI shows the `e2e` job green for canvas2d, `npm run verify` is green, the gold notes contain the perf and opt-level numbers, and Dennis approves.
+
+## WebGPU soft-run log (D65-5: blocking after 10 green CI runs in a row)
+| # | CI run | webgpu smoke | adapter.info |
+|---|--------|--------------|--------------|
