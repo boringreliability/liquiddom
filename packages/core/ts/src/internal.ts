@@ -12,6 +12,11 @@ export function bindRuntime(instance: object, runtime: FluidRuntime): void {
   runtimes.set(instance, runtime);
 }
 
+/** W66.5 fix 3: called by destroy(), so a destroyed instance no longer reaches its runtime. */
+export function unbindRuntime(instance: object): void {
+  runtimes.delete(instance);
+}
+
 export function runtimeOf(instance: object): FluidRuntime | undefined {
   return runtimes.get(instance);
 }

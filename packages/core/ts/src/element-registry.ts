@@ -3,7 +3,7 @@ import { snapshotColors, snapshotColorsWithout, type RGBA } from "./color";
 import type { FluidBridge } from "./fluid-bridge";
 import { ELEMENT_STRIDE, El, roundedRectArea } from "./fluid-layout";
 import type { ElementOptions } from "./options";
-import { ELEMENT_CLASS, decorateElement, undecorateElement, type Decoration } from "./stylesheet";
+import { ELEMENT_CLASS, decorateElement, undecorateElement } from "./stylesheet";
 
 export interface ElementRecord {
   readonly id: number;
@@ -60,7 +60,8 @@ interface InternalRecord extends ElementRecord {
 export class ElementRegistry {
   private readonly slots: Array<InternalRecord | undefined>;
   private readonly byEl = new Map<HTMLElement, InternalRecord>();
-  private readonly decorations = new Map<HTMLElement, Decoration>();
+  /** This registry's decoration claims; the refcount itself lives in stylesheet.ts (shared across instances). */
+  private readonly decorated = new Set<HTMLElement>();
 
   constructor(
     private readonly bridge: FluidBridge,
@@ -119,7 +120,10 @@ export class ElementRegistry {
     v[o + El.VISCOSITY] = typeof opts.viscosity === "number" ? opts.viscosity : NaN;
     v[o + El.RECOVERY] = typeof opts.recovery === "number" ? opts.recovery : NaN;
     this.writeRect(rec, v, this.deps.coordOffset());
-    if (!this.decorations.has(el)) this.decorations.set(el, decorateElement(el));
+    if (!this.decorated.has(el)) {
+      decorateElement(el);
+      this.decorated.add(el);
+    }
     this.deps.scheduleRedistribute();
     return id;
   }
@@ -132,11 +136,7 @@ export class ElementRegistry {
     this.slots[rec.id] = undefined;
     const o = rec.id * ELEMENT_STRIDE;
     this.bridge.elementView().fill(0, o, o + ELEMENT_STRIDE);
-    const decoration = this.decorations.get(el);
-    if (decoration) {
-      undecorateElement(el, decoration);
-      this.decorations.delete(el);
-    }
+    if (this.decorated.delete(el)) undecorateElement(el);
     this.deps.scheduleRedistribute();
   }
 

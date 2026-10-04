@@ -8,7 +8,7 @@ import { resolveOptions, validateElementOptions, type ElementOptions, type Gravi
 import { validateMaterial, type Material } from "./material";
 import { LiquidWasmLoadError } from "./wasm-loader";
 import { WebGPUUnavailableError } from "./renderers/webgpu-renderer";
-import { bindRuntime } from "./internal";
+import { bindRuntime, unbindRuntime } from "./internal";
 
 export { LiquidWasmLoadError, WebGPUUnavailableError, validateMaterial };
 export type { ElementOptions, GravityOptions, LiquidOptions, Material };
@@ -89,7 +89,9 @@ export class LiquidDOM {
     };
 
     try {
-      for (const el of initial) observeQuietly(el);
+      // W66.5 fix 2: the WASM load is async; a candidate removed meanwhile still fed
+      // the area hint above, but it is not observed.
+      for (const el of initial) if (el.isConnected) observeQuietly(el);
     } catch (err) {
       runtime.destroy();
       throw err;
@@ -130,6 +132,7 @@ export class LiquidDOM {
         destroyed = true;
         discovery?.disconnect();
         discovery = null;
+        unbindRuntime(instance);
         runtime.destroy();
       },
 
@@ -149,7 +152,14 @@ export class LiquidDOM {
       autoDiscover(rootEl?: Element): void {
         live("autoDiscover");
         if (discovery) return;
-        const target: Node = rootEl ?? o.container ?? document.body;
+        // W66.5 fix 4: in container mode the root must be the container or inside it.
+        if (rootEl && o.container && !o.container.contains(rootEl)) {
+          throw new TypeError("[liquiddom] autoDiscover(root): root must be the container or an element inside it");
+        }
+        const target: Node | null = rootEl ?? o.container ?? document.body;
+        if (!target) {
+          throw new Error("[liquiddom] autoDiscover needs a document body (or a root element) to observe");
+        }
         discovery = new MutationObserver((records) => {
           if (destroyed) return;
           for (const record of records) {

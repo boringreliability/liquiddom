@@ -89,14 +89,27 @@ export function stackingFor(position: string, zIndex: string): StackMode | null 
   return null;
 }
 
-export interface Decoration {
+interface Decoration {
   readonly hadClassAttr: boolean;
   readonly hadClass: boolean;
   readonly prevStack: string | null;
 }
 
+/**
+ * W66.5 fix 1: decorations are refcounted per element across ALL instances, so
+ * an element observed by two instances stays decorated until the last one lets
+ * go, and the recorded state is always the pre-liquid state (taken by the first
+ * decorate only). Each caller must pair one decorate with one undecorate.
+ */
+const decorated = new WeakMap<HTMLElement, { count: number; decoration: Decoration }>();
+
 /** Call AFTER the colour snapshot (the class makes the background transparent). */
-export function decorateElement(el: HTMLElement): Decoration {
+export function decorateElement(el: HTMLElement): void {
+  const entry = decorated.get(el);
+  if (entry) {
+    entry.count += 1;
+    return;
+  }
   const decoration: Decoration = {
     hadClassAttr: el.hasAttribute("class"),
     hadClass: el.classList.contains(ELEMENT_CLASS),
@@ -107,11 +120,17 @@ export function decorateElement(el: HTMLElement): Decoration {
   const mode = cs ? stackingFor(cs.position, cs.zIndex) : "relative";
   el.classList.add(ELEMENT_CLASS);
   if (mode !== null) el.setAttribute(STACK_ATTR, mode);
-  return decoration;
+  decorated.set(el, { count: 1, decoration });
 }
 
-/** Restores exactly what decorateElement changed. */
-export function undecorateElement(el: HTMLElement, d: Decoration): void {
+/** Releases one decorate; the last release restores exactly what the first decorate changed. */
+export function undecorateElement(el: HTMLElement): void {
+  const entry = decorated.get(el);
+  if (!entry) return;
+  entry.count -= 1;
+  if (entry.count > 0) return;
+  decorated.delete(el);
+  const d = entry.decoration;
   if (!d.hadClass) el.classList.remove(ELEMENT_CLASS);
   if (!d.hadClassAttr && el.getAttribute("class") === "") el.removeAttribute("class");
   if (d.prevStack === null) el.removeAttribute(STACK_ATTR);
