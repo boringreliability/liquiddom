@@ -4,7 +4,7 @@
  * fluid-ffi tests) so determinism is checked against the actual engine.
  * Requires `npm run build:wasm` (D4).
  */
-import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createFluidRuntime, type FluidRuntime } from "../src/runtime";
@@ -33,6 +33,10 @@ beforeAll(async () => {
   backend = { memory: exports.memory, FluidCore: mod.FluidCore as unknown as FluidCoreCtor };
   // W64's installFakeCanvas2D() returns a FakeCanvasHandle; restore() undoes the patch (A6).
   fakeCanvas = installFakeCanvas2D();
+});
+
+beforeEach(() => {
+  // Re-stubbed per test because afterEach unstubs globals (rAF stub must not leak).
   if (typeof window.matchMedia !== "function") {
     vi.stubGlobal("matchMedia", (query: string) => ({
       matches: false,
@@ -49,7 +53,6 @@ beforeAll(async () => {
 
 afterAll(() => {
   fakeCanvas?.restore();
-  vi.unstubAllGlobals();
 });
 
 function mountScene(): HTMLElement[] {
@@ -108,6 +111,7 @@ const live: FluidRuntime[] = [];
 
 describe("W65 runtime frame scheduling through FrameClock", () => {
   afterEach(() => {
+    vi.unstubAllGlobals();
     for (const rt of live.splice(0)) rt.destroy();
     document.body.replaceChildren();
   });
@@ -117,8 +121,10 @@ describe("W65 runtime frame scheduling through FrameClock", () => {
     const clockB = createManualClock(0);
     const a = await start(42, clockA);
     const b = await start(42, clockB);
+    const before = bits(a.bridge.dynamicView());
     clockA.advance(120);
     clockB.advance(120);
+    expect(bits(a.bridge.dynamicView()), "advancing must change the state").not.toEqual(before);
     const va = a.bridge.dynamicView();
     const vb = b.bridge.dynamicView();
     expect(va.length).toBe(PARTICLES * DYNAMIC_FIELDS);

@@ -21,11 +21,38 @@ import {
   webServerEnv,
 } from "../../../e2e/projects";
 import { summarize } from "../../../e2e/stats";
+import config from "../../../playwright.config";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const SPECS = readdirSync(resolve(ROOT, "e2e"))
   .filter((f) => f.endsWith(".spec.ts"))
   .sort();
+
+interface ProjectCfg {
+  name: string;
+  testMatch?: RegExp;
+  testIgnore?: RegExp[];
+  use?: { channel?: string; launchOptions?: { args?: string[] }; viewport?: { width: number; height: number } };
+}
+const cfg = config as unknown as {
+  testDir?: string;
+  snapshotPathTemplate?: string;
+  use?: { baseURL?: string };
+  webServer?: { command?: string; url?: string; reuseExistingServer?: boolean; env?: Record<string, string> };
+  projects?: ProjectCfg[];
+};
+const cfgProjects = cfg.projects ?? [];
+
+/** Specs the REAL playwright.config.ts routes to a project (testMatch/testIgnore as Playwright applies them). */
+function configRoutedTo(project: string): string[] {
+  const p = cfgProjects.find((x) => x.name === project);
+  if (!p) throw new Error(`playwright.config.ts has no project ${project}`);
+  return SPECS.filter((f) => {
+    const file = resolve(ROOT, "e2e", f);
+    const match = p.testMatch ?? /\.spec\.ts$/;
+    return match.test(file) && !(p.testIgnore ?? []).some((re) => re.test(file));
+  });
+}
 
 function routedTo(project: string): string[] {
   return SPECS.filter((f) => projectsForSpec(resolve(ROOT, "e2e", f)).includes(project as never));
@@ -41,6 +68,8 @@ describe("W65 e2e harness", () => {
   it("given_playwright_config_when_loaded_then_webgpu_project_matches_only_the_smoke_spec", () => {
     expect(SPECS).toContain("webgpu-smoke.spec.ts");
     expect(routedTo("webgpu")).toEqual(["webgpu-smoke.spec.ts"]);
+    // Proven on the REAL config object, not only the helper.
+    expect(configRoutedTo("webgpu")).toEqual(["webgpu-smoke.spec.ts"]);
   });
 
   it("given_e2e_spec_files_when_routed_then_canvas2d_runs_every_spec_except_smoke_and_perf", () => {
@@ -54,6 +83,9 @@ describe("W65 e2e harness", () => {
   it("given_project_table_when_read_then_only_canvas2d_is_blocking_and_perf_runs_only_perf_spec", () => {
     expect(PROJECT_FILES.filter((p) => p.blocking).map((p) => p.name)).toEqual(["canvas2d"]);
     expect(routedTo("perf")).toEqual(["perf.spec.ts"]);
+    expect(configRoutedTo("perf")).toEqual(["perf.spec.ts"]);
+    expect(configRoutedTo("canvas2d")).toEqual(routedTo("canvas2d"));
+    expect(cfgProjects.map((p) => p.name)).toEqual(PROJECT_FILES.map((p) => p.name));
   });
 
   it("given_webgpu_launch_args_when_read_then_they_equal_the_spec_swiftshader_flags", () => {
@@ -86,6 +118,22 @@ describe("W65 e2e harness", () => {
       "use: useFor(p.name)",
     ]) {
       expect(config, `playwright.config.ts wires ${wiring}`).toContain(wiring);
+    }
+  });
+
+  it("given_real_playwright_config_when_loaded_then_it_applies_the_D65_settings", () => {
+    expect(cfg.testDir).toBe("e2e");
+    expect(cfg.snapshotPathTemplate).toBe("e2e/__screenshots__/{testFilePath}/{arg}-{projectName}-{platform}{ext}");
+    expect(cfg.use?.baseURL).toBe(BASE_URL);
+    expect(cfg.webServer?.command).toBe(WEB_SERVER_COMMAND);
+    expect(cfg.webServer?.url).toBe(`${BASE_URL}/scenes/acceptance.html`);
+    expect(cfg.webServer?.reuseExistingServer).toBe(!process.env.CI);
+    expect(cfg.webServer?.env?.BROWSER).toBe("none");
+    for (const p of cfgProjects) {
+      expect(p.use?.viewport, `${p.name} viewport`).toEqual({ width: 1280, height: 800 });
+      expect(p.use?.channel, `${p.name} channel`).toBe(PROJECT_USE[p.name as keyof typeof PROJECT_USE].channel);
+      const args = PROJECT_USE[p.name as keyof typeof PROJECT_USE].launchArgs;
+      expect(p.use?.launchOptions?.args, `${p.name} launch args`).toEqual(args ? [...args] : undefined);
     }
   });
 

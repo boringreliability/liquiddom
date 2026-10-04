@@ -37,6 +37,8 @@ const ci = parse(readFileSync(resolve(ROOT, ".github/workflows/ci.yml"), "utf8")
 const rootPkg = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")) as {
   devDependencies?: Record<string, string>;
 };
+const OPTIONS_OF = (j: { container?: string | { options?: string } }): string =>
+  typeof j.container === "object" ? (j.container.options ?? "") : "";
 
 function job(name: string): Job {
   const j = ci.jobs?.[name];
@@ -72,12 +74,14 @@ const RUNS_UNLESS_CANCELLED = /always\(\)|!cancelled\(\)/;
 describe("W65 CI e2e workflow", () => {
   it("given_ci_yml_when_parsed_then_e2e_job_needs_test_and_uses_playwright_image_matching_the_exact_devDependency_version", () => {
     const pin = pinnedPlaywright();
+    expect(pin).toBe("1.63.0");
+    expect(rootPkg.devDependencies?.yaml).toBe("^2.9.1");
     expect(pin, "D65-6: exact pin, no range").toMatch(/^\d+\.\d+\.\d+$/);
     const e2e = job("e2e");
     expect(needsOf(e2e)).toContain("test");
     expect(imageOf(e2e)).toBe(`mcr.microsoft.com/playwright:v${pin}-noble`);
-    expect(e2e["timeout-minutes"]).toBeGreaterThan(0);
-    expect(e2e["timeout-minutes"]).toBeLessThanOrEqual(30);
+    expect(e2e["timeout-minutes"]).toBe(25);
+    expect(OPTIONS_OF(e2e)).toContain("--ipc=host");
     expect(e2e.if ?? "", "e2e is skipped on manual baseline runs").toContain("!= 'workflow_dispatch'");
   });
 
@@ -89,8 +93,7 @@ describe("W65 CI e2e workflow", () => {
     const gpu = runSteps(e2e, "--project=webgpu");
     expect(gpu).toHaveLength(1);
     expect(gpu[0]["continue-on-error"]).toBe(true);
-    expect(gpu[0]["timeout-minutes"]).toBeGreaterThan(0);
-    expect(gpu[0]["timeout-minutes"]).toBeLessThanOrEqual(10);
+    expect(gpu[0]["timeout-minutes"]).toBe(5);
     expect(gpu[0].if ?? "").toMatch(RUNS_UNLESS_CANCELLED);
   });
 
@@ -124,6 +127,7 @@ describe("W65 CI e2e workflow", () => {
     const perf = runSteps(e2e, "--project=perf");
     expect(perf).toHaveLength(1);
     expect(perf[0]["continue-on-error"]).toBe(true);
+    expect(perf[0]["timeout-minutes"]).toBe(5);
     const upload = stepsOf(e2e).find((s) => isUpload(s, "perf-canvas2d"));
     expect(upload, "perf-canvas2d artifact").toBeDefined();
     expect(String(upload?.with?.path)).toContain("perf-canvas2d.json");
@@ -136,6 +140,7 @@ describe("W65 CI e2e workflow", () => {
     expect(jb.if ?? "").toContain("github.event_name == 'workflow_dispatch'");
     expect(needsOf(jb)).toContain("test");
     expect(imageOf(jb)).toBe(`mcr.microsoft.com/playwright:v${pinnedPlaywright()}-noble`);
+    expect(OPTIONS_OF(jb)).toContain("--ipc=host");
     const update = runSteps(jb, "--update-snapshots");
     expect(update).toHaveLength(1);
     expect(update[0].run).toContain("--project=canvas2d");
