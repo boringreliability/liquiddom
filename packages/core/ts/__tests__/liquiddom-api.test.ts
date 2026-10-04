@@ -102,6 +102,7 @@ describe("W66 T3: autoObserve and autoDiscover", () => {
     const sb2 = spyBackend();
     await create({ testBackend: sb2.backend, autoObserve: false });
     expect(sb2.ctorArgs[0]![4]).toBe(0);
+    for (const el of document.querySelectorAll("[data-liquid]")) el.remove();
     const sb3 = spyBackend();
     await create({ testBackend: sb3.backend, autoObserve: true }); // no candidates in the DOM
     expect(sb3.ctorArgs[0]![4]).toBe(0);
