@@ -66,7 +66,7 @@ The soft-body engine (W6–W62) is retired as of W66; its last state is the git 
   - the renderer (`renderers/select.ts`)
   - the `LoopController` (user pause vs hidden tab)
   - reduced motion
-- Per frame: coord offset → `registry.sync()` → `core.tick()` → `bridge.syncGeneration()` → `renderer.render(frame)`.
+- Per frame: coord offset → `registry.sync()` → `core.tick()` → `bridge.syncGeneration()` → `renderer.render(frame)`. The first frame that throws stops the instance for good (one `console.error`, the loop is destroyed); recovery is `destroy()` + `create()`. `destroy()` never throws (a failing `core.free()` only warns).
 - `index.ts` `LiquidDOM.create()` is the public facade:
   - `resolveOptions`: a whitelist; removed options throw. The `@internal` hooks are `testBackend`, `loader`, `clock`.
   - autoObserve candidates become the area hint.
@@ -78,7 +78,7 @@ The soft-body engine (W6–W62) is retired as of W66; its last state is the git 
 - On `observe()` the colours are snapshotted **before** `class="liquid-element"` is applied; `data-liquid-stack="relative" | "z"` handles stacking.
 - One refcounted `<style id="liquiddom-styles">` per document, in `@layer liquiddom` with `!important`. The paint and stacking rules are scoped to `@media screen and (forced-colors: none)` and there is no `revert-layer`. Print and `forced-colors: active` hide the canvas, and the elements keep their own styling.
 - The canvas is `aria-hidden`, `pointer-events: none`, `z-index: 0`, last in `body` or inside the container. `unobserve()` restores the element exactly. Two instances observing the same element share one decoration (refcounted).
-- `refresh(el)` re-reads colours. There is no automatic colour refresh until slice 4.
+- `refresh(el)` re-reads colours. There is no automatic colour refresh until slice 4. The re-read lifts the class with inline `transition: none !important` (so a CSS background transition cannot return its transparent start value), flushes style, then restores the exact `class` and `style` attribute strings.
 
 ### Renderers
 - `renderers/frame.ts` defines `Renderer` (`init / render / resize / destroy`) and `RenderFrame`.
@@ -86,7 +86,7 @@ The soft-body engine (W6–W62) is retired as of W66; its last state is the git 
 - `WebGPURenderer` is infra only (a clear pass) until slice 3. `'auto'` means Canvas2D without probing.
 
 ### Interim state (slices 1–5)
-Gravity is validated but has no effect until slice 6. Container mode works. Scroll is verified only in slice 6.
+Gravity is validated but has no effect until slice 6. Container mode works; the container must be a positioned element (e.g. `position: relative`) because the canvas is absolutely positioned inside it. liquiddom never restyles the container (that would move the containing block of the author's own absolutely positioned descendants); a static container gets one `console.warn` per instance at `create()`. Scroll is verified only in slice 6.
 
 ## Project-specific constraints (do not violate)
 - No JSON over FFI. Fixed pools: `particles` and `maxElements` are set at `create()`; there is no `grow()`.

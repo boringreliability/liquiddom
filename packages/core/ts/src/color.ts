@@ -90,16 +90,35 @@ export function snapshotColors(el: HTMLElement): { background: RGBA; text: RGBA 
 /**
  * W66 (spec §3 "Colour"): re-read colours of an element that carries the
  * liquid class by lifting the class for the duration of the read.
+ *
+ * Ward-fix I1: an author `transition: background-color …` would make the
+ * same-task read return the transition's start value (transparent, so the
+ * default purple). While the class is lifted the element also carries inline
+ * `transition: none !important`. Both attributes are then restored to their
+ * exact original strings (class first, then style; an absent style attribute
+ * is removed), so no inline style persists (D66-3).
  */
 export function snapshotColorsWithout(el: HTMLElement, className: string): { background: RGBA; text: RGBA } {
   if (!el.classList.contains(className)) return snapshotColors(el);
-  // Restore the exact attribute string (class order included), not just the class.
-  const prev = el.getAttribute("class");
+  // Restore the exact attribute strings (class order, style text), not just the class.
+  const prevClass = el.getAttribute("class");
+  const prevStyle = el.getAttribute("style");
+  el.style.setProperty("transition", "none", "important");
   el.classList.remove(className);
   try {
     return snapshotColors(el);
   } finally {
-    if (prev === null) el.removeAttribute("class");
-    else el.setAttribute("class", prev);
+    if (prevClass === null) el.removeAttribute("class");
+    else el.setAttribute("class", prevClass);
+    // Flush style while `transition: none` still holds: the next style change
+    // event then sees no background change, so restoring the author transition
+    // starts nothing. Without this flush Chromium starts a red→transparent
+    // transition on the restored element (verified by e2e/colour-refresh.spec.ts).
+    void getComputedStyle(el).backgroundColor;
+    // Chromium serialises a CSSOM-mutated style attribute lazily; without first
+    // syncing it (the getAttribute read), removeAttribute is later undone as style="".
+    el.getAttribute("style");
+    if (prevStyle === null) el.removeAttribute("style");
+    else el.setAttribute("style", prevStyle);
   }
 }

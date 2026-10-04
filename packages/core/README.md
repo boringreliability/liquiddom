@@ -29,7 +29,7 @@ Every `[data-liquid]` element is observed. Its computed `background-color` becom
 |---|---|---|
 | `particles` | `8000` | Fixed particle pool, integer 256–65536 |
 | `maxElements` | `32` | Fixed element slots, 1–256; `observe()` beyond it throws `RangeError` |
-| `container` | none | Mount the canvas inside this element (container mode) |
+| `container` | none | Mount the canvas inside this element (container mode). The container must be a positioned element (e.g. `position: relative`): the canvas is absolutely positioned inside it. liquiddom does not restyle it; a static container logs a `console.warn` at `create()` |
 | `renderer` | `'auto'` | `'auto'` / `'canvas2d'` / `'webgpu'` (WebGPU draws nothing until a later alpha) |
 | `material` | `{ viscosity: 0.5, cohesion: 0.5, recovery: 0.7 }` | viscosity and cohesion in [0, 1], recovery in seconds [0.2, 3] |
 | `gravity` | `{ source: 'none' }` | Accepted and validated; no effect yet |

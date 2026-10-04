@@ -20,6 +20,8 @@ import { loadFluidWasm, type FluidBackend, type FluidCoreLike } from "./wasm-loa
 
 export const LIQUID_CANVAS_CLASS = "liquid-canvas";
 export const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+export const STATIC_CONTAINER_WARNING =
+  "[liquiddom] container must be a positioned element (e.g. position: relative); the canvas is absolutely positioned inside it";
 
 export interface FluidRuntimeOptions {
   /** Integer in [16, 65536]; the W66 facade narrows the public range. */
@@ -179,7 +181,15 @@ function buildRuntime(
 ): FluidRuntime {
   const clock: FrameClock = opts.clock ?? rafClock;
   const container = opts.container;
+  // Ward-fix I2: the canvas is absolutely positioned inside the container. The
+  // author's container is never restyled (that would move the containing block
+  // of their own absolutely positioned descendants); a static one gets a warning.
+  if (container && getComputedStyle(container).position === "static") {
+    console.warn(STATIC_CONTAINER_WARNING);
+  }
   let destroyed = false;
+  /** Ward-fix M2a: set by the first frame that throws; the loop is gone for good. */
+  let failed = false;
   let lastMs: number | null = null;
   let inFrame = false;
   let frameOffset: Offset = ZERO;
@@ -296,8 +306,7 @@ function buildRuntime(
     reducedMotion,
   });
 
-  const frame = (nowMs: number): void => {
-    if (destroyed) return;
+  const frameBody = (nowMs: number): void => {
     const dtS = lastMs === null || !Number.isFinite(nowMs) ? 0 : Math.max(0, (nowMs - lastMs) / 1000);
     if (Number.isFinite(nowMs)) lastMs = nowMs;
     frameOffset = container ? readOffset(container) : ZERO;
@@ -312,6 +321,21 @@ function buildRuntime(
       renderer.render(buildFrame());
     } finally {
       inFrame = false;
+    }
+  };
+
+  // Ward-fix M2a: a throwing frame (e.g. a Rust panic → RuntimeError: unreachable,
+  // after which the core's borrow is poisoned) stops the instance for good: one
+  // console.error, the loop is destroyed so pause/resume/visibility cannot re-arm
+  // it, and destroy() keeps working. Recovery is destroy() + create().
+  const frame = (nowMs: number): void => {
+    if (destroyed || failed) return;
+    try {
+      frameBody(nowMs);
+    } catch (err) {
+      failed = true;
+      loop.destroy();
+      console.error("[liquiddom] frame failed; the instance stopped. Call destroy() and create a new instance.", err);
     }
   };
 
@@ -372,7 +396,13 @@ function buildRuntime(
       window.removeEventListener("resize", resizeCanvas);
       renderer.destroy();
       canvas.remove();
-      core.free();
+      // Ward-fix M2b: a poisoned core (after a panic) may throw on free; adapter
+      // cleanups call destroy() and must never throw.
+      try {
+        core.free();
+      } catch (err) {
+        console.warn("[liquiddom] freeing the fluid core failed during destroy(); ignored.", err);
+      }
     },
   };
 }

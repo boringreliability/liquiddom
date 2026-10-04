@@ -54,8 +54,9 @@ interface InternalRecord extends ElementRecord {
 }
 
 /**
- * Observed elements and their slots (replaces PhantomObserver for the fluid
- * engine). Element id == slot index, always the lowest free slot.
+ * Observed elements and their slots for the fluid engine (the retired
+ * soft-body engine's DOM observer is gone). Element id == slot index, always
+ * the lowest free slot.
  */
 export class ElementRegistry {
   private readonly slots: Array<InternalRecord | undefined>;

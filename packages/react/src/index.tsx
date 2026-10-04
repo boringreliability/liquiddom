@@ -55,8 +55,11 @@ export function LiquidProvider({ config, children }: LiquidProviderProps): JSX.E
     return () => {
       cancelled = true;
       if (created) created.destroy();
-      // No setInstance(null) on unmount — context is going away regardless,
-      // and post-unmount state updates generate noise in test output.
+      // Ward-fix M1: the context must never hand out a destroyed instance
+      // ("null after destroy"), e.g. when React re-runs this effect on a kept
+      // component (Fast Refresh, strict-mode reconnects). React 18 ignores the
+      // update after a real unmount.
+      setInstance(null);
     };
   }, []); // empty deps — config captured by ref, ignored after mount
 
