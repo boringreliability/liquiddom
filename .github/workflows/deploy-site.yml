@@ -1,23 +1,12 @@
 name: Deploy site
 
-# Ward 058: build + deploy the @liquiddom/site Astro site to GitHub Pages.
-# Triggers only on push to master (no PR — avoids burning Actions minutes).
-# No untrusted github.event inputs are interpolated into run: blocks.
+# W66 (spec §5): the site is FROZEN during the fluid-engine rewrite. It still
+# imports the retired soft-body API, so it is out of the root workspaces and
+# out of CI; the live site stays on the `softbody-final` deployment. It is
+# rebuilt as a fluid playground and re-enabled in slice 6.
+# Do NOT dispatch this workflow before then: the build would fail.
 on:
-  push:
-    branches: [master]
-    paths:
-      - "site/**"
-      - "packages/**"
-      - "src/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/deploy-site.yml"
-      # Note: pkg/ is intentionally NOT here — it's gitignored (wasm-pack
-      # output), so it would never match a path filter anyway. Cargo source
-      # changes in src/** + Cargo.lock are the real WASM-rebuild trigger.
+  workflow_dispatch:
 
 permissions:
   contents: read

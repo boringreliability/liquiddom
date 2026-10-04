@@ -5,8 +5,7 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "examples/*",
-    "site"
+    "examples/*"
   ],
   "scripts": {
     "build:wasm": "wasm-pack build --target web --out-dir pkg",
@@ -28,11 +27,6 @@
     "changeset": "changeset",
     "version": "changeset version",
     "release": "npm run build && npx changeset publish"
-  },
-  "overrides": {
-    "@liquiddom/site": {
-      "vite": "^7.3.3"
-    }
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
