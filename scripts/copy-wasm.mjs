@@ -54,4 +54,10 @@ for (const file of jsFiles(distDir)) {
     patched += 1;
   }
 }
+// Post-condition (idempotent): the loader must end up pointing at the colocated copy,
+// so a dist with no specifier at all (e.g. a renamed loader) fails instead of logging 0.
+const loader = resolve(distDir, "wasm-loader.js");
+if (!existsSync(loader) || !readFileSync(loader, "utf-8").includes('"./wasm/liquiddom.js"')) {
+  throw new Error("[copy-wasm] dist/wasm-loader.js does not import ./wasm/liquiddom.js after the rewrite");
+}
 console.log(`[copy-wasm] WASM copied to packages/core/dist/wasm; pkg specifier rewritten in ${patched} file(s).`);
