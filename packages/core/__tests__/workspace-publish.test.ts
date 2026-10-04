@@ -465,7 +465,11 @@ describe("W66: site freeze, versioning, pkg-specifier hygiene", () => {
     const info = /tsconfig\.build\.tsbuildinfo/;
     const nodeText = cleanPhase.filter((c) => c.kind === "node").map((c) => c.text).join("\n");
     const shellOk = cleanPhase.some((c) => c.kind === "shell" && /\brm\s[^&;|]*\bdist\b[^&;|]*tsconfig\.build\.tsbuildinfo|\brm\s[^&;|]*tsconfig\.build\.tsbuildinfo[^&;|]*\bdist\b/.test(c.text));
-    const nodeOk = nodeRemoves(nodeText, dist) && nodeRemoves(nodeText, info);
+    // A script may also loop over a path list (`for (const rel of [...]) rmSync(resolve(root, rel))`):
+    // then it needs a removal call AND both paths as string literals in non-comment code.
+    const literal = (path: RegExp): RegExp => new RegExp(`["'\`][^"'\`]*${path.source}[^"'\`]*["'\`]`);
+    const loopOk = removal.test(nodeText) && literal(dist).test(nodeText) && literal(info).test(nodeText);
+    const nodeOk = (nodeRemoves(nodeText, dist) && nodeRemoves(nodeText, info)) || loopOk;
     expect(shellOk || nodeOk, "a removal call before tsc must name both dist and tsconfig.build.tsbuildinfo").toBe(true);
   });
 });
