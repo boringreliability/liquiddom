@@ -3,12 +3,12 @@ ward: 67
 revision: null
 name: "Splash and shake, end to end"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [66]
 layer: "both"
 estimated_tests: 80
 created: "2026-10-03"
-completed: null
+completed: "2026-10-05"
 ---
 # Ward 067: Splash and shake, end to end
 

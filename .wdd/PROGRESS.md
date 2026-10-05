@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-64 of 69 Wards complete · 724 estimated tests · 1 blocked
+65 of 69 Wards complete · 755 estimated tests · 1 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -72,9 +72,9 @@
 | 064 | Liquid at rest, end to end | 115 | ✅ Complete | 2026-10-05 |
 | 065 | Verification harness (Playwright, CI, perf baseline) | 21 | ✅ Complete | 2026-10-05 |
 | 066 | Public API swap and soft-body retirement | 154 | ✅ Complete | 2026-10-05 |
-| 067 | Splash and shake, end to end | 49 | 📋 Planned | - |
+| 067 | Splash and shake, end to end | 80 | ✅ Complete | 2026-10-05 |
 | 068 | Pointer, hover and material | 20 | 📋 Planned | - |
 | 069 | Playground, splash scene, whole-picture check | 7 | 📋 Planned | - |
 
 ## Test Summary
-- Estimated total: 724
+- Estimated total: 755
