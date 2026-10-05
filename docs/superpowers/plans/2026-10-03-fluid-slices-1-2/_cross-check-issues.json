@@ -1,0 +1,297 @@
+[
+ {
+  "ward": 67,
+  "severity": "blocker",
+  "problem": "FluidCore constructor arity. W64 (D64-4, B15) freezes a 7-argument constructor: new(particles, max_elements, world_w_px, world_h_px, area_hint_px2, max_element_h_px, seed). Every W67 Rust test calls a 6-argument version, so the test crate does not compile: FluidCore::new(2000, 4, 640.0, 480.0, 6_226.0, seed) in interaction.rs w67_tests, the same in api.rs w67_tests, and FluidCore::new(8000, 32, 1280.0, 800.0, LAYOUT_AREA_PX2, seed) in scenario_tests::w67. The W67 'Assumed surface' table also lists the 6-argument form.",
+  "fix": "Insert max_element_h_px before seed in every call: 48.0 for the button cores, 180.0 for the acceptance core. Correct the surface table to the 7-argument constructor.",
+  "severity_note": ""
+ },
+ {
+  "ward": 68,
+  "severity": "blocker",
+  "problem": "pointer_hover_tests.rs has three compile errors. (1) It calls FluidCore::new with 6 arguments; W64's constructor takes 7. (2) It does `use super::elements::{HOVER_SWELL, \u2026}`, but HOVER_SWELL is a const in layout.rs that elements.rs only imports privately, so the import fails with E0603. W68.8 Interfaces repeats the claim that HOVER_SWELL is in elements.rs. (3) It writes `let (tx, ty) = core.target_px(i as _)`, but W64's test helper returns Option<(f32, f32)>. hover-focus.test.ts also constructs the test core with 6 arguments, `new backend.FluidCore(256, 4, 1280, 800, 0, 1)`, which shifts seed into maxElementHPx.",
+  "fix": "Use the 7-argument constructor in both files: (8000, 32, 1280.0, 800.0, AREA_HINT_PX2, 180.0, seed) in Rust and (256, 4, 1280, 800, 0, 0, 1) in TS. Import HOVER_SWELL from super::layout. Unwrap target_px with .unwrap() or .expect(), or fix the W68 interface note to the Option return type."
+ },
+ {
+  "ward": 67,
+  "severity": "blocker",
+  "problem": "W67 code is written against Rust names that differ from what W64 defines. (a) The grid's dirty region is set_region() / clear_region(), but the W67 solver calls g.set_dirty_aabb() / g.clear(). (b) Elements::home_rect(id, reduced_motion), target_px(id, u, v, reduced_motion) and update_rest_state(id, max_dev, dt, reduced_motion) all take a reduced_motion parameter; W67 calls 1-, 3- and 3-argument forms, which also breaks W64's own elements tests (home_rect(0, false) and so on). (c) W64's Elements has no rest_hold_s or phase field, yet W67 reads rest_hold_s and says to 'make phase pub'. W64 already has has_prev, which W67 duplicates as prev_valid. (d) W64's FluidCore keeps settings.material and settings.reduced_motion and already has time_s: f32; W67 uses self.material and self.reduced_motion and adds a second time_s: f64. (e) W67 replaces solver.rs, which removes compute_targets, the 3-argument pin_to_targets and the 5-argument measure_max_dev (now cfg(test) with 4 arguments). W64's FluidCore::redistribute() and refresh_rest_state() still call all three, and W67.10 never rewrites them, so the non-test library build fails. W67.1 Step 1 only says to 'reconcile names'; the code blocks themselves would not compile.",
+  "fix": "Rewrite the W67 code against W64's actual API. Call set_region/clear_region. Keep the reduced_motion parameter on home_rect, target_px and update_rest_state, or change W64's signatures and its tests together in this ward. Add rest_hold_s and phase to Elements::new explicitly and reuse has_prev. Use self.settings.* and the existing time_s. Rewrite FluidCore::redistribute() and refresh_rest_state() in W67.10 against the new solver API: pin_to_targets(p, g, e), and maxDev taken from scratch.max_dev or the test-only measure."
+ },
+ {
+  "ward": 67,
+  "severity": "blocker",
+  "problem": "Cargo.toml gets two [profile.test] tables. W64.2 Step 1 already adds `[profile.test] opt-level = 2`, and W67.3 Step 1 appends the same table again. Cargo rejects a duplicate table, so the whole workspace stops building.",
+  "fix": "Delete W67.3 Step 1 and note that W64 already sets [profile.test] opt-level = 2."
+ },
+ {
+  "ward": 68,
+  "severity": "major",
+  "problem": "D68-10 conditionally adds `[profile.test] opt-level = 2` to Cargo.toml. W64 already added that table, so doing it again duplicates the TOML table and breaks the build.",
+  "fix": "Drop D68-10 and W68.8 Step 5's Cargo edit, or reword them as 'already set by W64; nothing to do'."
+ },
+ {
+  "ward": 67,
+  "severity": "major",
+  "problem": "W67's new FluidCore::tick returns `steps` even under reduced motion. D64-4 and W64's tests require 0 under reduced motion: given_tick_with_raw_dt_one_sixtieth..._returns_one_step asserts 0 after set_reduced_motion, and the reduced-motion scenario asserts frames(1) == 0. W64's scenario also asserts exactly `c.mean_j() == 1.0` at rest. Once W67 updates J (and wobble runs while restAlpha starts at 0 under the hysteresis), J is no longer exactly 1.0. W67's Rust-green step claims every W64 test stays ok.",
+  "fix": "Return 0 from tick when reduced_motion is set. Either relax the W64 mean_j assertion to a tolerance in W67's red commit, or initialise restAlpha so that elements already at rest are not wobbled."
+ },
+ {
+  "ward": 67,
+  "severity": "blocker",
+  "problem": "Two TS mismatches with W64 and W66. (1) installFakeCanvas2D() returns a FakeCanvasHandle with a .restore() method; it does not return a function. splash-api.test.ts and splash-input.test.ts assign that handle to `restoreCanvas: () => void` and call restoreCanvas() in afterEach, which throws a TypeError at runtime. The W67 surface table also states the wrong return type. (2) W67.11 adds splash() and shake() to the facade as `this.assertAlive('splash')` and `this.runtime.splash(...)`. W66's facade is an object literal with a closure `live(method)` and a local `runtime`; there is no class, no assertAlive and no this.runtime.",
+  "fix": "Use `const fake = installFakeCanvas2D(); \u2026 fake.restore()`. Write the facade methods in W66's closure style: live('splash'); runtime.splash(...). Correct the surface table."
+ },
+ {
+  "ward": 68,
+  "severity": "blocker",
+  "problem": "W68.12 appends `export function mergeMaterial(base, partial: unknown)` and `export const MATERIAL_KEYS` to material.ts. W66 already defines mergeMaterial there (exported and used by options.ts) and a module-level MATERIAL_KEYS const. The duplicate declarations fail tsc and the build.",
+  "fix": "Extend W66's existing functions instead: add the whitelist and non-object checks to validateMaterial, or rename the new helper (for example mergeMaterialChecked). Export the existing MATERIAL_KEYS rather than redeclaring it."
+ },
+ {
+  "ward": 68,
+  "severity": "major",
+  "problem": "D68-7 puts a `if (reducedMotion) return;` guard into the runtime's splash path. W67's FluidRuntime.splash(el, at, strength) returns a boolean, and the facade throws 'element is not observed' whenever that boolean is falsy. A bare `return;` yields undefined, so under reduced motion splash(el) throws instead of being a silent no-op, and W68's own reduced-motion-input test fails. W68 also says to rename nothing in tick: W67's tick still takes _px/_py/_pvx/_pvy/_pointer_active and builds PointerField::default(). W68.7 Step 5 wrongly attributes that code to 'W64's construction'.",
+  "fix": "Return true from the guard (the element is observed; the call is just a no-op), or put the guard in the facade after validation. In W68.7 Step 5, rename W67's underscore-prefixed tick parameters and replace PointerField::default() with PointerField::sanitized(px, py, pvx, pvy, pointer_active)."
+ },
+ {
+  "ward": 64,
+  "severity": "blocker",
+  "problem": "The W64.1 direction gate does not match the gate format that W63's wdd-docs.test.ts enforces. It writes `Decision: D64-n <name>: <choice> (saga <id>)` as loose lines, but the test (tests 22, 23 and 7) requires each `### D64-k` block inside `## Decisions` to carry exactly one `Decision: APPROVED YYYY-MM-DD \u2014 \u2026 (saga dec_<hex>)` line, plus a row in the NORTH-STAR 'Plan decisions' log. W64.1 never adds NORTH-STAR rows. The decision sets also diverge: the plan has D64-1\u2026D64-16 with different contents (D64-10 is names/defaults, D64-15 is RenderFrame, D64-16 is the registry), while W63's ward-064.md has D64-1\u2026D64-15 (D64-10 is the type files, D64-15 is copy-wasm). After `wdd ward status 64 red`, npm test turns red.",
+  "fix": "W64.1 must replace the PENDING lines inside W63's existing ### D64-k blocks with the APPROVED format and add a NORTH-STAR plan-log row for each. Make the plan's D64 list and ward-064.md identical: add a D64-16 block and align the contents of D64-10 and D64-15."
+ },
+ {
+  "ward": 65,
+  "severity": "blocker",
+  "problem": "W65.0 has the same direction-gate mismatch as W64. It appends `Decision: D65-n \u2026 (saga <id>)` lines at the end of the file instead of filling the ### blocks, adds no NORTH-STAR rows, and overwrites W63's frontmatter (name 'Verification harness (slice 1)', estimated_tests 40). Its D65-1\u2026D65-11 also differ from W63's D65-1\u2026D65-10: D65-6 is pins in the plan but baselines-in-CI in W63, D65-9 is opt-level in the plan but yaml in W63, and D65-11 has no block. W63's tests 7, 22 and 23 fail once the ward reaches red.",
+  "fix": "Edit W63's existing ward-065.md: renumber or add the ### D65-k blocks so they match D65-1\u2026D65-11, write APPROVED/AMENDED lines inside them, add NORTH-STAR plan-log rows, and keep W63's name and frontmatter."
+ },
+ {
+  "ward": 66,
+  "severity": "blocker",
+  "problem": "W66's direction gate writes plain `Decision:` lines for D66-1\u2026D66-15, while W63's ward-066.md contains D66-1\u2026D66-14 with different contents (the plan's D66-11 is the injected-CSS layer; W63's D66-11 is the tsc fixture). The APPROVED format and the NORTH-STAR rows are not mentioned. Separately, W66.10 rewrites CLAUDE.md and deletes the `### Fluid engine (in progress, Epic 15)` section that W63 test 26 asserts, but never updates wdd-docs.test.ts. W63 explicitly requires that W66 update test 26 in the same commit.",
+  "fix": "Align the D66 blocks in ward-066.md (add D66-15), use the APPROVED format, and add the NORTH-STAR rows. In W66.10, update test 26 in packages/core/__tests__/wdd-docs.test.ts to the new heading (for example '### Fluid engine') and the strings the new section contains, in the same commit as the CLAUDE.md rewrite."
+ },
+ {
+  "ward": 67,
+  "severity": "blocker",
+  "problem": "W67.1 Step 2 replaces the whole body of ward-067.md with a template that has no `## Decisions` section, so W63 tests 20 and 22 fail. It also keeps the skeleton ids D68-1 and D68-3 'moved here'. W63 (D63-4) renumbered those to D67-4 and D67-5, and test 22 requires every block id in ward 067 to start with D67-. The rest of the set (D67-3 = gravity, D67-4 = impulses, D67-5 = strength 0, plus D67-8 and D67-9) conflicts with W63's D67-1\u2026D67-7 (where D67-2 = gravity).",
+  "fix": "Keep W63's body structure. Use one D67-k numbering that is identical in the plan and in ward-067.md: the validation decision becomes D67-x and the unobserved-element decision D67-y, with no D68 ids. Gate each decision with the APPROVED format and add a NORTH-STAR row."
+ },
+ {
+  "ward": 68,
+  "severity": "blocker",
+  "problem": "W68.0 Step 1 'creates' ward-068.md, which overwrites W63's file with a body that lacks `## Decisions`. It then uses the ids D67-2, D68-2, D68-4\u2026D68-10 with a different meaning. W63 renumbered skeleton D67-2 (the pointer field) to D68-3, and W63's D68-1\u2026D68-6 are presets, hover, pointer field, smoothing, RM gating and the whitelist. The Decision lines are not in the APPROVED format, and no NORTH-STAR rows are added. W63 tests 20, 22 and 23 fail.",
+  "fix": "Edit W63's existing ward-068.md instead of recreating it. Renumber the plan's decisions to D68-k blocks that match the file. Fill each with APPROVED/AMENDED plus a saga id, and log each in NORTH-STAR."
+ },
+ {
+  "ward": 69,
+  "severity": "major",
+  "problem": "W69 gates D69-1\u2026D69-4, but W63's ward-069.md only has D69-1 and D69-2 blocks. The plan writes `Decision: D69-n \u2014 \u2026 (saga <id>)` instead of the APPROVED format and does not add NORTH-STAR rows.",
+  "fix": "Add D69-3 and D69-4 blocks to ward-069.md, use the APPROVED line format, and add NORTH-STAR plan-log rows."
+ },
+ {
+  "ward": 66,
+  "severity": "blocker",
+  "problem": "W66.6 replaces W65's stress.ts. The new version only sets window.__liquidTest and never publishes window.__stress, the StressReport that W65's e2e/multi-instance.spec.ts waits for in the blocking canvas2d project. The new acceptance.ts also drops __liquidTest.params and __liquidTest.perf, which are part of the D65-11 contract in demo/test-hooks.ts and are used by e2e/perf.spec.ts; W65's hand-off says to keep perf. W66.6 Step 12 nonetheless claims multi-instance passes.",
+  "fix": "Port W65's stress.ts reporting (instantiation counting, distinctMemories, frames, the __stress object) onto LiquidDOM.create with autoObserve:false. Have acceptance.ts keep parseSceneParams, params and the perf probe (reaching core.tick through runtimeOf(instance).bridge.core), and type the hook with LiquidTestHook from demo/test-hooks.ts."
+ },
+ {
+  "ward": 69,
+  "severity": "blocker",
+  "problem": "W69 recreates demo/scenes/playground.html, playground.ts and playground-state.ts. W66's api-migration test given_retired_demo_scenes_when_checked_then_deleted_and_acceptance_scene_kept asserts that playground.{html,ts} and demo/scenes/playground-state.ts do not exist, so npm test turns red after W69.",
+  "fix": "In W69.1's red commit, edit api-migration.test.ts: remove 'playground' and playground-state.ts from the retired list, or narrow the assertion to the soft-body scene contents."
+ },
+ {
+  "ward": 69,
+  "severity": "major",
+  "problem": "W69.6 tells you to add testIgnore to 'the canvas2d project object' and to append a record project in playwright.config.ts. W65 builds the projects array from PROJECT_FILES in e2e/projects.ts, so there is no literal canvas2d object to edit, and USE is a Record<ProjectName, \u2026> without a 'record' key. If PROJECT_FILES is updated, W65's e2e-harness.test (whose canvas2d routing expects every spec except smoke and perf) starts expecting record.spec.ts to run in canvas2d and fails.",
+  "fix": "Add 'record' to ProjectName and to PROJECT_FILES (testMatch /record\\.spec\\.ts$/, blocking false), and add record.spec to canvas2d's testIgnore there. Add a USE.record entry. Update e2e-harness.test.ts so canvas2d excludes record.spec and routedTo('record') equals ['record.spec.ts']."
+ },
+ {
+  "ward": 69,
+  "severity": "major",
+  "problem": "The re-form budgets in W69's recording and report do not follow D67-1. record.spec.ts hard-codes budgetMs 1_500 for steps 3 and 4, and the report template refers to `\u2026rest_alpha_1_within_1_5_s` and 're-form within 1.5 s'. Under option 1, the recommended choice that W67's code is written for, W67 renames the test to \u2026within_3_s and amends spec \u00a76 and NORTH-STAR step 3 to 3 s.",
+  "fix": "Take the step-3 budget from the D67-1 outcome: read it from NORTH-STAR, or use a constant shared with W67's e2e. Refer to W67's actual test names in the report template."
+ },
+ {
+  "ward": 67,
+  "severity": "minor",
+  "problem": "W67.14 changes the 1.5 s re-form budget only in spec \u00a76 and NORTH-STAR step 3. NORTH-STAR's Experiences bullet ('a button within 1.5 s of a splash') and the spec \u00a72 text still say 1.5 s, and the grep check in W67.14 Step 2 will flag them.",
+  "fix": "Include the NORTH-STAR Experiences bullet in the D67-1 edit, or narrow the grep to the scene-step lines."
+ },
+ {
+  "ward": 65,
+  "severity": "major",
+  "problem": "scripts/bench-opt-level.mjs calls `new glue.FluidCore(PARTICLES, MAX_ELEMENTS, VW, VH, areaHint, SEED)` with 6 arguments. With W64's 7-argument constructor, SEED lands in max_element_h_px and seed becomes undefined, so the benchmark does not run the configuration it claims.",
+  "fix": "Call new glue.FluidCore(PARTICLES, MAX_ELEMENTS, VW, VH, areaHint, 180, SEED)."
+ },
+ {
+  "ward": 66,
+  "severity": "major",
+  "problem": "W66.11, W67.13 and W68.13 run `gh workflow run e2e-update-baselines.yml` (W68: `e2e-update-baselines`). W65 defines e2e-update-baselines as a job inside ci.yml, not as a workflow file, so that command fails. Also, workflow_dispatch is only available once ci.yml is on master (D65-7), and these wards run on the feature branch.",
+  "fix": "Use `gh workflow run ci.yml --ref <branch>` once ci.yml is on master. Until then, use W65's `npm run e2e:update` / scripts/e2e-docker.sh. Apply the same fix in W67.13 and W68.13."
+ },
+ {
+  "ward": 63,
+  "severity": "minor",
+  "problem": "The FFI constructor W63 writes into the ward-064.md Specification and into the CLAUDE.md 'Fluid engine (in progress)' note is the 6-argument new(particles, max_elements, world_w_px, world_h_px, area_hint_px2, seed). W64 (D64-4, B15) freezes 7 arguments, with max_element_h_px. Later wards copied the wrong arity from these documents.",
+  "fix": "Add max_element_h_px before seed in the ward-064.md FFI spec and in the CLAUDE.md fluid note."
+ },
+ {
+  "ward": 66,
+  "severity": "minor",
+  "problem": "Several of W66's stated red expectations contradict W64. runtime-lifecycle is said to fail on 'no liquid-canvas class', and the a11y spec on 'no canvas.liquid-canvas / no aria-hidden', but W64's runtime already sets class liquid-canvas and aria-hidden (D64-10). W66's stylesheet test also calls the test backend with 6 arguments: `new backend.FluidCore(1024, 4, 1280, 800, 0, 1)`.",
+  "fix": "Correct the expected red output. Use the 7-argument call (\u2026, 0, 0, 1)."
+ },
+ {
+  "ward": 69,
+  "severity": "minor",
+  "problem": "W69 Step P4 and _rest-state.ts describe the rest read as 'the facade's pass-through of FluidRuntime.elementState', but W66 exposes it only through runtimeOf(instance) in internal.ts. The planned fallback for an unobserved element, 1, also differs from W66 acceptance.ts, which uses NaN.",
+  "fix": "Implement restAlphaOf as runtimeOf(instance)?.elementState(el)?.restAlpha ?? Number.NaN, imported from packages/core/ts/src/internal, so it matches W66 exactly."
+ },
+ {
+  "ward": 64,
+  "severity": "blocker",
+  "problem": "The W64.1 direction gate does not follow the D63-6 contract. Step 3 adds free-standing lines of the form `Decision: D64-n <name>: <choice> (saga <id>)` and leaves the `### D64-k` blocks in ward-064.md at `Decision: PENDING`. Those lines also miss the `APPROVED YYYY-MM-DD \u2014 \u2026 (saga dec_\u2026)` regex, and no step adds rows to the NORTH-STAR \"Plan decisions\" log. The plan's own D64 list also disagrees with the ward file W63 created: 16 items against 15, with different contents (ward-064 D64-10 is ElementOptions/Material, plan D64-10 is names/defaults; ward D64-14 is canvas resize, plan D64-14 is Cargo profiles). Once `wdd ward status 64 red` runs, wdd-docs tests 7, 22 and 23 fail, so `npm test` and the W64 gold `npm run verify` go red.",
+  "fix": "Rewrite W64.1 Step 3: (1) reconcile the D64-k ids and contents with ward-064.md, or update the blocks' Proposal/Consequence and add a `### D64-16` block; (2) replace each `Decision: PENDING` inside its block with `Decision: APPROVED <date> \u2014 <choice> (saga dec_\u2026)`, or AMENDED; (3) add one `| D64-k | \u2026 | W64 | dec_\u2026 |` row per decision to NORTH-STAR \"Plan decisions\"; (4) run `npx vitest run packages/core/__tests__/wdd-docs.test.ts` before `wdd ward status 64 red`. Commit NORTH-STAR together with the ward file."
+ },
+ {
+  "ward": 65,
+  "severity": "blocker",
+  "problem": "The W65.0 gate has the same D63-6 violation as W64. Step 2 says \"create if absent\" and then resets the frontmatter: name becomes \"Verification harness (slice 1)\" while W63 and Epic 15 use \"\u2026(Playwright, CI, perf baseline)\", and estimated_tests 40. Step 5 appends free-form `Decision: D65-n \u2026` lines instead of rewriting the PENDING lines in the `### D65-k` blocks. D65-11 has no block in ward-065. The numbering also diverges from the W63 ward file (ward D65-6 is CI baselines, plan D65-6 is pins). No NORTH-STAR rows are added. Tests 7, 22 and 23 fail once W65 is red.",
+  "fix": "Drop the create/overwrite in Step 2, because W63.6 already wrote ward-065.md. Edit the existing `### D65-k` blocks to match D65-1\u2026D65-11 (add a D65-11 block) and rewrite each Decision line in APPROVED/AMENDED format with its saga id. Add the NORTH-STAR plan-log rows. Run wdd-docs.test.ts before `wdd ward status 65 red`."
+ },
+ {
+  "ward": 66,
+  "severity": "blocker",
+  "problem": "W66 has no executable direction-gate task. The \"Decisions to gate\" prose exists, but Prerequisites P1\u2013P4 and Task W66.1 never present, log or write the decisions before Step 27 runs `wdd ward status 66 red`. The plan's D66-1\u2026D66-15 also diverge from ward-066's D66-1\u2026D66-14 in both content and numbering (ward D66-11 is the tsc fixture, plan D66-11 is @layer CSS; ward D66-13 is the area hint, plan D66-13 is the scene hook; ward D66-14 is the full Material, plan D66-14 is the clean build). No NORTH-STAR rows are added, so wdd-docs tests 7, 22 and 23 fail at red.",
+  "fix": "Add a Task W66.0 \"Direction gate\" before W66.1 with checkbox steps: present each decision \u2192 saga_record_decision \u2192 rewrite the matching `### D66-k` block (add D66-15, align contents) to `Decision: APPROVED \u2026 (saga dec_\u2026)` \u2192 add NORTH-STAR plan-log rows \u2192 run wdd-docs.test.ts \u2192 commit. Only after that does Step 27 run `wdd ward status 66 red`."
+ },
+ {
+  "ward": 67,
+  "severity": "blocker",
+  "problem": "W67.1 Step 2 says to \"Replace everything below the frontmatter\" with a body that has no `## Decisions` section and no `### D67-k` blocks, only a bare `Decision: (filled in Step 3\u2026)` line. That breaks wdd-docs tests 20 and 22. The gate also uses the ids D68-1 and D68-3 inside W67, although D63-4 renamed them D67-4 and D67-5 and test 22 requires the `D67-` prefix. Content numbering conflicts with ward-067 as well (ward D67-2 is gravity, plan D67-3 is gravity; ward D67-3 is the impulse constants, plan D67-4). No NORTH-STAR rows are added.",
+  "fix": "Keep the W63 ward-067 body and edit it in place. Renumber the plan decisions to D67-1\u2026D67-n, with D68-1 becoming D67-4 and D68-3 becoming D67-5 as D63-4 says, and keep each as a `### D67-k` block with Proposal/Consequence/one Decision line in APPROVED format. Add the NORTH-STAR rows. Run wdd-docs.test.ts before red."
+ },
+ {
+  "ward": 68,
+  "severity": "blocker",
+  "problem": "W68.0 Step 1 re-creates and overwrites the ward-068.md that W63 wrote. The new file has no `## Decisions` section and no `### D68-k` blocks, which fails test 20. Its decision ids include \"D67-2\" (test 22 requires the `D68-` prefix, and D63-4 renamed it D68-3), and its numbering conflicts with the W63 file (ward D68-1 is presets, plan D68-2; plan D68-5 is velocity smoothing, ward D68-4). Step 3 adds lines under `Decision:` in a free format, and no NORTH-STAR rows are added.",
+  "fix": "Edit the existing ward-068.md instead of creating it. Map the nine plan decisions onto D68-1\u2026D68-n (soft pointer field = D68-3 per D63-4), with each as a `### D68-k` block carrying an APPROVED/AMENDED Decision line and saga id. Add the NORTH-STAR plan-log rows. Run wdd-docs.test.ts before `wdd ward status 68 red`."
+ },
+ {
+  "ward": 69,
+  "severity": "blocker",
+  "problem": "W69 Prerequisite P5 writes `Decision: D69-n \u2014 <one line> (saga <id>)`, which does not match the D63-6 regex. D69-3 and D69-4 have no `### D69-k` blocks in ward-069.md, which only has D69-1 and D69-2. No NORTH-STAR plan-log rows are added. wdd-docs tests 7 and 23 fail as soon as W69 goes red.",
+  "fix": "In P5: add `### D69-3` and `### D69-4` blocks, rewrite all four Decision lines as `Decision: APPROVED <date> \u2014 <choice> (saga dec_\u2026)`, add the NORTH-STAR rows, and run wdd-docs.test.ts before `wdd ward status 69 red`."
+ },
+ {
+  "ward": 66,
+  "severity": "blocker",
+  "problem": "W66.10 Step 5 rewrites CLAUDE.md and replaces `## Architecture (high-level)` and `### Fluid engine (in progress, Epic 15)` with a new `## Architecture` section. W63 test 26 (`given_claude_md_\u2026architecture_marks_fluid_engine_in_progress_with_FluidCore_and_strides`) looks up those exact headings and the strings `retired as of W66`, `softbody-final`, `.wdd/NORTH-STAR.md` and `STATIC_FIELDS = 3`. W63.7 says \"W66 \u2026 must update test 26 in the same commit\", but no W66 task touches wdd-docs.test.ts, so `npm run verify` at W66.11 fails.",
+  "fix": "Add a W66.10 step that updates wdd-docs.test.ts test 26 to the new heading (for example `## Architecture` / `### FFI contract`) and its required strings in the same commit as the CLAUDE.md rewrite, and list the file under W66.10 Files. Alternatively, keep a `### Fluid engine` subsection that still satisfies test 26."
+ },
+ {
+  "ward": 66,
+  "severity": "blocker",
+  "problem": "W66.6 rewrites demo/scenes/stress.ts and acceptance.ts and drops the W65 test contracts. The new stress.ts sets only `window.__liquidTest` and never writes `window.__stress`, the report that the blocking W65 `e2e/multi-instance.spec.ts` waits for (instantiations, distinctMemories, frames\u2026). The canvas2d project therefore fails, but W66.6 Step 12 and W66.11 Step 2 expect it to pass. The new acceptance.ts drops `__liquidTest.perf` and `params`, which breaks `e2e/perf.spec.ts`. W65.12 Step 7 explicitly asked W66 to keep both.",
+  "fix": "Port W65's stress.ts (instantiation counting, counting loader and clock, StressReport) to `LiquidDOM.create` with an @internal loader/clock path instead of replacing it. Keep `params` and `perf` in the acceptance hook, with the tick probe going through `runtimeOf(instance).bridge.core`. List both specs among those that W66.6 Step 12 re-runs."
+ },
+ {
+  "ward": 67,
+  "severity": "blocker",
+  "problem": "The W67 Rust code is written against an \"Assumed W64\u2013W66 surface\" table that contradicts the W64 code in this same plan, so the given code does not compile:\n- the tests call `FluidCore::new` with 6 args, while W64 D64-4 freezes 7;\n- `Elements::home_rect(id)` and `target_px(id,u,v)`, while W64 takes `reduced_motion`;\n- fields `rest_hold_s` and `phase`, which W64's Elements lacks;\n- `self.material` and `self.reduced_motion`, while W64 uses `settings.*`;\n- `set_dirty_aabb`/`clear`, while W64 has `set_region`/`clear_region`;\n- `update_rest_state` with 3 args and new `pin_to_targets`/`measure_max_dev` signatures, while W64's `redistribute()`/`refresh_rest_state` (not updated by W67.10) still call the old ones.\nStep W67.1 \"adapt only W67's call sites\" pushes this onto the implementer.",
+  "fix": "Rewrite W67.2\u2013W67.10 against the concrete W64 code: 7-arg ctor everywhere; the real Grid/Elements/FluidCore names; add `rest_hold_s` and `phase` to `Elements` and `Elements::new`; show the replacement bodies of `FluidCore::redistribute` and `refresh_rest_state` and of every caller of the changed solver functions. Drop the \"assumed surface\" table, or make it match W64 exactly."
+ },
+ {
+  "ward": 67,
+  "severity": "blocker",
+  "problem": "W67.3 Step 1 appends `[profile.test] opt-level = 2` to Cargo.toml, but W64.2 Step 1 already added that table. A duplicate `[profile.test]` table is a TOML parse error, so every cargo command fails. W68's conditional D68-10 has the same problem.",
+  "fix": "Delete W67.3 Step 1 (and W68 D68-10, or turn it into \"already present since W64\"). Note in both that `[profile.test] opt-level = 2` comes from W64 (D64-14)."
+ },
+ {
+  "ward": 67,
+  "severity": "blocker",
+  "problem": "splash-api.test.ts and splash-input.test.ts do `restoreCanvas = installFakeCanvas2D()` and call `restoreCanvas()` in afterEach. W64's `installFakeCanvas2D()` returns a `FakeCanvasHandle { contexts, ctxFor, restore }`, not a function. afterEach throws `TypeError: restoreCanvas is not a function`, so all 17 W67 TS tests fail even after implementation. `_recording-backend.ts` and the surface table also state the wrong return type.",
+  "fix": "Use `let fake: FakeCanvasHandle; beforeEach(() => { fake = installFakeCanvas2D(); }); afterEach(() => fake.restore());` in both files, and correct the surface table."
+ },
+ {
+  "ward": 68,
+  "severity": "blocker",
+  "problem": "pointer_hover_tests.rs and the W68.7/W68.8 Rust code do not match W64:\n- `FluidCore::new` is called with 6 args (W64 has 7);\n- `let (tx, ty) = core.target_px(i as _)`, but W64's test helper returns `Option<(f32, f32)>`;\n- `use super::elements::{HOVER_SWELL, \u2026}`, but HOVER_SWELL is defined in layout.rs and only privately `use`d in elements.rs (E0603);\n- W68.8 adds an `Elements.reduced_motion` field and changes `home_rect`, but W64's `home_rect(id, reduced_motion)` already takes the flag and already applies the B1 swell.\nThe hover-focus.test.ts TestCore is also built with 6 args.",
+  "fix": "Use 7-arg constructors, `.unwrap()` or `?` the `target_px` Option in the tests, and import HOVER_SWELL from `super::layout`. Implement `swell_rect` as a refactor of W64's existing `home_rect(id, reduced_motion)` swell, without a new field."
+ },
+ {
+  "ward": 63,
+  "severity": "major",
+  "problem": "The ward-064.md that W63.6 writes says the constructor is `new(particles, max_elements, world_w_px, world_h_px, area_hint_px2, seed)` (6 args), in both Specification and D64-4. The W63.7 CLAUDE.md fluid note gives the same 6-arg signature. The W64 plan (D64-4, B15) freezes a 7-arg constructor with `max_element_h_px` before `seed`. The canonical docs W63 produces contradict the frozen FFI.",
+  "fix": "In W63.6 ward-064 (Specification and the D64-4 Proposal) and in the W63.7 CLAUDE.md note, use `new(particles, max_elements, world_w_px, world_h_px, area_hint_px2, max_element_h_px, seed)`."
+ },
+ {
+  "ward": 65,
+  "severity": "major",
+  "problem": "`scripts/bench-opt-level.mjs`, and the W65.11 interface, construct `new glue.FluidCore(PARTICLES, MAX_ELEMENTS, VW, VH, areaHint, SEED)` with 6 args. Against W64's 7-arg FFI, SEED lands in `max_element_h_px` and the seed becomes 0, so the opt-level measurement runs a different configuration than documented. `areaHint` is also computed as \u03a3w\u00b7h, not the rounded-rect area, so the cell size differs from the acceptance scene.",
+  "fix": "Pass 7 args (`\u2026, areaHint, 180 /* tallest */, SEED`) and compute the hint with the rounded-rect formula (76 057 px\u00b2), so it matches scenario_tests."
+ },
+ {
+  "ward": 65,
+  "severity": "major",
+  "problem": "Review Focus #5 is only partly pinned. There is no test asserting that the webgpu project uses `channel: \"chromium\"` (new headless rather than headless-shell), or that the webServer command runs with `BROWSER=none` and `--strictPort` (`server.open: true` trap). e2e-harness.test.ts only checks routing and launch args from e2e/projects.ts. The other #5 items (epsilon, image pin, gitignore, docker) are pinned.",
+  "fix": "Add an e2e-harness test that imports playwright.config.ts (or move the USE/webServer constants into e2e/projects.ts) and asserts `use.channel === \"chromium\"` for webgpu, `webServer.env.BROWSER === \"none\"`, and `--strictPort` in `webServer.command`. Reconcile it with ward-065 test #19."
+ },
+ {
+  "ward": 69,
+  "severity": "major",
+  "problem": "The code step W69.4 Step 1 contains a literal placeholder: the body of `restAlphaOf` is `...` with the note \"moved unchanged from acceptance.ts\". The source is known from W66.6 Step 6 (`runtimeOf(instance)?.elementState(el)?.restAlpha ?? Number.NaN`). The doc comment also says \"Unobserved \u2192 1\", which contradicts W66's NaN.",
+  "fix": "Write the body: `import { runtimeOf } from \"../../packages/core/ts/src/internal\"; return runtimeOf(instance)?.elementState(el)?.restAlpha ?? Number.NaN;`. Fix the doc comment. Simplify P4 to verify that expression."
+ },
+ {
+  "ward": 66,
+  "severity": "major",
+  "problem": "Baselines are regenerated with `gh workflow run e2e-update-baselines.yml` / `gh run list --workflow e2e-update-baselines.yml`, but no such workflow file exists, because `e2e-update-baselines` is a job inside ci.yml. workflow_dispatch also only works once ci.yml is on master (D65-7). On top of that, Step 3 runs `git push -u origin` without asking Dennis. W67.13 Step 3 and W68.13 Step 4 have the same problem.",
+  "fix": "Use `npm run e2e:update` (scripts/e2e-docker.sh, linux/amd64) as the default, as W65.10 does. Allow `gh workflow run ci.yml --ref <branch>` only once ci.yml is on master. Add a STOP asking Dennis before any push. Apply the same fix to W67.13 and W68.13."
+ },
+ {
+  "ward": 67,
+  "severity": "major",
+  "problem": "The baseline step in W67.13 Step 3 uses the nonexistent `e2e-update-baselines.yml` workflow, and it pushes the branch without Dennis' consent.",
+  "fix": "Generate the baselines with `npm run e2e:docker -- --project=canvas2d --update-snapshots=all e2e/acceptance.spec.ts`, and add a STOP before any push."
+ },
+ {
+  "ward": 68,
+  "severity": "major",
+  "problem": "W68.13 Step 4 runs `gh workflow run e2e-update-baselines`. That is a job inside ci.yml, not a workflow, and it is not dispatchable from a branch before ci.yml is on master. The step also pushes without asking Dennis.",
+  "fix": "Use scripts/e2e-docker.sh to generate the step-2 baseline, and add a STOP before any push."
+ },
+ {
+  "ward": 66,
+  "severity": "minor",
+  "problem": "W66.1 Step 15's code block holds a placeholder comment (\"(current :43-81 \u2026 pasted unchanged here)\") instead of the test code. W66's stylesheet.test.ts `makeRegistry` constructs the test core with 6 args, `(1024, 4, 1280, 800, 0, 1)`, so seed ends up in maxElementHPx.",
+  "fix": "Give an exact command, for example `{ head -n 9 header; sed -n '43,81p' old; } > new`, or inline the four tests. Use 7-arg constructors."
+ },
+ {
+  "ward": 66,
+  "severity": "minor",
+  "problem": "W66 has no code-review step before the gold STOP, which breaks the project memory rule \"review before present\". W64, W65, W67 and W68 all have one.",
+  "fix": "Add a W66.11 step that runs `/code-review` (or superpowers:requesting-code-review) on the W66 diff, fixes confirmed findings and re-runs verify before `wdd ward status 66 gold`."
+ },
+ {
+  "ward": 69,
+  "severity": "minor",
+  "problem": "W69 also has no code-review step before gold. The record spec also hard-codes `budgetMs: 1_500` for steps 3 and 4, and the slice-2.md template says \"re-form within 1.5 s\", which ignores the D67-1 outcome: option 1 amends the spec and NORTH-STAR to 3 s. The W63 ward-069 spec describes a 4-column table (`| Step | Expected (S2) | Observed | Status |`), while the W69 test requires 5 columns.",
+  "fix": "Add a code-review step before W69.9 Step 5. Derive the splash budget from the D67-1 decision line, or from a constant shared with acceptance.spec.ts. Make the ward-069 table spec match the 5-column test, or reconcile it at red."
+ },
+ {
+  "ward": 67,
+  "severity": "minor",
+  "problem": "W67.14 amends spec \u00a72, spec \u00a76 step 3 and NORTH-STAR scene step 3. It leaves NORTH-STAR \"Experiences\" (\"a button within 1.5 s of a splash\") and ward-067's own test names and Specification (`\u2026within_1_5_s`) at 1.5 s. The north star then contradicts itself.",
+  "fix": "In W67.14 Step 2, also edit the Experiences bullet and the ward-067 Tests table and Specification. Extend the grep check to cover them."
+ },
+ {
+  "ward": 65,
+  "severity": "minor",
+  "problem": "Several expected test counts are wrong. scene-params.test.ts has 14 tests, not 15 (4 named plus 10 it.each). The canvas2d run on macOS gives 9 passed and 2 skipped, not 11 passed. The Docker canvas2d run gives 10 passed and 1 skipped, not 12. An implementer following the plan will think something is missing.",
+  "fix": "Correct the expected counts in W65.5 Step 2, W65.10 Step 3 and W65.12 Step 1."
+ }
+]

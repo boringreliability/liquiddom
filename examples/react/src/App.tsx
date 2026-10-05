@@ -1,8 +1,7 @@
 import { LiquidProvider, useLiquidRef, LiquidElement } from "@liquiddom/react";
-import { presets } from "liquiddom";
 
 function HookButton() {
-  const ref = useLiquidRef<HTMLButtonElement>();
+  const ref = useLiquidRef<HTMLButtonElement>({ viscosity: 0.3 });
   return (
     <button ref={ref} className="pill">
       via useLiquidRef
@@ -12,12 +11,12 @@ function HookButton() {
 
 export default function App() {
   return (
-    <LiquidProvider config={{ physics: presets.jelly }}>
+    <LiquidProvider config={{ material: { viscosity: 0.6, cohesion: 0.85, recovery: 0.4 } }}>
       <main>
         <h1>liquiddom/react</h1>
         <p>Two ways to use the adapter.</p>
         <HookButton />
-        <LiquidElement as="button" className="pill">
+        <LiquidElement as="button" className="pill" recovery={1.2}>
           via LiquidElement
         </LiquidElement>
       </main>

@@ -1,1283 +1,258 @@
 /**
  * @vitest-environment jsdom
+ * W66 T3: the public LiquidDOM facade (spec §5) over the internal runtime.
  */
-import { describe, it, expect, beforeEach } from "vitest";
-import { LiquidDOM } from "../src/index";
-import { FLOATS_PER_ENTITY } from "../src/phantom-observer";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import * as liquiddom from "../src/index";
+import { LiquidDOM, LiquidWasmLoadError } from "../src/index";
+import { createManualClock } from "../src/clock";
+import { El } from "../src/fluid-layout";
+import {
+  addLiquid, elementSlots, freedOf, freshBackend, instanceTracker, mockRect, resetDom,
+  restoreVisibility, setupFacadeTestEnv, setVisibility, spyBackend, ticksOf,
+} from "./_facade-helpers";
 
-// jsdom doesn't provide ResizeObserver — minimal polyfill for tests
-if (typeof globalThis.ResizeObserver === "undefined") {
-  globalThis.ResizeObserver = class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  } as unknown as typeof ResizeObserver;
+const tracker = instanceTracker();
+beforeEach(() => {
+  resetDom();
+  setupFacadeTestEnv();
+});
+afterEach(() => {
+  tracker.destroyAll();
+  restoreVisibility();
+});
+
+async function create(opts: Parameters<typeof LiquidDOM.create>[0] = {}) {
+  return tracker.track(
+    await LiquidDOM.create({ testBackend: freshBackend(), autoObserve: false, particles: 1024, maxElements: 8, ...opts }),
+  );
 }
+const isLiquid = (el: HTMLElement) => el.classList.contains("liquid-element");
 
-describe("LiquidDOM Instance API", () => {
-  beforeEach(() => {
-    // Clean up DOM from previous tests
-    while (document.body.firstChild) {
-      document.body.removeChild(document.body.firstChild);
+describe("W66 T3: create and capacities", () => {
+  it("given_testBackend_when_create_then_instance_with_particleCapacity_and_elementCapacity", async () => {
+    const inst = await create({ particles: 2048, maxElements: 6 });
+    expect(inst.particleCapacity).toBe(2048);
+    expect(inst.elementCapacity).toBe(6);
+    expect(inst.isPaused).toBe(false);
+    expect(inst.activeRenderer).toBe("canvas2d");
+    for (const m of ["observe", "unobserve", "refresh", "pause", "resume", "destroy", "requestOrientationPermission", "autoDiscover", "stopAutoDiscover"]) {
+      expect(typeof (inst as unknown as Record<string, unknown>)[m], m).toBe("function");
     }
+    expect(document.querySelectorAll("canvas.liquid-canvas")).toHaveLength(1);
   });
 
-  it("create returns instance with correct methods", async () => {
-    const instance = await LiquidDOM.create({ capacity: 16 });
-
-    // Instance should have the required methods
-    expect(typeof instance.observe).toBe("function");
-    expect(typeof instance.unobserve).toBe("function");
-    expect(typeof instance.destroy).toBe("function");
-
-    // Canvas should be injected
-    const canvas = document.querySelector("canvas");
-    expect(canvas).not.toBeNull();
-    expect(canvas!.style.position).toBe("fixed");
-    expect(canvas!.style.pointerEvents).toBe("none");
-  });
-
-  it("multiple instances coexist", async () => {
-    const instance1 = await LiquidDOM.create({ capacity: 8 });
-    const instance2 = await LiquidDOM.create({ capacity: 8 });
-
-    // Each instance should inject its own canvas
-    const canvases = document.querySelectorAll("canvas");
-    expect(canvases.length).toBe(2);
-
-    // Instances should be distinct objects
-    expect(instance1).not.toBe(instance2);
-  });
-
-  it("observe and unobserve work on instance in isolation", async () => {
-    const instance1 = await LiquidDOM.create({ capacity: 8 });
-    const instance2 = await LiquidDOM.create({ capacity: 8 });
-
-    const el = document.createElement("button");
-    el.setAttribute("data-liquid", "");
-    el.getBoundingClientRect = () => ({
-      x: 10, y: 20, width: 100, height: 40,
-      top: 20, left: 10, right: 110, bottom: 60,
-      toJSON: () => {},
-    });
-    document.body.appendChild(el);
-
-    // Observe on instance1
-    const id = instance1.observe(el);
-    expect(typeof id).toBe("number");
-
-    // Unobserve on instance1 should not throw
-    expect(() => instance1.unobserve(el)).not.toThrow();
-
-    // Instance2 was never involved — unobserve should be harmless
-    expect(() => instance2.unobserve(el)).not.toThrow();
-  });
-
-  it("auto observes data-liquid attributes via create", async () => {
-    const btn = document.createElement("button");
-    btn.setAttribute("data-liquid", "");
-    btn.getBoundingClientRect = () => ({
-      x: 10, y: 20, width: 100, height: 40,
-      top: 20, left: 10, right: 110, bottom: 60,
-      toJSON: () => {},
-    });
-    document.body.appendChild(btn);
-
-    const card = document.createElement("div");
-    card.setAttribute("data-liquid", "");
-    card.getBoundingClientRect = () => ({
-      x: 200, y: 50, width: 150, height: 80,
-      top: 50, left: 200, right: 350, bottom: 130,
-      toJSON: () => {},
-    });
-    document.body.appendChild(card);
-
-    await LiquidDOM.create({ capacity: 16, autoObserve: true });
-
-    // Both elements should still be in the DOM
-    const elements = document.querySelectorAll("[data-liquid]");
-    expect(elements.length).toBe(2);
-
-    // Canvas should be created
-    expect(document.querySelector("canvas")).not.toBeNull();
-  });
-
-  // ── Lifecycle & edge case tests ──
-
-  it("destroy removes canvas and listeners", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8 });
-
-    expect(document.querySelector("canvas")).not.toBeNull();
-
-    instance.destroy();
-
-    // Canvas should be gone
+  it("given_wasm_load_failure_without_testBackend_when_create_then_rejects_LiquidWasmLoadError", async () => {
+    // jsdom cannot fetch the .wasm (file: URL), so the real loader rejects. No mock mode any more.
+    await expect(LiquidDOM.create({ autoObserve: false })).rejects.toBeInstanceOf(LiquidWasmLoadError);
     expect(document.querySelector("canvas")).toBeNull();
   });
 
-  it("double destroy does not throw", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8 });
-    instance.destroy();
-    expect(() => instance.destroy()).not.toThrow();
+  it("given_root_index_when_imported_then_export_keys_equal_whitelist", () => {
+    expect(Object.keys(liquiddom).sort()).toEqual(["LiquidDOM", "LiquidWasmLoadError", "WebGPUUnavailableError", "validateMaterial"]);
+  });
+});
+
+describe("W66 T3: observe", () => {
+  it("given_maxElements_reached_when_observe_then_RangeError", async () => {
+    const inst = await create({ maxElements: 2 });
+    const [a, b, c] = [addLiquid("button", [0, 0, 100, 40], document.body, false), addLiquid("button", [0, 50, 100, 40], document.body, false), addLiquid("button", [0, 100, 100, 40], document.body, false)];
+    const idA = inst.observe(a!);
+    inst.observe(b!);
+    expect(() => inst.observe(c!)).toThrow(RangeError);
+    expect(inst.observe(a!)).toBe(idA); // idempotent even when full
   });
 
-  it("destroy works in mock mode (no WASM)", async () => {
-    // In jsdom, WASM always fails — this IS mock mode
-    const instance = await LiquidDOM.create({ capacity: 8 });
-    expect(() => instance.destroy()).not.toThrow();
-    expect(document.querySelector("canvas")).toBeNull();
+  it("given_observe_with_out_of_range_element_options_when_called_then_TypeError_and_valid_options_reach_slots_8_9", async () => {
+    const sb = spyBackend();
+    const inst = await create({ testBackend: sb.backend });
+    const el = addLiquid("button", [0, 0, 100, 40], document.body, false);
+    expect(() => inst.observe(el, { viscosity: 2 })).toThrow(TypeError);
+    expect(() => inst.observe(el, { recovery: 0 })).toThrow(TypeError);
+    expect(() => inst.observe(document as unknown as HTMLElement)).toThrow(TypeError);
+    expect(isLiquid(el)).toBe(false);
+    const id = inst.observe(el, { viscosity: 0.25, recovery: 1.5 });
+    const slots = elementSlots(sb, sb.cores[0]!, id);
+    expect(slots[El.VISCOSITY]).toBe(0.25);
+    expect(slots[El.RECOVERY]).toBe(1.5);
   });
 
-  it("observe after destroy throws", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8 });
-    instance.destroy();
+  it("given_refresh_on_unobserved_element_when_called_then_noop", async () => {
+    const inst = await create();
+    expect(() => inst.refresh(document.createElement("div"))).not.toThrow();
+  });
+});
 
-    const el = document.createElement("div");
-    el.getBoundingClientRect = () => ({
-      x: 0, y: 0, width: 50, height: 50,
-      top: 0, left: 0, right: 50, bottom: 50,
-      toJSON: () => {},
-    });
-
-    expect(() => instance.observe(el)).toThrow();
+describe("W66 T3: autoObserve and autoDiscover", () => {
+  it("given_autoObserve_when_create_then_data_liquid_elements_observed", async () => {
+    const a = addLiquid("button", [0, 0, 100, 40]);
+    const b = addLiquid("div", [0, 100, 300, 200]);
+    const plain = addLiquid("button", [0, 400, 100, 40], document.body, false);
+    await create({ autoObserve: true });
+    expect([isLiquid(a), isLiquid(b), isLiquid(plain)]).toEqual([true, true, false]);
   });
 
-  it("duplicate observe returns same id", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-
-    const el = document.createElement("div");
-    el.getBoundingClientRect = () => ({
-      x: 10, y: 20, width: 100, height: 50,
-      top: 20, left: 10, right: 110, bottom: 70,
-      toJSON: () => {},
-    });
-
-    const id1 = instance.observe(el);
-    const id2 = instance.observe(el);
-    expect(id1).toBe(id2);
+  it("given_autoObserve_candidates_when_create_then_area_hint_comes_from_their_rects_B5", async () => {
+    // D66-13: ctor arg 4 is areaHintPx2 (7-arg FluidCoreCtor).
+    addLiquid("button", [0, 0, 100, 40]);
+    addLiquid("div", [0, 100, 200, 100]);
+    const sb = spyBackend();
+    await create({ testBackend: sb.backend, autoObserve: true });
+    expect(sb.ctorArgs[0]![4]).toBeCloseTo(24000, 3);
+    const sb2 = spyBackend();
+    await create({ testBackend: sb2.backend, autoObserve: false });
+    expect(sb2.ctorArgs[0]![4]).toBe(0);
+    for (const el of document.querySelectorAll("[data-liquid]")) el.remove();
+    const sb3 = spyBackend();
+    await create({ testBackend: sb3.backend, autoObserve: true }); // no candidates in the DOM
+    expect(sb3.ctorArgs[0]![4]).toBe(0);
   });
 
-  // ── Ward 014: Teardown hardening ──
+  it("given_seed_and_material_options_when_create_then_reach_the_core_D66_7_D66_14", async () => {
+    const sb = spyBackend();
+    await create({ testBackend: sb.backend, seed: 42, material: { cohesion: 0.9 } });
+    expect(sb.ctorArgs[0]![6]).toBe(42); // 7th ctor arg is the seed
+    const sets = sb.calls.filter((c) => c.method === "set_material").map((c) => c.args);
+    expect(sets.length).toBeGreaterThan(0);
+    expect(sets.at(-1)).toEqual([0.5, 0.9, 0.7]); // full resolved triple: viscosity, cohesion, recovery
+  });
 
-  it("destroy unobserves all tracked elements", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-
-    // Track listener removal via spy
-    const removals: string[] = [];
-    function makeEl() {
-      const el = document.createElement("div");
-      el.getBoundingClientRect = () => ({
-        x: 0, y: 0, width: 50, height: 50,
-        top: 0, left: 0, right: 50, bottom: 50,
-        toJSON: () => {},
-      });
-      const origRemove = el.removeEventListener.bind(el);
-      el.removeEventListener = (type: string, ...args: unknown[]) => {
-        removals.push(type);
-        return (origRemove as Function)(type, ...args);
-      };
-      return el;
+  it("given_maxElements_1_and_autoDiscover_when_two_data_liquid_added_then_one_warn_and_extra_skipped_D66_10", async () => {
+    const inst = await create({ maxElements: 1 });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      inst.autoDiscover();
+      const a = addLiquid("button", [0, 0, 100, 40]);
+      const b = addLiquid("button", [0, 60, 100, 40]);
+      await vi.waitFor(() => expect([isLiquid(a), isLiquid(b)]).toEqual([true, false]));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]![0])).toMatch(/maxElements/);
+    } finally {
+      warn.mockRestore();
     }
-
-    const el1 = makeEl();
-    const el2 = makeEl();
-    instance.observe(el1);
-    instance.observe(el2);
-
-    instance.destroy();
-
-    // Each element should have had mouseenter + mouseleave removed
-    const enterRemovals = removals.filter((t) => t === "mouseenter");
-    const leaveRemovals = removals.filter((t) => t === "mouseleave");
-    expect(enterRemovals.length).toBe(2);
-    expect(leaveRemovals.length).toBe(2);
   });
 
-  it("create-destroy-create cycle works cleanly", async () => {
-    // First instance
-    const instance1 = await LiquidDOM.create({ capacity: 8 });
-    expect(document.querySelectorAll("canvas").length).toBe(1);
-
-    instance1.destroy();
-    expect(document.querySelectorAll("canvas").length).toBe(0);
-
-    // Second instance — must work without interference from the first
-    const instance2 = await LiquidDOM.create({ capacity: 8 });
-    expect(document.querySelectorAll("canvas").length).toBe(1);
-
-    // Second instance is fully functional
-    const el = document.createElement("div");
-    el.getBoundingClientRect = () => ({
-      x: 10, y: 20, width: 100, height: 50,
-      top: 20, left: 10, right: 110, bottom: 70,
-      toJSON: () => {},
-    });
-    const id = instance2.observe(el);
-    expect(typeof id).toBe("number");
-
-    instance2.destroy();
-    expect(document.querySelectorAll("canvas").length).toBe(0);
-  });
-
-  it("unobserve after destroy is silent no-op", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-
-    const el = document.createElement("div");
-    el.getBoundingClientRect = () => ({
-      x: 0, y: 0, width: 50, height: 50,
-      top: 0, left: 0, right: 50, bottom: 50,
-      toJSON: () => {},
-    });
-    instance.observe(el);
-    instance.destroy();
-
-    // Should not throw
-    expect(() => instance.unobserve(el)).not.toThrow();
-  });
-
-  // ── Ward 016: Capacity Correctness ──
-
-  it("capacity reflects state after grow", async () => {
-    const instance = await LiquidDOM.create({ capacity: 4, autoObserve: false });
-    expect(instance.capacity).toBe(4);
-
-    instance.grow(16);
-    expect(instance.capacity).toBe(16);
-
-    instance.destroy();
-  });
-
-  it("new entities can be observed after grow", async () => {
-    const instance = await LiquidDOM.create({ capacity: 2, autoObserve: false });
-
-    function makeEl() {
-      const el = document.createElement("div");
-      el.getBoundingClientRect = () => ({
-        x: 0, y: 0, width: 50, height: 50,
-        top: 0, left: 0, right: 50, bottom: 50,
-        toJSON: () => {},
-      });
-      return el;
+  it("given_more_data_liquid_elements_than_maxElements_when_create_then_extra_skipped_with_one_warn", async () => {
+    const els = [0, 1, 2, 3].map((i) => addLiquid("button", [0, i * 50, 100, 40]));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await create({ autoObserve: true, maxElements: 2 });
+      expect(els.map(isLiquid)).toEqual([true, true, false, false]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]![0])).toMatch(/maxElements/);
+    } finally {
+      warn.mockRestore();
     }
-
-    // Fill to capacity
-    instance.observe(makeEl());
-    instance.observe(makeEl());
-
-    // Third observe should throw — at capacity
-    expect(() => instance.observe(makeEl())).toThrow();
-
-    // Grow and try again
-    instance.grow(8);
-    expect(() => instance.observe(makeEl())).not.toThrow();
-
-    instance.destroy();
   });
 
-  it("grow preserves existing observed data", async () => {
-    const instance = await LiquidDOM.create({ capacity: 4, autoObserve: false });
-
-    const el = document.createElement("div");
-    el.getBoundingClientRect = () => ({
-      x: 123, y: 456, width: 789, height: 101,
-      top: 456, left: 123, right: 912, bottom: 557,
-      toJSON: () => {},
-    });
-    instance.observe(el);
-
-    // Grow — data should survive
-    instance.grow(16);
-
-    // Re-observe same element should return same id (idempotent)
-    // and the element should still be tracked
-    expect(() => instance.unobserve(el)).not.toThrow();
-
-    instance.destroy();
+  it("given_autoDiscover_when_data_liquid_node_added_or_removed_then_observed_or_unobserved", async () => {
+    const inst = await create();
+    inst.autoDiscover();
+    const direct = addLiquid("button", [0, 0, 100, 40]);
+    const wrapper = document.createElement("div");
+    const nested = addLiquid("div", [0, 100, 100, 40], wrapper);
+    document.body.appendChild(wrapper);
+    await vi.waitFor(() => expect([isLiquid(direct), isLiquid(nested)]).toEqual([true, true]));
+    direct.remove();
+    wrapper.remove();
+    await vi.waitFor(() => expect([isLiquid(direct), isLiquid(nested)]).toEqual([false, false]));
   });
 
-  it("grow on destroyed instance throws", async () => {
-    const instance = await LiquidDOM.create({ capacity: 4 });
-    instance.destroy();
-    expect(() => instance.grow(16)).toThrow();
-  });
-
-  // ── Ward 017: Pause/Resume & dt clamping ──
-
-  it("pause stops loop and sets isPaused", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8 });
-
-    expect(instance.isPaused).toBe(false);
-
-    instance.pause();
-    expect(instance.isPaused).toBe(true);
-
-    // Idempotent — double pause is safe
-    expect(() => instance.pause()).not.toThrow();
-    expect(instance.isPaused).toBe(true);
-
-    instance.destroy();
-  });
-
-  it("resume restarts after pause", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8 });
-
-    instance.pause();
-    expect(instance.isPaused).toBe(true);
-
-    instance.resume();
-    expect(instance.isPaused).toBe(false);
-
-    // Idempotent — double resume is safe
-    expect(() => instance.resume()).not.toThrow();
-    expect(instance.isPaused).toBe(false);
-
-    instance.destroy();
-  });
-
-  it("pause and resume on destroyed instance are no-ops", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8 });
-    instance.destroy();
-
-    // Should not throw — destroyed guards handle it
-    expect(() => instance.pause()).not.toThrow();
-    expect(() => instance.resume()).not.toThrow();
-  });
-
-  it("visibility hidden triggers pause", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8 });
-
-    // Simulate tab going hidden
-    Object.defineProperty(document, "visibilityState", {
-      value: "hidden",
-      writable: true,
-      configurable: true,
-    });
-    document.dispatchEvent(new Event("visibilitychange"));
-
-    expect(instance.isPaused).toBe(true);
-
-    // Simulate tab becoming visible
-    Object.defineProperty(document, "visibilityState", {
-      value: "visible",
-      writable: true,
-      configurable: true,
-    });
-    document.dispatchEvent(new Event("visibilitychange"));
-
-    expect(instance.isPaused).toBe(false);
-
-    instance.destroy();
-
-    // Reset for other tests
-    Object.defineProperty(document, "visibilityState", {
-      value: "visible",
-      writable: true,
-      configurable: true,
-    });
-  });
-
-  // ── Ward 018: High-DPI ──
-
-  it("canvas dimensions scaled by DPR", async () => {
-    Object.defineProperty(window, "devicePixelRatio", {
-      value: 2, writable: true, configurable: true,
-    });
-    Object.defineProperty(window, "innerWidth", {
-      value: 800, writable: true, configurable: true,
-    });
-    Object.defineProperty(window, "innerHeight", {
-      value: 600, writable: true, configurable: true,
-    });
-
-    const instance = await LiquidDOM.create({ capacity: 4 });
-
-    const canvas = document.querySelector("canvas")!;
-    expect(canvas.width).toBe(800 * 2);
-    expect(canvas.height).toBe(600 * 2);
-    expect(canvas.style.width).toBe("100vw");
-    expect(canvas.style.height).toBe("100vh");
-
-    instance.destroy();
-
-    Object.defineProperty(window, "devicePixelRatio", {
-      value: 1, writable: true, configurable: true,
-    });
-  });
-
-  // ── Ward 019: Reduced Motion, Focus, Touch ──
-
-  it("reduced motion config disables physics", async () => {
-    const instance = await LiquidDOM.create({
-      capacity: 8,
-      forceReducedMotion: true,
-    });
-
-    expect(instance.isReducedMotion).toBe(true);
-
-    instance.destroy();
-  });
-
-  it("forceReducedMotion false overrides OS reduced-motion", async () => {
-    // Mock matchMedia to report reduced motion
-    const originalMatchMedia = window.matchMedia;
-    window.matchMedia = ((query: string) => ({
-      matches: query.includes("reduce"),
-      media: query,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      onchange: null,
-      dispatchEvent: () => true,
-    })) as typeof window.matchMedia;
-
-    const instance = await LiquidDOM.create({
-      capacity: 8,
-      forceReducedMotion: false,
-    });
-
-    // OS says reduce, but explicit false overrides
-    expect(instance.isReducedMotion).toBe(false);
-
-    instance.destroy();
-    window.matchMedia = originalMatchMedia;
-  });
-
-  it("pointer events update internal pointer state", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8 });
-
-    // Pointer state should be exposed for verification
-    expect(instance.pointerActive).toBe(false);
-
-    // Simulate pointermove (touch type)
-    document.dispatchEvent(new PointerEvent("pointermove", {
-      clientX: 100,
-      clientY: 200,
-      pointerType: "touch",
-    }));
-
-    expect(instance.pointerActive).toBe(true);
-
-    // Simulate pointerleave
-    document.dispatchEvent(new PointerEvent("pointerleave"));
-
-    expect(instance.pointerActive).toBe(false);
-
-    instance.destroy();
-  });
-
-  // ── Ward 020: Container-Scoped Rendering ──
-
-  it("container mode renders inside element", async () => {
-    const container = document.createElement("div");
-    Object.defineProperty(container, "clientWidth", { value: 400, configurable: true });
-    Object.defineProperty(container, "clientHeight", { value: 300, configurable: true });
-    document.body.appendChild(container);
-
-    const instance = await LiquidDOM.create({
-      capacity: 8,
-      container,
-    });
-
-    // Canvas should be inside the container, not body directly
-    const canvas = container.querySelector("canvas");
-    expect(canvas).not.toBeNull();
-
-    // Body should NOT have a direct canvas child (it's inside container)
-    const bodyCanvases = Array.from(document.body.children).filter(
-      (el) => el.tagName === "CANVAS",
-    );
-    expect(bodyCanvases.length).toBe(0);
-
-    // Canvas backing store should be container-sized * DPR
-    const dpr = window.devicePixelRatio || 1;
-    expect(canvas!.width).toBe(400 * dpr);
-    expect(canvas!.height).toBe(300 * dpr);
-
-    instance.destroy();
-
-    // Canvas should be removed from container after destroy
-    expect(container.querySelector("canvas")).toBeNull();
-  });
-
-  it("fullscreen mode still works (no container)", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8 });
-
-    // Canvas should be directly in body
-    const canvas = document.querySelector("body > canvas") as HTMLCanvasElement | null;
-    expect(canvas).not.toBeNull();
-    expect(canvas!.style.position).toBe("fixed");
-
-    instance.destroy();
-    expect(document.querySelector("canvas")).toBeNull();
-  });
-
-  it("container mode transforms pointer coordinates", async () => {
-    const container = document.createElement("div");
-    Object.defineProperty(container, "clientWidth", { value: 400, configurable: true });
-    Object.defineProperty(container, "clientHeight", { value: 300, configurable: true });
-    // Container is offset 50px from page origin
-    container.getBoundingClientRect = () => ({
-      x: 50, y: 100, width: 400, height: 300,
-      top: 100, left: 50, right: 450, bottom: 400,
-      toJSON: () => {},
-    });
-    document.body.appendChild(container);
-
-    const instance = await LiquidDOM.create({
-      capacity: 8,
-      container,
-      autoObserve: false,
-    });
-
-    // Simulate pointermove at page coords (150, 250)
-    // Container-relative should be (100, 150)
-    document.dispatchEvent(new PointerEvent("pointermove", {
-      clientX: 150,
-      clientY: 250,
-    }));
-
-    // Expose pointer coords for verification
-    expect(instance.pointerX).toBe(100); // 150 - 50 (container left)
-    expect(instance.pointerY).toBe(150); // 250 - 100 (container top)
-
-    instance.destroy();
-  });
-
-  // ── Ward 021: Dynamic Observation ──
-
-  it("dynamically added element gets observed via autoDiscover", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-
-    instance.autoDiscover();
-
-    // Dynamically add a [data-liquid] element
-    const el = document.createElement("div");
-    el.setAttribute("data-liquid", "");
-    el.getBoundingClientRect = () => ({
-      x: 10, y: 20, width: 100, height: 50,
-      top: 20, left: 10, right: 110, bottom: 70,
-      toJSON: () => {},
-    });
-    document.body.appendChild(el);
-
-    // MutationObserver fires asynchronously — wait a microtask
+  it("given_stopAutoDiscover_when_nodes_added_then_not_observed", async () => {
+    const inst = await create();
+    inst.autoDiscover();
+    const first = addLiquid("button", [0, 0, 100, 40]);
+    await vi.waitFor(() => expect(isLiquid(first)).toBe(true)); // positive control: the observer works
+    inst.stopAutoDiscover();
+    const second = addLiquid("button", [0, 60, 100, 40]);
     await new Promise((r) => setTimeout(r, 0));
-
-    // Element should now be observed — unobserve should not throw
-    expect(() => instance.unobserve(el)).not.toThrow();
-
-    instance.destroy();
+    expect(isLiquid(second)).toBe(false);
   });
 
-  it("removed element cleaned up by autoDiscover", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-
-    // Manually observe an element
-    const el = document.createElement("div");
-    el.setAttribute("data-liquid", "");
-    el.getBoundingClientRect = () => ({
-      x: 10, y: 20, width: 100, height: 50,
-      top: 20, left: 10, right: 110, bottom: 70,
-      toJSON: () => {},
-    });
-    document.body.appendChild(el);
-    instance.observe(el);
-
-    instance.autoDiscover();
-
-    // Remove the element from DOM
-    el.remove();
-
-    // Wait for MutationObserver
-    await new Promise((r) => setTimeout(r, 0));
-
-    // Element should have been unobserved — re-observe should get id 0 (slot reused)
-    document.body.appendChild(el);
-    const id = instance.observe(el);
-    expect(id).toBe(0);
-
-    instance.destroy();
-  });
-
-  it("explicit API works independently of autoDiscover", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-
-    // No autoDiscover — explicit observe/unobserve still works
-    const el = document.createElement("div");
-    el.getBoundingClientRect = () => ({
-      x: 10, y: 20, width: 100, height: 50,
-      top: 20, left: 10, right: 110, bottom: 70,
-      toJSON: () => {},
-    });
-
-    const id = instance.observe(el);
-    expect(typeof id).toBe("number");
-    expect(() => instance.unobserve(el)).not.toThrow();
-
-    instance.destroy();
-  });
-
-  // ── Ward 023: Configurable Materials ──
-
-  it("preset creates expected frozen config", async () => {
-    const { presets } = await import("../src/index");
-
-    expect(presets.jelly).toBeDefined();
-    expect(presets.jelly.tension).toBeGreaterThan(0);
-    expect(presets.jelly.damping).toBeGreaterThan(0);
-    expect(presets.goo.damping!).toBeGreaterThan(presets.firm.damping!);
-
-    // Presets should be frozen
-    expect(Object.isFrozen(presets.jelly)).toBe(true);
-    expect(Object.isFrozen(presets.goo)).toBe(true);
-    expect(Object.isFrozen(presets.firm)).toBe(true);
-  });
-
-  it("config validated at init", async () => {
-    // Negative tension
-    await expect(
-      LiquidDOM.create({ capacity: 4, physics: { tension: -1 } }),
-    ).rejects.toThrow(TypeError);
-
-    // NaN damping
-    await expect(
-      LiquidDOM.create({ capacity: 4, physics: { damping: NaN } }),
-    ).rejects.toThrow(TypeError);
-
-    // particleCount < 3
-    await expect(
-      LiquidDOM.create({ capacity: 4, physics: { particleCount: 1 } }),
-    ).rejects.toThrow(TypeError);
-
-    // substeps < 1
-    await expect(
-      LiquidDOM.create({ capacity: 4, physics: { substeps: 0 } }),
-    ).rejects.toThrow(TypeError);
-  });
-
-  it("custom physics config is accepted", async () => {
-    const instance = await LiquidDOM.create({
-      capacity: 8,
-      physics: { tension: 200, damping: 10, substeps: 2 },
-    });
-
-    // Should not throw — valid config
-    expect(instance.capacity).toBe(8);
-
-    instance.destroy();
-  });
-
-  // ── Ward 024: Package Exports ──
-
-  it("package exports resolve correctly", async () => {
-    // Verify that the main entry exports the expected public API
-    const mod = await import("../src/index");
-
-    // LiquidDOM class
-    expect(mod.LiquidDOM).toBeDefined();
-    expect(typeof mod.LiquidDOM.create).toBe("function");
-
-    // Presets
-    expect(mod.presets).toBeDefined();
-    expect(mod.presets.goo).toBeDefined();
-    expect(mod.presets.jelly).toBeDefined();
-    expect(mod.presets.firm).toBeDefined();
-  });
-
-  it("internal modules are not leaked via main export", async () => {
-    const mod = await import("../src/index");
-    const keys = Object.keys(mod);
-
-    // Only intentional exports should be present
-    expect(keys).toContain("LiquidDOM");
-    expect(keys).toContain("presets");
-
-    // Internal types should NOT be exported as runtime values
-    expect(keys).not.toContain("PhantomObserver");
-    expect(keys).not.toContain("WasmBridge");
-    expect(keys).not.toContain("DEFAULT_PHYSICS");
-    // Ward 049: validatePhysicsConfig is intentionally exported as `@internal`
-    // for adapters and the playground to reuse. Not part of the stable public API.
-  });
-});
-
-describe("Package metadata", () => {
-  it("package.json has correct ESM config", async () => {
-    const { readFileSync } = await import("node:fs");
-    const { resolve, dirname } = await import("node:path");
-    const { fileURLToPath } = await import("node:url");
-
-    const __dirname = dirname(fileURLToPath(import.meta.url));
-    const pkgPath = resolve(__dirname, "../../package.json");
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-
-    expect(pkg.type).toBe("module");
-    expect(pkg.exports).toBeDefined();
-    expect(pkg.exports["."]).toBeDefined();
-    expect(pkg.exports["."].types).toBeDefined();
-    expect(pkg.exports["."].import).toBeDefined();
-    expect(pkg.files).toContain("dist/");
-  });
-});
-
-// ── Ward 026: Scroll-Aware Base Position ──
-
-describe("Scroll-Aware Physics", () => {
-  beforeEach(() => {
-    while (document.body.firstChild) {
-      document.body.removeChild(document.body.firstChild);
-    }
-  });
-
-  it("scroll pauses physics", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8 });
-
-    expect(instance.isScrolling).toBe(false);
-
-    // Simulate scroll event
-    window.dispatchEvent(new Event("scroll"));
-
-    expect(instance.isScrolling).toBe(true);
-    // Physics should be paused during scroll (but NOT isPaused — that's user-level pause)
-
-    instance.destroy();
-  });
-
-  it("scroll end triggers snap after idle timeout", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-
-    const el = document.createElement("div");
-    let rectX = 100;
-    el.setAttribute("data-liquid", "");
-    el.getBoundingClientRect = () => ({
-      x: rectX, y: 50, width: 200, height: 100,
-      top: 50, left: rectX, right: rectX + 200, bottom: 150,
-      toJSON: () => {},
-    });
-    document.body.appendChild(el);
-    instance.observe(el);
-
-    // Simulate scroll
-    window.dispatchEvent(new Event("scroll"));
-    expect(instance.isScrolling).toBe(true);
-
-    // "Move" the element (simulates scroll displacement)
-    rectX = 300;
-
-    // Wait for idle timeout (100ms + buffer)
-    await new Promise((r) => setTimeout(r, 150));
-
-    // Scroll should have ended, isScrolling back to false
-    expect(instance.isScrolling).toBe(false);
-
-    instance.destroy();
-  });
-
-  it("particles converge after snap", async () => {
-    // This test verifies the contract: after scroll ends,
-    // physics resumes and particles should converge to new positions.
-    // In jsdom (no WASM), we verify the state flags are correct.
-    const instance = await LiquidDOM.create({ capacity: 8 });
-
-    // Scroll → wait for idle → verify resumed
-    window.dispatchEvent(new Event("scroll"));
-    expect(instance.isScrolling).toBe(true);
-
-    await new Promise((r) => setTimeout(r, 150));
-
-    // Physics should be resumed (isScrolling false, isPaused false)
-    expect(instance.isScrolling).toBe(false);
-    expect(instance.isPaused).toBe(false);
-
-    instance.destroy();
-  });
-});
-
-// ── Ward 027: Coordinate System Unification ──
-
-describe("Coordinate System", () => {
-  beforeEach(() => {
-    while (document.body.firstChild) {
-      document.body.removeChild(document.body.firstChild);
-    }
-  });
-
-  it("pointer and entity use same reference frame in fullscreen", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-
-    const el = document.createElement("div");
-    el.getBoundingClientRect = () => ({
-      x: 100, y: 200, width: 150, height: 80,
-      top: 200, left: 100, right: 250, bottom: 280,
-      toJSON: () => {},
-    });
-    instance.observe(el);
-
-    // Pointer at element's center
-    document.dispatchEvent(new PointerEvent("pointermove", {
-      clientX: 175, clientY: 240,
-    }));
-
-    // Pointer coords should be in same space as entity coords (viewport-relative)
-    expect(instance.pointerX).toBe(175);
-    expect(instance.pointerY).toBe(240);
-
-    instance.destroy();
-  });
-
-  it("pointer and entity use same reference frame in container mode", async () => {
-    const container = document.createElement("div");
-    Object.defineProperty(container, "clientWidth", { value: 400, configurable: true });
-    Object.defineProperty(container, "clientHeight", { value: 300, configurable: true });
-    container.getBoundingClientRect = () => ({
-      x: 50, y: 100, width: 400, height: 300,
-      top: 100, left: 50, right: 450, bottom: 400,
-      toJSON: () => {},
-    });
+  it("given_container_option_when_create_then_canvas_inside_container_and_autoObserve_scoped_to_it", async () => {
+    const container = document.createElement("section");
+    mockRect(container, 100, 100, 600, 400);
     document.body.appendChild(container);
-
-    const instance = await LiquidDOM.create({
-      capacity: 8, container, autoObserve: false,
-    });
-
-    // Element at container-relative (60, 30)
-    const el = document.createElement("div");
-    el.getBoundingClientRect = () => ({
-      x: 110, y: 130, width: 100, height: 50,
-      top: 130, left: 110, right: 210, bottom: 180,
-      toJSON: () => {},
-    });
-    instance.observe(el);
-
-    // Pointer at element center in page coords: (160, 155)
-    // Container-relative: (160-50, 155-100) = (110, 55)
-    document.dispatchEvent(new PointerEvent("pointermove", {
-      clientX: 160, clientY: 155,
-    }));
-
-    expect(instance.pointerX).toBe(110); // container-relative
-
-    // Entity buffer should ALSO be container-relative
-    // Element is at viewport (110, 130), container at (50, 100)
-    // So entity should be at container-relative (60, 30)
-    // This is what we need to verify — currently sync() writes viewport coords
-    const buf = instance.getBuffer();
-    expect(buf).toBeDefined();
-    if (buf) {
-      expect(buf[0]).toBe(60);  // x: 110 - 50 (container left)
-      expect(buf[1]).toBe(30);  // y: 130 - 100 (container top)
-    }
-
-    instance.destroy();
-  });
-
-  it("fullscreen mode coordinates unchanged", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-
-    const el = document.createElement("div");
-    el.getBoundingClientRect = () => ({
-      x: 200, y: 300, width: 100, height: 50,
-      top: 300, left: 200, right: 300, bottom: 350,
-      toJSON: () => {},
-    });
-    instance.observe(el);
-
-    // In fullscreen mode, entity coords are viewport-relative (unchanged)
-    const buf = instance.getBuffer();
-    if (buf) {
-      expect(buf[0]).toBe(200);
-      expect(buf[1]).toBe(300);
-    }
-
-    instance.destroy();
-  });
-
-  it("container mode entity coords are container-relative", async () => {
-    const container = document.createElement("div");
-    Object.defineProperty(container, "clientWidth", { value: 400, configurable: true });
-    Object.defineProperty(container, "clientHeight", { value: 300, configurable: true });
-    container.getBoundingClientRect = () => ({
-      x: 80, y: 60, width: 400, height: 300,
-      top: 60, left: 80, right: 480, bottom: 360,
-      toJSON: () => {},
-    });
-    document.body.appendChild(container);
-
-    const instance = await LiquidDOM.create({
-      capacity: 8, container, autoObserve: false,
-    });
-
-    const el = document.createElement("div");
-    el.getBoundingClientRect = () => ({
-      x: 180, y: 160, width: 120, height: 70,
-      top: 160, left: 180, right: 300, bottom: 230,
-      toJSON: () => {},
-    });
-    instance.observe(el);
-
-    // Entity should be container-relative: (180-80, 160-60) = (100, 100)
-    const buf = instance.getBuffer();
-    if (buf) {
-      expect(buf[0]).toBe(100);
-      expect(buf[1]).toBe(100);
-    }
-
-    instance.destroy();
+    const inside = addLiquid("button", [120, 120, 100, 40], container);
+    const outside = addLiquid("button", [0, 0, 100, 40]);
+    await create({ container, autoObserve: true });
+    expect(document.querySelector("canvas")!.parentElement).toBe(container);
+    expect([isLiquid(inside), isLiquid(outside)]).toEqual([true, false]);
   });
 });
 
-// ── Ward 028: Transparent Background Compatibility ──
-
-describe("Transparent Background Compatibility", () => {
-  beforeEach(() => {
-    while (document.body.firstChild) {
-      document.body.removeChild(document.body.firstChild);
-    }
+describe("W66 T3: pause, visibility, destroy", () => {
+  it("given_pause_when_called_then_no_frames_and_isPaused_true_and_resume_restarts", async () => {
+    const sb = spyBackend();
+    const clock = createManualClock();
+    const inst = await create({ testBackend: sb.backend, clock });
+    clock.advance(3);
+    const c1 = ticksOf(sb).length;
+    expect(c1).toBeGreaterThanOrEqual(3);
+    inst.pause();
+    expect(inst.isPaused).toBe(true);
+    clock.advance(5);
+    expect(ticksOf(sb)).toHaveLength(c1);
+    inst.resume();
+    expect(inst.isPaused).toBe(false);
+    clock.advance(2);
+    expect(ticksOf(sb)).toHaveLength(c1 + 2);
   });
 
-  it("preserveBackgrounds defaults to false", async () => {
-    const instance = await LiquidDOM.create({ capacity: 4 });
-
-    expect(instance.preserveBackgrounds).toBe(false);
-
-    instance.destroy();
+  it("given_hidden_tab_when_visibilitychange_then_paused_and_resumed", async () => {
+    const sb = spyBackend();
+    const clock = createManualClock();
+    const inst = await create({ testBackend: sb.backend, clock });
+    clock.advance(1);
+    const c1 = ticksOf(sb).length;
+    setVisibility("hidden");
+    expect(inst.isPaused).toBe(true);
+    clock.advance(4);
+    expect(ticksOf(sb)).toHaveLength(c1);
+    setVisibility("visible");
+    expect(inst.isPaused).toBe(false);
+    clock.advance(2);
+    expect(ticksOf(sb)).toHaveLength(c1 + 2);
   });
 
-  it("preserveBackgrounds true is accepted and stored", async () => {
-    const instance = await LiquidDOM.create({
-      capacity: 4,
-      preserveBackgrounds: true,
-    });
-
-    expect(instance.preserveBackgrounds).toBe(true);
-
-    instance.destroy();
-  });
-});
-
-// ── Ward 030: Dragable Interaction Primitive ──
-//
-// W59 bug-fix: drag-mode is OPT-IN via `observe(el, 3)` (Dragged type).
-// Elements observed without a liquidType (or with any non-3 type) must
-// NOT have their pointerdown hijacked into drag-mode — the W59 squish
-// showcase exposed a regression where every `[data-liquid]` click pulled
-// the element out of layout flow via `position: fixed`.
-
-describe("Dragable Interaction", () => {
-  beforeEach(() => {
-    while (document.body.firstChild) {
-      document.body.removeChild(document.body.firstChild);
-    }
+  it("given_user_pause_when_tab_becomes_visible_again_then_stays_paused_D66_12", async () => {
+    const sb = spyBackend();
+    const clock = createManualClock();
+    const inst = await create({ testBackend: sb.backend, clock });
+    inst.pause();
+    setVisibility("hidden");
+    setVisibility("visible");
+    expect(inst.isPaused).toBe(true);
+    const c1 = ticksOf(sb).length;
+    clock.advance(3);
+    expect(ticksOf(sb)).toHaveLength(c1);
   });
 
-  function makeDraggable(): HTMLDivElement {
-    const el = document.createElement("div");
-    el.getBoundingClientRect = () => ({
-      x: 100, y: 100, width: 200, height: 100,
-      top: 100, left: 100, right: 300, bottom: 200,
-      toJSON: () => ({}),
-    } as DOMRect);
-    el.setPointerCapture = () => {};
-    el.releasePointerCapture = () => {};
-    document.body.appendChild(el);
-    return el;
-  }
-
-  it("pointerdown moves element to fixed position when observed as Dragged (liquid_type=3)", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-    const el = makeDraggable();
-    instance.observe(el, 3); // opt into Dragged
-
-    el.dispatchEvent(new PointerEvent("pointerdown", {
-      pointerId: 1, clientX: 150, clientY: 130,
-    }));
-
-    expect(el.style.position).toBe("fixed");
-    instance.destroy();
-  });
-
-  it("pointerup resets element position", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-    const el = makeDraggable();
-    instance.observe(el, 3);
-
-    el.dispatchEvent(new PointerEvent("pointerdown", {
-      pointerId: 1, clientX: 150, clientY: 130,
-    }));
-    expect(el.style.position).toBe("fixed");
-
-    el.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1 }));
-    expect(el.style.position).toBe("");
-
-    instance.destroy();
-  });
-
-  it("pointercancel also resets element position", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-    const el = makeDraggable();
-    instance.observe(el, 3);
-
-    el.dispatchEvent(new PointerEvent("pointerdown", {
-      pointerId: 1, clientX: 150, clientY: 130,
-    }));
-    expect(el.style.position).toBe("fixed");
-
-    el.dispatchEvent(new PointerEvent("pointercancel", { pointerId: 1 }));
-    expect(el.style.position).toBe("");
-
-    instance.destroy();
-  });
-
-  // ── W59 regression-lock tests ──
-
-  it("pointerdown is a NO-OP on Default-observed element (W59 bugfix)", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-    const el = makeDraggable();
-    instance.observe(el); // default liquid_type (no argument)
-
-    el.dispatchEvent(new PointerEvent("pointerdown", {
-      pointerId: 1, clientX: 150, clientY: 130,
-    }));
-
-    // Element must NOT have been hijacked into fixed-position drag mode.
-    expect(el.style.position).toBe("");
-    expect(el.style.left).toBe("");
-    expect(el.style.top).toBe("");
-    instance.destroy();
-  });
-
-  it("re-drag works after pointerup → pointerdown cycle on Dragged element", async () => {
-    // Regression-lock: a previous fix attempt read liquid_type from the
-    // buffer at pointerdown time, but onPointerUp resets the buffer to 0.
-    // The closure-flag approach preserves drag-eligibility across cycles.
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-    const el = makeDraggable();
-    instance.observe(el, 3);
-
-    // First drag cycle
-    el.dispatchEvent(new PointerEvent("pointerdown", {
-      pointerId: 1, clientX: 150, clientY: 130,
-    }));
-    expect(el.style.position).toBe("fixed");
-    el.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1 }));
-    expect(el.style.position).toBe("");
-
-    // Second drag cycle — must still enter drag-mode
-    el.dispatchEvent(new PointerEvent("pointerdown", {
-      pointerId: 2, clientX: 150, clientY: 130,
-    }));
-    expect(el.style.position).toBe("fixed");
-
-    instance.destroy();
-  });
-});
-
-// ── Ward 031: Impulse Injection ──
-
-describe("Impulse Injection", () => {
-  beforeEach(() => {
-    while (document.body.firstChild) {
-      document.body.removeChild(document.body.firstChild);
-    }
-  });
-
-  it("impulse sets shake state in buffer", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-
-    const el = document.createElement("div");
-    el.getBoundingClientRect = () => ({
-      x: 100, y: 100, width: 200, height: 100,
-      top: 100, left: 100, right: 300, bottom: 200,
-      toJSON: () => {},
-    });
-    el.setPointerCapture = () => {};
-    el.releasePointerCapture = () => {};
-
-    const id = instance.observe(el);
-    const buf = instance.getBuffer()!;
-
-    // liquid_type starts at Default
-    expect(buf[id * 8 + 5]).toBe(0);
-
-    // Apply impulse
-    instance.impulse(el, { direction: [1, 0], magnitude: 50, duration: 300 });
-
-    // liquid_type should be Shake (4.0) and impulse_vx should be set
-    expect(buf[id * 8 + 5]).toBe(4.0);
-    expect(buf[id * 8 + 6]).not.toBe(0); // impulse_vx
-
-    instance.destroy();
-  });
-
-  it("impulse on unobserved element throws", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-
-    const el = document.createElement("div");
-
-    expect(() => instance.impulse(el)).toThrow();
-
-    instance.destroy();
-  });
-
-  it("impulse auto-resets to default after duration", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-
-    const el = document.createElement("div");
-    el.getBoundingClientRect = () => ({
-      x: 100, y: 100, width: 200, height: 100,
-      top: 100, left: 100, right: 300, bottom: 200,
-      toJSON: () => {},
-    });
-    el.setPointerCapture = () => {};
-    el.releasePointerCapture = () => {};
-
-    const id = instance.observe(el);
-    const buf = instance.getBuffer()!;
-
-    instance.impulse(el, { duration: 50 });
-    expect(buf[id * 8 + 5]).toBe(4.0);
-
-    // Wait for duration + buffer
-    await new Promise((r) => setTimeout(r, 100));
-
-    // Should have auto-reset to Default
-    expect(buf[id * 8 + 5]).toBe(0.0);
-
-    instance.destroy();
-  });
-});
-
-// ── Ward 032: Position Tween ──
-
-describe("Position Tween", () => {
-  beforeEach(() => {
-    while (document.body.firstChild) {
-      document.body.removeChild(document.body.firstChild);
-    }
-  });
-
-  it("tween updates base_pos toward target", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-
-    const el = document.createElement("div");
-    el.getBoundingClientRect = () => ({
-      x: 100, y: 100, width: 200, height: 100,
-      top: 100, left: 100, right: 300, bottom: 200,
-      toJSON: () => {},
-    });
-    el.setPointerCapture = () => {};
-    el.releasePointerCapture = () => {};
-    const id = instance.observe(el);
-    const buf = instance.getBuffer()!;
-
-    // Start tween to (500, 400)
-    const handle = instance.tween(el, { toX: 500, toY: 400, duration: 100 });
-
-    expect(handle).toBeDefined();
-    expect(typeof handle.cancel).toBe("function");
-
-    // Wait for tween to complete
-    await new Promise((r) => setTimeout(r, 150));
-
-    // base_pos should be at target (written to buffer by tween)
-    expect(buf[id * 8]).toBe(500);
-    expect(buf[id * 8 + 1]).toBe(400);
-
-    instance.destroy();
-  });
-
-  it("easing functions produce different results", async () => {
-    // Import easing functions directly if exported, or test via tween behavior
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-
-    const el1 = document.createElement("div");
-    el1.getBoundingClientRect = () => ({
-      x: 0, y: 0, width: 100, height: 50,
-      top: 0, left: 0, right: 100, bottom: 50,
-      toJSON: () => {},
-    });
-    el1.setPointerCapture = () => {};
-    el1.releasePointerCapture = () => {};
-
-    const el2 = document.createElement("div");
-    el2.getBoundingClientRect = () => ({
-      x: 0, y: 0, width: 100, height: 50,
-      top: 0, left: 0, right: 100, bottom: 50,
-      toJSON: () => {},
-    });
-    el2.setPointerCapture = () => {};
-    el2.releasePointerCapture = () => {};
-
-    instance.observe(el1);
-    instance.observe(el2);
-
-    // Both tween to same target, different easing
-    instance.tween(el1, { toX: 1000, toY: 0, duration: 200, easing: "linear" });
-    instance.tween(el2, { toX: 1000, toY: 0, duration: 200, easing: "ease-out" });
-
-    // After completion both should reach target
-    await new Promise((r) => setTimeout(r, 250));
-
-    const buf = instance.getBuffer()!;
-    expect(buf[0]).toBe(1000); // el1 x
-    expect(buf[FLOATS_PER_ENTITY]).toBe(1000); // el2 x
-
-    instance.destroy();
-  });
-
-  it("tween cancel stops at current position", async () => {
-    const instance = await LiquidDOM.create({ capacity: 8, autoObserve: false });
-
-    const el = document.createElement("div");
-    el.getBoundingClientRect = () => ({
-      x: 0, y: 0, width: 100, height: 50,
-      top: 0, left: 0, right: 100, bottom: 50,
-      toJSON: () => {},
-    });
-    el.setPointerCapture = () => {};
-    el.releasePointerCapture = () => {};
-    instance.observe(el);
-
-    const handle = instance.tween(el, { toX: 1000, toY: 0, duration: 500 });
-
-    // Cancel immediately
-    handle.cancel();
-
-    // Wait a bit — position should NOT have reached target
-    await new Promise((r) => setTimeout(r, 100));
-
-    const buf = instance.getBuffer()!;
-    // Should be at or near start (0), definitely not at 1000
-    expect(buf[0]).toBeLessThan(500);
-
-    instance.destroy();
-  });
-
-  // ── Ward 057 — Canvas Z-Index Default Fix ──
-  describe("Ward 057: canvas z-index default", () => {
-    it("default_canvas_z_index_is_zero", async () => {
-      const instance = await LiquidDOM.create({ capacity: 4 });
-      const canvas = document.querySelector("canvas");
-      expect(canvas).not.toBeNull();
-      expect(canvas!.style.zIndex).toBe("0");
-      instance.destroy();
-    });
-
-    it("explicit_canvas_z_index_minus_one_is_preserved", async () => {
-      const instance = await LiquidDOM.create({ capacity: 4, canvasZIndex: -1 });
-      const canvas = document.querySelector("canvas");
-      expect(canvas).not.toBeNull();
-      expect(canvas!.style.zIndex).toBe("-1");
-      instance.destroy();
-    });
-
-    it("explicit_canvas_z_index_custom_positive_is_preserved", async () => {
-      const instance = await LiquidDOM.create({ capacity: 4, canvasZIndex: 42 });
-      const canvas = document.querySelector("canvas");
-      expect(canvas).not.toBeNull();
-      expect(canvas!.style.zIndex).toBe("42");
-      instance.destroy();
-    });
+  it("given_destroy_when_called_twice_then_idempotent_and_methods_throw_after", async () => {
+    const sb = spyBackend();
+    const el = addLiquid("button", [0, 0, 100, 40]);
+    const inst = await LiquidDOM.create({ testBackend: sb.backend, particles: 1024, maxElements: 4 });
+    expect(isLiquid(el)).toBe(true);
+    inst.destroy();
+    expect(() => inst.destroy()).not.toThrow();
+    expect(freedOf(sb)).toHaveLength(1);
+    expect(document.querySelector("canvas")).toBeNull();
+    expect(isLiquid(el)).toBe(false);
+    const after: Array<[string, () => unknown]> = [
+      ["observe", () => inst.observe(el)],
+      ["refresh", () => inst.refresh(el)],
+      ["pause", () => inst.pause()],
+      ["resume", () => inst.resume()],
+      ["autoDiscover", () => inst.autoDiscover()],
+      ["stopAutoDiscover", () => inst.stopAutoDiscover()],
+    ];
+    for (const [name, call] of after) expect(call, name).toThrow(/destroyed/);
+    expect(() => inst.unobserve(el)).not.toThrow();
+    await expect(inst.requestOrientationPermission()).rejects.toThrow(/destroyed/);
+    expect(typeof inst.isPaused).toBe("boolean");
+    expect(inst.particleCapacity).toBe(1024);
+    expect(inst.activeRenderer).toBe("canvas2d");
+    expect(inst.elementCapacity).toBe(4);
   });
 });

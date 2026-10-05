@@ -11,13 +11,15 @@
  *  - Tests #2–#4, #6, #8, #9, #13 require `npm run build` to have run first.
  *    CI's `npm run verify` builds before testing.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import semver from "semver";
+import { parse as parseYaml } from "yaml";
+import getReleasePlan from "@changesets/get-release-plan";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // From packages/core/__tests__/, three levels up is the workspace root.
@@ -80,6 +82,8 @@ describe("Ward 051: Workspace topology + publishable shape", () => {
     const expected = [
       "dist/index.js",
       "dist/index.d.ts",
+      "dist/wasm-loader.js",
+      "dist/wasm-loader.d.ts",
       "dist/wasm/liquiddom.js",
       "dist/wasm/liquiddom_bg.wasm",
       "README.md",
@@ -139,13 +143,11 @@ describe("Ward 051: Workspace topology + publishable shape", () => {
     const reactPeers = (reactPkg.peerDependencies ?? {}) as Record<string, string>;
     const vuePeers = (vuePkg.peerDependencies ?? {}) as Record<string, string>;
 
-    // Peer range uses `^0.2.0-rc.0` (not `^0.2.0`) so npm workspace install
-    // accepts the in-development prerelease version. After the rc period
-    // ends and core publishes `0.2.0` stable, the range still works
-    // (^0.2.0-rc.0 accepts 0.2.x, 0.3.x via caret semantics).
-    expect(reactPeers.liquiddom).toBe("^0.2.0-rc.0");
+    // W66 (A1, D66-9): 0.x carets do NOT reach the next minor (^0.2.0-rc.0 excludes 0.3.x).
+    // All three packages are hand-set to 0.3.0-alpha.0 and peer on ^0.3.0-alpha.0.
+    expect(reactPeers.liquiddom).toBe("^0.3.0-alpha.0");
     expect(reactPeers.react).toBe("^18.0.0 || ^19.0.0");
-    expect(vuePeers.liquiddom).toBe("^0.2.0-rc.0");
+    expect(vuePeers.liquiddom).toBe("^0.3.0-alpha.0");
     expect(vuePeers.vue).toBe("^3.4.0");
   });
 
@@ -203,7 +205,7 @@ describe("Ward 051: Workspace topology + publishable shape", () => {
 
   // ── Test #8 — core dist WASM dynamic-import resolves to packaged file ──
   it("core_dist_wasm_dynamic_import_resolves_to_packaged_file", () => {
-    const distEntry = resolve(CORE, "dist/index.js");
+    const distEntry = resolve(CORE, "dist/wasm-loader.js");
     expect(existsSync(distEntry), `expected ${distEntry} to exist`).toBe(true);
 
     const content = readFileSync(distEntry, "utf-8");
@@ -216,7 +218,7 @@ describe("Ward 051: Workspace topology + publishable shape", () => {
     ).toBe(false);
 
     const match = content.match(/import\(\s*["']([^"']*?liquiddom\.js)["']\s*\)/);
-    expect(match, "expected a dynamic import of liquiddom.js in core/dist/index.js").not.toBeNull();
+    expect(match, "expected a dynamic import of liquiddom.js in core/dist/wasm-loader.js").not.toBeNull();
     const literal = match![1];
     expect(literal).toBe("./wasm/liquiddom.js");
 
@@ -302,7 +304,8 @@ describe("Ward 051: Workspace topology + publishable shape", () => {
     expect(cfg.baseBranch).toBe("master");
     expect(cfg.access).toBe("public");
     expect(cfg.linked).toEqual([]);
-    expect(cfg.fixed).toEqual([]);
+    expect(cfg.fixed).toEqual([["liquiddom", "@liquiddom/react", "@liquiddom/vue"]]);
+    expect(cfg.___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH).toEqual({ onlyUpdatePeerDependentsWhenOutOfRange: true });
     const ignore = cfg.ignore as string[];
     // v0.2.0-rc.0 release fix: `liquiddom-workspace` removed from ignore —
     // changesets rejects names that aren't actual workspace packages, and the
@@ -324,5 +327,149 @@ describe("Ward 051: Workspace topology + publishable shape", () => {
         `R7: ${pkg}/dist must not contain .d.ts.map files (workspace path leakage)`,
       ).toEqual([]);
     }
+  });
+});
+
+describe("W66: site freeze, versioning, pkg-specifier hygiene", () => {
+  const SITE_DEPS = /@liquiddom\/site/;
+
+  it("given_root_package_when_read_then_site_not_in_workspaces_and_no_site_override", () => {
+    const root = readJson(resolve(ROOT, "package.json"));
+    expect(root.workspaces).toEqual(["packages/*", "examples/*"]);
+    expect(JSON.stringify(root.overrides ?? {})).not.toMatch(SITE_DEPS);
+    const lock = readFileSync(resolve(ROOT, "package-lock.json"), "utf-8");
+    expect(lock).not.toMatch(/"site":\s*\{/);
+    expect(lock).not.toMatch(/"node_modules\/@liquiddom\/site"/);
+  });
+
+  it("given_vitest_config_when_read_then_site_not_in_projects", () => {
+    const cfg = readFileSync(resolve(ROOT, "vitest.config.ts"), "utf-8");
+    expect(cfg).not.toMatch(/["']\.\/site["']/);
+    for (const p of ["./packages/core", "./packages/react", "./packages/vue"]) expect(cfg).toContain(`"${p}"`);
+  });
+
+  it("given_deploy_site_yml_when_read_then_only_workflow_dispatch", () => {
+    const doc = parseYaml(readFileSync(resolve(ROOT, ".github/workflows/deploy-site.yml"), "utf-8")) as { on: Record<string, unknown> };
+    expect(Object.keys(doc.on)).toEqual(["workflow_dispatch"]);
+  });
+
+  it("given_example_react_package_when_read_then_liquiddom_deps_are_star", () => {
+    const deps = readJson(resolve(EXAMPLE_REACT, "package.json")).dependencies as Record<string, string>;
+    expect(deps.liquiddom).toBe("*");
+    expect(deps["@liquiddom/react"]).toBe("*");
+  });
+
+  it("given_publishable_packages_when_read_then_all_three_at_0_3_0_alpha_0_with_peers_caret_0_3_0_alpha_0", () => {
+    for (const p of [CORE, REACT, VUE]) expect(readJson(resolve(p, "package.json")).version, p).toBe("0.3.0-alpha.0");
+    for (const p of [REACT, VUE]) {
+      const peer = (readJson(resolve(p, "package.json")).peerDependencies as Record<string, string>).liquiddom;
+      expect(semver.satisfies("0.3.0-alpha.0", peer!), p).toBe(true); // without includePrerelease, as changesets checks
+    }
+  });
+
+  it("given_ts_sources_when_scanned_then_only_depth_1_wasm_loader_imports_pkg_via_four_level_specifier_D3", () => {
+    const SRC = resolve(CORE, "ts/src");
+    const importers: string[] = [];
+    const offenders: string[] = [];
+    for (const rel of (readdirSync(SRC, { recursive: true }) as string[]).map((f) => f.split("\\").join("/")).filter((f) => f.endsWith(".ts"))) {
+      const specs = [...readFileSync(resolve(SRC, rel), "utf-8").matchAll(/["']((?:\.\.\/)+pkg\/[^"']*)["']/g)].map((m) => m[1]!);
+      if (specs.length === 0) continue;
+      importers.push(rel);
+      for (const s of specs) if (rel.includes("/") || s !== "../../../../pkg/liquiddom.js") offenders.push(`${rel}: ${s}`);
+    }
+    expect(offenders).toEqual([]);
+    expect(importers).toEqual(["wasm-loader.ts"]);
+  });
+
+  it("given_core_dist_when_scanned_then_no_js_or_d_ts_references_pkg_D3", () => {
+    const DIST = resolve(CORE, "dist");
+    const files = (readdirSync(DIST, { recursive: true }) as string[]).map((f) => f.split("\\").join("/"));
+    const js = files.filter((f) => f.endsWith(".js") && !f.startsWith("wasm/"));
+    const dts = files.filter((f) => f.endsWith(".d.ts"));
+    expect(js.length).toBeGreaterThan(3);
+    for (const f of js) expect(/["'](?:\.\.\/)+pkg\//.test(readFileSync(resolve(DIST, f), "utf-8")), f).toBe(false);
+    for (const f of dts) expect(/pkg\//.test(readFileSync(resolve(DIST, f), "utf-8")), f).toBe(false);
+  });
+
+  it("given_core_dist_when_listed_then_no_soft_body_artifacts_remain_D66_9", () => {
+    for (const rel of ["phantom-observer.js", "wasm-bridge.js", "box-shadow.js", "renderers/renderer.js", "renderers/canvas2d-renderer.js", "renderers/shaders"]) {
+      expect(existsSync(resolve(CORE, "dist", rel)), rel).toBe(false);
+    }
+  });
+
+  it("given_pre_json_when_read_then_mode_pre_tag_alpha_and_initial_versions_0_3_0_alpha_0", () => {
+    const pre = readJson(resolve(ROOT, ".changeset/pre.json"));
+    expect(pre.mode).toBe("pre");
+    expect(pre.tag).toBe("alpha");
+    const iv = pre.initialVersions as Record<string, string>;
+    for (const name of ["liquiddom", "@liquiddom/react", "@liquiddom/vue"]) expect(iv[name], name).toBe("0.3.0-alpha.0");
+  });
+
+  it("given_pending_changesets_when_release_plan_computed_then_all_three_bump_to_0_3_0_alpha_1", async () => {
+    // Valid until `changeset version` consumes .changeset/fluid-engine-alpha.md; the
+    // 0.3.0-alpha.1 release commit updates this expectation. The example's "*" deps
+    // make changesets log a cosmetic "must depend on the current version" line.
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const plan = await getReleasePlan(ROOT);
+      expect(Object.fromEntries(plan.releases.map((r) => [r.name, r.newVersion]))).toEqual({
+        liquiddom: "0.3.0-alpha.1", "@liquiddom/react": "0.3.0-alpha.1", "@liquiddom/vue": "0.3.0-alpha.1",
+      });
+      expect(plan.preState?.tag).toBe("alpha");
+    } finally {
+      quiet.mockRestore();
+    }
+  });
+
+  it("given_core_build_scripts_when_read_then_a_reachable_removal_call_deletes_core_dist_and_the_tsbuildinfo_before_tsc_D66_9", () => {
+    // A stale tsbuildinfo makes tsc skip re-emitting, and deleted soft-body .js files stay in
+    // dist and in the tarball. Only steps reachable from `build` count: `prebuild` (npm runs it
+    // first), then each `&&` segment of `build`, following `npm run X` and `node file.mjs`
+    // transitively. Everything before the first `tsc` segment is the "clean phase".
+    const pkg = readJson(resolve(CORE, "package.json"));
+    const scripts = pkg.scripts as Record<string, string>;
+    const stripComments = (t: string): string => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+    const cleanPhase: Array<{ kind: "shell" | "node"; text: string }> = [];
+    let sawTsc = false;
+    const seen = new Set<string>();
+    const walkScript = (name: string): void => {
+      if (sawTsc || seen.has(name) || scripts[name] === undefined) return;
+      seen.add(name);
+      walkScript(`pre${name}`); // npm runs pre<name> automatically
+      for (const segment of scripts[name]!.split("&&").map((x) => x.trim())) {
+        if (sawTsc) return;
+        if (/^tsc\b/.test(segment)) {
+          sawTsc = true;
+          return;
+        }
+        const run = segment.match(/^npm run ([\w:-]+)/);
+        if (run) {
+          walkScript(run[1]!);
+          continue;
+        }
+        const node = segment.match(/^node\s+(\S+\.m?js)/);
+        if (node) {
+          const file = resolve(CORE, node[1]!);
+          if (existsSync(file)) cleanPhase.push({ kind: "node", text: stripComments(readFileSync(file, "utf-8")) });
+          continue;
+        }
+        cleanPhase.push({ kind: "shell", text: segment });
+      }
+    };
+    walkScript("build");
+    expect(sawTsc, "build must reach a tsc step").toBe(true);
+    const removal = /\b(?:rmSync|rmdirSync|rm|rimraf|unlinkSync)\(\s*[^;]*?/;
+    const nodeRemoves = (text: string, path: RegExp): boolean =>
+      new RegExp(removal.source + path.source).test(text);
+    const dist = /\bdist\b/;
+    const info = /tsconfig\.build\.tsbuildinfo/;
+    const nodeText = cleanPhase.filter((c) => c.kind === "node").map((c) => c.text).join("\n");
+    const shellOk = cleanPhase.some((c) => c.kind === "shell" && /\brm\s[^&;|]*\bdist\b[^&;|]*tsconfig\.build\.tsbuildinfo|\brm\s[^&;|]*tsconfig\.build\.tsbuildinfo[^&;|]*\bdist\b/.test(c.text));
+    // A script may also loop over a path list (`for (const rel of [...]) rmSync(resolve(root, rel))`):
+    // then it needs a removal call AND both paths as string literals in non-comment code.
+    const literal = (path: RegExp): RegExp => new RegExp(`["'\`][^"'\`]*${path.source}[^"'\`]*["'\`]`);
+    const loopOk = removal.test(nodeText) && literal(dist).test(nodeText) && literal(info).test(nodeText);
+    const nodeOk = (nodeRemoves(nodeText, dist) && nodeRemoves(nodeText, info)) || loopOk;
+    expect(shellOk || nodeOk, "a removal call before tsc must name both dist and tsconfig.build.tsbuildinfo").toBe(true);
   });
 });

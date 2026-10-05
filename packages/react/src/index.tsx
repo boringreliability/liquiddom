@@ -14,6 +14,7 @@ import {
 } from "react";
 import {
   LiquidDOM,
+  type ElementOptions,
   type LiquidDOMInstance,
   type LiquidOptions,
 } from "liquiddom";
@@ -54,8 +55,11 @@ export function LiquidProvider({ config, children }: LiquidProviderProps): JSX.E
     return () => {
       cancelled = true;
       if (created) created.destroy();
-      // No setInstance(null) on unmount — context is going away regardless,
-      // and post-unmount state updates generate noise in test output.
+      // Ward-fix M1: the context must never hand out a destroyed instance
+      // ("null after destroy"), e.g. when React re-runs this effect on a kept
+      // component (Fast Refresh, strict-mode reconnects). React 18 ignores the
+      // update after a real unmount.
+      setInstance(null);
     };
   }, []); // empty deps — config captured by ref, ignored after mount
 
@@ -67,61 +71,56 @@ export function useLiquid(): LiquidDOMInstance | null {
   return useContext(LiquidContext);
 }
 
-export interface UseLiquidRefOptions {
-  liquidType?: number;
+/** Element options (viscosity, recovery), captured at first attach (D66-4). */
+export type UseLiquidRefOptions = ElementOptions;
+
+function pickElementOptions(opts?: ElementOptions): ElementOptions | undefined {
+  if (!opts) return undefined;
+  const out: ElementOptions = {};
+  if (opts.viscosity !== undefined) out.viscosity = opts.viscosity;
+  if (opts.recovery !== undefined) out.recovery = opts.recovery;
+  return out.viscosity === undefined && out.recovery === undefined ? undefined : out;
 }
 
 /**
- * Callback ref that auto-observes the attached element. Safe to use before
- * the provider's instance is ready — observation deferred via state-trigger
- * pattern (effect re-runs when `instance` becomes available).
+ * Callback ref that auto-observes the attached element. Safe before the
+ * provider's instance is ready (the effect re-runs when it arrives). Options
+ * are captured once, on first render (D66-4).
  *
- * Strict-mode safe: cleanup unobserves, remount re-observes; `observe` is
- * idempotent (W14 invariant).
- *
- * Closure-capture: the effect cleanup captures `el` and `instance` at the
- * time the effect ran. A later `setEl(null)` does NOT change which element
- * the captured cleanup unobserves.
+ * Strict-mode safe: cleanup unobserves, remount re-observes; observe is idempotent.
  */
-export function useLiquidRef<T extends HTMLElement>(
-  opts?: UseLiquidRefOptions,
-): RefCallback<T> {
+export function useLiquidRef<T extends HTMLElement>(opts?: UseLiquidRefOptions): RefCallback<T> {
   const instance = useLiquid();
   const [el, setEl] = useState<T | null>(null);
-  const liquidType = opts?.liquidType;
+  const optsRef = useRef<ElementOptions | undefined>(pickElementOptions(opts));
 
   useEffect(() => {
     if (!el || !instance) return;
-    instance.observe(el, liquidType);
+    instance.observe(el, optsRef.current);
     return () => {
       instance.unobserve(el);
     };
-  }, [el, instance, liquidType]);
+  }, [el, instance]);
 
   return setEl as RefCallback<T>;
 }
 
-// TODO(W51): bump to a full polymorphic generic — `LiquidElementProps<E extends keyof JSX.IntrinsicElements = "div">` — so `<LiquidElement as="input" type="text">` picks up input-specific attrs. Deferred for v1 to keep the API surface narrow.
 export interface LiquidElementProps {
   as?: keyof JSX.IntrinsicElements;
-  liquidType?: number;
+  /** [0, 1]; captured at first attach. */
+  viscosity?: number;
+  /** Seconds in [0.2, 3]; captured at first attach. */
+  recovery?: number;
   children?: ReactNode;
 }
 
 /**
- * Convenience component: renders the chosen tag (default `div`) and auto-
- * observes it via `useLiquidRef`. All HTML attributes are forwarded via spread.
- *
- * Polymorphic typing is intentionally loose for v1 — props are typed as
- * `HTMLAttributes<HTMLElement>` so most common attributes typecheck across
- * tags. Tag-specific attributes (`type` on input, `disabled` on button) may
- * require a cast. Full polymorphic typing deferred to a follow-up ward.
+ * Renders the chosen tag (default `div`) and auto-observes it. `viscosity` and
+ * `recovery` are consumed (not forwarded to the DOM); every other prop is spread.
  */
-export function LiquidElement(
-  props: LiquidElementProps & HTMLAttributes<HTMLElement>,
-): JSX.Element {
-  const { as, liquidType, children, ...rest } = props;
-  const ref = useLiquidRef<HTMLElement>({ liquidType });
+export function LiquidElement(props: LiquidElementProps & HTMLAttributes<HTMLElement>): JSX.Element {
+  const { as, viscosity, recovery, children, ...rest } = props;
+  const ref = useLiquidRef<HTMLElement>({ viscosity, recovery });
   const Tag = (as ?? "div") as ElementType;
   return (
     <Tag ref={ref} {...rest}>

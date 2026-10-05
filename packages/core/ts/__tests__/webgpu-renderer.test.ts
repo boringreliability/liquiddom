@@ -1,320 +1,140 @@
 /**
  * @vitest-environment jsdom
- *
- * Ward 037 — WebGPU Pipeline Scaffolding (r2 red-phase tests).
- *
- * Test coverage strategy:
- *  - Paths A–E of Decision §7 each get a dedicated rejection assertion
- *    (T2/T3/T5/T6 — path A/B/C/D/E respectively).
- *  - T1 locks the Renderer-contract + WebGPUUnavailableError shape + the
- *    barrel re-export (Decision §11 amendment / r2 C2 fix).
- *  - T4 locks destroy() idempotency (Decision §16).
- *  - T7 locks the LiquidDOM.create({ renderer: 'webgpu' }) wire-up — a
- *    gold that ships WebGPURenderer but forgets the switch in index.ts
- *    would otherwise pass T1-T6 (review P1.3).
- *
- * Test count bumped 5→7 in r2 of the red phase after parallel test-code
- * reviews surfaced two critical coverage holes (path E unverified, wire-up
- * unverified). Spec §Tests table tracks this.
- *
- * Promise handling: every `init()` invocation is captured once and the
- * rejected error is destructured for multi-assertion (review C1 fix).
- * Calling init() twice with the same renderer mutates state in unpredictable
- * ways once gold lands.
+ * W66: WebGPURenderer stripped to infrastructure (spec §3 "Infrastructure"):
+ * adapter/device/context, configure(alphaMode 'premultiplied'), a clear pass,
+ * resize, destroy, device.lost. No shaders or pipelines until slice 3.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import {
-  WebGPURenderer,
-  WebGPUUnavailableError,
-} from "../src/renderers/webgpu-renderer";
-import { LiquidDOM, WebGPUUnavailableError as BarrelExportedError } from "../src/index";
-import type { Renderer } from "../src/renderers/renderer";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { WebGPURenderer, WebGPUUnavailableError, WEBGPU_INFRA_ONLY_WARNING } from "../src/renderers/webgpu-renderer";
+import { WebGPUUnavailableError as BarrelError } from "../src/index";
+import type { RenderFrame, Renderer } from "../src/renderers/frame";
+import { installNavigatorGpu, makeGpuMock, type GpuMock } from "./_facade-helpers";
 
-// W39: WebGPU globals not provided by jsdom. WebGPURenderer.init() now
-// references GPUShaderStage when building the explicit bindGroupLayout
-// (W39 Decision §9 / r2 F2). Path E test needs this polyfill so init()
-// reaches the validation error scope without throwing ReferenceError first.
-if (typeof globalThis.GPUBufferUsage === "undefined") {
-  (globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
-    MAP_READ: 0x0001, MAP_WRITE: 0x0002,
-    COPY_SRC: 0x0004, COPY_DST: 0x0008,
-    INDEX: 0x0010, VERTEX: 0x0020,
-    UNIFORM: 0x0040, STORAGE: 0x0080,
-    INDIRECT: 0x0100, QUERY_RESOLVE: 0x0200,
-  };
+let restoreGpu: (() => void) | null = null;
+afterEach(() => {
+  restoreGpu?.();
+  restoreGpu = null;
+});
+
+function canvasFor(mock: GpuMock | null): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.getContext = ((type: string) => (type === "webgpu" && mock ? mock.canvasContext : null)) as HTMLCanvasElement["getContext"];
+  return canvas;
 }
-if (typeof globalThis.GPUShaderStage === "undefined") {
-  (globalThis as unknown as { GPUShaderStage: Record<string, number> }).GPUShaderStage = {
-    VERTEX: 0x1, FRAGMENT: 0x2, COMPUTE: 0x4,
-  };
+async function errorOf(p: Promise<unknown>): Promise<unknown> {
+  return p.then(() => null, (e: unknown) => e);
 }
-if (typeof globalThis.GPUTextureUsage === "undefined") {
-  (globalThis as unknown as { GPUTextureUsage: Record<string, number> }).GPUTextureUsage = {
-    COPY_SRC: 0x01, COPY_DST: 0x02,
-    TEXTURE_BINDING: 0x04, STORAGE_BINDING: 0x08,
-    RENDER_ATTACHMENT: 0x10,
-  };
-}
+const FRAME = {} as RenderFrame; // the infra renderer never reads the frame
 
-// jsdom ResizeObserver polyfill for the LiquidDOM.create wire-up test.
-if (typeof globalThis.ResizeObserver === "undefined") {
-  globalThis.ResizeObserver = class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  } as unknown as typeof ResizeObserver;
-}
-
-/**
- * Idempotent navigator.gpu swap: saves the descriptor on the FIRST call per
- * test, lets subsequent calls in the same test overwrite the mock without
- * losing the original (review nit #8 fix).
- */
-let originalGpuDescriptor: PropertyDescriptor | undefined;
-let originalGpuCaptured = false;
-
-function setNavigatorGpu(value: unknown): void {
-  if (!originalGpuCaptured) {
-    originalGpuDescriptor = Object.getOwnPropertyDescriptor(navigator, "gpu");
-    originalGpuCaptured = true;
-  }
-  Object.defineProperty(navigator, "gpu", {
-    value,
-    configurable: true,
-    writable: true,
-  });
-}
-
-function restoreNavigatorGpu(): void {
-  if (!originalGpuCaptured) return;
-  if (originalGpuDescriptor) {
-    Object.defineProperty(navigator, "gpu", originalGpuDescriptor);
-  } else {
-    delete (navigator as { gpu?: unknown }).gpu;
-  }
-  originalGpuDescriptor = undefined;
-  originalGpuCaptured = false;
-}
-
-function makeCanvas(): HTMLCanvasElement {
-  return document.createElement("canvas");
-}
-
-/** Minimal device mock: success path through requestAdapter + requestDevice. */
-function makeMinimalGpu(overrides: {
-  requestDevice?: () => Promise<unknown>;
-  popErrorScope?: () => Promise<unknown>;
-} = {}): unknown {
-  return {
-    getPreferredCanvasFormat: () => "bgra8unorm",
-    requestAdapter: async () => ({
-      requestDevice:
-        overrides.requestDevice ??
-        (async () => ({
-          destroy() {},
-          lost: new Promise(() => {}),
-          queue: {
-            writeBuffer() {}, writeTexture() {}, copyExternalImageToTexture() {}, submit() {},
-          },
-          createBuffer: () => ({ destroy() {} }),
-          createBindGroup: () => ({}),
-          // W39 r2 F2: explicit bind-group + pipeline layouts.
-          createBindGroupLayout: () => ({}),
-          createPipelineLayout: () => ({}),
-          // W40: refraction texture + sampler.
-          createTexture: () => ({ destroy() {}, createView: () => ({}) }),
-          createSampler: () => ({}),
-          createShaderModule: () => ({}),
-          createRenderPipeline: () => ({ getBindGroupLayout: () => ({}) }),
-          createCommandEncoder: () => ({
-            beginRenderPass: () => ({
-              setPipeline() {}, setBindGroup() {}, draw() {}, end() {},
-            }),
-            finish: () => ({}),
-          }),
-          pushErrorScope: () => {},
-          popErrorScope: overrides.popErrorScope ?? (async () => null),
-        })),
-    }),
-  };
-}
-
-describe("Ward 037: WebGPU Pipeline Scaffolding", () => {
-  beforeEach(() => {
-    while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
-    // Lock path A as the default for hermetic isolation (review #7 fix).
-    setNavigatorGpu(undefined);
-  });
-
-  afterEach(() => {
-    restoreNavigatorGpu();
-  });
-
-  // ── T1: contract sanity + WebGPUUnavailableError shape + barrel re-export ──
-  it("webgpu_renderer_satisfies_renderer_contract", () => {
-    // Compile-time check — fails compilation if WebGPURenderer drifts from Renderer.
-    const _: Renderer = new WebGPURenderer();
-    void _;
-
-    // Runtime sanity on Renderer surface.
-    const r = new WebGPURenderer();
+describe("W66: WebGPURenderer (infra only)", () => {
+  it("given_webgpu_renderer_when_typed_then_satisfies_frame_Renderer_contract_and_error_is_reexported", () => {
+    const r: Renderer = new WebGPURenderer();
     expect(typeof r.init).toBe("function");
     expect(typeof r.render).toBe("function");
     expect(typeof r.resize).toBe("function");
     expect(typeof r.destroy).toBe("function");
-
-    // init() returns a Promise. Swallow rejection — we test behavior in T2-T6.
-    const result = r.init(makeCanvas());
-    expect(result).toBeInstanceOf(Promise);
-    result.catch(() => {});
-
-    // WebGPUUnavailableError shape + cause-option acceptance (review #6 fix).
-    const inner = new Error("inner cause");
-    const err = new WebGPUUnavailableError("msg", { cause: inner });
-    expect(err).toBeInstanceOf(Error);
+    const cause = new Error("inner");
+    const err = new WebGPUUnavailableError("msg", { cause });
     expect(err.name).toBe("WebGPUUnavailableError");
-    expect(err.message).toBe("msg");
-    expect(err.cause).toBe(inner);
-
-    // Barrel re-export identity check (review P1.2 fix): the class re-exported
-    // from `src/index.ts` MUST be the same identity used by consumers, so
-    // `instanceof` in user code works after they `catch (err)`.
-    expect(BarrelExportedError).toBe(WebGPUUnavailableError);
+    expect(err.cause).toBe(cause);
+    expect(BarrelError).toBe(WebGPUUnavailableError);
+    expect(WEBGPU_INFRA_ONLY_WARNING).toMatch(/infrastructure-only/);
   });
 
-  // ── T2: path A — navigator.gpu missing ─────────────────────────────
-  it("init_throws_WebGPUUnavailableError_when_navigator_gpu_missing", async () => {
-    // beforeEach already set gpu = undefined.
-    const renderer = new WebGPURenderer();
-    const err = await renderer.init(makeCanvas()).then(
-      () => null,
-      (e) => e as unknown,
-    );
+  it("given_navigator_gpu_missing_when_init_then_WebGPUUnavailableError", async () => {
+    restoreGpu = installNavigatorGpu(undefined);
+    const err = await errorOf(new WebGPURenderer().init(canvasFor(null)));
     expect(err).toBeInstanceOf(WebGPUUnavailableError);
-    expect((err as Error).message).toMatch(/navigator\.gpu/i);
+    expect((err as Error).message).toMatch(/navigator\.gpu/);
   });
 
-  // ── T3: path B — requestAdapter returns null ───────────────────────
-  it("init_throws_WebGPUUnavailableError_when_requestAdapter_returns_null", async () => {
-    setNavigatorGpu({
-      getPreferredCanvasFormat: () => "bgra8unorm",
-      requestAdapter: async () => null,
+  it("given_requestAdapter_null_or_throwing_when_init_then_WebGPUUnavailableError_with_cause", async () => {
+    const nul = makeGpuMock({ adapter: "null" });
+    restoreGpu = installNavigatorGpu(nul.gpu);
+    expect(await errorOf(new WebGPURenderer().init(canvasFor(nul)))).toBeInstanceOf(WebGPUUnavailableError);
+    restoreGpu();
+    const thr = makeGpuMock({ adapter: "throw" });
+    restoreGpu = installNavigatorGpu(thr.gpu);
+    const err = await errorOf(new WebGPURenderer().init(canvasFor(thr)));
+    expect(err).toBeInstanceOf(WebGPUUnavailableError);
+    expect((err as Error).cause).toBe(thr.adapterError);
+  });
+
+  it("given_requestDevice_rejects_when_init_then_WebGPUUnavailableError_with_cause", async () => {
+    const mock = makeGpuMock({ device: "reject" });
+    restoreGpu = installNavigatorGpu(mock.gpu);
+    const err = await errorOf(new WebGPURenderer().init(canvasFor(mock)));
+    expect(err).toBeInstanceOf(WebGPUUnavailableError);
+    expect((err as Error).cause).toBe(mock.deviceError);
+  });
+
+  it("given_getContext_webgpu_null_when_init_then_WebGPUUnavailableError_and_device_destroyed", async () => {
+    const mock = makeGpuMock();
+    restoreGpu = installNavigatorGpu(mock.gpu);
+    const err = await errorOf(new WebGPURenderer().init(canvasFor(null)));
+    expect(err).toBeInstanceOf(WebGPUUnavailableError);
+    expect((err as Error).message).toMatch(/getContext/);
+    expect(mock.calls.deviceDestroyed).toBe(1);
+  });
+
+  it("given_successful_init_when_configured_then_alphaMode_premultiplied_and_no_shader_or_pipeline_created", async () => {
+    const mock = makeGpuMock();
+    restoreGpu = installNavigatorGpu(mock.gpu);
+    await new WebGPURenderer().init(canvasFor(mock));
+    expect(mock.calls.configure).toHaveLength(1);
+    expect(mock.calls.configure[0]).toMatchObject({ format: "bgra8unorm", alphaMode: "premultiplied" });
+    expect(mock.calls.shaderModules).toBe(0);
+    expect(mock.calls.pipelines).toBe(0);
+  });
+
+  it("given_initialised_renderer_when_render_then_one_clear_pass_transparent_and_submitted", async () => {
+    const mock = makeGpuMock();
+    restoreGpu = installNavigatorGpu(mock.gpu);
+    const r = new WebGPURenderer();
+    await r.init(canvasFor(mock));
+    r.resize(1280, 800, 1);
+    r.render(FRAME);
+    expect(mock.calls.passes).toHaveLength(1);
+    expect(mock.calls.passes[0]).toMatchObject({
+      colorAttachments: [{ loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 0 } }],
     });
-
-    const renderer = new WebGPURenderer();
-    const err = await renderer.init(makeCanvas()).then(
-      () => null,
-      (e) => e as unknown,
-    );
-    expect(err).toBeInstanceOf(WebGPUUnavailableError);
-    expect((err as Error).message).toMatch(/adapter/i);
+    expect(mock.calls.submits).toBe(1);
   });
 
-  // ── T4: destroy idempotency ────────────────────────────────────────
-  it("destroy_is_idempotent_before_init_and_after_failed_init", async () => {
-    const renderer = new WebGPURenderer();
-    // Pre-init: destroy is a no-op.
-    expect(() => renderer.destroy()).not.toThrow();
-    expect(() => renderer.destroy()).not.toThrow();
-
-    // Force init failure (path A — beforeEach already set gpu = undefined).
-    await expect(renderer.init(makeCanvas())).rejects.toBeInstanceOf(Error);
-
-    // Post-failed-init: destroy still a no-op.
-    expect(() => renderer.destroy()).not.toThrow();
-    expect(() => renderer.destroy()).not.toThrow();
+  it("given_device_lost_when_rendering_then_one_console_warn_and_render_noop", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const mock = makeGpuMock();
+      restoreGpu = installNavigatorGpu(mock.gpu);
+      const r = new WebGPURenderer();
+      await r.init(canvasFor(mock));
+      mock.loseDevice("gpu reset");
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1));
+      expect(String(warn.mock.calls[0]![0])).toMatch(/device lost.*gpu reset/);
+      r.render(FRAME);
+      r.render(FRAME);
+      expect(mock.calls.passes).toHaveLength(0);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
-  // ── T5: paths C + D — requestDevice rejection / getContext null ────
-  it("init_throws_when_requestDevice_rejects_or_getContext_returns_null", async () => {
-    // Path C — requestDevice rejects.
-    const innerCause = new Error("device error");
-    setNavigatorGpu(
-      makeMinimalGpu({
-        requestDevice: async () => {
-          throw innerCause;
-        },
-      }),
-    );
-    const r1 = new WebGPURenderer();
-    const errC = await r1.init(makeCanvas()).then(
-      () => null,
-      (e) => e as unknown,
-    );
-    expect(errC).toBeInstanceOf(WebGPUUnavailableError);
-    // r2 review C2: cause MUST propagate so W41 can log/distinguish.
-    expect((errC as { cause?: unknown }).cause).toBe(innerCause);
-
-    // Path D — adapter + device succeed but canvas.getContext returns null.
-    restoreNavigatorGpu();
-    setNavigatorGpu(makeMinimalGpu());
-    const r2 = new WebGPURenderer();
-    const canvas = makeCanvas();
-    // Tighter mock: only "webgpu" returns null, other context types fall through
-    // (review #4 — defends against future code paths that call getContext("2d")).
-    const origGetContext = canvas.getContext.bind(canvas);
-    canvas.getContext = ((type: string, ...rest: unknown[]) =>
-      type === "webgpu" ? null : (origGetContext as (...a: unknown[]) => unknown)(type, ...rest)
-    ) as HTMLCanvasElement["getContext"];
-
-    const errD = await r2.init(canvas).then(
-      () => null,
-      (e) => e as unknown,
-    );
-    expect(errD).toBeInstanceOf(WebGPUUnavailableError);
-    expect((errD as Error).message).toMatch(/getContext/i);
-  });
-
-  // ── T6: path E — shader / pipeline validation failure ──────────────
-  it("init_throws_WebGPUUnavailableError_when_pipeline_validation_fails", async () => {
-    const validationError = { message: "shader compile failed: bad token" };
-    setNavigatorGpu(
-      makeMinimalGpu({
-        popErrorScope: async () => validationError,
-      }),
-    );
-    const renderer = new WebGPURenderer();
-    // jsdom's canvas.getContext is unimplemented → returns null by default,
-    // which fires path D before path E. Mock it to return a minimal
-    // GPUCanvasContext stub so init() reaches the pipeline-validation block.
-    const canvas = makeCanvas();
-    const fakeGpuCtx = {
-      configure() {},
-      getCurrentTexture: () => ({ createView: () => ({}) }),
-    };
-    canvas.getContext = ((type: string) =>
-      type === "webgpu" ? fakeGpuCtx : null
-    ) as HTMLCanvasElement["getContext"];
-
-    const err = await renderer.init(canvas).then(
-      () => null,
-      (e) => e as unknown,
-    );
-    expect(err).toBeInstanceOf(WebGPUUnavailableError);
-    // The validation error MUST be propagated via cause so consumers can
-    // surface useful WGSL diagnostics (Decision §7 path E).
-    expect((err as { cause?: unknown }).cause).toBe(validationError);
-  });
-
-  // ── T7: LiquidDOM.create wire-up dispatches to WebGPURenderer ──────
-  it("liquiddom_create_with_renderer_webgpu_rejects_when_unavailable", async () => {
-    // beforeEach already set gpu = undefined → path A.
-    // A gold that forgets to wire the 'webgpu' switch in index.ts would
-    // instead instantiate Canvas2DRenderer and resolve successfully here.
-    const err = await LiquidDOM.create({
-      capacity: 4,
-      autoObserve: false,
-      renderer: "webgpu",
-    }).then(
-      () => null,
-      (e) => e as unknown,
-    );
-    expect(err).toBeInstanceOf(WebGPUUnavailableError);
-
-    // Sanity: same call without `renderer` opt-in resolves cleanly (defaults
-    // to canvas2d, unaffected by missing navigator.gpu).
-    const instance = await LiquidDOM.create({ capacity: 4, autoObserve: false });
-    expect(typeof instance.destroy).toBe("function");
-    instance.destroy();
+  it("given_destroy_when_called_before_init_after_failure_and_twice_then_no_throw_and_device_destroyed_once", async () => {
+    expect(() => new WebGPURenderer().destroy()).not.toThrow();
+    restoreGpu = installNavigatorGpu(undefined);
+    const failed = new WebGPURenderer();
+    await errorOf(failed.init(canvasFor(null)));
+    expect(() => { failed.destroy(); failed.destroy(); }).not.toThrow();
+    restoreGpu();
+    const mock = makeGpuMock();
+    restoreGpu = installNavigatorGpu(mock.gpu);
+    const ok = new WebGPURenderer();
+    await ok.init(canvasFor(mock));
+    ok.destroy();
+    ok.destroy();
+    expect(mock.calls.deviceDestroyed).toBe(1);
+    ok.render(FRAME);
+    expect(mock.calls.passes).toHaveLength(0);
   });
 });

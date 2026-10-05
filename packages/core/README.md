@@ -1,123 +1,71 @@
 # liquiddom
 
-WASM-driven soft-body physics that animates real DOM elements through a hidden `<canvas>` overlay — without sacrificing accessibility. Rust runs the math, TypeScript orchestrates the DOM. They share a pre-allocated `Float32Array` over the FFI boundary; there is no JSON in the hot path.
+WASM-driven **fluid dynamics** on real DOM elements, drawn on a hidden `<canvas>` while the DOM keeps its semantics, focus and hit areas. Rust runs a 2D MLS-MPM fluid; TypeScript observes the DOM and renders. They share pre-allocated `Float32Array` views; there is no JSON over the FFI.
+
+> **0.3 alpha.** The 0.2 soft-body engine is retired (tag `softbody-final`). This alpha shows the liquid at rest; splash, shake and the pointer field land in the next alpha.
 
 ## Install
 
 ```bash
-npm install liquiddom
+npm install liquiddom@alpha
 ```
-
-For React or Vue, install the corresponding adapter:
-
-- [`@liquiddom/react`](https://www.npmjs.com/package/@liquiddom/react)
-- [`@liquiddom/vue`](https://www.npmjs.com/package/@liquiddom/vue)
 
 ## Quickstart
 
-```ts
-import { LiquidDOM } from "liquiddom";
-
-const liquid = await LiquidDOM.create({
-  capacity: 64,
-  autoObserve: true, // picks up every [data-liquid] element on the page
-});
-```
-
 ```html
-<button data-liquid>I am physically squishy</button>
-<a href="#" data-liquid>So am I</a>
+<button data-liquid>Splash</button>
+<div class="card" data-liquid>…</div>
+<script type="module">
+  import { LiquidDOM } from "liquiddom";
+  const liquid = await LiquidDOM.create({ seed: 1 });
+</script>
 ```
 
-The original DOM stays intact — screen readers see the `<button>`, `:hover` works, keyboard focus works. liquiddom only paints over it.
+Every `[data-liquid]` element is observed. Its computed `background-color` becomes the liquid colour, and its own background, border and box-shadow are hidden.
 
-## Options (selected)
+## Options
 
 | Option | Default | Notes |
-|--------|---------|-------|
-| `capacity` | `128` | Max number of simultaneously observed elements. Throws if exceeded; use `instance.grow(n)` to expand. |
-| `autoObserve` | `true` | Auto-observe every `[data-liquid]` on init. Set `false` for manual control. |
-| `container` | `undefined` | Scope to a specific element (positioned containing block required). Default = fullscreen. |
-| `renderer` | `'auto'` | `'auto'` probes WebGPU then falls back to Canvas2D. `'webgpu'` hard-fails. `'canvas2d'` skips probing. |
-| `colorDefault` | `'rgba(15, 52, 96, 0.75)'` | Base fill. |
-| `colorHover` | `'rgba(233, 69, 96, 0.85)'` | Fill while hovered. |
-| `colorSource` | `'config'` | Set `'computed'` to read each element's `getComputedStyle().backgroundColor` instead. |
-| `preserveBackgrounds` | `false` | Cut a hole through the canvas so the element's CSS background shows through. |
-| `gravity` | `{ source: 'none' }` | `'fixed'` uses `vector: [x, y]` (px/s²); `'orientation'` reads `DeviceOrientationEvent`. |
-| `theme.fusionRadius` | `0` | WebGPU only. Adjacent blobs visually merge via metaball SDF blending. |
-| `theme.refraction` | `undefined` | WebGPU only. Blob acts as a glass lens over a host-supplied bitmap. |
-| `physics` | preset | Per-frame tunable: `tension`, `damping`, `repulsionRadius`, `repulsionStrength`, `substeps`, etc. |
-| `snapDurationMs` | `150` | Smooth lerp duration after a scroll ends. |
-| `forceReducedMotion` | `undefined` | Override `prefers-reduced-motion`. |
+|---|---|---|
+| `particles` | `8000` | Fixed particle pool, integer 256–65536 |
+| `maxElements` | `32` | Fixed element slots, 1–256; `observe()` beyond it throws `RangeError` |
+| `container` | none | Mount the canvas inside this element (container mode). The container must be a positioned element (e.g. `position: relative`): the canvas is absolutely positioned inside it. liquiddom does not restyle it; a static container logs a `console.warn` at `create()` |
+| `renderer` | `'auto'` | `'auto'` / `'canvas2d'` / `'webgpu'` (WebGPU draws nothing until a later alpha) |
+| `material` | `{ viscosity: 0.5, cohesion: 0.5, recovery: 0.7 }` | viscosity and cohesion in [0, 1], recovery in seconds [0.2, 3] |
+| `gravity` | `{ source: 'none' }` | Accepted and validated; no effect yet |
+| `seed` | random u32 | Same seed + inputs + viewport = same positions |
+| `autoObserve` | `true` | Observe `[data-liquid]` at create |
+| `forceReducedMotion` | `false` | Force the still, crisp reduced-motion mode |
+| `silentFallback` | `false` | Validated; reserved for the WebGPU fallback log |
 
-## Imperative API
+Removed 0.2 options throw a `TypeError` that names the replacement.
+
+## Instance API
 
 ```ts
-// Observe / unobserve manually
-const id = liquid.observe(element);
-liquid.unobserve(element);
-
-// Liquid types — change behavior per element
-liquid.observe(card, 3); // Dragged: drag follows pointer
-liquid.observe(blob, 4); // Shake: vibrates briefly after impulse
-liquid.observe(card, 5); // Tween: external position target
-
-// Impulse — shake an element + optional droplet splash
-liquid.impulse(button, {
-  direction: [0, -1],
-  magnitude: 20,
-  splash: { threshold: 10, count: 4, jitter: 50, lifetimeMs: 800 },
-});
-
-// Tween to a target position
-liquid.tween(card, { toX: 200, toY: 100, duration: 400, easing: "ease-out" });
-
-// FreeDrop — DOM-less particles
-const dropId = liquid.spawnDroplet({ x: 100, y: 100, vx: 0, vy: -200, radius: 6 });
-liquid.despawnDroplet(dropId);
-
-// Live physics
-liquid.setPhysicsConfig({ tension: 150, damping: 6 });
-
-// WebGPU background refraction
-liquid.setBackgroundTexture(bitmap); // ImageBitmap | null
-
-// Lifecycle
-liquid.pause();
-liquid.resume();
-liquid.destroy();
+liquid.observe(el, { viscosity?, recovery? }); // returns the slot id
+liquid.unobserve(el);                            // restores the element exactly
+liquid.refresh(el);                              // re-read colours after a theme change
+liquid.pause(); liquid.resume(); liquid.destroy();
+liquid.autoDiscover(root?); liquid.stopAutoDiscover();
+await liquid.requestOrientationPermission();     // iOS, from a user gesture
+liquid.isPaused; liquid.activeRenderer; liquid.particleCapacity; liquid.elementCapacity;
 ```
 
-## Liquid types
-
-| Value | Name | Behavior |
-|-------|------|----------|
-| `0` | Default | Soft-body following its DOM rect. |
-| `3` | Dragged | Drag the DOM element; physics follows. |
-| `4` | Shake | Vibrates after `impulse()`. |
-| `5` | Tween | External `tween()` target. |
-| `6` | FreeDrop | DOM-less droplet — no element observed. Used internally by `spawnDroplet()`. |
-
-## Renderer
-
-`renderer: 'auto'` is the default. It tries WebGPU; on `WebGPUUnavailableError` it silently falls back to Canvas2D. The choice is exposed:
-
-```ts
-console.log(liquid.activeRenderer); // 'webgpu' | 'canvas2d'
-```
-
-WebGPU unlocks **metaball fusion** (`theme.fusionRadius`) and **background refraction** (`theme.refraction`). Canvas2D is the universal fallback — fast, no fusion/refraction.
-
-## Browser support
-
-- **Canvas2D** path: every modern browser (Chrome, Firefox, Safari, Edge).
-- **WebGPU** path: Chrome 113+, Edge 113+. Auto-fallback elsewhere.
-- `DeviceOrientationEvent` gravity: iOS 13+ requires `liquid.requestOrientationPermission()` from a user-gesture handler.
+After `destroy()`, every method throws except `unobserve()` and `destroy()`; `requestOrientationPermission()` returns a rejected promise instead of throwing synchronously.
 
 ## Accessibility
 
-liquiddom is paint-only — DOM nodes remain accessible. The canvas itself is `pointer-events: none` and out of the focus order. `prefers-reduced-motion` freezes physics (sync/render still run for snap behavior).
+- The canvas is `aria-hidden="true"` with `pointer-events: none`. It sits below the observed elements, so focus rings are always visible.
+- `prefers-reduced-motion` (or `forceReducedMotion`) stops the simulation: elements are still and crisp, and the DOM text is visible.
+- Print and `forced-colors: active` hide the canvas and restore the elements' own styling.
+
+## Known limitations (alpha)
+
+- Colours are snapshotted at `observe()`. Call `refresh(el)` after changing them.
+- Only uniform circular `border-radius` is honoured. Borders and box-shadows of observed elements are not drawn.
+- An observed element inside an ancestor with `transform`, `filter` or `overflow: hidden` can end up under other content.
 
 ## License
 
-[MIT](./LICENSE) © Dennis Schmock
+MIT

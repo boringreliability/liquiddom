@@ -4,6 +4,9 @@ on:
   pull_request:
   push:
     branches: [master]
+  # D1 / D65-7: manual Linux baseline regeneration (job e2e-update-baselines).
+  # GitHub only offers "Run workflow" once this file is on the default branch.
+  workflow_dispatch:
 
 jobs:
   test:
@@ -55,3 +58,110 @@ jobs:
 
       - name: Clippy
         run: npm run clippy
+
+      - name: Upload wasm pkg for e2e
+        if: matrix.node == 22
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-pkg
+          path: pkg/
+          if-no-files-found: error
+          retention-days: 3
+
+  e2e:
+    name: E2E (Playwright, pinned image)
+    needs: test
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    container:
+      # MUST equal the exact @playwright/test devDependency (D65-6; asserted by ci-workflow.test.ts).
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --ipc=host
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install npm deps
+        run: npm ci --no-audit --no-fund
+
+      - name: Download wasm pkg
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-pkg
+          path: pkg
+
+      - name: E2E canvas2d (blocking)
+        run: npx playwright test --project=canvas2d
+        env:
+          E2E_SUITE: canvas2d
+
+      - name: E2E webgpu smoke (soft until 10 green runs in a row)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: npx playwright test --project=webgpu
+        env:
+          E2E_SUITE: webgpu
+
+      - name: E2E perf (non-blocking, records p95)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: npx playwright test --project=perf
+        env:
+          E2E_SUITE: perf
+
+      - name: Upload Playwright reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload perf results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-canvas2d
+          path: test-results/perf/**/perf-canvas2d.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  e2e-update-baselines:
+    name: E2E baselines (manual, linux/amd64)
+    needs: test
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --ipc=host
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install npm deps
+        run: npm ci --no-audit --no-fund
+
+      - name: Download wasm pkg
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-pkg
+          path: pkg
+
+      - name: Regenerate canvas2d baselines
+        run: npx playwright test --project=canvas2d --update-snapshots=all
+        env:
+          E2E_SUITE: baselines
+
+      - name: Upload baselines (commit after a vision check)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-baselines
+          path: e2e/__screenshots__/
+          if-no-files-found: error
+          retention-days: 14

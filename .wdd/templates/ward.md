@@ -12,6 +12,8 @@ completed: null
 ---
 # Ward {NNN}: {Name}
 
+North star: {scene step(s) from .wdd/NORTH-STAR.md this ward moves, e.g. "step 3 (C)", or "none — <reason>"}
+
 ## Scope
 {One paragraph: what this Ward builds and why}
 
@@ -20,6 +22,13 @@ completed: null
 
 ## Outputs
 {What this Ward produces for future Wards}
+
+## Decisions
+<!-- Direction gate (NORTH-STAR.md rule 3): one item per technique, architecture or scope choice. Present each in chat to Dennis as a named decision with its consequence, record it with saga_record_decision, then replace PENDING with: APPROVED YYYY-MM-DD — <choice> (saga dec_xxxxxxxx), or AMENDED when he changed it, and add the row to NORTH-STAR.md "Plan decisions". The ward cannot move to red while any line says PENDING. -->
+### D{NN}-1: {Decision name}
+Proposal: {what is proposed}
+Consequence: {what it costs, changes or rules out}
+Decision: PENDING
 
 ## Specification
 {Detailed technical spec}

@@ -11,3 +11,15 @@ wasm-bindgen = "0.2"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
+
+# W64 (decision D64-16): provisional release profile. opt-level 3 vs "s" is
+# decided by the W65 measurement (plan resolution C1).
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+# W64: the fluid scenario tests tick 8000 particles for hundreds of frames;
+# unoptimised they take minutes.
+[profile.test]
+opt-level = 2

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>liquiddom · multi-instance stress</title>
+    <style>
+      html, body { margin: 0; height: 100%; }
+      body { background: #f3f0e8; font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "DejaVu Sans", sans-serif; overflow: hidden; }
+      .stress-el {
+        position: absolute;
+        top: 200px;
+        width: 160px;
+        height: 60px;
+        border-radius: 30px;
+        color: #ffffff;
+        display: grid;
+        place-items: center;
+        z-index: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <main id="stage" aria-label="multi-instance stress"></main>
+    <script type="module" src="./stress.ts"></script>
+  </body>
+</html>

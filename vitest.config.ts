@@ -1,14 +1,9 @@
 import { defineConfig } from "vitest/config";
 
-// Vitest 4 workspace via `test.projects`. Each path is a glob that points at
-// the project's vitest config. Replaces the legacy `vitest.workspace.ts` API.
+// Vitest 4 multi-project run. `./site` is frozen during the fluid rewrite
+// (W66, spec §5) and comes back in slice 6.
 export default defineConfig({
   test: {
-    projects: [
-      "./packages/core",
-      "./packages/react",
-      "./packages/vue",
-      "./site",
-    ],
+    projects: ["./packages/core", "./packages/react", "./packages/vue"],
   },
 });
