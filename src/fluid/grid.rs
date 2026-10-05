@@ -365,3 +365,31 @@ mod tests {
         assert!(r.cells() * 50 < g.w * g.h, "{} of {}", r.cells(), g.w * g.h);
     }
 }
+
+#[cfg(test)]
+mod w67_tests {
+    use super::cap_speed;
+
+    #[test]
+    fn given_speed_above_cap_when_capped_then_scaled_to_cap_and_direction_kept() {
+        let (x, y) = cap_speed(30.0, 40.0, 25.0);
+        assert!((x - 15.0).abs() < 1e-5 && (y - 20.0).abs() < 1e-5);
+        let (x, y) = cap_speed(3.0, 4.0, 25.0);
+        assert!(
+            (x - 3.0).abs() < 1e-7 && (y - 4.0).abs() < 1e-7,
+            "below the cap: unchanged"
+        );
+    }
+
+    #[test]
+    fn given_non_finite_velocity_when_capped_then_zero() {
+        for (vx, vy) in [
+            (f32::NAN, 1.0),
+            (1.0, f32::INFINITY),
+            (f32::NEG_INFINITY, f32::NAN),
+        ] {
+            let (x, y) = cap_speed(vx, vy, 25.0);
+            assert!(x.abs() < f32::MIN_POSITIVE && y.abs() < f32::MIN_POSITIVE);
+        }
+    }
+}

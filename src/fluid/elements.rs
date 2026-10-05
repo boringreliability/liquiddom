@@ -259,3 +259,209 @@ mod tests {
         assert_eq!(e.target_px(5, 0.5, 0.5, false), None);
     }
 }
+
+#[cfg(test)]
+mod w67_tests {
+    use super::*;
+
+    const DT_STEP: f32 = 1.0 / 60.0;
+    const DT_SUB: f32 = 1.0 / 480.0;
+
+    fn one_element() -> Elements {
+        let mut e = Elements::new(2);
+        e.buf[..ELEMENT_STRIDE].copy_from_slice(&[
+            100.0,
+            50.0,
+            140.0,
+            48.0,
+            24.0,
+            0.0,
+            0.0,
+            0.0,
+            f32::NAN,
+            f32::NAN,
+        ]);
+        e
+    }
+
+    fn alpha(e: &Elements) -> f32 {
+        e.state[ST_REST_ALPHA]
+    }
+
+    #[test]
+    fn given_rect_velocity_when_elements_updated_then_velocity_from_rect_delta_over_dt() {
+        let mut e = one_element();
+        e.update_velocities(DT_STEP);
+        assert!(e.vel_x[0].abs() < 1e-7, "first sample: 0, not x/dt");
+        e.buf[EL_X] = 110.0;
+        e.update_velocities(DT_STEP);
+        assert!(
+            (e.vel_x[0] - 600.0).abs() < 0.05,
+            "10 px per 1/60 s = 600 px/s, got {}",
+            e.vel_x[0]
+        );
+        assert!(e.vel_y[0].abs() < 1e-4);
+        e.update_velocities(DT_STEP);
+        assert!(e.vel_x[0].abs() < 1e-4, "no motion: 0");
+    }
+
+    #[test]
+    fn given_s_0_25_and_recovery_0_7_when_recovering_then_matches_ds_dt_1_minus_s_over_recovery() {
+        let mut e = one_element();
+        e.stiffness[0] = 0.25;
+        for _ in 0..480 {
+            e.update_stiffness(DT_SUB, 0.7);
+        }
+        let expected = 1.0 - 0.75 * (-1.0f32 / 0.7).exp();
+        assert!(
+            (e.stiffness[0] - expected).abs() < 1e-4,
+            "{} vs {expected}",
+            e.stiffness[0]
+        );
+        assert!(
+            (e.state[ST_S] - e.stiffness[0]).abs() < 1e-7,
+            "state view carries s"
+        );
+    }
+
+    #[test]
+    fn given_element_recovery_override_when_recovering_then_override_time_constant_used() {
+        let mut e = one_element();
+        e.buf[EL_RECOVERY] = 0.3;
+        e.stiffness[0] = 0.25;
+        for _ in 0..480 {
+            e.update_stiffness(DT_SUB, 0.7);
+        }
+        let expected = 1.0 - 0.75 * (-1.0f32 / 0.3).exp();
+        assert!(
+            (e.stiffness[0] - expected).abs() < 1e-4,
+            "{} vs {expected}",
+            e.stiffness[0]
+        );
+
+        e.buf[EL_RECOVERY] = 50.0;
+        e.stiffness[0] = 0.25;
+        for _ in 0..480 {
+            e.update_stiffness(DT_SUB, 0.7);
+        }
+        let clamped = 1.0 - 0.75 * (-1.0f32 / 3.0).exp();
+        assert!(
+            (e.stiffness[0] - clamped).abs() < 1e-4,
+            "override clamped to 3 s"
+        );
+    }
+
+    #[test]
+    fn given_damage_below_floor_when_applied_then_s_clamped_to_floor_0_015() {
+        let mut e = one_element();
+        e.damage(0, 0.001);
+        assert!((e.stiffness[0] - S_FLOOR).abs() < 1e-7);
+        assert!(
+            (e.state[ST_S] - S_FLOOR).abs() < 1e-7,
+            "state view carries s"
+        );
+        e.damage(0, 0.5);
+        assert!(
+            (e.stiffness[0] - S_FLOOR).abs() < 1e-7,
+            "damage only lowers"
+        );
+        e.damage(0, f32::NAN);
+        assert!((e.stiffness[0] - S_FLOOR).abs() < 1e-7, "NaN cap: no-op");
+        e.damage(7, 0.1);
+        assert!(
+            (e.stiffness[0] - S_FLOOR).abs() < 1e-7,
+            "out-of-range id: no-op, no panic"
+        );
+    }
+
+    #[test]
+    fn given_s_above_rest_threshold_and_maxdev_below_0_75_for_150ms_when_ticking_then_rest_alpha_rises_to_1_over_120ms()
+     {
+        let mut e = one_element();
+        let mut a = Vec::new();
+        for _ in 0..20 {
+            e.update_rest_state(0, 0.1, DT_STEP, false);
+            a.push(alpha(&e));
+        }
+        for (k, v) in a.iter().take(8).enumerate() {
+            assert!(v.abs() < 1e-7, "step {}: hold < 150 ms, alpha 0", k + 1);
+        }
+        assert!(a[8] > 0.0 && a[8] < 0.2, "step 9: fade starts ({})", a[8]);
+        assert!(a[14] < 1.0, "step 15: still fading");
+        assert_eq!(a[15], 1.0, "step 16: 120 ms fade complete");
+        assert!(
+            (e.state[ST_MAX_DEV] - 0.1).abs() < 1e-7,
+            "state view carries maxDev"
+        );
+    }
+
+    #[test]
+    fn given_rest_alpha_1_when_condition_breaks_then_it_falls_immediately_reaching_0_after_120ms() {
+        let mut e = one_element();
+        for _ in 0..20 {
+            e.update_rest_state(0, 0.1, DT_STEP, false);
+        }
+        let mut a = Vec::new();
+        for _ in 0..8 {
+            e.update_rest_state(0, 2.0, DT_STEP, false);
+            a.push(alpha(&e));
+        }
+        assert!(a[0] < 1.0, "falls on the first broken step");
+        assert!(a[6] > 0.0, "7 steps = 117 ms: not yet 0");
+        assert_eq!(a[7], 0.0, "8 steps ≥ 120 ms: 0");
+
+        for _ in 0..20 {
+            e.update_rest_state(0, 0.1, DT_STEP, false);
+        }
+        e.stiffness[0] = 0.5;
+        e.update_rest_state(0, 0.1, DT_STEP, false);
+        assert!(alpha(&e) < 1.0, "soft stiffness also breaks rest");
+    }
+
+    #[test]
+    fn given_condition_flickering_under_150ms_when_ticking_then_rest_alpha_stays_0() {
+        let mut e = one_element();
+        for _ in 0..6 {
+            for _ in 0..8 {
+                e.update_rest_state(0, 0.1, DT_STEP, false);
+                assert_eq!(alpha(&e), 0.0);
+            }
+            e.update_rest_state(0, 2.0, DT_STEP, false);
+            assert_eq!(alpha(&e), 0.0);
+        }
+    }
+
+    #[test]
+    fn given_element_already_on_target_when_redistributed_then_rest_alpha_starts_at_1() {
+        let mut e = one_element();
+        e.update_rest_state(0, 0.0, 0.0, false);
+        assert_eq!(alpha(&e), 0.0, "dt 0 alone never raises alpha");
+        e.settle_if_at_rest(0);
+        assert_eq!(
+            alpha(&e),
+            1.0,
+            "D67-12: on target and stiff → at rest at once"
+        );
+        e.update_rest_state(0, 0.1, DT_STEP, false);
+        assert_eq!(alpha(&e), 1.0, "the hold is full: stays at rest");
+
+        let mut soft = one_element();
+        soft.stiffness[0] = 0.5;
+        soft.update_rest_state(0, 0.0, 0.0, false);
+        soft.settle_if_at_rest(0);
+        assert_eq!(alpha(&soft), 0.0, "a soft element is not settled");
+
+        let mut off = one_element();
+        off.update_rest_state(0, 2.0, 0.0, false);
+        off.settle_if_at_rest(0);
+        assert_eq!(alpha(&off), 0.0, "a deviating element is not settled");
+
+        let mut idle = Elements::new(2);
+        idle.settle_if_at_rest(1);
+        assert_eq!(
+            idle.state[STATE_STRIDE + ST_REST_ALPHA],
+            0.0,
+            "inactive slot: no-op"
+        );
+    }
+}

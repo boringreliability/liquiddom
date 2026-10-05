@@ -172,3 +172,319 @@ pub fn measure_max_dev(p: &Particles, g: &Grid, tgt_x: &[f32], tgt_y: &[f32], ou
         }
     }
 }
+
+#[cfg(test)]
+mod w67_tests {
+    use super::*;
+    use std::f32::consts::TAU;
+
+    use crate::fluid::elements::S_FLOOR;
+    use crate::fluid::layout::{EL_VISCOSITY, ST_REST_ALPHA};
+    use crate::fluid::material::DEFAULT_MATERIAL;
+
+    const CELL: f32 = 6.0;
+    const DT: f32 = 1.0 / 480.0;
+
+    /// One element at `rect` (x, y, w, h px) with an n×n particle lattice placed exactly
+    /// on its targets. Each particle starts at velocity `vel(px, py)` px/s. The element is
+    /// settled (restAlpha 1, no wobble) and has stiffness `stiffness`.
+    struct Rig {
+        p: Particles,
+        g: Grid,
+        e: Elements,
+        s: Scratch,
+        m: MaterialParams,
+    }
+
+    impl Rig {
+        fn block(
+            rect: [f32; 4],
+            n: usize,
+            stiffness: f32,
+            vel: impl Fn(f32, f32) -> (f32, f32),
+        ) -> Rig {
+            let [x0, y0, w, h] = rect;
+            let g = Grid::new(400.0, 400.0, CELL, 200.0);
+            let mut e = Elements::new(1);
+            e.buf[..10].copy_from_slice(&[x0, y0, w, h, 0.0, 0.0, 0.0, 0.0, f32::NAN, f32::NAN]);
+            e.stiffness[0] = stiffness;
+            e.state[ST_REST_ALPHA] = 1.0;
+            e.rest_w[0] = w;
+            e.rest_h[0] = h;
+            e.counts[0] = (n * n) as u32;
+            e.area_per_particle[0] = w * h / (n * n) as f32;
+            let mut p = Particles::new(n * n);
+            let mass = e.area_per_particle[0] / (CELL * CELL);
+            for k in 0..n * n {
+                let u = ((k % n) as f32 + 0.5) / n as f32;
+                let v = ((k / n) as f32 + 0.5) / n as f32;
+                let (px, py) = (x0 + u * w, y0 + v * h);
+                let (gx, gy) = g.to_grid(px, py);
+                let (vx, vy) = vel(px, py);
+                p.x[k] = gx;
+                p.y[k] = gy;
+                p.vx[k] = vx / CELL;
+                p.vy[k] = vy / CELL;
+                p.j[k] = 1.0;
+                p.c[k] = [0.0; 4];
+                p.home[k] = 0;
+                p.rank[k] = k as u32;
+                p.rest_u[k] = u;
+                p.rest_v[k] = v;
+                p.placed[k] = true;
+                p.mass[k] = mass;
+            }
+            Rig {
+                p,
+                g,
+                e,
+                s: Scratch::new(n * n, 1),
+                m: DEFAULT_MATERIAL.params(),
+            }
+        }
+
+        fn step(&mut self, substeps: usize) {
+            for k in 0..substeps {
+                let inp = StepInput {
+                    dt: DT,
+                    time_s: k as f32 * DT,
+                    pointer: PointerField::default(),
+                };
+                substep(
+                    &mut self.p,
+                    &mut self.g,
+                    &self.e,
+                    &self.m,
+                    &inp,
+                    &mut self.s,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn given_compressed_particles_when_substep_then_j_clamped_at_0_55_and_relaxes_towards_1() {
+        let relax = (J_RELAX_PER_S * DT).min(1.0);
+        let j = update_j(1.0, -2000.0, DT, 0.16);
+        assert!(
+            (j - (COMPRESS_MIN + (1.0 - COMPRESS_MIN) * relax)).abs() < 1e-6,
+            "clamp, then relax: {j}"
+        );
+        let mut j = 0.6;
+        for _ in 0..960 {
+            j = update_j(j, 0.0, DT, 0.16);
+        }
+        assert!(
+            j > 0.97 && j <= 1.0,
+            "2 s of relaxation brings J back towards 1: {j}"
+        );
+
+        let mut rig = Rig::block([170.0, 170.0, 60.0, 60.0], 20, S_FLOOR, |x, y| {
+            (-600.0 * (x - 200.0), -600.0 * (y - 200.0))
+        });
+        rig.step(2);
+        let min_j = rig.p.j.iter().copied().fold(f32::INFINITY, f32::min);
+        assert!(
+            min_j >= COMPRESS_MIN - 1e-6,
+            "never below COMPRESS_MIN: {min_j}"
+        );
+        assert!(min_j < 0.9, "the converging block was compressed: {min_j}");
+    }
+
+    #[test]
+    fn given_stretch_beyond_tension_max_when_substep_then_j_yields_at_1_plus_tension_max() {
+        let relax = (J_RELAX_PER_S * DT).min(1.0);
+        let j = update_j(1.0, 2000.0, DT, 0.16);
+        assert!(
+            (j - (1.16 + (1.0 - 1.16) * relax)).abs() < 1e-6,
+            "yield at 1 + tension_max: {j}"
+        );
+        assert!(j <= 1.16);
+        assert!(update_j(1.0, 2000.0, DT, 0.02) <= 1.02);
+        assert!(
+            (update_j(f32::NAN, 1.0, DT, 0.16) - 1.0).abs() < 1e-6,
+            "non-finite J resets to 1"
+        );
+    }
+
+    #[test]
+    fn given_high_velocity_when_substep_then_particle_and_grid_speed_capped_at_0_45_cells_per_substep()
+     {
+        let mut rig = Rig::block([190.0, 190.0, 6.0, 6.0], 2, S_FLOOR, |_, _| (20_000.0, 0.0));
+        rig.step(1);
+        let vmax = MAX_CELLS_PER_SUBSTEP / DT;
+        for (&vx, &vy) in rig.p.vx.iter().zip(rig.p.vy.iter()) {
+            assert!(
+                vx.hypot(vy) <= vmax * (1.0 + 1e-5),
+                "particle speed {} > {vmax}",
+                vx.hypot(vy)
+            );
+        }
+        let grid_max = rig
+            .g
+            .mvx
+            .iter()
+            .zip(rig.g.mvy.iter())
+            .zip(rig.g.mass.iter())
+            .filter(|&(_, &m)| m > 0.0)
+            .map(|((&vx, &vy), _)| vx.hypot(vy))
+            .fold(0.0f32, f32::max);
+        assert!(
+            grid_max <= vmax * (1.0 + 1e-5),
+            "grid speed {grid_max} > {vmax}"
+        );
+        assert!(
+            grid_max > 0.5 * vmax,
+            "the cap was actually exercised: {grid_max}"
+        );
+    }
+
+    #[test]
+    fn given_free_moving_particle_when_ticking_then_air_drag_decays_velocity() {
+        let f = drag_factor(DT);
+        let mut v = 1.0f32;
+        for _ in 0..480 {
+            v *= f;
+        }
+        assert!(
+            (v - (-AIR_DRAG_PER_S).exp()).abs() < 1e-3,
+            "1 s of drag = exp(-0.8): {v}"
+        );
+
+        let mut rig = Rig::block([190.0, 190.0, 6.0, 6.0], 1, S_FLOOR, |_, _| (120.0, 0.0));
+        rig.step(1);
+        let vx = rig.p.vx[0] * CELL;
+        assert!(
+            vx < 120.0 * f + 1e-3,
+            "decays at least by the drag factor: {vx}"
+        );
+        assert!(vx > 100.0, "a weak home spring barely brakes it: {vx}");
+    }
+
+    fn shear_rms_gradient(viscosity_px2_s: f32) -> f32 {
+        let mut rig = Rig::block([170.0, 170.0, 60.0, 60.0], 20, S_FLOOR, |_, y| {
+            (60.0 * (TAU * (y - 170.0) / 60.0).sin(), 0.0)
+        });
+        rig.m.viscosity_px2_s = viscosity_px2_s;
+        rig.step(8);
+        let sum: f32 = rig.p.c.iter().map(|&[_, c01, _, _]| c01 * c01).sum();
+        (sum / rig.p.c.len() as f32).sqrt()
+    }
+
+    #[test]
+    fn given_shear_flow_when_substep_then_viscous_stress_reduces_velocity_gradient() {
+        let thin = shear_rms_gradient(100.0);
+        let thick = shear_rms_gradient(2000.0);
+        assert!(thin > 1.0, "the shear profile has a gradient: {thin}");
+        assert!(
+            thick < 0.9 * thin,
+            "viscosity damps the gradient: thick {thick} vs thin {thin}"
+        );
+    }
+
+    #[test]
+    fn given_element_viscosity_slot_nan_when_ticking_then_material_default_used() {
+        let m = MaterialParams {
+            viscosity_px2_s: 450.0,
+            tension_max: 0.16,
+            recovery_s: 0.7,
+        };
+        let mut rig = Rig::block([100.0, 100.0, 40.0, 40.0], 1, 1.0, |_, _| (0.0, 0.0));
+        assert!((element_viscosity_px2_s(&rig.e, 0, &m) - 450.0).abs() < 1e-3);
+        rig.e.buf[EL_VISCOSITY] = 1.0;
+        assert!((element_viscosity_px2_s(&rig.e, 0, &m) - 2000.0).abs() < 1e-2);
+    }
+
+    #[test]
+    fn given_element_moving_at_v_and_particles_co_moving_on_target_when_spring_evaluated_then_damping_force_zero()
+     {
+        let inv = 1.0 / CELL;
+        let (ax, ay) = home_spring_accel(
+            (10.0, 12.0),
+            (5.0, -3.0),
+            (10.0, 12.0),
+            (5.0, -3.0),
+            1.0,
+            inv,
+        );
+        assert!(
+            ax.abs() < 1e-6 && ay.abs() < 1e-6,
+            "co-moving on target: no force ({ax}, {ay})"
+        );
+        let (bx, by) = home_spring_accel(
+            (10.0, 12.0),
+            (6.0, -3.0),
+            (10.0, 12.0),
+            (5.0, -3.0),
+            1.0,
+            inv,
+        );
+        let expected = -2.0 * SPRING_ZETA * SPRING_K.sqrt();
+        assert!(
+            (bx - expected).abs() < 1e-3,
+            "damping c = 2ζ√k on the relative velocity: {bx}"
+        );
+        assert!(by.abs() < 1e-6);
+    }
+
+    #[test]
+    fn given_droplet_far_from_home_when_spring_evaluated_then_acceleration_saturates() {
+        let inv = 1.0 / CELL;
+        for s in [S_FLOOR, 0.25, 1.0] {
+            let (ax, ay) =
+                home_spring_accel((0.0, 0.0), (0.0, 0.0), (1000.0, 0.0), (0.0, 0.0), s, inv);
+            let a_max = SPRING_AMAX_PX_S2 * inv * (0.25 + 0.75 * s);
+            assert!(
+                (ax.hypot(ay) - a_max).abs() < 1e-3 * a_max,
+                "s={s}: |a|={} vs {a_max}",
+                ax.hypot(ay)
+            );
+            assert!(ax > 0.0, "pulls towards home");
+        }
+    }
+
+    #[test]
+    fn given_s_1_and_offset_particle_when_ticking_then_slip_rate_3_per_s_capped_160px_per_s() {
+        let inv = 1.0 / CELL;
+        let max = SLIP_MAX_PX_S * inv;
+        let (sx, sy) = slip_velocity((10.0 * inv, 0.0), 1.0, max);
+        assert!(
+            (sx * CELL - 30.0).abs() < 1e-3 && sy.abs() < 1e-7,
+            "3/s × 10 px = 30 px/s: {}",
+            sx * CELL
+        );
+        let (sx, _) = slip_velocity((100.0 * inv, 0.0), 1.0, max);
+        assert!(
+            (sx * CELL - 160.0).abs() < 1e-3,
+            "capped at 160 px/s: {}",
+            sx * CELL
+        );
+    }
+
+    #[test]
+    fn given_s_floor_when_ticking_then_slip_scaled_by_s_squared() {
+        let inv = 1.0 / CELL;
+        let (sx, _) = slip_velocity((10.0 * inv, 0.0), S_FLOOR, SLIP_MAX_PX_S * inv);
+        let expected = 3.0 * S_FLOOR * S_FLOOR * 10.0;
+        assert!(
+            (sx * CELL - expected).abs() < 1e-6,
+            "{} vs {expected}",
+            sx * CELL
+        );
+    }
+
+    #[test]
+    fn given_rest_alpha_1_when_ticking_then_wobble_zero() {
+        let (wx, wy) = wobble_offset_px(1.3, 40.0, 12.0, 0.7, 1.0);
+        assert!(wx.abs() < f32::EPSILON && wy.abs() < f32::EPSILON);
+        let mut peak = 0.0f32;
+        for k in 0..200 {
+            let (wx, wy) = wobble_offset_px(k as f32 * 0.05, 40.0, 12.0, 0.7, 0.0);
+            assert!(wy.abs() <= WOBBLE_PX + 1e-6 && wx.abs() <= 0.6 * WOBBLE_PX + 1e-6);
+            peak = peak.max(wx.hypot(wy));
+            let (hx, hy) = wobble_offset_px(k as f32 * 0.05, 40.0, 12.0, 0.7, 0.5);
+            assert!(hy.abs() <= 0.5 * WOBBLE_PX + 1e-6 && hx.abs() <= 0.3 * WOBBLE_PX + 1e-6);
+        }
+        assert!(peak > 0.5 * WOBBLE_PX, "wobble exists while liquid: {peak}");
+    }
+}
