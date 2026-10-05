@@ -53,7 +53,7 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 - WebGPU smoke fails under amd64 emulation in the pinned image (soft; likely SwiftShader/Rosetta).
 
 ## What Comes Next
-- **W68 — pointer, hover and material presets** (slice 2). Direction gate first. Carries: `Scratch::invalidate_bounds()` on pointer paths (fused AABB), TS reduced-motion gating of clicks (D68-5), drag click-suppression.
+- **W68 — pointer, hover and material presets** (slice 2). Direction gate first. Carries: `Scratch::invalidate_bounds()` on pointer paths (fused AABB), TS reduced-motion gating of clicks (D68-5).
 - Candidate W68/W69 decisions from W67 gold observations: DOM text contrast while liquid is away (no liquid text yet), furry in-motion edges from the density renderer, shake reads as sliding blobs (tune in W69).
 - W69 playground + first whole-picture check (canvas2d), incl. a browser smoke of the published `dist` and ring density when the area hint is off.
 - Slices 3–6 are planned only after the whole-picture check.

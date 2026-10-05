@@ -1,6 +1,6 @@
 # liquiddom fluid engine, slices 1–2: implementation plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking. **Every ward also follows WDD / GS-TDD:** write tests first → `wdd ward status NN red` → STOP for Dennis' "godkendt" → implement → green → `wdd ward status NN gold` → STOP. AI never runs `wdd complete`.
+> **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking. **Every ward also follows WDD / GS-TDD:** write tests first → `wdd ward status NN red` → STOP for Dennis' "godkendt" → implement → green → `wdd ward status NN gold` → STOP. AI never decides on its own that a ward is complete; after Dennis approves gold, AI may run `wdd complete` (or apply the transition by hand when the harness blocks it).
 
 **Goal:** Replace the retired soft-body engine with an MLS-MPM fluid engine in Rust/WASM. By the end of slice 2, observed DOM elements *are* liquid in the acceptance scene. They rest crisply, splash when clicked or activated from the keyboard, slosh on shake, respond to the pointer and hover, and always re-form. Everything is verified in real browsers.
 
