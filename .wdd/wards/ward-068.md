@@ -3,10 +3,10 @@ ward: 68
 revision: null
 name: "Pointer, hover and material"
 epic: "fluid-engine"
-status: "planned"
+status: "red"
 dependencies: [67]
 layer: "both"
-estimated_tests: 20
+estimated_tests: 72
 created: "2026-10-03"
 completed: null
 ---
@@ -28,9 +28,9 @@ North star: step 2 (pointer sweep: soft bulge, no holes), plus the hover swell o
 - Spec §2 interaction table, the hover rule, reduced motion.
 
 ## Outputs
-- Modified: `src/fluid/{interaction,elements,solver}.rs` (pointer field, hover swell).
-- `packages/core/ts/src/input.ts` (pointer tracker, hover/focus listeners), `element-registry.ts` (`interaction` slot), `material.ts` (`presets`), `index.ts` (`setMaterial`, `getMaterial`, the `presets` export).
-- Tests `pointer-input.test.ts`, `hover-focus.test.ts`, `material-api.test.ts`. Modified: `api-migration.test.ts` and `liquiddom-api.test.ts` (whitelist + `presets`), `fluid-canvas2d.test.ts` (hovered rest contour).
+- Modified: `src/fluid/{interaction,elements,solver,api}.rs` (pointer field, `swell_rect`, `PointerField::sanitized`, pointer through `tick`, `Scratch::invalidate_bounds` on every particle-moving path, D68-10).
+- `packages/core/ts/src/pointer-tracker.ts` (new: pointer tracker), `runtime.ts` (pointer → `tick`, reduced-motion gate for splash/shake, `setMaterial`), `element-registry.ts` (hover/focus listeners → `interaction` slot), `material.ts` (`presets`), `index.ts` (`setMaterial`, `getMaterial`, the `presets` export).
+- Tests `pointer-input.test.ts`, `hover-focus.test.ts`, `material-api.test.ts`. Modified: `api-migration.test.ts` and `liquiddom-api.test.ts` (whitelist + `presets`), `reduced-motion-input.test.ts` (new); Rust `src/fluid/pointer_hover_tests.rs` (new) and two D68-10 tests in `solver.rs` `w67_tests`; the hovered rest contour is already covered by W64's `given_hover_interaction_at_rest_when_rendering_then_roundRect_at_swelled_home_rect`.
 - `e2e/acceptance.spec.ts` step 2 with its baseline.
 
 ## Decisions
@@ -88,33 +88,90 @@ Decision: APPROVED 2026-10-06 — invalidate on every particle-moving path (saga
 - **Pointer:** a document `pointermove` → buffer-space position (minus the container offset) and px/s velocity → `tick(dt, px, py, pvx, pvy, active, gx, gy)`.
 - **Hover swell:** the home rect is scaled by `1 + HOVER_SWELL` (0.02) about its centre when `interaction == 1` and not in reduced motion. The targets follow it in Rust, and the Canvas2D rest `roundRect` follows it in TS.
 - **Focus** has no engine effect.
-- **`setMaterial(partial)`:** merge, then `validateMaterial`, then assign atomically, then `core.set_material(v, c, r)`. On `TypeError` the state is unchanged.
+- **`setMaterial(partial)`:** W66's `validateMaterial(partial)`, then W66's `mergeMaterial`, then assign atomically, then `core.set_material(v, c, r)` (D68-9). On `TypeError` the state is unchanged.
 - **`getMaterial()`** returns a copy.
 - **`create({ material })`** calls `set_material` exactly once, with the resolved values.
+- **Fused AABB (D68-10):** redistribute, the reduced-motion pin, splash, shake, an active pointer tick and the test setter `set_particle_px` call `Scratch::invalidate_bounds()`; `SubstepOpts::reuse_bounds` never reuses an AABB older than the last particle-moving call.
 
 ## Tests
 | # | Test Name | Verifies |
 |---|-----------|----------|
-| 1 | given_pointer_within_70px_moving_when_ticking_then_particles_pulled_towards_pointer_velocity_with_weight_1_minus_d_over_r_squared | pointer field |
-| 2 | given_static_pointer_over_liquid_when_ticking_then_no_radial_push_and_no_hole | no hole |
-| 3 | given_hover_interaction_when_ticking_then_home_rect_swells_2_percent_about_centre | hover swell |
-| 4 | given_focus_interaction_when_ticking_then_targets_unchanged | focus no-op |
-| 5 | given_pointermove_events_when_sampled_then_buffer_space_position_and_smoothed_velocity_passed_to_tick | tracker |
-| 6 | given_container_mode_when_sampled_then_pointer_container_relative | container |
-| 7 | given_pointerleave_when_ticking_then_pointer_active_false | leave |
-| 8 | given_reduced_motion_when_ticking_then_pointer_active_false | RM gating |
-| 9 | given_mouseenter_when_synced_then_interaction_slot_1 | hover |
-| 10 | given_focus_while_hovered_when_synced_then_interaction_slot_2 | focus beats hover |
-| 11 | given_blur_and_mouseleave_when_synced_then_interaction_slot_0 | reset |
-| 12 | given_reduced_motion_when_hovered_then_interaction_slot_0 | RM gating |
-| 13 | given_hovered_element_at_rest_when_rendering_then_roundRect_is_home_rect_swelled_by_HOVER_SWELL | B1 rest contour |
-| 14 | given_setMaterial_partial_when_called_then_merged_validated_atomically_and_set_material_called | material API |
-| 15 | given_invalid_partial_when_setMaterial_then_TypeError_and_state_unchanged | atomic |
-| 16 | given_getMaterial_when_result_mutated_then_internal_state_unchanged | copy |
-| 17 | given_presets_when_read_then_water_honey_jelly_frozen_and_valid | D68-1 |
-| 18 | given_create_with_material_when_started_then_set_material_called_once_with_resolved_values | create path |
-| 19 | given_root_index_when_imported_then_export_keys_equal_whitelist (modified: + presets) | D68-6 |
-| 20 | step 2 – given a pointer sweep across the buttons when sampled then canvas alpha inside each rect never drops below the fill threshold (no holes) and the frame matches baseline | step 2 |
+| 1 | given_pointer_within_70px_moving_when_accel_evaluated_then_pulled_towards_pointer_velocity_with_weight_1_minus_d_over_r_squared | D68-2, D68-3 |
+| 2 | given_particle_at_or_beyond_70px_when_accel_evaluated_then_zero | D68-2 |
+| 3 | given_static_pointer_over_resting_liquid_when_accel_evaluated_then_zero_so_no_radial_push | D68-2 (guard once compiled) |
+| 4 | given_inactive_pointer_when_accel_evaluated_then_zero | D68-2 |
+| 5 | given_nan_or_infinite_pointer_when_sanitized_then_inactive | D68-4 |
+| 6 | given_pointer_speed_above_vmax_when_sanitized_then_clamped_to_vmax_preserving_direction | D68-4 |
+| 7 | given_hover_interaction_when_swelled_then_rect_grows_2_percent_about_its_centre_with_radius | D68-5 |
+| 8 | given_idle_focus_or_dragged_interaction_when_swelled_then_rect_unchanged | D68-5 |
+| 9 | given_reduced_motion_or_nan_interaction_when_swelled_then_rect_unchanged | D68-5 |
+| 10 | given_card_hovered_when_ticking_then_its_targets_swell_2_percent_about_centre_and_other_elements_unchanged | D68-5 |
+| 11 | given_card_focused_when_ticking_then_targets_unchanged | D68-5, focus no-op |
+| 12 | given_reduced_motion_and_card_hovered_when_ticking_then_targets_unchanged | D68-5 |
+| 13 | given_static_pointer_over_split_when_ticking_1s_then_every_element_stays_at_rest_below_0_75px | D68-2, no hole (guard once compiled) |
+| 14 | given_still_pointer_inside_radius_when_ticking_60_frames_then_positions_match_inactive_run_within_0_05px | D68-2, no push (guard once compiled) |
+| 15 | given_pointer_sweeping_across_buttons_when_ticking_then_liquid_follows_pointer_direction_and_no_interior_bin_empties | step 2, D68-2 |
+| 16 | given_pointer_sweep_then_pointer_inactive_when_ticking_then_every_rest_alpha_returns_to_1_within_3s | step 2 re-form |
+| 17 | given_reduced_motion_and_active_pointer_sweep_when_ticking_then_every_particle_stays_on_its_target | D68-5 RM |
+| 18 | given_nan_pointer_inputs_when_ticking_then_no_panic_and_positions_finite | D68-4, no panic |
+| 19 | given_same_seed_and_pointer_sweep_when_run_twice_then_positions_bit_identical | determinism |
+| 20 | given_ticked_core_when_redistribute_splash_shake_reduced_motion_tick_or_set_particle_px_then_fused_aabb_invalidated | D68-10 |
+| 21 | solver.rs: given_particle_moved_outside_the_fused_aabb_and_bounds_invalidated_when_substep_reuses_bounds_then_bit_identical_to_plain_substep | D68-10 |
+| 22 | solver.rs: given_active_pointer_over_the_block_when_stepping_with_api_options_then_bit_identical_to_plain_substep_and_the_block_moved | D68-10 |
+| 23 | elements.rs: given_hover_with_home_offset_and_odd_sizes_when_home_rect_then_bit_identical_to_w64_arithmetic | D68-5 swell refactor bit-identity (guard) |
+| 24 | given_constants_when_read_then_match_D68_4 | D68-4 tracker |
+| 25 | given_two_samples_at_the_same_timestamp_when_moved_then_dt_floored_at_1_240_s | D68-4 tracker |
+| 26 | given_velocity_built_up_when_blur_cancel_or_touch_up_then_next_move_first_sample_has_zero_velocity | D68-4 tracker |
+| 27 | given_no_pointer_events_when_sampled_then_inactive_and_zero_velocity | D68-4 tracker |
+| 28 | given_pointermove_events_one_frame_apart_when_sampled_then_buffer_space_position_and_smoothed_velocity | D68-4 tracker |
+| 29 | given_several_moves_within_one_frame_when_sampled_then_velocity_uses_net_displacement_over_frame_dt | D68-4 tracker |
+| 30 | given_container_offset_when_sampled_then_position_is_client_minus_offset | D68-4 tracker |
+| 31 | given_no_move_for_less_than_120ms_when_sampled_then_velocity_held_and_then_decays_by_0_8_per_frame | D68-4 tracker |
+| 32 | given_leave_when_sampled_then_inactive_and_next_move_starts_from_zero_velocity | D68-4 tracker |
+| 33 | given_nonfinite_coordinates_when_moved_then_ignored | D68-4 tracker |
+| 34 | given_attached_to_document_when_pointer_events_dispatched_then_tracker_follows_and_detach_removes_listeners | D68-4 tracker |
+| 35 | given_pointermove_events_when_sampled_then_buffer_space_position_and_smoothed_velocity_passed_to_tick | D68-4 tracker |
+| 36 | given_container_mode_when_sampled_then_pointer_container_relative | D68-4 tracker |
+| 37 | given_pointer_left_the_window_when_ticking_then_pointer_active_false | D68-4 tracker |
+| 38 | given_reduced_motion_when_ticking_then_pointer_active_false | D68-4 tracker |
+| 39 | given_runtime_destroyed_when_inspected_then_document_and_window_pointer_listeners_removed | D68-4 tracker |
+| 40 | given_mouseenter_when_synced_then_interaction_slot_1 | D68-2, D68-5 |
+| 41 | given_focus_while_hovered_when_synced_then_interaction_slot_2 | D68-2, D68-5 |
+| 42 | given_focused_when_mouse_leaves_then_interaction_slot_stays_2 | D68-2, D68-5 |
+| 43 | given_blur_and_mouseleave_when_synced_then_interaction_slot_0 | D68-2, D68-5 |
+| 44 | given_element_already_focused_when_observed_then_interaction_slot_2_on_first_sync | D68-2, D68-5 |
+| 45 | given_reduced_motion_when_hovered_or_focused_then_interaction_slot_0 | D68-2, D68-5 (guard) |
+| 46 | given_reduced_motion_turned_off_when_still_hovered_then_interaction_slot_1_on_next_sync | D68-2, D68-5 |
+| 47 | given_child_of_observed_card_focused_when_synced_then_slot_idle | D68-2, D68-5 (guard) |
+| 48 | given_element_already_hovered_when_observed_then_interaction_slot_1_on_first_sync | D68-2, D68-5 |
+| 49 | given_unobserve_when_called_then_all_four_interaction_listeners_removed | D68-2, D68-5 |
+| 50 | given_observe_called_twice_when_listeners_counted_then_attached_once | D68-2, D68-5 |
+| 51 | given_create_with_material_when_started_then_set_material_called_once_with_resolved_values | D68-1, D68-9 (guard) |
+| 52 | given_setMaterial_partial_when_called_then_merged_validated_and_set_material_called_with_merged_values | D68-1, D68-9 |
+| 53 | given_invalid_partial_when_setMaterial_then_TypeError_and_state_unchanged | D68-1, D68-9 |
+| 54 | given_unknown_key_or_non_object_when_setMaterial_then_TypeError | D68-1, D68-9 |
+| 55 | given_getMaterial_when_result_mutated_then_internal_state_unchanged | D68-1, D68-9 |
+| 56 | given_presets_when_read_then_water_honey_jelly_frozen_and_valid | D68-1, D68-9 |
+| 57 | given_preset_when_passed_to_setMaterial_or_create_then_core_receives_its_values | D68-1, D68-9 |
+| 58 | given_destroyed_instance_when_setMaterial_or_getMaterial_then_destroyed_Error_not_TypeError | D68-1, D68-9 |
+| 59 | given_reduced_motion_when_observed_element_clicked_then_core_splash_not_called_and_default_not_prevented | D68-5 RM |
+| 60 | given_reduced_motion_when_splash_or_shake_api_called_then_still_validated_but_core_not_called | D68-5 RM |
+| 61 | given_live_media_change_to_reduce_when_pointer_moves_then_tick_pointer_inactive_until_changed_back | D68-5 RM |
+| 62 | given_live_media_change_to_reduce_when_clicked_then_no_splash_and_after_change_back_one_splash | D68-5 RM |
+| 63 | api-migration.test.ts: given_presets_when_imported_then_material_presets_water_honey_jelly_replace_the_old_physics_presets | D68-6 (A2) |
+| 64 | api-migration.test.ts: given_old_physics_shaped_config_when_setMaterial_then_TypeError_naming_the_key_and_the_material_fields | D68-6, D68-9 |
+| 65 | liquiddom-api.test.ts: given_instance_when_created_then_setMaterial_and_getMaterial_are_functions_and_getMaterial_returns_resolved_material | D68-6 |
+| 66 | liquiddom-api.test.ts: given_root_index_when_imported_then_export_keys_equal_whitelist (modified: + presets) | D68-6 |
+| 67 | liquiddom-api.test.ts: given_testBackend_when_create_then_instance_with_particleCapacity_and_elementCapacity (modified: + setMaterial, getMaterial) | D68-6 |
+| 68 | api-migration.test.ts: given_old_runtime_exports_when_imported_then_each_fate_holds (modified: presets kept) | D68-6 (A2) |
+| 69 | e2e: step 2 – given a pointer sweep across the buttons when sampled then canvas alpha inside each button never drops below the fill threshold (no holes) | step 2 (guard at red) |
+| 70 | e2e: step 2 – given the sweep when ticking then the liquid reacts and every restAlpha returns to 1 within 3 s after the pointer leaves | step 2 |
+| 71 | e2e: step 2 – given the pointer resting on Split when settled then the rest contour is swelled 2 % and un-swells when the pointer leaves | step 2, D68-5 |
+| 72 | e2e: step 2 – given the end of the pointer sweep when screenshotted then it matches the baseline (maxDiffPixelRatio 0.01) | step 2 (Linux-only visual, baseline in W68.13) |
+
+Totals: 72 rows = 23 Rust (20 `pointer_hover_tests.rs`, 2 `solver.rs`, 1 `elements.rs`) + 45 TS (new and modified-existing) + 4 e2e. Rows marked guard pass at red (or once Rust compiles).
+
+Hovered rest contour: covered by W64 fluid-canvas2d.test.ts given_hover_interaction_at_rest_when_rendering_then_roundRect_at_swelled_home_rect.
 
 ## Must NOT
 - Reintroduce a hard radial push.

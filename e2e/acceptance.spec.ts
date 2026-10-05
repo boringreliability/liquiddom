@@ -385,3 +385,147 @@ test.describe("vision captures (W67 gold, VISION=1)", () => {
     await shot(`step6-rest-after-${done + step6Rest}`);
   });
 });
+
+test.describe("step 2 – pointer sweep (W68)", () => {
+  const SCENE = "/scenes/acceptance.html?seed=1&renderer=canvas2d&clock=manual&test=1";
+  const STEP_PX = 10; // per frame at the manual clock's 60 Hz → 600 px/s
+  const LEAD_PX = 26;
+  const INSET_PX = 8;
+  const LATTICE_PX = 4;
+  const FILL_ALPHA_MIN = 128; // 0.5 coverage = the density threshold
+  const REFORM_MAX_FRAMES = 180; // 3 s
+
+  type Box = { x: number; y: number; width: number; height: number };
+  type Pt = [number, number];
+
+  // `advance`, `restAlpha`, `IDLE_2S_FRAMES` come from W65's e2e/scene.ts; `window.__liquidTest`
+  // is typed by W65's e2e/global.d.ts.
+  async function open(page: Page): Promise<void> {
+    await page.goto(SCENE);
+    await page.waitForFunction(() => window.__liquidTest !== undefined, undefined, { timeout: 15_000 });
+    await page.evaluate(() => window.__liquidTest!.ready);
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+    });
+    await advance(page, IDLE_2S_FRAMES); // idle 2 s → at rest (step 1)
+  }
+  async function settle(page: Page): Promise<number | null> {
+    for (let f = 6; f <= REFORM_MAX_FRAMES; f += 6) {
+      await advance(page, 6);
+      if ((await restAlpha(page)).every((a) => a === 1)) return f;
+    }
+    return null;
+  }
+  async function buttons(page: Page): Promise<Box[]> {
+    const out: Box[] = [];
+    for (const name of ["Splash", "Split", "Merge"]) {
+      const box = await page.getByRole("button", { name, exact: true }).boundingBox();
+      if (!box) throw new Error(`button "${name}" has no bounding box`);
+      out.push(box);
+    }
+    return out;
+  }
+  function lattice(b: Box): Pt[] {
+    const pts: Pt[] = [];
+    for (let y = b.y + INSET_PX; y <= b.y + b.height - INSET_PX; y += LATTICE_PX) {
+      for (let x = b.x + INSET_PX; x <= b.x + b.width - INSET_PX; x += LATTICE_PX) pts.push([x, y]);
+    }
+    return pts;
+  }
+  async function alphaAt(page: Page, pts: Pt[]): Promise<number[]> {
+    return page.evaluate((points) => {
+      const c = document.querySelector<HTMLCanvasElement>("canvas.liquid-canvas");
+      if (!c) throw new Error("liquid canvas missing");
+      const ctx = c.getContext("2d");
+      if (!ctx) throw new Error("liquid canvas has no 2d context");
+      const r = c.getBoundingClientRect();
+      const sx = c.width / r.width;
+      const sy = c.height / r.height;
+      const img = ctx.getImageData(0, 0, c.width, c.height);
+      return points.map(([x, y]) => {
+        const px = Math.floor((x - r.left) * sx);
+        const py = Math.floor((y - r.top) * sy);
+        if (px < 0 || py < 0 || px >= c.width || py >= c.height) return 0;
+        return img.data[(py * c.width + px) * 4 + 3];
+      });
+    }, pts);
+  }
+  async function sweep(page: Page, row: Box[], onFrame?: (k: number) => Promise<void>): Promise<void> {
+    const first = row[0];
+    const last = row[row.length - 1];
+    const y = first.y + first.height / 2;
+    const x0 = first.x - LEAD_PX;
+    const frames = Math.ceil((last.x + last.width + LEAD_PX - x0) / STEP_PX);
+    for (let k = 0; k <= frames; k++) {
+      await page.mouse.move(x0 + k * STEP_PX, y);
+      await advance(page, 1);
+      if (onFrame) await onFrame(k);
+    }
+  }
+
+  test("step 2 – given a pointer sweep across the buttons when sampled then canvas alpha inside each button never drops below the fill threshold (no holes)", async ({ page }, testInfo) => {
+    await open(page);
+    const row = await buttons(page);
+    const pts = row.flatMap(lattice);
+    expect(Math.min(...(await alphaAt(page, pts))), "precondition: buttons filled at rest").toBeGreaterThanOrEqual(FILL_ALPHA_MIN);
+    let worst = 255;
+    let worstFrame = -1;
+    await sweep(page, row, async (k) => {
+      if (k === 24) await page.screenshot({ path: testInfo.outputPath("step2-mid-sweep.png") });
+      if (k % 4 !== 0) return;
+      const m = Math.min(...(await alphaAt(page, pts)));
+      if (m < worst) {
+        worst = m;
+        worstFrame = k;
+      }
+    });
+    expect(worst, `worst interior alpha (sweep frame ${worstFrame})`).toBeGreaterThanOrEqual(FILL_ALPHA_MIN);
+  });
+
+  test("step 2 – given the sweep when ticking then the liquid reacts and every restAlpha returns to 1 within 3 s after the pointer leaves", async ({ page }, testInfo) => {
+    await open(page);
+    expect((await restAlpha(page)).every((a) => a === 1), "precondition: at rest").toBe(true);
+    let minDuring = 1;
+    await sweep(page, await buttons(page), async () => {
+      minDuring = Math.min(minDuring, ...(await restAlpha(page)));
+    });
+    expect(minDuring, "the pointer field must disturb the liquid").toBeLessThan(1);
+    await page.mouse.move(1200, 60); // away from every element, still in the document
+    const reformedAt = await settle(page);
+    expect(reformedAt, "re-form frame count").not.toBeNull();
+    await page.screenshot({ path: testInfo.outputPath("step2-reformed.png") });
+  });
+
+  test("step 2 – given the pointer resting on Split when settled then the rest contour is swelled 2 % and un-swells when the pointer leaves", async ({ page }, testInfo) => {
+    await open(page);
+    const split = (await buttons(page))[1];
+    expect(split.width, "swell probe needs ≥ 1.4 px of swell").toBeGreaterThanOrEqual(140);
+    const midY = split.y + split.height / 2;
+    const [full] = await alphaAt(page, [[split.x + split.width / 2, midY]]);
+    expect(full, "precondition: opaque fill").toBeGreaterThan(200);
+    const probes: Pt[] = [
+      [split.x - 0.75, midY],
+      [split.x + split.width + 0.75, midY],
+    ];
+    expect(Math.max(...(await alphaAt(page, probes))), "no swell before hover").toBeLessThanOrEqual(0.3 * full);
+
+    await page.mouse.move(split.x + split.width / 2, midY);
+    expect(await settle(page), "settled while hovered").not.toBeNull();
+    expect(Math.min(...(await alphaAt(page, probes))), "swelled contour covers 1 px outside the DOM edge").toBeGreaterThanOrEqual(0.6 * full);
+    await page.screenshot({
+      path: testInfo.outputPath("step2-hover-swell.png"),
+      clip: { x: split.x - 20, y: split.y - 20, width: split.width + 40, height: split.height + 40 },
+    });
+
+    await page.mouse.move(1200, 60);
+    expect(await settle(page), "settled after leave").not.toBeNull();
+    expect(Math.max(...(await alphaAt(page, probes))), "swell gone after leave").toBeLessThanOrEqual(0.3 * full);
+  });
+
+  test("step 2 – given the end of the pointer sweep when screenshotted then it matches the baseline (maxDiffPixelRatio 0.01)", async ({ page }) => {
+    test.skip(!VISUAL_ENABLED, VISUAL_SKIP_REASON); // W65 D65-2: Linux-only baselines
+    await open(page);
+    await sweep(page, await buttons(page));
+    await expect(page).toHaveScreenshot("acceptance-step2.png", { maxDiffPixelRatio: 0.01 });
+  });
+});
