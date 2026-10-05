@@ -7,13 +7,16 @@ use super::layout::{
     EL_Y, ELEMENT_STRIDE, HOVER_SWELL, INTERACTION_HOVER, ST_MAX_DEV, ST_RESERVED, ST_REST_ALPHA,
     ST_S, STATE_STRIDE,
 };
+use super::material::sanitize_recovery;
 use super::sampling::clamp_radius;
 
 pub const S_FLOOR: f32 = 0.015;
-pub const REST_S_MIN: f32 = 0.98;
+pub const REST_S_MIN: f32 = 0.95; // W67 D67-1 option 1 (spec §2 amended; was 0.98)
 pub const REST_MAX_DEV_PX: f32 = 0.75;
 pub const REST_HOLD_S: f32 = 0.150;
 pub const REST_FADE_S: f32 = 0.120;
+/// W67: per-element wobble phases are spaced by the golden angle, so neighbours never wobble in step.
+pub const WOBBLE_PHASE_STEP_RAD: f32 = 2.399_963;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rect {
@@ -41,6 +44,10 @@ pub struct Elements {
     pub rest_h: Vec<f32>,
     pub counts: Vec<u32>,
     pub area_per_particle: Vec<f32>,
+    /// W67: seconds the rest condition has held (capped at REST_HOLD_S).
+    pub rest_hold_s: Vec<f32>,
+    /// W67: wobble phase per element (rad).
+    pub phase: Vec<f32>,
 }
 
 impl Elements {
@@ -63,6 +70,10 @@ impl Elements {
             rest_h: vec![0.0; cap],
             counts: vec![0; cap],
             area_per_particle: vec![0.0; cap],
+            rest_hold_s: vec![0.0; cap],
+            phase: (0..cap)
+                .map(|id| id as f32 * WOBBLE_PHASE_STEP_RAD)
+                .collect(),
         }
     }
 
@@ -169,23 +180,49 @@ impl Elements {
         }
     }
 
-    /// `s ← max(min(s, cap), S_FLOOR)` (spec §2 stiffness damage).
+    /// `s ← max(min(s, cap), S_FLOOR)` (spec §2 stiffness damage). Restarts the rest
+    /// hold and writes s to the state view. A NaN/±inf cap or an out-of-range id is a no-op.
     pub fn damage(&mut self, id: usize, cap: f32) {
-        if let Some(s) = self.stiffness.get_mut(id) {
-            let capped = s.min(cap);
-            *s = if capped < S_FLOOR { S_FLOOR } else { capped };
+        if !cap.is_finite() || id >= self.cap {
+            return;
+        }
+        let s = rd_or(&self.stiffness, id, 1.0).min(cap).max(S_FLOOR);
+        wr(&mut self.stiffness, id, s);
+        wr(&mut self.rest_hold_s, id, 0.0);
+        wr(&mut self.state, id * STATE_STRIDE + ST_S, s);
+    }
+
+    /// W67: exact integration of ds/dt = (1 − s)/recovery over `dt` for every active
+    /// element. The per-element override (slot 9, already clamped to [0.2, 3] s) wins
+    /// over `default_recovery_s`.
+    pub fn update_stiffness(&mut self, dt: f32, default_recovery_s: f32) {
+        if !positive(dt) {
+            return;
+        }
+        let fallback = sanitize_recovery(default_recovery_s);
+        for id in 0..self.cap {
+            if !self.is_active(id) {
+                continue;
+            }
+            let recovery = self.recovery_override(id).unwrap_or(fallback);
+            let s = finite_or(rd_or(&self.stiffness, id, 1.0), 1.0);
+            let next = (1.0 - (1.0 - s) * (-dt / recovery).exp()).clamp(S_FLOOR, 1.0);
+            wr(&mut self.stiffness, id, next);
+            wr(&mut self.state, id * STATE_STRIDE + ST_S, next);
         }
     }
 
-    /// W64 (decision D64-2): binary rest state, `restAlpha = 1` when
-    /// `s > 0.98 && maxDev < 0.75 px` (always under reduced motion), else 0.
-    /// W67 replaces this with the 150 ms hold and the 120 ms fade.
-    pub fn update_rest_state(&mut self, id: usize, max_dev: f32, _dt: f32, reduced_motion: bool) {
+    /// W67 rest state with hysteresis (spec §2). restAlpha rises (fade REST_FADE_S) only
+    /// once `s > REST_S_MIN && maxDev < REST_MAX_DEV_PX` has held for REST_HOLD_S, and
+    /// falls at once (same fade) when either breaks. Reduced motion: at rest
+    /// (restAlpha 1, maxDev 0). Inactive slot: reset. Writes s, maxDev and restAlpha.
+    pub fn update_rest_state(&mut self, id: usize, max_dev: f32, dt: f32, reduced_motion: bool) {
         if id >= self.cap {
             return;
         }
         let base = id * STATE_STRIDE;
         if !self.is_active(id) {
+            wr(&mut self.rest_hold_s, id, 0.0);
             wr(&mut self.state, base + ST_S, 1.0);
             wr(&mut self.state, base + ST_MAX_DEV, 0.0);
             wr(&mut self.state, base + ST_REST_ALPHA, 0.0);
@@ -193,20 +230,53 @@ impl Elements {
             return;
         }
         let s = rd_or(&self.stiffness, id, 1.0);
-        let dev = if reduced_motion {
-            0.0
+        if reduced_motion {
+            wr(&mut self.rest_hold_s, id, REST_HOLD_S);
+            wr(&mut self.state, base + ST_S, s);
+            wr(&mut self.state, base + ST_MAX_DEV, 0.0);
+            wr(&mut self.state, base + ST_REST_ALPHA, 1.0);
+            wr(&mut self.state, base + ST_RESERVED, 0.0);
+            return;
+        }
+        let dev = finite_or(max_dev, f32::MAX).max(0.0);
+        let dt = if dt.is_finite() { dt.max(0.0) } else { 0.0 };
+        let holds = s > REST_S_MIN && dev < REST_MAX_DEV_PX;
+        let hold = if holds {
+            (rd(&self.rest_hold_s, id) + dt).min(REST_HOLD_S)
         } else {
-            finite_or(max_dev, f32::MAX)
+            0.0
         };
-        let at_rest = reduced_motion || (s > REST_S_MIN && dev < REST_MAX_DEV_PX);
+        wr(&mut self.rest_hold_s, id, hold);
+        let step = dt / REST_FADE_S;
+        let alpha = rd(&self.state, base + ST_REST_ALPHA);
+        let alpha = if !holds {
+            (alpha - step).max(0.0)
+        } else if hold + 1e-6 >= REST_HOLD_S {
+            (alpha + step).min(1.0)
+        } else {
+            alpha
+        };
         wr(&mut self.state, base + ST_S, s);
         wr(&mut self.state, base + ST_MAX_DEV, dev);
-        wr(
-            &mut self.state,
-            base + ST_REST_ALPHA,
-            if at_rest { 1.0 } else { 0.0 },
-        );
+        wr(&mut self.state, base + ST_REST_ALPHA, alpha);
         wr(&mut self.state, base + ST_RESERVED, 0.0);
+    }
+
+    /// W67 (D67-12): an active element that is stiff (`s > REST_S_MIN`) and whose
+    /// particles already sit on target (state maxDev < REST_MAX_DEV_PX) is at rest
+    /// immediately: full hold, restAlpha 1. `FluidCore::redistribute` calls this after
+    /// refreshing the state, so freshly placed elements neither fade in nor wobble.
+    pub fn settle_if_at_rest(&mut self, id: usize) {
+        if !self.is_active(id) {
+            return;
+        }
+        let base = id * STATE_STRIDE;
+        let s = rd_or(&self.stiffness, id, 1.0);
+        let dev = rd_or(&self.state, base + ST_MAX_DEV, f32::MAX);
+        if s > REST_S_MIN && dev < REST_MAX_DEV_PX {
+            wr(&mut self.rest_hold_s, id, REST_HOLD_S);
+            wr(&mut self.state, base + ST_REST_ALPHA, 1.0);
+        }
     }
 }
 
@@ -488,9 +558,6 @@ mod w67_tests {
             assert_eq!(alpha(&below), 0.0, "s = 0.94 keeps alpha at 0");
             assert_eq!(below.rest_hold_s[0], 0.0, "and the hold at 0");
         }
-        assert!(
-            0.1 < REST_MAX_DEV_PX,
-            "maxDev is under the threshold in both cases"
-        );
+        const { assert!(0.1 < REST_MAX_DEV_PX) };
     }
 }
