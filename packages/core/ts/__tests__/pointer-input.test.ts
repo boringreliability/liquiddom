@@ -6,6 +6,7 @@ import {
   PointerTracker,
   POINTER_IDLE_DECAY,
   POINTER_IDLE_MS,
+  POINTER_MIN_DT_S,
   POINTER_SMOOTHING,
 } from "../src/pointer-tracker";
 import { createFluidRuntime, type FluidRuntime } from "../src/runtime";
@@ -38,6 +39,39 @@ describe("PointerTracker (W68, D68-4, D68-7)", () => {
     expect(POINTER_SMOOTHING).toBe(0.5);
     expect(POINTER_IDLE_MS).toBe(120);
     expect(POINTER_IDLE_DECAY).toBe(0.8);
+    expect(POINTER_MIN_DT_S).toBe(1 / 240);
+  });
+
+  it("given_two_samples_at_the_same_timestamp_when_moved_then_dt_floored_at_1_240_s", () => {
+    const t = new PointerTracker();
+    t.move(100, 0);
+    t.sample(1000, ORIGIN);
+    t.move(110, 0);
+    expect(t.sample(1000, ORIGIN).vx).toBeCloseTo(1200, 6); // 0.5 · 10 px / (1/240 s)
+  });
+
+  it("given_velocity_built_up_when_blur_cancel_or_touch_up_then_next_move_first_sample_has_zero_velocity", () => {
+    const t = new PointerTracker();
+    const detach = t.attach(document, window);
+    let now = 1000;
+    const next = () => t.sample((now += FRAME_MS), ORIGIN);
+    const fire: Array<[string, () => void]> = [
+      ["blur", () => window.dispatchEvent(new Event("blur"))],
+      ["pointercancel", () => document.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true }))],
+      ["touch pointerup", () => document.dispatchEvent(new PointerEvent("pointerup", { pointerType: "touch", bubbles: true }))],
+    ];
+    let x = 100;
+    for (const [name, end] of fire) {
+      move(document, (x += 10), 0, "touch");
+      next();
+      move(document, (x += 10), 0, "touch");
+      expect(next().vx, `${name}: velocity built`).toBeCloseTo(300, 6);
+      end();
+      expect(next().active, `${name}: inactive`).toBe(false);
+      move(document, (x += 10), 0, "touch");
+      expect(next(), `${name}: re-entry`).toMatchObject({ vx: 0, vy: 0, active: true });
+    }
+    detach();
   });
 
   it("given_no_pointer_events_when_sampled_then_inactive_and_zero_velocity", () => {
@@ -222,11 +256,21 @@ describe("runtime pointer wiring (W68)", () => {
     const { tick, clock } = await start();
     move(document, 100, 50);
     clock.advance(1);
+    move(document, 110, 50);
+    clock.advance(1);
+    const before = lastPointer(tick);
+    expect(before.active).toBe(true);
+    expect(before.pvx as number).toBeCloseTo(300, 3);
+    // moving between elements (non-null relatedTarget) must not deactivate
+    document.body.dispatchEvent(new PointerEvent("pointerout", { relatedTarget: document.documentElement, bubbles: true }));
+    clock.advance(1);
+    expect(lastPointer(tick).active).toBe(true);
     document.body.dispatchEvent(new PointerEvent("pointerout", { relatedTarget: null, bubbles: true }));
     clock.advance(1);
-    expect(lastPointer(tick)).toMatchObject({ pvx: 0, pvy: 0, active: false });
+    expect(lastPointer(tick)).toEqual({ px: 0, py: 0, pvx: 0, pvy: 0, active: false });
   });
 
+  // GUARD (passes at red: W67 never sends an active pointer). The paired RM off/on live flip is in reduced-motion-input.test.ts.
   it("given_reduced_motion_when_ticking_then_pointer_active_false", async () => {
     const { tick, clock } = await start({ forceReducedMotion: true });
     move(document, 100, 50);

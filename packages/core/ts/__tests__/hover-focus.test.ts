@@ -126,6 +126,29 @@ describe("hover and focus → interaction slot (W68, D68-2, D68-5)", () => {
     expect(interaction(id)).toBe(Interaction.HOVER);
   });
 
+  // GUARD (passes at red: nothing writes the slot yet); pins focus/blur over focusin once implemented.
+  it("given_child_of_observed_card_focused_when_synced_then_slot_idle", () => {
+    const { registry, interaction } = setup();
+    const card = document.createElement("div");
+    const child = document.createElement("button");
+    card.appendChild(child);
+    stubRect(card, 100, 50, 140, 48);
+    document.body.appendChild(card);
+    const id = registry.observe(card);
+    child.focus();
+    registry.sync();
+    expect(interaction(id)).toBe(Interaction.IDLE); // D68-2: focus/blur on the element itself, not focusin
+  });
+
+  it("given_element_already_hovered_when_observed_then_interaction_slot_1_on_first_sync", () => {
+    const { registry, interaction } = setup();
+    const b = button();
+    b.matches = (s: string) => s === ":hover";
+    const id = registry.observe(b);
+    registry.sync();
+    expect(interaction(id)).toBe(Interaction.HOVER);
+  });
+
   it("given_unobserve_when_called_then_all_four_interaction_listeners_removed", () => {
     const { registry } = setup();
     const b = button();

@@ -116,11 +116,27 @@ describe("material API (W68, D68-1, D68-9)", () => {
     expect(first.inst.getMaterial()).toEqual(presets.honey);
   });
 
-  it("given_destroyed_instance_when_setMaterial_or_getMaterial_then_Error", async () => {
+  it("given_destroyed_instance_when_setMaterial_or_getMaterial_then_destroyed_Error_not_TypeError", async () => {
     const { inst: i } = await create();
+    // positive control: the methods exist and work before destroy (otherwise "not a function" would pass vacuously)
+    expect(typeof i.setMaterial).toBe("function");
+    expect(typeof i.getMaterial).toBe("function");
+    expect(i.getMaterial()).toEqual({ viscosity: 0.5, cohesion: 0.5, recovery: 0.7 });
     i.destroy();
     inst = null;
-    expect(() => i.setMaterial({ viscosity: 0.2 })).toThrow(Error);
-    expect(() => i.getMaterial()).toThrow(Error);
+    for (const [method, call] of [
+      ["setMaterial", () => i.setMaterial({ viscosity: 0.2 })],
+      ["getMaterial", () => i.getMaterial()],
+    ] as const) {
+      expect(call, method).toThrow(new RegExp(`${method}\\(\\) called on a destroyed instance`));
+      let err: unknown;
+      try {
+        call();
+      } catch (e) {
+        err = e;
+      }
+      expect(err, method).toBeInstanceOf(Error);
+      expect(err, method).not.toBeInstanceOf(TypeError);
+    }
   });
 });
