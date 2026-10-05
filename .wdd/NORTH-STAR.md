@@ -167,3 +167,13 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D67-13 | Edge-aligned rest ring plus R2 interior: edge-aligned ring + R2 interior | W67 | dec_d09082c5 |
 | D67-14 | Element velocity once per tick: rect velocity per tick, shared by its fixed steps | W67 | dec_41131b84 |
 | D67-15 | Cross-element lock probe: scenario probe; fallback is slice-6 parking | W67 | dec_14e3ffed |
+| D68-1 | Material preset values: water/honey/jelly as proposed | W68 | dec_42a7df27 |
+| D68-2 | Hover via mouseenter/mouseleave; focus beats hover: element-level enter/leave and focus/blur, focus beats hover | W68 | dec_802fccd4 |
+| D68-3 | The soft pointer field is in Rust: velocity-only coupling, drag 6/s, radius 70 px | W68 | dec_0a6cdade |
+| D68-4 | Pointer velocity smoothing: per-frame sampling from the runtime clock | W68 | dec_f9697a6b |
+| D68-5 | Reduced-motion input gating in TS: TS gating with validation first | W68 | dec_2ca25ef8 |
+| D68-6 | presets join the export whitelist: `presets` exported with the material shape | W68 | dec_fce3114b |
+| D68-7 | Pointer end events: leave/cancel/touch-up/blur deactivate | W68 | dec_8adfe545 |
+| D68-8 | Swell shape: step change per spec B1 | W68 | dec_5bf52509 |
+| D68-9 | setMaterial/getMaterial semantics: atomic set, copying get | W68 | dec_e41cbdee |
+| D68-10 | Invalidate the fused AABB on particle-moving paths: invalidate on every particle-moving path | W68 | dec_b8d7e2bb |

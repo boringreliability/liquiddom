@@ -35,34 +35,54 @@ North star: step 2 (pointer sweep: soft bulge, no holes), plus the hover swell o
 
 ## Decisions
 ### D68-1: Material preset values
-Proposal: water `{viscosity: 0.15, cohesion: 0.3, recovery: 0.5}`, honey `{0.9, 0.7, 1.6}`, jelly `{0.6, 0.85, 0.4}`, frozen, to be tuned in the W69 playground (skeleton D68-2).
-Consequence: three distinct feels from the start, and the values may change after W69 without an API change.
-Decision: PENDING
+Proposal: water `{viscosity: 0.15, cohesion: 0.3, recovery: 0.5}`, honey `{0.9, 0.7, 1.6}`, jelly `{0.6, 0.85, 0.4}`, frozen and tuned in the W69 playground.
+Consequence: three distinct feels from the start; honey (recovery 1.6 s) re-forms in ≈ 4.6 s, because the 3 s budget (D67-1) is defined for the default material only.
+Decision: APPROVED 2026-10-06 — water/honey/jelly as proposed (saga dec_42a7df27)
 
 ### D68-2: Hover via mouseenter/mouseleave; focus beats hover
-Proposal: `mouseenter`/`mouseleave` set hover, and `focus`/`blur` set focused. The `interaction` slot is 2 when focused, else 1 when hovered, else 0. It is written in `registry.sync()` (skeleton D68-4).
-Consequence: keeps the old observer's semantics. Touch devices get no hover bulge.
-Decision: PENDING
+Proposal: `mouseenter`/`mouseleave` and `focus`/`blur` on the observed element itself (not `focusin`); focus beats hover; the initial state is read from `:hover` / `document.activeElement` at observe time; slot 5 is written 0/1/2 on every `sync()`, 3 (dragged) is reserved for slice 5.
+Consequence: focus on a child of a card does not count as card focus; touch devices get no hover bulge.
+Decision: APPROVED 2026-10-06 — element-level enter/leave and focus/blur, focus beats hover (saga dec_802fccd4)
 
 ### D68-3: The soft pointer field is in Rust
-Proposal: particles within 70 px of the pointer are pulled towards the pointer's velocity with weight `(1 − d/r)²`, with no radial push (skeleton D67-2, moved by D63-4).
-Consequence: the spike's "hole" is gone. Pointer cost is O(n) per substep, bounded by the radius test.
-Decision: PENDING
+Proposal: velocity coupling only: inside `POINTER_RADIUS_PX = 70`, `a = (v_ptr − v_p) · POINTER_DRAG_PER_S · (1 − d/r)²` with `POINTER_DRAG_PER_S = 6.0`, added after the home-spring saturation, with no radial term; NaN/Inf makes the pointer inactive and its speed is clamped to `POINTER_VMAX_PX_S = 2000`.
+Consequence: a resting pointer has exactly zero effect, so it cannot make a hole; a 600 px/s sweep drags the liquid a few px. If the no-hole tests fail, `POINTER_DRAG_PER_S` is lowered in this ward and the value goes into the gold notes.
+Decision: APPROVED 2026-10-06 — velocity-only coupling, drag 6/s, radius 70 px (saga dec_0a6cdade)
 
 ### D68-4: Pointer velocity smoothing
-Proposal: `v ← 0.5·v_prev + 0.5·v_instant` per pointer event, decaying by ×0.8 per frame when there has been no event for more than 120 ms (spike behaviour). `pointerleave` sets `pointer_active = false`.
-Consequence: a stable field without jitter, and a still pointer stops pushing.
-Decision: PENDING
+Proposal: velocity is sampled once per frame from the runtime clock: `v ← 0.5·v + 0.5·Δpos/Δt` when the pointer moved; held for up to 120 ms without movement, then ×0.8 per frame; Δt floored at 1/240 s; the first sample after the pointer enters has v = 0.
+Consequence: deterministic under `?clock=manual`; several events in one frame merge into one net velocity.
+Decision: APPROVED 2026-10-06 — per-frame sampling from the runtime clock (saga dec_f9697a6b)
 
 ### D68-5: Reduced-motion input gating in TS
-Proposal: under reduced motion TS passes `pointer_active = false` and writes `interaction = 0`, in addition to Rust ignoring them.
-Consequence: defence in depth, and the hover swell never appears under reduced motion.
-Decision: PENDING
+Proposal: while reduced motion is on (following live media changes): `pointer_active = false` with zero pointer arguments, slot 5 written as `IDLE`, the runtime's `splash` returns `true` without calling the core for an observed element and its `shake` returns early; the facade validates first.
+Consequence: defence in depth with Rust's W67 ignore; `splash(el, { strength: 5 })` still throws `TypeError`, `splash(unobserved)` still throws `Error`, `splash(el)` is a silent no-op.
+Decision: APPROVED 2026-10-06 — TS gating with validation first (saga dec_2ca25ef8)
 
 ### D68-6: presets join the export whitelist
-Proposal: the whitelist test gains `presets` (and `SplashOptions` stays a type). W66's absent-test only asserted that the old physics-shaped presets were gone (A2).
-Consequence: the API gains its material presets without contradicting the W66 tests.
-Decision: PENDING
+Proposal: the whitelist test gains `presets`; W66's `OLD_RUNTIME_EXPORTS.presets` changes from `removed` to `kept` (same name, material shape).
+Consequence: the API gets its material presets back without contradicting W66 (A2).
+Decision: APPROVED 2026-10-06 — `presets` exported with the material shape (saga dec_fce3114b)
+
+### D68-7: Pointer end events
+Proposal: `pointerleave`, `pointercancel`, `pointerup` with `pointerType === "touch"` and window `blur` make the pointer inactive and reset its velocity; a mouse or pen `pointerup` keeps it active.
+Consequence: a lifted finger leaves no phantom field behind.
+Decision: APPROVED 2026-10-06 — leave/cancel/touch-up/blur deactivate (saga dec_8adfe545)
+
+### D68-8: Swell shape
+Proposal: a step change exactly as in spec B1, with no easing; the radius scales by the same `1 + HOVER_SWELL`; `swell_rect` is a refactor of W64's swell inside `home_rect`, behaviour unchanged.
+Consequence: on `mouseenter` the contour jumps outward by 1 % of the width per side (1.4 px on a 140 px button, 3.2 px on the card) and the element briefly turns liquid, which is the intended gentle bulge; the eased 150 ms alternative was declined.
+Decision: APPROVED 2026-10-06 — step change per spec B1 (saga dec_5bf52509)
+
+### D68-9: setMaterial/getMaterial semantics
+Proposal: `setMaterial` is atomic (`validateMaterial` → `mergeMaterial` → assign → `core.set_material`); unknown keys and non-objects throw `TypeError` naming the key and the three fields; `getMaterial()` returns a copy; both throw `Error` after `destroy()`.
+Consequence: old `presets.jelly`-style physics code gets a `TypeError` naming the bad key, not silent misbehaviour.
+Decision: APPROVED 2026-10-06 — atomic set, copying get (saga dec_e41cbdee)
+
+### D68-10: Invalidate the fused AABB on particle-moving paths
+Proposal: `Scratch::invalidate_bounds()` is called from the pointer, splash, shake and redistribute paths and from the test setters, so the W67 fused AABB is never reused after particles moved (W67 perf-review carry).
+Consequence: no visible effect; removes a latent stale-bounds bug once pointer input can move particles mid-tick.
+Decision: APPROVED 2026-10-06 — invalidate on every particle-moving path (saga dec_b8d7e2bb)
 
 ## Specification
 - **Pointer:** a document `pointermove` → buffer-space position (minus the container offset) and px/s velocity → `tick(dt, px, py, pvx, pvy, active, gx, gy)`.
@@ -102,7 +122,7 @@ Decision: PENDING
 - Change the FFI.
 
 ## Must DO
-- Gate D68-1 … D68-6 before `wdd ward status 68 red`, and log them in NORTH-STAR.
+- Gate D68-1 … D68-10 before `wdd ward status 68 red`, and log them in NORTH-STAR.
 - Reconcile this Tests table in the red commit.
 - Inspect the step 2 screenshot and a hover screenshot with vision.
 

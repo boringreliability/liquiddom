@@ -27,6 +27,13 @@ The next slice is planned only after Dennis has read this check.
 ## Inputs
 - W64–W68 (complete slice 2), the W65 perf artifact and opt-level result.
 - `.wdd/NORTH-STAR.md` matrix column S2, and the whole-picture rule.
+- Carried into the whole-picture check (Dennis, 2026-10-06, saga dec_92684722): the three W67 gold observations, each decided with the playground in hand:
+  - the DOM text has low contrast while the liquid is away (there is no liquid text yet);
+  - the in-motion edges are furry because of the density renderer;
+  - shake reads as sliding blobs more than as sloshing.
+- Also carried:
+  - a browser smoke test of the published `dist`, from the W66 ward review;
+  - ring density when the area hint is off, from the W67 perf review.
 
 ## Outputs
 - `demo/scenes/playground.{html,ts}` and `demo/scenes/playground-state.ts` (material, schema 2); `demo/scenes/splash.{html,ts}`; `demo/index.html` links.
