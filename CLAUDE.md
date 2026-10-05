@@ -85,8 +85,8 @@ The soft-body engine (W6–W62) is retired as of W66; its last state is the git 
 - `FluidCanvas2DRenderer` draws a density grid plus an exact `roundRect` at `restAlpha = 1`; no liquid text.
 - `WebGPURenderer` is infra only (a clear pass) until slice 3. `'auto'` means Canvas2D without probing.
 
-### Interim state (slices 1–5)
-Gravity is validated but has no effect until slice 6. Container mode works; the container must be a positioned element (e.g. `position: relative`) because the canvas is absolutely positioned inside it. liquiddom never restyles the container (that would move the containing block of the author's own absolutely positioned descendants); a static container gets one `console.warn` per instance at `create()`. Scroll is verified only in slice 6.
+### Interim state (slices 2–5)
+Slice 2 is in progress: `splash()` / `shake()` and click/keyboard splash are live (W67); pointer, hover and material presets come in W68. W67 facts: the rest layout has an edge-aligned ring (D67-13, cell/2 spacing); the element velocity is computed once per tick; `time_s` is f64; the first frame that throws still stops the instance. Local p95 is about 3.6 ms per fixed step. Gravity is validated but has no effect until slice 6. Container mode works; the container must be a positioned element (e.g. `position: relative`) because the canvas is absolutely positioned inside it. liquiddom never restyles the container (that would move the containing block of the author's own absolutely positioned descendants); a static container gets one `console.warn` per instance at `create()`. Scroll is verified only in slice 6.
 
 ## Project-specific constraints (do not violate)
 - No JSON over FFI. Fixed pools: `particles` and `maxElements` are set at `create()`; there is no `grow()`.

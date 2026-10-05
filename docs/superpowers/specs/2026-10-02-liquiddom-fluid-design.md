@@ -129,7 +129,7 @@ The elements **are** liquid, and so is their text. They splash, split, merge wit
 
 Rust owns it and exports it:
 - During G2P, Rust computes `maxDev` for each element: the max |x − target| over its particles, O(n).
-- `restAlpha ∈ [0,1]` rises towards 1 when `s > 0.98` and `maxDev < 0.75 px` have both held for at least 150 ms. It falls towards 0 immediately when either is broken. This hysteresis prevents flicker.
+- `restAlpha ∈ [0,1]` rises towards 1 when `s > 0.95` (amended in W67, D67-1) and `maxDev < 0.75 px` have both held for at least 150 ms. It falls towards 0 immediately when either is broken. This hysteresis prevents flicker.
 - The fade time is 120 ms both ways.
 
 ### Deformation gradient F (render-only)
@@ -422,7 +422,7 @@ The page is `demo/scenes/acceptance.html`: three buttons ("Splash", "Split", "Me
 **Scene steps:**
 1. Idle for 2 s: crisp edges and the DOM text visible at rest.
 2. Pointer sweep: soft bulge, no holes.
-3. Click "Splash": jets and fingers. **[WebGPU]** the text tears with the liquid. Re-form within **1.5 s** (`restAlpha = 1`).
+3. Click "Splash": jets and fingers. **[WebGPU]** the text tears with the liquid. Re-form within **3 s** (`restAlpha = 1`; amended in W67, D67-1).
 4. Tab + Enter on "Split": the same splash at the centre. The focus ring is visible throughout.
 5. Drag "Merge" into the card and release: displacement merge, separation, both re-form within **3 s**, and the labels never overlap.
 6. Shake: everything sloshes and re-forms within **3 s**.
@@ -460,7 +460,7 @@ The page is `demo/scenes/acceptance.html`: three buttons ("Splash", "Split", "Me
   - mass conservation exactly (constant particle count and mass),
   - volume (mean J) within ±5% after the stress sequence,
   - no NaN or Inf, and every F finite with det > 0 after the stress sequence,
-  - re-form: `restAlpha = 1` within 1.5 s after a strength-1 splash and within 3 s after shake,
+  - re-form: `restAlpha = 1` within 3 s after a strength-1 splash and within 3 s after shake,
   - determinism: same seed and inputs give bit-identical positions,
   - the buffer strides match.
 - **Vitest (jsdom)** stays for TS logic that doesn't need a browser (option validation, the old-to-new mapping, adapters, lifecycle), using the explicit `testBackend`.

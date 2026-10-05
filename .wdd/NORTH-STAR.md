@@ -11,7 +11,7 @@ What a person sees and feels. Every ward moves at least one of these closer, or 
 
 - **The elements are liquid.** Buttons and cards on an ordinary page are made of liquid. At rest they look exactly like themselves: crisp edges, their own colour, the real DOM text.
 - **A click splashes.** Clicking a button bursts it into jets and fingers of liquid at the pointer. Enter or Space on a focused button splashes it from its centre.
-- **It always re-forms (T-1000).** However hard it was splashed or shaken, the liquid crawls home and re-forms the element: a button within 1.5 s of a splash, everything within 3 s of a shake.
+- **It always re-forms (T-1000).** However hard it was splashed or shaken, the liquid crawls home and re-forms the element: a button within 3 s of a splash, everything within 3 s of a shake.
 - **The pointer is felt, not punched.** Moving the pointer over the liquid raises a soft bulge that follows the pointer's motion. It never leaves a hole.
 - **Liquids merge and separate.** Dragging one element into another displaces and merges the two liquids. On release they separate and both re-form, and their labels never overlap.
 - **The text is liquid too.** While an element moves, its text stretches and tears with its own liquid (WebGPU). At rest the real DOM text is shown, pixel-exact.
@@ -31,7 +31,7 @@ What a person sees and feels. Every ward moves at least one of these closer, or 
 ### Scene steps
 1. Idle for 2 s: crisp edges and the DOM text visible at rest.
 2. Pointer sweep: soft bulge, no holes.
-3. Click "Splash": jets and fingers. **[WebGPU]** the text tears with the liquid. Re-form within **1.5 s** (`restAlpha = 1`).
+3. Click "Splash": jets and fingers. **[WebGPU]** the text tears with the liquid. Re-form within **3 s** (`restAlpha = 1`; amended in W67, D67-1).
 4. Tab + Enter on "Split": the same splash at the centre. The focus ring is visible throughout.
 5. Drag "Merge" into the card and release: displacement merge, separation, both re-form within **3 s**, and the labels never overlap.
 6. Shake: everything sloshes and re-forms within **3 s**.

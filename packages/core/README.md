@@ -54,6 +54,21 @@ liquid.isPaused; liquid.activeRenderer; liquid.particleCapacity; liquid.elementC
 
 After `destroy()`, every method throws except `unobserve()` and `destroy()`; `requestOrientationPermission()` returns a rejected promise instead of throwing synchronously.
 
+### Splash and shake
+
+```ts
+liquid.splash(el);                                                        // strength 1 at the rect centre
+liquid.splash(el, { strength: 1.6, at: { x: e.clientX, y: e.clientY } }); // client px
+liquid.shake();                                                           // every observed element sloshes
+liquid.shake(0.5);
+```
+
+- `strength` is 0–2 (default 1). `0` is a no-op. Anything else throws `TypeError`.
+- `splash` on an element that is not observed throws `Error`.
+- Clicking an observed element splashes at the pointer. Keyboard activation (Enter/Space, `event.detail === 0`) splashes at the rect centre. Native activation is never prevented.
+- Under reduced motion both are ignored.
+- `SplashOptions` changed shape in 0.3: `threshold`, `count`, `jitter`, `speedScale`, `lifetimeMs` and `radius` are gone and throw a `TypeError`.
+
 ## Accessibility
 
 - The canvas is `aria-hidden="true"` with `pointer-events: none`. It sits below the observed elements, so focus rings are always visible.

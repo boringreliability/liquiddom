@@ -38,16 +38,17 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 | Particles (default) | 8000 (range 256–65536) | W66 |
 | Tick p95 per fixed step (local, 4 elements) | 3.31 ms | W66 |
 | RAF p95 (local) | 3.40 ms | W66 |
+| Fixed-step p95 (local, W67 full substep) | ~3.6 ms | W67 |
 | WASM size (opt-level 3) | ~85 kB | W65 |
 | Total tests | 50 Rust + 330 TS + 17 Playwright | W66 |
 
 ## Known Limitations
-- Slice 1 shows the liquid at rest only: splash, shake and pointer arrive in W67–W68; no liquid text yet.
+- Slice 2 is in progress: splash and shake are live (W67); pointer, hover and material presets arrive in W68; no liquid text yet.
 - Container mode needs a positioned container (one `console.warn` if static; liquiddom never restyles it).
 - Gravity is validated but has no effect until slice 6; scroll is verified only in slice 6.
-- `restAlpha` is binary until W67; re-form is rigid; a large scroll can lock particles across elements (W67 slip, slice-6 parking).
-- Ragged in-motion edge (sd ≈ 0.48 px) from the anisotropic rest layout — W67 gate decision.
-- A frame that throws stops the instance; adapters do not yet react to a stopped instance.
+- A large scroll can lock particles across elements (W67 slip, slice-6 parking).
+- Edge ring (D67-13, W67): the in-motion edge envelope sd is 0.120 px at 120 px/s (W67 metric; W64's R2 layout scored ≈ 0.6–0.7 px with it). The ring spacing is cell/2, from the area hint, so when the hint is far off the ring is a little denser or sparser than the interior.
+- The first frame that throws stops the instance (unchanged in W67); adapters do not yet react to a stopped instance.
 - No browser loads the published `dist` yet (carry to W69 whole-picture check).
 - WebGPU smoke fails under amd64 emulation in the pinned image (soft; likely SwiftShader/Rosetta).
 
