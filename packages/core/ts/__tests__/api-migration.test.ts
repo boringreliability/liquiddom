@@ -44,7 +44,7 @@ const OLD_INSTANCE_MEMBERS: Readonly<Record<string, Fate>> = {
   unobserve: kept,
   grow: removed("fixed pool"),
   tween: removed("targets follow the rect"),
-  impulse: removed("→ splash() in W68"),
+  impulse: removed("→ splash() (W67)"),
   pause: kept,
   resume: kept,
   autoDiscover: kept,

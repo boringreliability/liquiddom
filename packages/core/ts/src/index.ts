@@ -4,14 +4,23 @@
  * in the exports below is internal.
  */
 import { createFluidRuntime } from "./runtime";
-import { resolveOptions, validateElementOptions, type ElementOptions, type GravityOptions, type LiquidOptions } from "./options";
+import {
+  resolveOptions,
+  validateElementOptions,
+  validateShakeStrength,
+  validateSplashOptions,
+  type ElementOptions,
+  type GravityOptions,
+  type LiquidOptions,
+  type SplashOptions,
+} from "./options";
 import { validateMaterial, type Material } from "./material";
 import { LiquidWasmLoadError } from "./wasm-loader";
 import { WebGPUUnavailableError } from "./renderers/webgpu-renderer";
 import { bindRuntime, unbindRuntime } from "./internal";
 
 export { LiquidWasmLoadError, WebGPUUnavailableError, validateMaterial };
-export type { ElementOptions, GravityOptions, LiquidOptions, Material };
+export type { ElementOptions, GravityOptions, LiquidOptions, Material, SplashOptions };
 
 export interface LiquidDOMInstance {
   /** Observe an element (idempotent). Returns its slot id. RangeError when all maxElements slots are taken. */
@@ -20,6 +29,15 @@ export interface LiquidDOMInstance {
   unobserve(el: HTMLElement): void;
   /** Re-read the element's background-color and color (needed after colour changes until slice 4). */
   refresh(el: HTMLElement): void;
+  /**
+   * Splash an observed element (spec §5). `strength` 0–2 (default 1, 0 = no-op);
+   * `at` in client px (default: the rect centre). Throws `TypeError` for invalid
+   * options or a non-element, and `Error` if `el` is not observed or the instance
+   * is destroyed. Ignored under reduced motion.
+   */
+  splash(el: HTMLElement, opts?: SplashOptions): void;
+  /** Shake every observed element. `strength` 0–2 (default 1). Throws like `splash`. */
+  shake(strength?: number): void;
   pause(): void;
   resume(): void;
   destroy(): void;
@@ -115,6 +133,22 @@ export class LiquidDOM {
       refresh(el: HTMLElement): void {
         live("refresh");
         runtime.refresh(el);
+      },
+
+      splash(el: HTMLElement, opts?: SplashOptions): void {
+        live("splash");
+        if (typeof HTMLElement === "undefined" || !(el instanceof HTMLElement)) {
+          throw new TypeError("[liquiddom] splash(el): el must be an HTMLElement");
+        }
+        const { strength, at } = validateSplashOptions(opts);
+        if (!runtime.splash(el, at, strength)) {
+          throw new Error("[liquiddom] splash: element is not observed");
+        }
+      },
+
+      shake(strength?: number): void {
+        live("shake");
+        runtime.shake(validateShakeStrength(strength));
       },
 
       pause(): void {

@@ -36,7 +36,7 @@ describe("W66 T3: create and capacities", () => {
     expect(inst.elementCapacity).toBe(6);
     expect(inst.isPaused).toBe(false);
     expect(inst.activeRenderer).toBe("canvas2d");
-    for (const m of ["observe", "unobserve", "refresh", "pause", "resume", "destroy", "requestOrientationPermission", "autoDiscover", "stopAutoDiscover"]) {
+    for (const m of ["observe", "unobserve", "refresh", "splash", "shake", "pause", "resume", "destroy", "requestOrientationPermission", "autoDiscover", "stopAutoDiscover"]) {
       expect(typeof (inst as unknown as Record<string, unknown>)[m], m).toBe("function");
     }
     expect(document.querySelectorAll("canvas.liquid-canvas")).toHaveLength(1);

@@ -250,3 +250,89 @@ export function validateElementOptions(opts: unknown): asserts opts is ElementOp
   checkFiniteIn("viscosity", opts.viscosity, MATERIAL_RANGES.viscosity[0], MATERIAL_RANGES.viscosity[1]);
   checkFiniteIn("recovery", opts.recovery, MATERIAL_RANGES.recovery[0], MATERIAL_RANGES.recovery[1]);
 }
+
+// ---- W67: splash() / shake() options (spec §5; D67-4, D67-8; B9) -----------
+
+/**
+ * Options for `instance.splash(el, opts)`.
+ *
+ * Changed shape in 0.3: the 0.2 fields `threshold`, `count`, `jitter`,
+ * `speedScale`, `lifetimeMs` and `radius` are gone and throw a `TypeError`.
+ */
+export interface SplashOptions {
+  /** Splash strength, 0–2. Default 1. 0 is a no-op. */
+  strength?: number;
+  /** Splash origin in client px (like `MouseEvent.clientX/Y`). Default: the element's rect centre. */
+  at?: { x: number; y: number };
+}
+
+export const STRENGTH_MIN = 0;
+export const STRENGTH_MAX = 2;
+export const DEFAULT_STRENGTH = 1;
+
+const SPLASH_OPTION_KEYS: ReadonlySet<string> = new Set(["strength", "at"]);
+const REMOVED_SPLASH_OPTION_KEYS: ReadonlySet<string> = new Set([
+  "threshold",
+  "count",
+  "jitter",
+  "speedScale",
+  "lifetimeMs",
+  "radius",
+  "magnitude",
+  "direction",
+  "splash",
+]);
+
+export interface ResolvedSplash {
+  readonly strength: number;
+  readonly at: { readonly x: number; readonly y: number } | null;
+}
+
+function checkStrength(method: "splash" | "shake", value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < STRENGTH_MIN || value > STRENGTH_MAX) {
+    throw new TypeError(
+      `[liquiddom] ${method}(): strength must be a finite number in [${STRENGTH_MIN}, ${STRENGTH_MAX}], got ${String(value)}.`,
+    );
+  }
+  return value;
+}
+
+/** @internal Validates `shake(strength?)` (D67-4). */
+export function validateShakeStrength(strength: unknown): number {
+  return strength === undefined ? DEFAULT_STRENGTH : checkStrength("shake", strength);
+}
+
+/** @internal Validates `splash(el, opts?)` options: whitelist, D67-4, B9. */
+export function validateSplashOptions(opts: unknown): ResolvedSplash {
+  if (opts === undefined) return { strength: DEFAULT_STRENGTH, at: null };
+  if (opts === null || typeof opts !== "object" || Array.isArray(opts)) {
+    throw new TypeError("[liquiddom] splash(el, opts): opts must be an object { strength?, at? }.");
+  }
+  for (const key of Object.keys(opts)) {
+    if (REMOVED_SPLASH_OPTION_KEYS.has(key)) {
+      throw new TypeError(
+        `[liquiddom] splash(): option "${key}" was removed in 0.3 — SplashOptions changed shape. ` +
+          "Use { strength?: number /* 0–2 */, at?: { x, y } /* client px */ }.",
+      );
+    }
+    if (!SPLASH_OPTION_KEYS.has(key)) {
+      throw new TypeError(`[liquiddom] splash(): unknown option "${key}". Allowed: strength, at.`);
+    }
+  }
+  const o = opts as { strength?: unknown; at?: unknown };
+  const strength = o.strength === undefined ? DEFAULT_STRENGTH : checkStrength("splash", o.strength);
+  if (o.at === undefined) return { strength, at: null };
+  const at = o.at as { x?: unknown; y?: unknown } | null;
+  if (
+    at === null ||
+    typeof at !== "object" ||
+    Array.isArray(at) ||
+    typeof at.x !== "number" ||
+    typeof at.y !== "number" ||
+    !Number.isFinite(at.x) ||
+    !Number.isFinite(at.y)
+  ) {
+    throw new TypeError("[liquiddom] splash(): at must be { x: number, y: number } in client px with finite values.");
+  }
+  return { strength, at: { x: at.x, y: at.y } };
+}

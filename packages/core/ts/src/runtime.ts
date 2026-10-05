@@ -11,7 +11,8 @@ import { createMicrotaskBatcher, ElementRegistry } from "./element-registry";
 import { FluidBridge } from "./fluid-bridge";
 import { El, ELEMENT_STRIDE, roundedRectArea, St, STATE_STRIDE, Stat } from "./fluid-layout";
 import { DEFAULT_MATERIAL, type Material } from "./material";
-import type { ElementOptions } from "./options";
+import { SplashInput, rectCentre, type ClientPoint } from "./input";
+import { DEFAULT_STRENGTH, type ElementOptions } from "./options";
 import type { ElementPaint, RenderFrame, Renderer, RenderViewport } from "./renderers/frame";
 import { LoopController } from "./loop-control";
 import { acquireLiquidStyles, mountLiquidCanvas } from "./stylesheet";
@@ -67,6 +68,14 @@ export interface FluidRuntime {
   readonly activeRenderer: ActiveRenderer;
   /** Re-snapshot colours of an observed element (no-op otherwise). */
   refresh(el: HTMLElement): void;
+  /**
+   * W67: splash an observed element. `at` is client px (null → rect centre); it is
+   * converted to buffer space with the container offset. Returns false when `el` is
+   * not observed or the runtime is destroyed. No validation: the facade validates.
+   */
+  splash(el: HTMLElement, at: ClientPoint | null, strength: number): boolean;
+  /** W67: shake every observed element. */
+  shake(strength: number): void;
   /** Idempotent. */
   destroy(): void;
 }
@@ -225,6 +234,20 @@ function buildRuntime(
     scheduleRedistribute: () => batcher.schedule(),
   });
 
+  // ---- W67: splash / shake ----------------------------------------------------
+  const splashAt = (el: HTMLElement, at: ClientPoint | null, strength: number): boolean => {
+    if (destroyed) return false;
+    const id = registry.idOf(el);
+    if (id === undefined) return false;
+    const point = at ?? rectCentre(el);
+    const offset = coordOffset();
+    core.splash(id, point.x - offset.x, point.y - offset.y, strength);
+    return true;
+  };
+  const splashInput = new SplashInput((el, at) => {
+    splashAt(el, at, DEFAULT_STRENGTH);
+  });
+
   // Reduced motion (spec §2, the single definition; D64-6, C5).
   const forced = opts.forceReducedMotion === true;
   const mql =
@@ -348,10 +371,19 @@ function buildRuntime(
   return {
     observe(el, elementOpts) {
       if (destroyed) throw new Error("[liquiddom] observe() called after destroy().");
-      return registry.observe(el, elementOpts);
+      const id = registry.observe(el, elementOpts);
+      splashInput.attach(el);
+      return id;
     },
     unobserve(el) {
-      if (!destroyed) registry.unobserve(el);
+      if (destroyed) return;
+      registry.unobserve(el);
+      splashInput.detach(el);
+    },
+    splash: splashAt,
+    shake(strength: number): void {
+      if (destroyed) return;
+      core.shake(strength);
     },
     frame,
     elementState(el) {
@@ -389,6 +421,7 @@ function buildRuntime(
       destroyed = true;
       loop.destroy();
       batcher.cancel();
+      splashInput.destroy();
       registry.unobserveAll();
       releaseStyles();
       mql?.removeEventListener("change", onMotionChange);
