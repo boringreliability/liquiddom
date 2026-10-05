@@ -349,6 +349,27 @@ mod tests {
         );
     }
 
+    /// Refactor guard, not a red test: pins W64's exact float arithmetic for the
+    /// swelled home rect. It passes today; it must still pass, bit for bit, once
+    /// W68.8 routes `home_rect` through `swell_rect` (D68-8).
+    #[test]
+    fn given_hover_with_home_offset_and_odd_sizes_when_home_rect_then_bit_identical_to_w64_arithmetic()
+     {
+        let (x, y, w, h, r, dx, dy) = (101.3f32, 203.7, 137.9, 47.3, 23.7, 5.3, -3.1);
+        let e = with([x, y, w, h, r, 1.0, dx, dy, f32::NAN, f32::NAN]);
+        let k = 1.0 + HOVER_SWELL;
+        assert_eq!(
+            e.home_rect(0, false).unwrap(),
+            Rect {
+                x: (x + dx) - 0.5 * (w * k - w),
+                y: (y + dy) - 0.5 * (h * k - h),
+                w: w * k,
+                h: h * k,
+                r: r * k,
+            }
+        );
+    }
+
     #[test]
     fn given_nan_or_zero_slot_when_queried_then_inactive_and_none() {
         let e = with([f32::NAN, 0.0, 10.0, 10.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);

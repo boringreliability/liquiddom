@@ -454,6 +454,35 @@ fn given_static_pointer_over_split_when_ticking_1s_then_every_element_stays_at_r
     }
 }
 
+/// Guard, not a red test (W67 ignores the pointer, so it probably passes today).
+/// Not bit-exact: D68-3's `-v*k` damps any particle motion, so a still pointer
+/// may nudge particles slightly. It catches a radial term creeping into the
+/// solver loop, which would push the liquid away from the pointer.
+#[test]
+fn given_still_pointer_inside_radius_when_ticking_60_frames_then_positions_match_inactive_run_within_0_05px()
+ {
+    let run = |active: bool| {
+        let mut core = scene(1);
+        idle(&mut core, 30);
+        for _ in 0..60 {
+            let _ = core.tick(DT, 640.0, 284.0, 0.0, 0.0, active, 0.0, 0.0);
+        }
+        (0..count(&core))
+            .map(|i| core.particle_px(i))
+            .collect::<Vec<_>>()
+    };
+    let (with_ptr, without) = (run(true), run(false));
+    let max_d = with_ptr
+        .iter()
+        .zip(&without)
+        .map(|(a, b)| (a.0 - b.0).abs().max((a.1 - b.1).abs()))
+        .fold(0.0f32, f32::max);
+    assert!(
+        max_d < 0.05,
+        "still pointer displaced a particle by {max_d} px"
+    );
+}
+
 #[test]
 fn given_pointer_sweeping_across_buttons_when_ticking_then_liquid_follows_pointer_direction_and_no_interior_bin_empties()
  {
