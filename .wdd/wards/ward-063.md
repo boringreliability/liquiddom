@@ -3,12 +3,12 @@ ward: 63
 revision: null
 name: "North star and WDD rules (docs)"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: []
 layer: "typescript"
 estimated_tests: 27
 created: "2026-10-03"
-completed: null
+completed: "2026-10-05"
 ---
 # Ward 063: North star and WDD rules (docs)
 

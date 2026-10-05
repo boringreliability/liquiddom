@@ -3,12 +3,12 @@ ward: 64
 revision: null
 name: "Liquid at rest, end to end"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [63]
 layer: "both"
 estimated_tests: 115
 created: "2026-10-03"
-completed: null
+completed: "2026-10-05"
 ---
 # Ward 064: Liquid at rest, end to end
 

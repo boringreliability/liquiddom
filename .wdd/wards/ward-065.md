@@ -3,12 +3,12 @@ ward: 65
 revision: null
 name: "Verification harness (Playwright, CI, perf baseline)"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [64]
 layer: "typescript"
 estimated_tests: 21
 created: "2026-10-03"
-completed: null
+completed: "2026-10-05"
 ---
 # Ward 065: Verification harness (Playwright, CI, perf baseline)
 

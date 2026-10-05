@@ -3,12 +3,12 @@ ward: 66
 revision: null
 name: "Public API swap and soft-body retirement"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [65, 62]
 layer: "both"
 estimated_tests: 154
 created: "2026-10-03"
-completed: null
+completed: "2026-10-05"
 ---
 # Ward 066: Public API swap and soft-body retirement
 

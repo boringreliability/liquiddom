@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-60 of 69 Wards complete · 628 estimated tests · 0 blocked
+64 of 69 Wards complete · 724 estimated tests · 1 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -55,7 +55,7 @@
 | 047 | @liquiddom/react Adapter Package | 9 | ✅ Complete | 2026-05-13 |
 | 048 | @liquiddom/vue Adapter Package | 9 | ✅ Complete | 2026-05-13 |
 | 049 | Tweakpane Visual Playground | 7 | ✅ Complete | 2026-05-10 |
-| 050 | Web Worker Offload (Optional) | 4 | 📋 Planned | - |
+| 050 | Web Worker Offload (Optional) | 4 | ⏸️ Blocked | - |
 | 051 | NPM Publish Pipeline & Workspace Split | 13 | ✅ Complete | 2026-05-13 |
 | 052 | CSS Computed Background Reflection | 9 | ✅ Complete | 2026-05-13 |
 | 053 | Border-Radius Clip in preserveBackgrounds | 4 | ✅ Complete | 2026-05-13 |
@@ -67,14 +67,14 @@
 | 059 | DemoEmbed + 2 Showcases (squish, fusion) + Snippet Canary + Toggle Indicator | 11 | ✅ Complete | 2026-05-24 |
 | 060 | Live Hero (Try-it-now cut to W61) | 4 | ✅ Complete | 2026-05-24 |
 | 061 | Multi-instance recursion fix | 5 | ✅ Complete | 2026-05-24 |
-| 062 | WebGPU FreeDrop SDF dispatch branch | 6 | 🔨 Gold | - |
-| 063 | North star and WDD rules (docs) | 27 | 👀 Approved | - |
-| 064 | Liquid at rest, end to end | 115 | 📋 Planned | - |
-| 065 | Verification harness (Playwright, CI, perf baseline) | 21 | 📋 Planned | - |
-| 066 | Public API swap and soft-body retirement | 58 | 📋 Planned | - |
+| 062 | WebGPU FreeDrop SDF dispatch branch | 6 | 🔴 Red | - |
+| 063 | North star and WDD rules (docs) | 27 | ✅ Complete | 2026-10-05 |
+| 064 | Liquid at rest, end to end | 115 | ✅ Complete | 2026-10-05 |
+| 065 | Verification harness (Playwright, CI, perf baseline) | 21 | ✅ Complete | 2026-10-05 |
+| 066 | Public API swap and soft-body retirement | 154 | ✅ Complete | 2026-10-05 |
 | 067 | Splash and shake, end to end | 49 | 📋 Planned | - |
 | 068 | Pointer, hover and material | 20 | 📋 Planned | - |
 | 069 | Playground, splash scene, whole-picture check | 7 | 📋 Planned | - |
 
 ## Test Summary
-- Estimated total: 628
+- Estimated total: 724
