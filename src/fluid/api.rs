@@ -17,7 +17,7 @@ use super::material::{DEFAULT_MATERIAL, Material};
 use super::particles::Particles;
 use super::pool::{self, PoolScratch};
 use super::rng::Rng;
-use super::solver::{self, PointerField, Scratch, StepInput};
+use super::solver::{self, PointerField, Scratch, StepInput, SubstepOpts};
 use super::views::Views;
 
 pub const PARTICLES_MIN: u32 = 16;
@@ -46,7 +46,13 @@ pub struct FluidCore {
     settings: Settings,
     generation: u32,
     active: u32,
-    time_s: f32,
+    /// Simulated seconds. f64 (perf/fix round): an f32 sum of 1/480 s substeps drifts
+    /// after ~9 h and freezes after ~18 h. The solver gets it wrapped to the wobble period.
+    time_s: f64,
+    /// Fix round (D67-14 hiccup): raw (unclamped) seconds since the last rect-velocity
+    /// update, so a tick the clock clamped (> 100 ms) or capped (> 3 steps) still divides
+    /// the rect delta by the time it really took.
+    vel_wall_s: f64,
     /// W67: deterministic RNG for splash and shake.
     interaction_rng: Rng,
     /// Test-only (D67-14): element 0's rect velocity (px/s) as each fixed step of the
@@ -98,6 +104,7 @@ impl FluidCore {
             generation: 0,
             active: 0,
             time_s: 0.0,
+            vel_wall_s: 0.0,
             interaction_rng: Rng::derive(seed, RNG_STREAM_INTERACTION),
             #[cfg(test)]
             step_vel_trace: Vec::with_capacity(MAX_STEPS_PER_TICK as usize),
@@ -179,12 +186,16 @@ impl FluidCore {
         _gy: f32,
     ) -> u32 {
         let steps = self.clock.advance(raw_dt_s);
+        if raw_dt_s.is_finite() && raw_dt_s > 0.0 {
+            self.vel_wall_s += f64::from(raw_dt_s);
+        }
         #[cfg(test)]
         self.step_vel_trace.clear();
         if self.settings.reduced_motion {
             // Spec §2: no simulation; follow rects instantly, even on a 0-step tick.
             // dt 0 keeps prev_* current with velocity 0 (no spike when motion returns).
             self.elements.update_velocities(0.0);
+            self.vel_wall_s = 0.0;
             solver::compute_targets(
                 &self.particles,
                 &self.grid,
@@ -203,28 +214,40 @@ impl FluidCore {
             // W67 D67-14: the rect moved once since the last tick that simulated. Its
             // velocity is that delta over this tick's simulated time, shared by every
             // fixed step (per-step sampling gave 3Δ/dt, then 0, then 0).
-            self.elements.update_velocities(steps as f32 * FIXED_DT_S);
+            let simulated = steps as f32 * FIXED_DT_S;
+            self.elements
+                .update_velocities(velocity_window_s(simulated, self.vel_wall_s));
+            self.vel_wall_s = 0.0;
         }
-        for _ in 0..steps {
+        for step in 0..steps {
             #[cfg(test)]
             self.step_vel_trace
                 .push((rd(&self.elements.vel_x, 0), rd(&self.elements.vel_y, 0)));
-            for _ in 0..SUBSTEPS {
+            for sub in 0..SUBSTEPS {
                 self.elements.update_stiffness(dt, params.recovery_s);
                 let input = StepInput {
                     dt,
-                    time_s: self.time_s,
+                    time_s: solver::wobble_time_s(self.time_s),
                     pointer: PointerField::default(),
                 };
-                solver::substep(
+                // Perf round: maxDev only in the last substep (the one refresh_rest_state
+                // reads); the AABB comes from the previous G2P except on the tick's first
+                // substep (splash, redistribute or a reduced-motion pin may have moved
+                // particles since the last tick).
+                let opts = SubstepOpts {
+                    measure_dev: sub + 1 == SUBSTEPS,
+                    reuse_bounds: step > 0 || sub > 0,
+                };
+                solver::substep_with(
                     &mut self.particles,
                     &mut self.grid,
                     &self.elements,
                     &params,
                     &input,
                     &mut self.scratch,
+                    opts,
                 );
-                self.time_s += dt;
+                self.time_s += f64::from(dt);
             }
             // maxDev from the last substep's G2P, against the target actually used (D67-10).
             self.refresh_rest_state(false, FIXED_DT_S, false);
@@ -305,6 +328,20 @@ impl FluidCore {
 
     pub fn set_reduced_motion(&mut self, on: bool) {
         self.settings.reduced_motion = on;
+    }
+}
+
+/// Fix round (D67-14 hiccup): the time a tick's rect delta is divided by. Normally the
+/// simulated time (`steps · FIXED_DT`, unchanged W67 behaviour). Only when the clock
+/// lost time, i.e. the raw time since the last velocity update exceeds it by more than
+/// half a fixed step (a > 100 ms hiccup clamped, or steps capped at 3), the raw time is
+/// used, so the element velocity stays the real Δ/t instead of a spike.
+fn velocity_window_s(simulated_s: f32, wall_s: f64) -> f32 {
+    let wall = wall_s as f32;
+    if wall.is_finite() && wall > simulated_s + 0.5 * FIXED_DT_S {
+        wall
+    } else {
+        simulated_s
     }
 }
 
@@ -430,7 +467,7 @@ impl FluidCore {
             e.phase
         ]);
         out.extend(fingerprint![self.views.dynamic, self.views.statics]);
-        out.extend(fingerprint![s.tgt_x, s.tgt_y, s.max_dev, s.el_mu]);
+        out.extend(s.fingerprint());
         out.extend(fingerprint![
             ps.weights, ps.counts, ps.starts, ps.next, ps.u, ps.v
         ]);
@@ -720,6 +757,15 @@ impl FluidCore {
     pub(crate) fn step_velocities(&self) -> &[(f32, f32)] {
         &self.step_vel_trace
     }
+
+    /// Perf/fix round: the simulated time in seconds (f64).
+    pub(crate) fn time_s(&self) -> f64 {
+        self.time_s
+    }
+
+    pub(crate) fn set_time_s(&mut self, t: f64) {
+        self.time_s = t;
+    }
 }
 
 #[cfg(test)]
@@ -839,5 +885,115 @@ mod w67_tests {
             core.step_velocities()[0].0.abs() < 1e-4,
             "the rect stopped: 0 px/s"
         );
+    }
+}
+
+#[cfg(test)]
+mod perf_fix_round_tests {
+    use super::{FluidCore, velocity_window_s};
+    use crate::fluid::clock::FIXED_DT_S;
+    use crate::fluid::layout::ELEMENT_STRIDE;
+    use crate::fluid::solver::{WOBBLE_PERIOD_S, wobble_offset_px, wobble_time_s};
+
+    const BUTTON: [f32; ELEMENT_STRIDE] = [
+        100.0,
+        100.0,
+        140.0,
+        48.0,
+        24.0,
+        0.0,
+        0.0,
+        0.0,
+        f32::NAN,
+        f32::NAN,
+    ];
+
+    fn core() -> FluidCore {
+        let mut core = FluidCore::new(2000, 4, 640.0, 480.0, 6_226.0, 48.0, 3);
+        core.write_element(0, BUTTON);
+        core.redistribute();
+        core
+    }
+
+    #[test]
+    fn given_a_300ms_hiccup_with_a_rect_move_when_ticking_then_velocity_is_delta_over_the_wall_time()
+     {
+        let mut core = core();
+        assert_eq!(
+            core.tick(1.0 / 60.0, 0.0, 0.0, 0.0, 0.0, false, 0.0, 0.0),
+            1
+        );
+        let mut moved = BUTTON;
+        moved[0] += 30.0;
+        core.write_element(0, moved);
+        // 300 ms raw: the clock clamps it to 100 ms and caps it at 3 fixed steps (50 ms).
+        assert_eq!(core.tick(0.3, 0.0, 0.0, 0.0, 0.0, false, 0.0, 0.0), 3);
+        let wall = 30.0 / 0.3;
+        let simulated = 30.0 / (3.0 * FIXED_DT_S);
+        for &(vx, vy) in core.step_velocities() {
+            assert!(
+                (vx - wall).abs() < 0.01 * wall,
+                "{vx} px/s, expected Δ/0.3 s = {wall}, not Δ/0.05 s = {simulated}"
+            );
+            assert!(vy.abs() < 1e-4);
+        }
+        // The next normal tick measures from the hiccup on: no move, no velocity.
+        core.tick(1.0 / 60.0, 0.0, 0.0, 0.0, 0.0, false, 0.0, 0.0);
+        assert!(core.step_velocities()[0].0.abs() < 1e-4);
+    }
+
+    #[test]
+    fn given_ordinary_frame_jitter_when_choosing_the_velocity_window_then_simulated_time_is_kept() {
+        // D67-14 is unchanged unless the clock lost time.
+        assert_eq!(velocity_window_s(FIXED_DT_S, 1.0 / 60.0), FIXED_DT_S);
+        assert_eq!(velocity_window_s(FIXED_DT_S, 0.02), FIXED_DT_S);
+        assert_eq!(velocity_window_s(FIXED_DT_S, 0.004), FIXED_DT_S);
+        assert_eq!(velocity_window_s(3.0 * FIXED_DT_S, 0.05), 3.0 * FIXED_DT_S);
+        assert_eq!(velocity_window_s(3.0 * FIXED_DT_S, 0.3), 0.3);
+        assert_eq!(velocity_window_s(FIXED_DT_S, f64::INFINITY), FIXED_DT_S);
+    }
+
+    #[test]
+    fn given_time_at_20_hours_when_ticking_then_dt_still_advances_the_wobble_time() {
+        let twenty_h = 20.0 * 3600.0;
+        // The W67 f32 clock would be frozen here: one 1/480 s substep is below half an ulp.
+        let frozen = 72_000.0f32;
+        assert_eq!(frozen + 1.0 / 480.0, frozen, "f32 stops advancing at 20 h");
+
+        let mut core = core();
+        core.set_time_s(twenty_h);
+        let before = wobble_time_s(core.time_s());
+        assert_eq!(
+            core.tick(1.0 / 60.0, 0.0, 0.0, 0.0, 0.0, false, 0.0, 0.0),
+            1
+        );
+        let advanced = core.time_s() - twenty_h;
+        assert!(
+            (advanced - f64::from(FIXED_DT_S)).abs() < 1e-9,
+            "simulated time advanced by {advanced} s"
+        );
+        let after = wobble_time_s(core.time_s());
+        let step = f64::from(after - before).rem_euclid(WOBBLE_PERIOD_S);
+        assert!(
+            (step - f64::from(FIXED_DT_S)).abs() < 1e-5,
+            "wobble time advanced by {step} s"
+        );
+        assert!(core.dynamic_view().iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn given_wobble_time_wrapped_to_the_period_when_evaluated_then_the_wobble_is_unchanged() {
+        for k in 0..50 {
+            let t = 0.37 + k as f64 * 0.731;
+            let wrapped = wobble_time_s(t + 3.0 * WOBBLE_PERIOD_S);
+            let (ax, ay) = wobble_offset_px(t as f32, 40.0, 12.0, 0.7, 0.0);
+            let (bx, by) = wobble_offset_px(wrapped, 40.0, 12.0, 0.7, 0.0);
+            assert!(
+                (ax - bx).abs() < 1e-4 && (ay - by).abs() < 1e-4,
+                "t {t}: ({ax}, {ay}) vs ({bx}, {by})"
+            );
+        }
+        assert_eq!(wobble_time_s(f64::NAN), 0.0);
+        assert_eq!(wobble_time_s(-1.0), (WOBBLE_PERIOD_S - 1.0) as f32);
     }
 }

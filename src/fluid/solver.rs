@@ -20,7 +20,7 @@
 
 use super::access::{rd, rd_or, rd4, wr, wr4};
 use super::elements::Elements;
-use super::grid::{Grid, cap_speed};
+use super::grid::{Grid, cap_speed, norm_if_above};
 use super::layout::{ST_REST_ALPHA, STATE_STRIDE};
 use super::material::{MaterialParams, map_viscosity};
 use super::particles::Particles;
@@ -48,6 +48,21 @@ pub const SLIP_RATE_PER_S: f32 = 3.0;
 /// Slip drift cap (px/s).
 pub const SLIP_MAX_PX_S: f32 = 160.0;
 
+/// The wobble's common period (s): 2.1·T = 42π and 1.7·T = 34π for T = 20π, so
+/// `wobble_offset_px(t)` repeats exactly every T.
+pub const WOBBLE_PERIOD_S: f64 = 20.0 * std::f64::consts::PI;
+
+/// The api's f64 simulated time wrapped to `WOBBLE_PERIOD_S`, as the f32 `StepInput::time_s`
+/// (fix round: an unwrapped f32 time stops advancing by a 1/480 s substep after ~18 h).
+/// Non-finite → 0.
+pub fn wobble_time_s(time_s: f64) -> f32 {
+    if time_s.is_finite() {
+        time_s.rem_euclid(WOBBLE_PERIOD_S) as f32
+    } else {
+        0.0
+    }
+}
+
 /// Pointer input for one substep. W68's soft pointer field reads it; W67 passes the default.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PointerField {
@@ -65,6 +80,79 @@ pub struct StepInput {
     pub pointer: PointerField,
 }
 
+/// Perf round: one element's per-substep constants, so the particle loops do not repeat
+/// `is_active`/`home_rect`/`clamp_radius` and the bounds-checked element reads.
+#[derive(Clone, Copy, Debug, Default)]
+struct ElRow {
+    /// `home_rect(id, false)` exists.
+    active: bool,
+    /// Home rect (px), motion on (hover swell applies).
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    /// `[amp, sin A, cos A, sin A2, cos A2]`, see `wobble_row`.
+    wob: [f32; 5],
+    /// Raw stiffness (slip uses it unclamped, as W67 did).
+    stiff: f32,
+    /// Spring: k (1/s²), damping (1/s) and a_max (cells/s²), as in `home_spring_accel`.
+    k: f32,
+    damping: f32,
+    a_max: f32,
+    /// Element velocity in cells/s.
+    hvx: f32,
+    hvy: f32,
+    /// Kinematic viscosity in cells²/s.
+    mu: f32,
+}
+
+impl ElRow {
+    fn build(e: &Elements, id: usize, m: &MaterialParams, inv: f32, time_s: f32) -> ElRow {
+        let Some(rect) = e.home_rect(id, false) else {
+            return ElRow::default();
+        };
+        let stiff = rd_or(&e.stiffness, id, 1.0);
+        let s = if stiff.is_finite() {
+            stiff.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let k = SPRING_K * s;
+        ElRow {
+            active: true,
+            x: rect.x,
+            y: rect.y,
+            w: rect.w,
+            h: rect.h,
+            wob: wobble_row(e, id, time_s),
+            stiff,
+            k,
+            damping: 2.0 * SPRING_ZETA * k.sqrt(),
+            a_max: SPRING_AMAX_PX_S2 * inv * (0.25 + 0.75 * s),
+            hvx: rd(&e.vel_x, id) * inv,
+            hvy: rd(&e.vel_y, id) * inv,
+            mu: element_viscosity_px2_s(e, id, m) * inv * inv,
+        }
+    }
+
+    /// `home_spring_accel` with this row's precomputed k, damping and a_max.
+    #[inline]
+    fn spring_accel(&self, pos: (f32, f32), vel: (f32, f32), target: (f32, f32)) -> (f32, f32) {
+        let mut ax = self.k * (target.0 - pos.0) + self.damping * (self.hvx - vel.0);
+        let mut ay = self.k * (target.1 - pos.1) + self.damping * (self.hvy - vel.1);
+        if let Some(a) = norm_if_above(ax, ay, self.a_max) {
+            let scale = self.a_max / a;
+            ax *= scale;
+            ay *= scale;
+        }
+        if ax.is_finite() && ay.is_finite() {
+            (ax, ay)
+        } else {
+            (0.0, 0.0)
+        }
+    }
+}
+
 /// Pre-allocated scratch (B7). Nothing here allocates after `new`.
 pub struct Scratch {
     /// Per particle: target in grid units (NaN = none). `compute_targets` writes the
@@ -73,8 +161,18 @@ pub struct Scratch {
     pub tgt_y: Vec<f32>,
     /// Per element: max |x − target| in px.
     pub max_dev: Vec<f32>,
-    /// W67, per element: kinematic viscosity in cells²/s for this substep.
-    pub el_mu: Vec<f32>,
+    /// Perf round, per element: everything the particle loops need, built once per
+    /// substep by `ElRow::build` (replaces W67's per-element `el_mu`).
+    el: Vec<ElRow>,
+    /// Perf round, per particle: the local rest position `(lx, ly)` px that `wob_trig`
+    /// was computed for (NaN = never), and `[sin B, cos B, sin B2, cos B2]` with
+    /// B = 0.045·lx and B2 = 0.07·ly. Recomputed only when `(lx, ly)` changes.
+    wob_key: Vec<[f32; 2]>,
+    wob_trig: Vec<[f32; 4]>,
+    /// Perf round: the particle AABB (grid units) that the last G2P left behind, and
+    /// whether it is still valid for `SubstepOpts::reuse_bounds`.
+    bounds: Option<(f32, f32, f32, f32)>,
+    bounds_valid: bool,
 }
 
 impl Scratch {
@@ -83,8 +181,25 @@ impl Scratch {
             tgt_x: vec![f32::NAN; particles],
             tgt_y: vec![f32::NAN; particles],
             max_dev: vec![0.0; elements],
-            el_mu: vec![0.0; elements],
+            el: vec![ElRow::default(); elements],
+            wob_key: vec![[f32::NAN; 2]; particles],
+            wob_trig: vec![[0.0; 4]; particles],
+            bounds: None,
+            bounds_valid: false,
         }
+    }
+
+    /// Test-only (B7): (capacity, data pointer) of every Vec, for `buffer_fingerprint`.
+    #[cfg(test)]
+    pub(crate) fn fingerprint(&self) -> Vec<(usize, usize)> {
+        vec![
+            (self.tgt_x.capacity(), self.tgt_x.as_ptr() as usize),
+            (self.tgt_y.capacity(), self.tgt_y.as_ptr() as usize),
+            (self.max_dev.capacity(), self.max_dev.as_ptr() as usize),
+            (self.el.capacity(), self.el.as_ptr() as usize),
+            (self.wob_key.capacity(), self.wob_key.as_ptr() as usize),
+            (self.wob_trig.capacity(), self.wob_trig.as_ptr() as usize),
+        ]
     }
 }
 
@@ -120,12 +235,17 @@ fn particle_bounds(p: &Particles, g: &Grid) -> Option<(f32, f32, f32, f32)> {
             continue;
         }
         let (x, y) = g.clamp_pos(rd(&p.x, i), rd(&p.y, i));
-        bounds = Some(match bounds {
-            None => (x, y, x, y),
-            Some((x0, y0, x1, y1)) => (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
-        });
+        grow_bounds(&mut bounds, x, y);
     }
     bounds
+}
+
+#[inline]
+fn grow_bounds(bounds: &mut Option<(f32, f32, f32, f32)>, x: f32, y: f32) {
+    *bounds = Some(match *bounds {
+        None => (x, y, x, y),
+        Some((x0, y0, x1, y1)) => (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
+    });
 }
 
 /// One substep of J: integrate with tr C, clamp (COMPRESS_MIN / plastic yield at
@@ -162,8 +282,7 @@ pub fn home_spring_accel(
     let mut ax = k * (target.0 - pos.0) + damping * (home_vel.0 - vel.0);
     let mut ay = k * (target.1 - pos.1) + damping * (home_vel.1 - vel.1);
     let a_max = SPRING_AMAX_PX_S2 * inv_cell * (0.25 + 0.75 * s);
-    let a = ax.hypot(ay);
-    if a > a_max {
+    if let Some(a) = norm_if_above(ax, ay, a_max) {
         let scale = a_max / a;
         ax *= scale;
         ay *= scale;
@@ -179,11 +298,9 @@ pub fn home_spring_accel(
 pub fn slip_velocity(offset: (f32, f32), s: f32, max: f32) -> (f32, f32) {
     let rate = SLIP_RATE_PER_S * s * s;
     let (sx, sy) = (offset.0 * rate, offset.1 * rate);
-    let m = sx.hypot(sy);
-    if m > max {
-        (sx * max / m, sy * max / m)
-    } else {
-        (sx, sy)
+    match norm_if_above(sx, sy, max) {
+        Some(m) => (sx * max / m, sy * max / m),
+        None => (sx, sy),
     }
 }
 
@@ -211,21 +328,63 @@ pub fn element_viscosity_px2_s(e: &Elements, id: usize, m: &MaterialParams) -> f
         .unwrap_or(m.viscosity_px2_s)
 }
 
+/// Per-element wobble terms for this substep (stored in `ElRow::wob`). Equal to
+/// `wobble_offset_px` through sin(A + B) = sin A·cos B + cos A·sin B.
+fn wobble_row(e: &Elements, id: usize, time_s: f32) -> [f32; 5] {
+    let rest_alpha = rd_or(&e.state, id * STATE_STRIDE + ST_REST_ALPHA, 0.0);
+    let alpha = if rest_alpha.is_finite() {
+        rest_alpha.clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let amp = WOBBLE_PX * (1.0 - alpha);
+    if amp <= 0.0 {
+        return [0.0; 5];
+    }
+    let phase = rd(&e.phase, id);
+    let (sa, ca) = (2.1 * time_s + phase).sin_cos();
+    let (sa2, ca2) = (1.7 * time_s + 1.3 * phase).sin_cos();
+    [amp, sa, ca, sa2, ca2]
+}
+
+/// `wobble_offset_px` from the cached per-element and per-particle terms.
+#[inline]
+fn cached_wobble_px(
+    row: &[f32; 5],
+    lx: f32,
+    ly: f32,
+    key: &mut [f32; 2],
+    trig: &mut [f32; 4],
+) -> (f32, f32) {
+    let [amp, sa, ca, sa2, ca2] = *row;
+    if amp <= 0.0 {
+        return (0.0, 0.0);
+    }
+    if !(key[0] == lx && key[1] == ly) {
+        let (sb, cb) = (0.045 * lx).sin_cos();
+        let (sb2, cb2) = (0.07 * ly).sin_cos();
+        *trig = [sb, cb, sb2, cb2];
+        *key = [lx, ly];
+    }
+    let [sb, cb, sb2, cb2] = *trig;
+    let wy = amp * (sa * cb + ca * sb);
+    let wx = 0.6 * amp * (ca2 * cb2 - sa2 * sb2);
+    (wx, wy)
+}
+
 /// The target the spring uses this substep, in grid units (D67-10). Never under
 /// reduced motion: `substep` only runs with motion on, so hover swell applies.
+#[inline]
 fn wobbled_target(
-    e: &Elements,
+    row: &ElRow,
     g: &Grid,
-    id: usize,
     u: f32,
     v: f32,
-    time_s: f32,
+    key: &mut [f32; 2],
+    trig: &mut [f32; 4],
 ) -> Option<(f32, f32)> {
-    let rect = e.home_rect(id, false)?;
-    let (tx, ty) = (rect.x + u * rect.w, rect.y + v * rect.h);
-    let alpha = rd_or(&e.state, id * STATE_STRIDE + ST_REST_ALPHA, 0.0);
-    let phase = rd(&e.phase, id);
-    let (wx, wy) = wobble_offset_px(time_s, u * rect.w, v * rect.h, phase, alpha);
+    let (tx, ty) = (row.x + u * row.w, row.y + v * row.h);
+    let (wx, wy) = cached_wobble_px(&row.wob, u * row.w, v * row.h, key, trig);
     let (gx, gy) = g.to_grid(tx + wx, ty + wy);
     // Clamped like W64's targets: a huge home offset cannot overflow the spring.
     if gx.is_finite() && gy.is_finite() {
@@ -233,6 +392,19 @@ fn wobbled_target(
     } else {
         None
     }
+}
+
+/// Perf-round switches for `substep_with`. Both are pure savings: the result is the
+/// same as `substep` whenever their preconditions hold.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SubstepOpts {
+    /// Measure `s.max_dev` in G2P. The api sets it only on a fixed step's last
+    /// substep, the only one `refresh_rest_state` reads; otherwise `max_dev` is untouched.
+    pub measure_dev: bool,
+    /// Use the AABB the previous `substep_with` collected in its G2P instead of a full
+    /// pass. Only valid when nothing moved a particle or changed a home since; the api
+    /// sets it for every substep of a tick but the first.
+    pub reuse_bounds: bool,
 }
 
 /// One MLS-MPM substep over particles with a home. A particle whose home slot is
@@ -245,11 +417,35 @@ pub fn substep(
     inp: &StepInput,
     s: &mut Scratch,
 ) {
+    let opts = SubstepOpts {
+        measure_dev: true,
+        reuse_bounds: false,
+    };
+    substep_with(p, g, e, m, inp, s, opts);
+}
+
+/// `substep` with the perf-round switches (see `SubstepOpts`).
+pub fn substep_with(
+    p: &mut Particles,
+    g: &mut Grid,
+    e: &Elements,
+    m: &MaterialParams,
+    inp: &StepInput,
+    s: &mut Scratch,
+    opts: SubstepOpts,
+) {
+    let reused = opts.reuse_bounds && s.bounds_valid;
+    s.bounds_valid = false;
     let dt = inp.dt;
     if !(dt.is_finite() && dt > 0.0) {
         return;
     }
-    let Some((x0, y0, x1, y1)) = particle_bounds(p, g) else {
+    let bounds = if reused {
+        s.bounds
+    } else {
+        particle_bounds(p, g)
+    };
+    let Some((x0, y0, x1, y1)) = bounds else {
         return;
     };
     g.set_region(x0, y0, x1, y1);
@@ -258,10 +454,13 @@ pub fn substep(
     let inv = g.inv_cell;
     let inv2 = inv * inv;
     let free_mu = m.viscosity_px2_s * inv2;
-    for (id, mu) in s.el_mu.iter_mut().enumerate() {
-        *mu = element_viscosity_px2_s(e, id, m) * inv2;
+    for (id, row) in s.el.iter_mut().enumerate() {
+        *row = ElRow::build(e, id, m, inv, inp.time_s);
     }
-    s.max_dev.fill(0.0);
+    if opts.measure_dev {
+        // Squared distances in cells² until the end of G2P (one sqrt per element).
+        s.max_dev.fill(0.0);
+    }
     let sound = SOUND_SPEED_PX_S * inv;
     let bulk = sound * sound;
     let drag = drag_factor(dt);
@@ -279,21 +478,21 @@ pub fn substep(
         let (x, y) = g.clamp_pos(rd(&p.x, i), rd(&p.y, i));
         let mut vx = rd(&p.vx, i) * drag;
         let mut vy = rd(&p.vy, i) * drag;
-        let target = if e.is_active(h) {
-            wobbled_target(e, g, h, rd(&p.rest_u, i), rd(&p.rest_v, i), inp.time_s)
-        } else {
-            None
+        let row = s.el.get(h).filter(|r| r.active);
+        let target = match (row, s.wob_key.get_mut(i), s.wob_trig.get_mut(i)) {
+            (Some(r), Some(key), Some(trig)) => {
+                wobbled_target(r, g, rd(&p.rest_u, i), rd(&p.rest_v, i), key, trig)
+            }
+            _ => None,
         };
-        let (tx, ty) = match target {
-            Some((tx, ty)) => {
-                let stiff = rd_or(&e.stiffness, h, 1.0);
-                let home_v = (rd(&e.vel_x, h) * inv, rd(&e.vel_y, h) * inv);
-                let (ax, ay) = home_spring_accel((x, y), (vx, vy), (tx, ty), home_v, stiff, inv);
+        let (tx, ty) = match (target, row) {
+            (Some((tx, ty)), Some(r)) => {
+                let (ax, ay) = r.spring_accel((x, y), (vx, vy), (tx, ty));
                 vx += ax * dt;
                 vy += ay * dt;
                 (tx, ty)
             }
-            None => (f32::NAN, f32::NAN),
+            _ => (f32::NAN, f32::NAN),
         };
         wr(&mut s.tgt_x, i, tx);
         wr(&mut s.tgt_y, i, ty);
@@ -302,10 +501,9 @@ pub fn substep(
 
         let [c00, c01, c10, c11] = rd4(&p.c, i, [0.0; 4]);
         let j = rd_or(&p.j, i, 1.0);
-        let mu = if target.is_some() {
-            rd_or(&s.el_mu, h, free_mu)
-        } else {
-            free_mu
+        let mu = match (target, row) {
+            (Some(_), Some(r)) => r.mu,
+            _ => free_mu,
         };
         let pressure = bulk * (j - 1.0);
         let s00 = pressure + 2.0 * mu * c00;
@@ -329,21 +527,27 @@ pub fn substep(
 
     // ---- G2P ----
     let slip_max = SLIP_MAX_PX_S * inv;
+    // The AABB of the positions G2P leaves behind, i.e. what `particle_bounds` would
+    // find at the start of the next substep (fused into this pass).
+    let mut next_bounds: Option<(f32, f32, f32, f32)> = None;
     for i in 0..p.cap {
         let Some(h) = p.home_of(i) else {
             continue;
         };
+        let (x, y) = g.clamp_pos(rd(&p.x, i), rd(&p.y, i));
         if rd(&p.mass, i) <= 0.0 {
+            // Not moved: its stored position is what `particle_bounds` reads.
+            grow_bounds(&mut next_bounds, x, y);
             continue;
         }
-        let (x, y) = g.clamp_pos(rd(&p.x, i), rd(&p.y, i));
         let st = g.stencil(x, y);
         let (gvx, gvy, c) = g.g2p(&st);
         let (vx, vy) = cap_speed(gvx, gvy, vmax);
         let (tx, ty) = (rd_or(&s.tgt_x, i, f32::NAN), rd_or(&s.tgt_y, i, f32::NAN));
         let has_target = tx.is_finite() && ty.is_finite();
         let (sx, sy) = if has_target {
-            slip_velocity((tx - x, ty - y), rd_or(&e.stiffness, h, 1.0), slip_max)
+            let stiff = s.el.get(h).map_or(1.0, |r| r.stiff);
+            slip_velocity((tx - x, ty - y), stiff, slip_max)
         } else {
             (0.0, 0.0)
         };
@@ -356,15 +560,24 @@ pub fn substep(
         wr(&mut p.vy, i, vy);
         wr4(&mut p.c, i, c);
         wr(&mut p.j, i, nj);
-        if has_target {
-            let d = (nx - tx).hypot(ny - ty) * g.cell_px;
+        grow_bounds(&mut next_bounds, nx, ny);
+        if opts.measure_dev && has_target {
+            let (dx, dy) = (nx - tx, ny - ty);
+            let d2 = dx * dx + dy * dy;
             if let Some(md) = s.max_dev.get_mut(h)
-                && d > *md
+                && d2 > *md
             {
-                *md = d;
+                *md = d2;
             }
         }
     }
+    if opts.measure_dev {
+        for md in s.max_dev.iter_mut() {
+            *md = md.sqrt() * g.cell_px;
+        }
+    }
+    s.bounds = next_bounds;
+    s.bounds_valid = true;
 }
 
 /// Reduced motion (spec §2): every particle sits at its (un-wobbled) target from
@@ -768,5 +981,70 @@ mod w67_tests {
         assert_eq!(WOBBLE_PX, 1.1);
         assert_eq!(SLIP_RATE_PER_S, 3.0);
         assert_eq!(SLIP_MAX_PX_S, 160.0);
+    }
+
+    /// Perf/fix round: a moving, wobbling, partly soft block, stepped like the api does.
+    fn moving_rig() -> Rig {
+        let mut rig = Rig::block([170.0, 170.0, 60.0, 60.0], 16, 0.3, |px, py| {
+            (0.9 * (py - 200.0), -0.7 * (px - 200.0) + 40.0)
+        });
+        rig.e.state[ST_REST_ALPHA] = 0.2;
+        rig.e.vel_x[0] = 35.0;
+        rig
+    }
+
+    #[test]
+    fn given_api_substep_options_when_stepping_then_bit_identical_to_plain_substep() {
+        // SubstepOpts are pure savings: the fused AABB and the last-substep-only maxDev
+        // give the same positions, velocities, J and final maxDev as plain `substep`.
+        let mut a = moving_rig();
+        let mut b = moving_rig();
+        for step in 0..3 {
+            for sub in 0..8 {
+                let inp = StepInput {
+                    dt: DT,
+                    time_s: (step * 8 + sub) as f32 * DT,
+                    pointer: PointerField::default(),
+                };
+                substep(&mut a.p, &mut a.g, &a.e, &a.m, &inp, &mut a.s);
+                let opts = SubstepOpts {
+                    measure_dev: sub == 7,
+                    reuse_bounds: step > 0 || sub > 0,
+                };
+                substep_with(&mut b.p, &mut b.g, &b.e, &b.m, &inp, &mut b.s, opts);
+            }
+            assert_eq!(a.p.x, b.p.x);
+            assert_eq!(a.p.y, b.p.y);
+            assert_eq!(a.p.vx, b.p.vx);
+            assert_eq!(a.p.j, b.p.j);
+            assert_eq!(a.s.tgt_x, b.s.tgt_x);
+            assert_eq!(a.s.max_dev, b.s.max_dev);
+            assert_eq!(a.g.region(), b.g.region());
+        }
+        assert!(a.s.max_dev[0] > 0.0, "the rig moves");
+    }
+
+    #[test]
+    fn given_cached_wobble_terms_when_evaluated_then_equal_to_wobble_offset_px() {
+        let mut e = Elements::new(2);
+        e.state[ST_REST_ALPHA] = 1.0;
+        e.state[STATE_STRIDE + ST_REST_ALPHA] = 0.25;
+        for k in 0..40 {
+            let t = k as f32 * 0.173;
+            let row = wobble_row(&e, 1, t);
+            let mut key = [f32::NAN; 2];
+            let mut trig = [0.0; 4];
+            for (lx, ly) in [(0.0, 0.0), (37.5, 12.0), (37.5, 12.0), (311.0, 170.0)] {
+                let (cx, cy) = cached_wobble_px(&row, lx, ly, &mut key, &mut trig);
+                let (wx, wy) = wobble_offset_px(t, lx, ly, e.phase[1], 0.25);
+                assert!(
+                    (cx - wx).abs() < 1e-5 && (cy - wy).abs() < 1e-5,
+                    "t {t} ({lx}, {ly}): cached ({cx}, {cy}) vs ({wx}, {wy})"
+                );
+            }
+        }
+        let still = wobble_row(&e, 0, 1.0);
+        let (wx, wy) = cached_wobble_px(&still, 3.0, 4.0, &mut [f32::NAN; 2], &mut [0.0; 4]);
+        assert_eq!((wx, wy), (0.0, 0.0), "restAlpha 1: no wobble");
     }
 }

@@ -123,6 +123,16 @@ pub fn splash(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, at: 
     true
 }
 
+/// Size of `shake`'s per-element direction table (= the FFI's max elements).
+const SHAKE_DIR_TABLE: usize = super::api::ELEMENTS_MAX as usize;
+
+/// Element `id`'s seeded shake direction `(x, y)` for this shake's `stream`.
+fn shake_dir(stream: u32, id: usize) -> (f32, f32) {
+    let angle = Rng::derive(stream, u32::try_from(id).unwrap_or(u32::MAX)).next_f32() * TAU;
+    let (dir_y, dir_x) = angle.sin_cos();
+    (dir_x, dir_y)
+}
+
 /// Global shake: each active element gets one seeded direction, each particle gets
 /// noise, and every active element goes soft (s ← min(s, 0.4)).
 pub fn shake(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, strength: f32) -> bool {
@@ -131,15 +141,26 @@ pub fn shake(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, stren
     };
     let speed = SHAKE_SPEED_PX_S * strength * g.inv_cell;
     let stream = rng.next_u32();
+    // Perf/fix round: one seeded direction per element, derived once per element (it is
+    // a pure function of (stream, id)); stack table, no allocation. `None` = inactive.
+    let mut dirs = [None::<(f32, f32)>; SHAKE_DIR_TABLE];
+    for (id, slot) in dirs.iter_mut().enumerate().take(e.cap) {
+        if e.is_active(id) {
+            *slot = Some(shake_dir(stream, id));
+        }
+    }
     for i in 0..p.cap {
         let Some(h) = p.home_of(i) else {
             continue;
         };
-        if !e.is_active(h) {
+        let dir = match dirs.get(h) {
+            Some(d) => *d,
+            // Beyond the table (cap > ELEMENTS_MAX, tests only): derive in place.
+            None => e.is_active(h).then(|| shake_dir(stream, h)),
+        };
+        let Some((dir_x, dir_y)) = dir else {
             continue;
-        }
-        let angle = Rng::derive(stream, u32::try_from(h).unwrap_or(u32::MAX)).next_f32() * TAU;
-        let (dir_y, dir_x) = angle.sin_cos();
+        };
         let nx = rng.next_f32() - 0.5;
         let ny = rng.next_f32() - 0.5;
         add(&mut p.vx, i, (dir_x + SHAKE_NOISE * nx) * speed);

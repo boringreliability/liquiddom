@@ -72,12 +72,30 @@ pub fn cap_speed(vx: f32, vy: f32, vmax: f32) -> (f32, f32) {
     if !(vx.is_finite() && vy.is_finite()) {
         return (0.0, 0.0);
     }
-    let speed = vx.hypot(vy);
-    if vmax.is_finite() && vmax >= 0.0 && speed > vmax {
-        let k = vmax / speed;
-        (vx * k, vy * k)
+    if !(vmax.is_finite() && vmax >= 0.0) {
+        return (vx, vy);
+    }
+    match norm_if_above(vx, vy, vmax) {
+        Some(speed) => {
+            let k = vmax / speed;
+            (vx * k, vy * k)
+        }
+        None => (vx, vy),
+    }
+}
+
+/// `|(x, y)|` when it exceeds `max`, else `None` (perf round). Compares squared
+/// magnitudes, so the sqrt is only taken when the caller has to clamp. Falls back to
+/// `hypot` when the square overflows or `max` is negative/NaN, so huge finite input
+/// clamps exactly as before. NaN input gives `None`, as `hypot(NaN) > max` did.
+#[inline]
+pub fn norm_if_above(x: f32, y: f32, max: f32) -> Option<f32> {
+    let n2 = x * x + y * y;
+    if n2.is_finite() && max >= 0.0 {
+        (n2 > max * max).then(|| n2.sqrt())
     } else {
-        (vx, vy)
+        let n = x.hypot(y);
+        (n > max).then_some(n)
     }
 }
 
@@ -384,7 +402,7 @@ mod tests {
 
 #[cfg(test)]
 mod w67_tests {
-    use super::cap_speed;
+    use super::{cap_speed, norm_if_above};
 
     #[test]
     fn given_speed_above_cap_when_capped_then_scaled_to_cap_and_direction_kept() {
@@ -407,5 +425,24 @@ mod w67_tests {
             let (x, y) = cap_speed(vx, vy, 25.0);
             assert!(x.abs() < f32::MIN_POSITIVE && y.abs() < f32::MIN_POSITIVE);
         }
+    }
+
+    #[test]
+    fn given_huge_or_nan_speeds_when_capped_with_squared_norms_then_same_as_hypot() {
+        // Perf round: squares overflow at ~1.8e19; the hypot fallback keeps the old clamp.
+        let (x, y) = cap_speed(3.0e30, 4.0e30, 25.0);
+        assert!(
+            (x - 15.0).abs() < 1e-3 && (y - 20.0).abs() < 1e-3,
+            "({x}, {y})"
+        );
+        assert_eq!(norm_if_above(f32::NAN, 1.0, 5.0), None);
+        assert_eq!(norm_if_above(3.0, 4.0, 5.0), None, "on the cap: not above");
+        assert_eq!(norm_if_above(3.0, 4.0, 4.9), Some(5.0));
+        assert_eq!(norm_if_above(3.0, 4.0, f32::INFINITY), None);
+        assert_eq!(
+            norm_if_above(0.0, 0.0, -1.0),
+            Some(0.0),
+            "negative max: as hypot did"
+        );
     }
 }
