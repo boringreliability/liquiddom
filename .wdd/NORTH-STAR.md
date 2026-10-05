@@ -152,3 +152,18 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D66-13 | Area hint comes from autoObserve candidates | W66 | dec_4189fd3e |
 | D66-14 | Resolved options carry a full Material | W66 | dec_1e47c536 |
 | D66-15 | Injected CSS in @layer liquiddom with !important; AMENDED 2026-10-04: paint/stacking rules scoped to screen and forced-colors: none instead of revert-layer (reverted to the UA default in print; was dec_2911ef26); two axe passes | W66 | dec_d05913c9 |
+| D67-1 | Re-form timing against the constants (blocking): `REST_S_MIN` 0.98 → 0.95 and a 3 s splash re-form budget (option 1) | W67 | dec_fe306ff0 |
+| D67-2 | Gravity stays unused until slice 6: gravity ignored until slice 6, proven by a no-effect test | W67 | dec_f525fbc3 |
+| D67-3 | Splash and shake impulses from the spike: spike impulses with spec damage (splash target only, shake all) | W67 | dec_c3555fda |
+| D67-4 | splash() and shake() validate strictly: strict whitelist validation in TS | W67 | dec_06beb181 |
+| D67-5 | splash on an unobserved element throws: Error for unobserved, TypeError for non-element | W67 | dec_602c802d |
+| D67-6 | The scene triggers shake through the test hook: shake via the test hook, no button | W67 | dec_c5bb8271 |
+| D67-7 | Physics constants: spike constants with the spec material mapping | W67 | dec_44d36e1b |
+| D67-8 | Strength 0 is a no-op: strength 0 is a no-op | W67 | dec_5570e6c1 |
+| D67-9 | One splash per click event: one splash per click, innermost element | W67 | dec_f78d0bca |
+| D67-10 | maxDev against the target the spring used: maxDev against the wobbled spring target | W67 | dec_9f4f536c |
+| D67-11 | Reduced-motion click gating belongs to W68: Rust-side ignore in W67, TS gating in W68 | W67 | dec_681bc282 |
+| D67-12 | Elements already on their targets start at rest: settle_if_at_rest after redistribute | W67 | dec_ff2cdb75 |
+| D67-13 | Edge-aligned rest ring plus R2 interior: edge-aligned ring + R2 interior | W67 | dec_d09082c5 |
+| D67-14 | Element velocity once per tick: rect velocity per tick, shared by its fixed steps | W67 | dec_41131b84 |
+| D67-15 | Cross-element lock probe: scenario probe; fallback is slice-6 parking | W67 | dec_14e3ffed |

@@ -48,52 +48,79 @@ Playwright verifies steps 3, 4 and 6.
 
 ## Decisions
 ### D67-1: Re-form timing against the constants (blocking)
-Proposal: the spec's budget of 1.5 s after a strength-1 splash cannot be met with the spec's constants.
-- `s ← 0.25` with `ds/dt = (1−s)/0.7` reaches `s > 0.98` after `0.7·ln(0.75/0.02) ≈ 2.54 s`.
-- Adding the 150 ms hold and the 120 ms fade gives ≈ 2.81 s.
-
-Options:
-- (a) Default `recovery` 0.34 s: `0.34·ln 37.5 + 0.27 ≈ 1.50 s`. Every element snaps back about twice as fast; the 0.2–3 s range stays.
-- (b) Rest gate `s > 0.85` instead of 0.98: `0.7·ln 5 + 0.27 ≈ 1.40 s`. `restAlpha` may rise while the liquid is still slightly soft.
-- (c) Splash damage `0.6·(2 − strength)`: `0.7·ln 20 ≈ 2.10 s` plus 0.27. Too slow on its own.
-- (d) A 3 s splash budget in spec §6 step 3 and NORTH-STAR, changed together.
-
-Shake: `0.7·ln(0.6/0.02) + 0.27 ≈ 2.65 s`, which is within 3 s only if `maxDev < 0.75 px` by then.
-Consequence: `given_strength_1_splash_on_button_when_ticking_then_rest_alpha_1_within_1_5_s` and Playwright step 3 fail by construction until one option is chosen. The chosen numbers go into the spec, the test names and (for d) NORTH-STAR.
-Decision: PENDING
+Proposal: the spec's 1.5 s splash budget is unreachable with its own constants (`s ← 0.25`, `ds/dt = (1−s)/0.7`, gate `s > 0.98`, 150 ms hold, 120 ms fade ≈ 2.82 s). Option 1: lower `REST_S_MIN` to 0.95 and raise the splash budget to 3 s.
+Consequence: splash re-forms in ≥ 2.18 s and shake in ≥ 2.02 s, ≥ 0.8 s inside the 3 s budget; spike feel and default recovery 0.7 s kept. Spec §2, spec §6 step 3, the spec §6 Rust list, NORTH-STAR step 3 and the NORTH-STAR Experiences bullet are amended (Task W67.14).
+Decision: APPROVED 2026-10-05 — `REST_S_MIN` 0.98 → 0.95 and a 3 s splash re-form budget (option 1) (saga dec_fe306ff0)
 
 ### D67-2: Gravity stays unused until slice 6
-Proposal: `gx/gy` keep flowing through `tick` and are sanitised, but they are not applied. The test `given_gravity_when_ticking_then_liquid_falls` is `#[ignore = "slice 6"]` (skeleton D67-3).
-Consequence: no gravity behaviour to stabilise in slice 2.
-Decision: PENDING
+Proposal: `tick` accepts and sanitises `gx/gy` but does not apply them; a non-ignored test proves they have no effect and `given_gravity_when_ticking_then_liquid_falls` is `#[ignore = "slice 6"]`.
+Consequence: the `gravity` options are accepted but do nothing visible until slice 6 (the spec's interim state).
+Decision: APPROVED 2026-10-05 — gravity ignored until slice 6, proven by a no-effect test (saga dec_f525fbc3)
 
 ### D67-3: Splash and shake impulses from the spike
-Proposal: splash speed `950·strength` px/s within a radius of `max(110, 0.75·diag)` px, in seeded lobes, with J reset to 1 for the particles hit. Shake: `520·strength` px/s in a seeded random direction per element, plus per-particle noise (skeleton D67-4).
-Consequence: the feel of the spike, tunable later in the W69 playground.
-Decision: PENDING
+Proposal: splash `950·strength` px/s within `max(110, 0.75·diag)` px, ±0.45 rad jitter, seeded lobes `k1 ∈ 4..7`, `k2 = k1 + 2..4`, J reset to 1 for hit particles; shake `520·strength` px/s in one seeded direction per element ±0.45 noise. Damage per spec: splash only the target, `min(s, 0.25·(2−strength))` ≥ `S_FLOOR`; shake `min(s, 0.4)` on every element.
+Consequence: the spike's feel, tunable in W69; neighbours are hit only by the flying liquid.
+Decision: APPROVED 2026-10-05 — spike impulses with spec damage (splash target only, shake all) (saga dec_c3555fda)
 
 ### D67-4: splash() and shake() validate strictly
-Proposal: `TypeError` when `strength` is NaN or outside [0, 2], or when `at` is not finite `{x, y}` (skeleton D68-1).
+Proposal: `TypeError` for a `strength` that is NaN, infinite, not a number or outside [0, 2], for `at` that is not finite `{x, y}`, for non-object `opts`, for unknown keys, and for the 0.2 keys ("SplashOptions changed shape").
 Consequence: invalid calls never reach Rust.
-Decision: PENDING
+Decision: APPROVED 2026-10-05 — strict whitelist validation in TS (saga dec_06beb181)
 
 ### D67-5: splash on an unobserved element throws
-Proposal: `splash(el)` for an element that is not observed throws `Error("[liquiddom] splash: element is not observed")` (skeleton D68-3).
+Proposal: `splash(el)` on an element that is not observed throws `Error("[liquiddom] splash: element is not observed")`; a non-element throws `TypeError`.
 Consequence: mistakes are loud rather than silently ignored.
-Decision: PENDING
+Decision: APPROVED 2026-10-05 — Error for unobserved, TypeError for non-element (saga dec_602c802d)
 
 ### D67-6: The scene triggers shake through the test hook
-Proposal: the acceptance scene has no shake button. Playwright and manual smoke call `__liquidTest.instance.shake()`.
+Proposal: the acceptance scene has no shake button; Playwright and the manual smoke test call `__liquidTest.instance.shake()`.
 Consequence: the scene stays exactly as the north star describes it (three buttons and a card).
-Decision: PENDING
+Decision: APPROVED 2026-10-05 — shake via the test hook, no button (saga dec_c5bb8271)
 
 ### D67-7: Physics constants
-Proposal:
-- From the spike: `SUBSTEPS 8`, `SOUND_SPEED_PX 380`, `COMPRESS_MIN 0.55`, `J_RELAX 1.5`, `SPRING_K 220`, `SPRING_ZETA 0.8`, `SPRING_AMAX_PX 3200`, `AIR_DRAG 0.8`, `MAX_CELLS_PER_SUBSTEP 0.45`, `WOBBLE_PX 1.1`, `SLIP_RATE 3.0`, `SLIP_MAX_PX 160`, `S_FLOOR 0.015`.
-- From the spec, for the material: viscosity `100·20^v` px²/s (0.5 ≈ 447; the spike used 700), cohesion `0.02 + 0.28·c` (0.5 → 0.16; the spike used 0.10), recovery 0.7 s.
+Proposal: spike constants: `SOUND_SPEED 380`, `J_RELAX 1.5`, `COMPRESS_MIN 0.55`, `SPRING_K 220`, `SPRING_ZETA 0.8` damping the velocity relative to the element, acceleration capped at `3200·(0.25 + 0.75·s)`, `AIR_DRAG 0.8`, CFL 0.45 cells per substep, `WOBBLE 1.1·(1−restAlpha)`, `SLIP 3·s²` capped at 160 px/s; material per spec: viscosity `100·20^v`, cohesion `0.02 + 0.28·c`.
+Consequence: the default material is a little less viscous and more cohesive than the spike; visible in the step 3/6 screenshots and tuned in W69.
+Decision: APPROVED 2026-10-05 — spike constants with the spec material mapping (saga dec_44d36e1b)
 
-Consequence: the default material is somewhat less viscous and more cohesive than the spike. Visible in the step 3/6 screenshots and tuned in W69.
-Decision: PENDING
+### D67-8: Strength 0 is a no-op
+Proposal: `strength: 0` applies no impulse and no damage; the TS range stays [0, 2] inclusive.
+Consequence: no crisp-to-liquid cross-fade without motion, which the literal formula (`s ← 0.5`) would show.
+Decision: APPROVED 2026-10-05 — strength 0 is a no-op (saga dec_5570e6c1)
+
+### D67-9: One splash per click event
+Proposal: the innermost observed element wins; a `WeakSet` of handled events stops observed ancestors from splashing too; `preventDefault` and `stopPropagation` are never called.
+Consequence: a card around a button does not double-splash, and the host's event handling is untouched.
+Decision: APPROVED 2026-10-05 — one splash per click, innermost element (saga dec_f78d0bca)
+
+### D67-10: maxDev against the target the spring used
+Proposal: `maxDev` is measured in G2P against the target the spring actually used, wobble included.
+Consequence: the 1.1 px wobble can never keep an element from resting (against the un-wobbled target the deviation reaches 1.28 px > 0.75 px).
+Decision: APPROVED 2026-10-05 — maxDev against the wobbled spring target (saga dec_9f4f536c)
+
+### D67-11: Reduced-motion click gating belongs to W68
+Proposal: TS-side gating of clicks under reduced motion is W68's D68-5; W67 relies on Rust ignoring `splash`/`shake` under reduced motion, proven by a Rust test.
+Consequence: under reduced motion in W67 a click still crosses the FFI, with no visible effect; W63's `given_reduced_motion_when_clicked_then_no_splash` row moves to W68.
+Decision: APPROVED 2026-10-05 — Rust-side ignore in W67, TS gating in W68 (saga dec_681bc282)
+
+### D67-12: Elements already on their targets start at rest
+Proposal: after `redistribute()`, `Elements::settle_if_at_rest` sets the hold to full and `restAlpha = 1` for every element with `s > REST_S_MIN` and `maxDev < 0.75 px`.
+Consequence: freshly observed elements neither fade in nor wobble and stay bit-static at rest; the W64 assertion `rest_alpha == 0.0` one frame after a 10 px displacement becomes `< 1.0` (≈ 0.86).
+Decision: APPROVED 2026-10-05 — settle_if_at_rest after redistribute (saga dec_ff2cdb75)
+
+### D67-13: Edge-aligned rest ring plus R2 interior
+Proposal: at `redistribute()` the outermost layer of each element's particles is placed evenly along its rounded contour, and the R2 sequence fills only the interior (W64 found sd 0.48 px edge raggedness in motion from the anisotropic R2 layout).
+Consequence: a smooth edge in motion, deterministic and paid only at redistribute; changes the static view (`rest_u`, `rest_v`) and W64's layout tests.
+Decision: APPROVED 2026-10-05 — edge-aligned ring + R2 interior (saga dec_d09082c5)
+
+### D67-14: Element velocity once per tick
+Proposal: the element's rect velocity is computed once per `tick` (rect delta over the tick's time) and used for every fixed step in that tick.
+Consequence: no 3Δ/dt-then-0 spike in the relative spring damping when an element moves.
+Decision: APPROVED 2026-10-05 — rect velocity per tick, shared by its fixed steps (saga dec_41131b84)
+
+### D67-15: Cross-element lock probe
+Proposal: a Rust scenario test moves an element ±1000 px and back and requires it to reach rest again via slip drift.
+Consequence: proves W67's slip resolves W64's known overlap lock; if it cannot, the limitation is documented and parking moves into slice 6.
+Decision: APPROVED 2026-10-05 — scenario probe; fallback is slice-6 parking (saga dec_14e3ffed)
 
 ## Specification
 - **Constitutive model:**
@@ -178,7 +205,7 @@ Decision: PENDING
 - Add the pointer field or hover swell (W68).
 
 ## Must DO
-- Gate D67-1 … D67-7 before `wdd ward status 67 red`, and log them in NORTH-STAR. D67-1 is blocking.
+- Gate D67-1 … D67-15 before `wdd ward status 67 red`, and log them in NORTH-STAR. D67-1 is blocking.
 - Reconcile this Tests table in the red commit; if D67-1 changes a timing, rename the tests accordingly.
 - Keep the W64 robustness guards (indexing lint, no hot-path allocation test) green.
 - Inspect the step 3, 4 and 6 screenshots with vision.
