@@ -265,3 +265,11 @@ Decision: APPROVED 2026-10-05 — scenario probe; fallback is slice-6 parking (s
 
 ## Verification
 `npm run verify` and CI e2e canvas2d are green, the vision-inspected screenshots are attached, and Dennis approves.
+
+Rust evidence (W67.10, `cargo test --lib fluid::scenario_tests -- --nocapture`, 2026-10-05):
+- D67-1: `W67 D67-1 evidence: splash re-form after Some(135) (+10) frames` (145 ≤ 180)
+- D67-1: `W67 D67-1 evidence: shake re-form after Some(120) (+10) frames` (130 ≤ 180)
+- D67-13: `W67 D67-13 evidence: edge envelope sd 0.000 px at rest, 0.120 px moving at 120 px/s` (< 0.2)
+- D67-15: `W67 D67-15 evidence: dx 1000: every restAlpha back to 1 after Some(270) frames` (≤ 300)
+- D67-15: `W67 D67-15 evidence: dx -1000: every restAlpha back to 1 after Some(158) frames` (≤ 300)
+- Open: `given_stress_sequence_pointer_splash_shake_when_run_then_mean_j_within_5_percent_of_1` measures max |mean J − 1| = 0.1206 over all frames (frame 264, after the strength-2 card splash); the final-frame value is 0.0001. Awaiting a ruling.

@@ -6,20 +6,27 @@
 use wasm_bindgen::prelude::*;
 
 use super::access::rd;
+#[cfg(test)]
+use super::clock::MAX_STEPS_PER_TICK;
 use super::clock::{FIXED_DT_S, FixedClock, SUBSTEPS};
 use super::elements::Elements;
 use super::grid::{Grid, MIN_PARTICLES_PER_CELL};
+use super::interaction::{self, SplashAt};
 use super::layout::{DYNAMIC_FIELDS, ELEMENT_STRIDE, STATE_STRIDE, STATIC_FIELDS};
 use super::material::{DEFAULT_MATERIAL, Material};
 use super::particles::Particles;
 use super::pool::{self, PoolScratch};
-use super::solver::{self, Scratch, StepInput};
+use super::rng::Rng;
+use super::solver::{self, PointerField, Scratch, StepInput};
 use super::views::Views;
 
 pub const PARTICLES_MIN: u32 = 16;
 pub const PARTICLES_MAX: u32 = 65_536;
 pub const ELEMENTS_MIN: u32 = 1;
 pub const ELEMENTS_MAX: u32 = 256;
+/// W67: RNG stream for splash lobes/jitter and shake directions/noise (distinct from
+/// the per-slot sampling streams 0–255 that `pool::redistribute` derives).
+const RNG_STREAM_INTERACTION: u32 = 0x0067_0001;
 
 pub struct Settings {
     pub material: Material,
@@ -40,6 +47,12 @@ pub struct FluidCore {
     generation: u32,
     active: u32,
     time_s: f32,
+    /// W67: deterministic RNG for splash and shake.
+    interaction_rng: Rng,
+    /// Test-only (D67-14): element 0's rect velocity (px/s) as each fixed step of the
+    /// last tick saw it. Pre-allocated to MAX_STEPS_PER_TICK, so it never reallocates.
+    #[cfg(test)]
+    step_vel_trace: Vec<(f32, f32)>,
 }
 
 #[wasm_bindgen]
@@ -85,6 +98,9 @@ impl FluidCore {
             generation: 0,
             active: 0,
             time_s: 0.0,
+            interaction_rng: Rng::derive(seed, RNG_STREAM_INTERACTION),
+            #[cfg(test)]
+            step_vel_trace: Vec::with_capacity(MAX_STEPS_PER_TICK as usize),
         }
     }
 
@@ -147,9 +163,9 @@ impl FluidCore {
         self.generation
     }
 
-    /// Advances by the raw RAF dt (Rust owns the accumulator) and returns the
-    /// fixed steps simulated: 0–3, always 0 under reduced motion (D64-4). The
-    /// pointer (W68) and gravity (slice 6) arguments are accepted and unused.
+    /// Advances by the raw RAF dt (Rust owns the accumulator) and returns the fixed
+    /// steps simulated: 0–3, always 0 under reduced motion (D64-4). The pointer (W68)
+    /// and gravity (slice 6, D67-2) arguments are accepted and unused.
     #[allow(clippy::too_many_arguments)]
     pub fn tick(
         &mut self,
@@ -163,57 +179,98 @@ impl FluidCore {
         _gy: f32,
     ) -> u32 {
         let steps = self.clock.advance(raw_dt_s);
-        let rm = self.settings.reduced_motion;
-        solver::compute_targets(
-            &self.particles,
-            &self.grid,
-            &self.elements,
-            rm,
-            &mut self.scratch,
-        );
-        let simulated = if rm {
+        #[cfg(test)]
+        self.step_vel_trace.clear();
+        if self.settings.reduced_motion {
+            // Spec §2: no simulation; follow rects instantly, even on a 0-step tick.
+            // dt 0 keeps prev_* current with velocity 0 (no spike when motion returns).
+            self.elements.update_velocities(0.0);
+            solver::compute_targets(
+                &self.particles,
+                &self.grid,
+                &self.elements,
+                true,
+                &mut self.scratch,
+            );
             solver::pin_to_targets(&mut self.particles, &self.grid, &self.scratch);
-            self.refresh_rest_state(true, 0.0);
-            0
-        } else {
-            let dt = FIXED_DT_S / SUBSTEPS as f32;
-            for _ in 0..steps {
-                self.elements.update_velocities(FIXED_DT_S);
-                for _ in 0..SUBSTEPS {
-                    let input = StepInput {
-                        dt,
-                        time_s: self.time_s,
-                    };
-                    solver::substep(
-                        &mut self.particles,
-                        &mut self.grid,
-                        &self.elements,
-                        &input,
-                        &self.scratch,
-                    );
-                    self.time_s += dt;
-                }
-                self.refresh_rest_state(false, FIXED_DT_S);
+            self.refresh_rest_state(true, 0.0, true);
+            self.views.write_dynamic(&self.particles, &self.grid);
+            return 0;
+        }
+        let params = self.settings.material.params();
+        let dt = FIXED_DT_S / SUBSTEPS as f32;
+        if steps > 0 {
+            // W67 D67-14: the rect moved once since the last tick that simulated. Its
+            // velocity is that delta over this tick's simulated time, shared by every
+            // fixed step (per-step sampling gave 3Δ/dt, then 0, then 0).
+            self.elements.update_velocities(steps as f32 * FIXED_DT_S);
+        }
+        for _ in 0..steps {
+            #[cfg(test)]
+            self.step_vel_trace
+                .push((rd(&self.elements.vel_x, 0), rd(&self.elements.vel_y, 0)));
+            for _ in 0..SUBSTEPS {
+                self.elements.update_stiffness(dt, params.recovery_s);
+                let input = StepInput {
+                    dt,
+                    time_s: self.time_s,
+                    pointer: PointerField::default(),
+                };
+                solver::substep(
+                    &mut self.particles,
+                    &mut self.grid,
+                    &self.elements,
+                    &params,
+                    &input,
+                    &mut self.scratch,
+                );
+                self.time_s += dt;
             }
-            steps
-        };
+            // maxDev from the last substep's G2P, against the target actually used (D67-10).
+            self.refresh_rest_state(false, FIXED_DT_S, false);
+        }
         self.views.write_dynamic(&self.particles, &self.grid);
-        simulated
+        steps
     }
 
-    /// Buffer-space splash. No-op stub in W64; behaviour lands in W67.
-    pub fn splash(&mut self, _id: u32, _x: f32, _y: f32, _strength: f32) {}
+    /// Splash element `id` at buffer-space (x, y). Ignored under reduced motion, for an
+    /// inactive or out-of-range id, for non-finite input, or for strength ≤ 0 (D67-8).
+    pub fn splash(&mut self, id: u32, x: f32, y: f32, strength: f32) {
+        if self.settings.reduced_motion {
+            return;
+        }
+        interaction::splash(
+            &mut self.particles,
+            &self.grid,
+            &mut self.elements,
+            &mut self.interaction_rng,
+            SplashAt {
+                id,
+                x_px: x,
+                y_px: y,
+                strength,
+            },
+        );
+    }
 
-    /// Global shake. No-op stub in W64; behaviour lands in W67.
-    pub fn shake(&mut self, _strength: f32) {}
+    /// Shake every active element. Ignored under reduced motion or for strength ≤ 0.
+    pub fn shake(&mut self, strength: f32) {
+        if self.settings.reduced_motion {
+            return;
+        }
+        interaction::shake(
+            &mut self.particles,
+            &self.grid,
+            &mut self.elements,
+            &mut self.interaction_rng,
+            strength,
+        );
+    }
 
-    /// W64 stores the values; W67 sanitises and maps them.
+    /// Normalised material (spec §2). NaN → defaults; out of range → clamped.
+    /// Mapped onto solver units once per tick (`Material::params`).
     pub fn set_material(&mut self, viscosity: f32, cohesion: f32, recovery: f32) {
-        self.settings.material = Material {
-            viscosity,
-            cohesion,
-            recovery_s: recovery,
-        };
+        self.settings.material = Material::sanitized(viscosity, cohesion, recovery);
     }
 
     pub fn redistribute(&mut self) {
@@ -238,7 +295,11 @@ impl FluidCore {
         if rm {
             solver::pin_to_targets(&mut self.particles, &self.grid, &self.scratch);
         }
-        self.refresh_rest_state(rm, 0.0);
+        self.refresh_rest_state(rm, 0.0, true);
+        // W67 D67-12: elements already on target start at rest (no fade-in, no wobble).
+        for id in 0..self.elements.cap {
+            self.elements.settle_if_at_rest(id);
+        }
         self.views.write_dynamic(&self.particles, &self.grid);
     }
 
@@ -248,14 +309,19 @@ impl FluidCore {
 }
 
 impl FluidCore {
-    fn refresh_rest_state(&mut self, reduced_motion: bool, dt: f32) {
-        solver::measure_max_dev(
-            &self.particles,
-            &self.grid,
-            &self.scratch.tgt_x,
-            &self.scratch.tgt_y,
-            &mut self.scratch.max_dev,
-        );
+    /// Rest state of every slot from `scratch.max_dev`. With `measure`, maxDev is first
+    /// re-measured against the un-wobbled targets in `scratch.tgt_*` (reduced motion and
+    /// redistribute). Without it, it holds the G2P value of the last substep (D67-10).
+    fn refresh_rest_state(&mut self, reduced_motion: bool, dt: f32, measure: bool) {
+        if measure {
+            solver::measure_max_dev(
+                &self.particles,
+                &self.grid,
+                &self.scratch.tgt_x,
+                &self.scratch.tgt_y,
+                &mut self.scratch.max_dev,
+            );
+        }
         for id in 0..self.elements.cap {
             let dev = rd(&self.scratch.max_dev, id);
             self.elements.update_rest_state(id, dev, dt, reduced_motion);
@@ -359,10 +425,12 @@ impl FluidCore {
             e.rest_w,
             e.rest_h,
             e.counts,
-            e.area_per_particle
+            e.area_per_particle,
+            e.rest_hold_s,
+            e.phase
         ]);
         out.extend(fingerprint![self.views.dynamic, self.views.statics]);
-        out.extend(fingerprint![s.tgt_x, s.tgt_y, s.max_dev]);
+        out.extend(fingerprint![s.tgt_x, s.tgt_y, s.max_dev, s.el_mu]);
         out.extend(fingerprint![
             ps.weights, ps.counts, ps.starts, ps.next, ps.u, ps.v
         ]);

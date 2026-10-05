@@ -1,29 +1,80 @@
-//! W64 at-rest substep (decision D64-13): the home spring plus the MLS-MPM /
-//! APIC transfer, with no stress, J update, CFL cap, drag, slip or wobble yet
-//! (all W67). Also the reduced-motion pin and the per-element `maxDev`.
+//! One MLS-MPM substep (spec §2 "Physics", Hu et al. 2018), the reduced-motion pin
+//! and the per-element `maxDev`. W64 shipped the at-rest subset (D64-13). W67 adds
+//! stress, viscosity, the J update, CFL caps, air drag, the relative and saturated
+//! home spring, slip drift and wobble. Re-implemented under test, with the spike as
+//! a reference only (D2).
+//!
+//! Units: positions in grid cells (dx = 1), velocities in cells/s. Every tuning
+//! constant is in CSS px and is converted with `g.inv_cell`, so the feel does not
+//! depend on the cell size.
+//!
+//! Per substep:
+//! 1. dirty region = particle AABB + 2 cells (B6), cleared;
+//! 2. per particle: air drag, damped saturated home spring relative to the element's
+//!    velocity (target = rest_uv in the home rect + wobble·(1 − restAlpha)), then P2G
+//!    of mass, APIC momentum and stress σ = E(J−1)·I + μ(C + Cᵀ);
+//! 3. grid: momentum → velocity, walls, CFL cap (grid.rs);
+//! 4. G2P: velocity + C, CFL cap, slip drift (non-physical, ∝ s²), advect,
+//!    J ← clamp(J·(1 + dt·tr C), COMPRESS_MIN, 1 + TENSION_MAX), then relax to 1,
+//!    and maxDev against the target actually used (D67-10).
 
 use super::access::{rd, rd_or, rd4, wr, wr4};
 use super::elements::Elements;
-use super::grid::Grid;
+use super::grid::{Grid, cap_speed};
+use super::layout::{ST_REST_ALPHA, STATE_STRIDE};
+use super::material::{MaterialParams, map_viscosity};
 use super::particles::Particles;
 
 /// Home spring at full stiffness (1/s²), spike value.
 pub const SPRING_K: f32 = 220.0;
 /// Damping ratio, constant as stiffness varies (spec §2).
 pub const SPRING_ZETA: f32 = 0.8;
+/// Home spring acceleration saturation (px/s²) × (0.25 + 0.75·s): far droplets crawl back.
+pub const SPRING_AMAX_PX_S2: f32 = 3200.0;
+/// Speed of sound in px/s; sets the bulk modulus E = c² (D67-7).
+pub const SOUND_SPEED_PX_S: f32 = 380.0;
+/// J is clamped from below (spec §2).
+pub const COMPRESS_MIN: f32 = 0.55;
+/// J relaxes towards 1 at this rate (1/s), so drift never becomes permanent pressure.
+pub const J_RELAX_PER_S: f32 = 1.5;
+/// Air drag (1/s).
+pub const AIR_DRAG_PER_S: f32 = 0.8;
+/// CFL cap for particles and grid (spec §2).
+pub const MAX_CELLS_PER_SUBSTEP: f32 = 0.45;
+/// Wobble amplitude at restAlpha 0 (px); × (1 − restAlpha).
+pub const WOBBLE_PX: f32 = 1.1;
+/// Slip drift rate at s = 1 (1/s), scaled by s². Non-physical (no momentum conservation).
+pub const SLIP_RATE_PER_S: f32 = 3.0;
+/// Slip drift cap (px/s).
+pub const SLIP_MAX_PX_S: f32 = 160.0;
 
+/// Pointer input for one substep. W68's soft pointer field reads it; W67 passes the default.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PointerField {
+    pub active: bool,
+    pub x_px: f32,
+    pub y_px: f32,
+    pub vx_px: f32,
+    pub vy_px: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct StepInput {
     pub dt: f32,
     pub time_s: f32,
+    pub pointer: PointerField,
 }
 
-/// Pre-allocated per-tick scratch (B7).
+/// Pre-allocated scratch (B7). Nothing here allocates after `new`.
 pub struct Scratch {
-    /// Home targets in grid units; NaN = no target.
+    /// Per particle: target in grid units (NaN = none). `compute_targets` writes the
+    /// un-wobbled target; `substep` overwrites it with the target it used.
     pub tgt_x: Vec<f32>,
     pub tgt_y: Vec<f32>,
-    /// Per-element max |x − target| in px.
+    /// Per element: max |x − target| in px.
     pub max_dev: Vec<f32>,
+    /// W67, per element: kinematic viscosity in cells²/s for this substep.
+    pub el_mu: Vec<f32>,
 }
 
 impl Scratch {
@@ -32,11 +83,13 @@ impl Scratch {
             tgt_x: vec![f32::NAN; particles],
             tgt_y: vec![f32::NAN; particles],
             max_dev: vec![0.0; elements],
+            el_mu: vec![0.0; elements],
         }
     }
 }
 
-/// Targets for the current rects, once per tick before the fixed steps.
+/// Un-wobbled targets for the current rects, clamped like W64's (used by reduced motion
+/// and redistribute).
 pub fn compute_targets(
     p: &Particles,
     g: &Grid,
@@ -75,82 +128,263 @@ fn particle_bounds(p: &Particles, g: &Grid) -> Option<(f32, f32, f32, f32)> {
     bounds
 }
 
-/// One MPM substep over particles with a home: spring → P2G → grid → G2P.
-pub fn substep(p: &mut Particles, g: &mut Grid, e: &Elements, inp: &StepInput, s: &Scratch) {
+/// One substep of J: integrate with tr C, clamp (COMPRESS_MIN / plastic yield at
+/// 1 + tension_max), relax towards 1. Non-finite → 1.
+pub fn update_j(j: f32, trace_c: f32, dt: f32, tension_max: f32) -> f32 {
+    let next = j * (1.0 + dt * trace_c);
+    let next = if next.is_finite() { next } else { 1.0 };
+    let next = next.clamp(COMPRESS_MIN, 1.0 + tension_max.max(0.0));
+    next + (1.0 - next) * (J_RELAX_PER_S * dt).min(1.0)
+}
+
+/// Velocity factor for one substep of air drag.
+pub fn drag_factor(dt: f32) -> f32 {
+    (-AIR_DRAG_PER_S * dt).exp()
+}
+
+/// Damped, saturated home spring (grid units). Damping acts on the velocity relative
+/// to the element's own velocity, so a co-moving particle on its target feels nothing.
+pub fn home_spring_accel(
+    pos: (f32, f32),
+    vel: (f32, f32),
+    target: (f32, f32),
+    home_vel: (f32, f32),
+    s: f32,
+    inv_cell: f32,
+) -> (f32, f32) {
+    let s = if s.is_finite() {
+        s.clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let k = SPRING_K * s;
+    let damping = 2.0 * SPRING_ZETA * k.sqrt();
+    let mut ax = k * (target.0 - pos.0) + damping * (home_vel.0 - vel.0);
+    let mut ay = k * (target.1 - pos.1) + damping * (home_vel.1 - vel.1);
+    let a_max = SPRING_AMAX_PX_S2 * inv_cell * (0.25 + 0.75 * s);
+    let a = ax.hypot(ay);
+    if a > a_max {
+        let scale = a_max / a;
+        ax *= scale;
+        ay *= scale;
+    }
+    if ax.is_finite() && ay.is_finite() {
+        (ax, ay)
+    } else {
+        (0.0, 0.0)
+    }
+}
+
+/// Grid-independent drift towards the target: offset × 3/s × s², capped at `max`.
+pub fn slip_velocity(offset: (f32, f32), s: f32, max: f32) -> (f32, f32) {
+    let rate = SLIP_RATE_PER_S * s * s;
+    let (sx, sy) = (offset.0 * rate, offset.1 * rate);
+    let m = sx.hypot(sy);
+    if m > max {
+        (sx * max / m, sy * max / m)
+    } else {
+        (sx, sy)
+    }
+}
+
+/// Subtle wobble of the target (px) at local rest position (lx, ly), × (1 − restAlpha).
+/// wy depends only on lx and wx only on ly, so the field is divergence-free (no pressure).
+pub fn wobble_offset_px(time_s: f32, lx: f32, ly: f32, phase: f32, rest_alpha: f32) -> (f32, f32) {
+    let alpha = if rest_alpha.is_finite() {
+        rest_alpha.clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let amp = WOBBLE_PX * (1.0 - alpha);
+    if amp <= 0.0 {
+        return (0.0, 0.0);
+    }
+    let wy = amp * (2.1 * time_s + 0.045 * lx + phase).sin();
+    let wx = 0.6 * amp * (1.7 * time_s + 0.07 * ly + 1.3 * phase).cos();
+    (wx, wy)
+}
+
+/// Kinematic viscosity of an element in px²/s: its slot-8 override (normalised) or the material's.
+pub fn element_viscosity_px2_s(e: &Elements, id: usize, m: &MaterialParams) -> f32 {
+    e.viscosity_override(id)
+        .map(map_viscosity)
+        .unwrap_or(m.viscosity_px2_s)
+}
+
+/// The target the spring uses this substep, in grid units (D67-10). Never under
+/// reduced motion: `substep` only runs with motion on, so hover swell applies.
+fn wobbled_target(
+    e: &Elements,
+    g: &Grid,
+    id: usize,
+    u: f32,
+    v: f32,
+    time_s: f32,
+) -> Option<(f32, f32)> {
+    let rect = e.home_rect(id, false)?;
+    let (tx, ty) = (rect.x + u * rect.w, rect.y + v * rect.h);
+    let alpha = rd_or(&e.state, id * STATE_STRIDE + ST_REST_ALPHA, 0.0);
+    let phase = rd(&e.phase, id);
+    let (wx, wy) = wobble_offset_px(time_s, u * rect.w, v * rect.h, phase, alpha);
+    let (gx, gy) = g.to_grid(tx + wx, ty + wy);
+    // Clamped like W64's targets: a huge home offset cannot overflow the spring.
+    if gx.is_finite() && gy.is_finite() {
+        Some(g.clamp_pos(gx, gy))
+    } else {
+        None
+    }
+}
+
+/// One MLS-MPM substep over particles with a home. A particle whose home slot is
+/// inactive (freed, awaiting redistribute) moves as free liquid with the material viscosity.
+pub fn substep(
+    p: &mut Particles,
+    g: &mut Grid,
+    e: &Elements,
+    m: &MaterialParams,
+    inp: &StepInput,
+    s: &mut Scratch,
+) {
+    let dt = inp.dt;
+    if !(dt.is_finite() && dt > 0.0) {
+        return;
+    }
     let Some((x0, y0, x1, y1)) = particle_bounds(p, g) else {
         return;
     };
     g.set_region(x0, y0, x1, y1);
     g.clear_region();
-    let dt = inp.dt;
+
+    let inv = g.inv_cell;
+    let inv2 = inv * inv;
+    let free_mu = m.viscosity_px2_s * inv2;
+    for (id, mu) in s.el_mu.iter_mut().enumerate() {
+        *mu = element_viscosity_px2_s(e, id, m) * inv2;
+    }
+    s.max_dev.fill(0.0);
+    let sound = SOUND_SPEED_PX_S * inv;
+    let bulk = sound * sound;
+    let drag = drag_factor(dt);
+
+    // ---- forces + P2G ----
     for i in 0..p.cap {
         let Some(h) = p.home_of(i) else {
             continue;
         };
-        let m = rd(&p.mass, i);
-        if m <= 0.0 {
+        let mass = rd(&p.mass, i);
+        if mass <= 0.0 {
             continue;
         }
+        // Clamped like W64, so every stencil stays inside the grid.
         let (x, y) = g.clamp_pos(rd(&p.x, i), rd(&p.y, i));
-        let (mut vx, mut vy) = (rd(&p.vx, i), rd(&p.vy, i));
-        let (tx, ty) = (rd_or(&s.tgt_x, i, f32::NAN), rd_or(&s.tgt_y, i, f32::NAN));
-        let has_target = tx.is_finite() && ty.is_finite();
-        if has_target {
-            let k = SPRING_K * rd_or(&e.stiffness, h, 1.0);
-            let damp = 2.0 * SPRING_ZETA * k.sqrt();
-            vx += (k * (tx - x) - damp * vx) * dt;
-            vy += (k * (ty - y) - damp * vy) * dt;
-        }
-        if !(vx.is_finite() && vy.is_finite()) {
-            (vx, vy) = (0.0, 0.0);
-        }
+        let mut vx = rd(&p.vx, i) * drag;
+        let mut vy = rd(&p.vy, i) * drag;
+        let target = if e.is_active(h) {
+            wobbled_target(e, g, h, rd(&p.rest_u, i), rd(&p.rest_v, i), inp.time_s)
+        } else {
+            None
+        };
+        let (tx, ty) = match target {
+            Some((tx, ty)) => {
+                let stiff = rd_or(&e.stiffness, h, 1.0);
+                let home_v = (rd(&e.vel_x, h) * inv, rd(&e.vel_y, h) * inv);
+                let (ax, ay) = home_spring_accel((x, y), (vx, vy), (tx, ty), home_v, stiff, inv);
+                vx += ax * dt;
+                vy += ay * dt;
+                (tx, ty)
+            }
+            None => (f32::NAN, f32::NAN),
+        };
+        wr(&mut s.tgt_x, i, tx);
+        wr(&mut s.tgt_y, i, ty);
         wr(&mut p.vx, i, vx);
         wr(&mut p.vy, i, vy);
-        let [mut c00, mut c01, mut c10, mut c11] = rd4(&p.c, i, [0.0; 4]);
-        if ![c00, c01, c10, c11].iter().all(|v| v.is_finite()) {
-            (c00, c01, c10, c11) = (0.0, 0.0, 0.0, 0.0);
-        }
+
+        let [c00, c01, c10, c11] = rd4(&p.c, i, [0.0; 4]);
+        let j = rd_or(&p.j, i, 1.0);
+        let mu = if target.is_some() {
+            rd_or(&s.el_mu, h, free_mu)
+        } else {
+            free_mu
+        };
+        let pressure = bulk * (j - 1.0);
+        let s00 = pressure + 2.0 * mu * c00;
+        let s01 = mu * (c01 + c10);
+        let s11 = pressure + 2.0 * mu * c11;
+        // MLS-MPM affine term: −dt·4·V·σ + m·C, with V = m (rest density 1, B4).
+        let k = -dt * 4.0 * mass;
+        let affine = [
+            k * s00 + mass * c00,
+            k * s01 + mass * c01,
+            k * s01 + mass * c10,
+            k * s11 + mass * c11,
+        ];
         let st = g.stencil(x, y);
-        g.p2g(&st, m, m * vx, m * vy, [m * c00, m * c01, m * c10, m * c11]);
+        g.p2g(&st, mass, mass * vx, mass * vy, affine);
     }
-    g.update_velocities(dt, 0.0);
+
+    // ---- grid: momentum → velocity, walls, CFL cap ----
+    let vmax = MAX_CELLS_PER_SUBSTEP / dt;
+    g.update_velocities(dt, vmax);
+
+    // ---- G2P ----
+    let slip_max = SLIP_MAX_PX_S * inv;
     for i in 0..p.cap {
-        if p.home_of(i).is_none() || rd(&p.mass, i) <= 0.0 {
+        let Some(h) = p.home_of(i) else {
+            continue;
+        };
+        if rd(&p.mass, i) <= 0.0 {
             continue;
         }
         let (x, y) = g.clamp_pos(rd(&p.x, i), rd(&p.y, i));
         let st = g.stencil(x, y);
-        let (mut vx, mut vy, mut c) = g.g2p(&st);
-        if !(vx.is_finite() && vy.is_finite() && c.iter().all(|v| v.is_finite())) {
-            (vx, vy, c) = (0.0, 0.0, [0.0; 4]);
-        }
+        let (gvx, gvy, c) = g.g2p(&st);
+        let (vx, vy) = cap_speed(gvx, gvy, vmax);
+        let (tx, ty) = (rd_or(&s.tgt_x, i, f32::NAN), rd_or(&s.tgt_y, i, f32::NAN));
+        let has_target = tx.is_finite() && ty.is_finite();
+        let (sx, sy) = if has_target {
+            slip_velocity((tx - x, ty - y), rd_or(&e.stiffness, h, 1.0), slip_max)
+        } else {
+            (0.0, 0.0)
+        };
+        let (nx, ny) = g.clamp_pos(x + dt * (vx + sx), y + dt * (vy + sy));
+        let [c00, _, _, c11] = c;
+        let nj = update_j(rd_or(&p.j, i, 1.0), c00 + c11, dt, m.tension_max);
+        wr(&mut p.x, i, nx);
+        wr(&mut p.y, i, ny);
         wr(&mut p.vx, i, vx);
         wr(&mut p.vy, i, vy);
         wr4(&mut p.c, i, c);
-        let (nx, ny) = g.clamp_pos(x + dt * vx, y + dt * vy);
-        wr(&mut p.x, i, nx);
-        wr(&mut p.y, i, ny);
+        wr(&mut p.j, i, nj);
+        if has_target {
+            let d = (nx - tx).hypot(ny - ty) * g.cell_px;
+            if let Some(md) = s.max_dev.get_mut(h)
+                && d > *md
+            {
+                *md = d;
+            }
+        }
     }
 }
 
-/// Reduced motion (spec §2): every particle sits at its target, at rest.
+/// Reduced motion (spec §2): every particle sits at its (un-wobbled) target from
+/// `compute_targets`, with its kinematics reset (v = 0, C = 0, J = 1, F = I; W67 also
+/// resets J and F, which W64 left alone).
 pub fn pin_to_targets(p: &mut Particles, g: &Grid, s: &Scratch) {
     for i in 0..p.cap {
         let (tx, ty) = (rd_or(&s.tgt_x, i, f32::NAN), rd_or(&s.tgt_y, i, f32::NAN));
-        let has_target = tx.is_finite() && ty.is_finite();
-        if !has_target {
+        if !(tx.is_finite() && ty.is_finite()) {
             continue;
         }
         let (x, y) = g.clamp_pos(tx, ty);
         wr(&mut p.x, i, x);
         wr(&mut p.y, i, y);
-        wr(&mut p.vx, i, 0.0);
-        wr(&mut p.vy, i, 0.0);
-        wr4(&mut p.c, i, [0.0; 4]);
+        p.reset_kinematics(i);
     }
 }
 
-/// Per element: max |x − target| in px over its particles, O(n).
+/// Per element: max |x − target| in px over its particles, O(n) (W64; used by reduced
+/// motion and redistribute against the un-wobbled targets of `compute_targets`).
 pub fn measure_max_dev(p: &Particles, g: &Grid, tgt_x: &[f32], tgt_y: &[f32], out: &mut [f32]) {
     out.fill(0.0);
     for i in 0..p.cap {
@@ -158,13 +392,10 @@ pub fn measure_max_dev(p: &Particles, g: &Grid, tgt_x: &[f32], tgt_y: &[f32], ou
             continue;
         };
         let (tx, ty) = (rd_or(tgt_x, i, f32::NAN), rd_or(tgt_y, i, f32::NAN));
-        let has_target = tx.is_finite() && ty.is_finite();
-        if !has_target {
+        if !(tx.is_finite() && ty.is_finite()) {
             continue;
         }
-        let dx = rd(&p.x, i) - tx;
-        let dy = rd(&p.y, i) - ty;
-        let d = (dx * dx + dy * dy).sqrt() * g.cell_px;
+        let d = (rd(&p.x, i) - tx).hypot(rd(&p.y, i) - ty) * g.cell_px;
         if let Some(m) = out.get_mut(h)
             && d > *m
         {
@@ -502,10 +733,8 @@ mod w67_tests {
         let used_x = rig.s.tgt_x.clone();
         let used_y = rig.s.tgt_y.clone();
         // Put every particle exactly on the target the spring used.
-        for i in 0..rig.p.cap {
-            rig.p.x[i] = used_x[i];
-            rig.p.y[i] = used_y[i];
-        }
+        rig.p.x.copy_from_slice(&used_x);
+        rig.p.y.copy_from_slice(&used_y);
         let mut dev_used = vec![0.0; 1];
         measure_max_dev(&rig.p, &rig.g, &used_x, &used_y, &mut dev_used);
         assert!(
