@@ -135,10 +135,21 @@ describe("W67 splash() / shake() API", () => {
     const liquid = await create();
     const el = makeButton(10, 20);
     liquid.observe(el);
-    expect(() => liquid.splash(el, { threshold: 5, count: 4 } as unknown as SplashOptions)).toThrow(/SplashOptions changed shape/);
+    // D67-4: every 0.2 key is pinned on its own, so a partial whitelist cannot pass.
+    for (const key of ["threshold", "count", "jitter", "speedScale", "lifetimeMs", "radius", "magnitude", "direction", "splash"]) {
+      const err = caught(() => liquid.splash(el, { [key]: 1 } as unknown as SplashOptions));
+      expect(err, `0.2 key ${key}`).toBeInstanceOf(TypeError);
+      expect(String(err), `0.2 key ${key}`).toMatch(/SplashOptions changed shape/);
+    }
     expect(() => liquid.splash(el, { strenght: 1 } as unknown as SplashOptions)).toThrow(/unknown option "strenght"/);
+    // An unknown (non-0.2) key is a TypeError too, but not via the "changed shape" path.
+    const unknown = caught(() => liquid.splash(el, { foo: 1 } as unknown as SplashOptions));
+    expect(unknown).toBeInstanceOf(TypeError);
+    expect(String(unknown)).not.toMatch(/changed shape/);
     expect(() => liquid.splash(el, 1 as unknown as SplashOptions)).toThrow(/opts must be an object/);
-    expect(caught(() => liquid.splash(el, { radius: 4 } as unknown as SplashOptions))).toBeInstanceOf(TypeError);
+    expect(caught(() => liquid.splash(el, null as unknown as SplashOptions))).toBeInstanceOf(TypeError);
+    expect(caught(() => liquid.splash(el, { strength: Number.NEGATIVE_INFINITY }))).toBeInstanceOf(TypeError);
+    expect(caught(() => liquid.shake(Number.NEGATIVE_INFINITY))).toBeInstanceOf(TypeError);
     expect(splashCalls()).toEqual([]);
   });
 
@@ -148,7 +159,7 @@ describe("W67 splash() / shake() API", () => {
     const err = caught(() => liquid.splash(other));
     expect(err).toBeInstanceOf(Error);
     expect(err).not.toBeInstanceOf(TypeError);
-    expect(String(err)).toMatch(/not observed/);
+    expect(String(err)).toMatch(/\[liquiddom\] splash: element is not observed/);
     expect(caught(() => liquid.splash(null as unknown as HTMLElement))).toBeInstanceOf(TypeError);
     expect(splashCalls()).toEqual([]);
   });

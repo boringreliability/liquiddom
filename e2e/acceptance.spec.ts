@@ -165,6 +165,39 @@ async function w67CanvasHash(page: Page): Promise<string> {
   });
 }
 
+/** Opaque canvas pixels (alpha > 128) outside every `.liquid-element` rect inflated by 8 px. */
+async function w67OpaquePixelsOutsideElements(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>("canvas.liquid-canvas");
+    if (!canvas) throw new Error("W67: canvas.liquid-canvas not found");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("W67: the liquid canvas has no 2d context");
+    const cr = canvas.getBoundingClientRect();
+    const sx = canvas.width / cr.width;
+    const sy = canvas.height / cr.height;
+    const rects = Array.from(document.querySelectorAll(".liquid-element")).map((e) => e.getBoundingClientRect());
+    if (rects.length === 0) throw new Error("W67: no .liquid-element found");
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let n = 0;
+    for (let py = 0; py < canvas.height; py++) {
+      const y = py / sy + cr.top;
+      for (let px = 0; px < canvas.width; px++) {
+        if (data[(py * canvas.width + px) * 4 + 3] <= 128) continue;
+        const x = px / sx + cr.left;
+        let inside = false;
+        for (const r of rects) {
+          if (x >= r.left - 8 && x <= r.right + 8 && y >= r.top - 8 && y <= r.bottom + 8) {
+            inside = true;
+            break;
+          }
+        }
+        if (!inside) n++;
+      }
+    }
+    return n;
+  });
+}
+
 async function w67TabTo(page: Page, target: Locator): Promise<void> {
   for (let i = 0; i < 8; i++) {
     if (await target.evaluate((el) => el === document.activeElement)) return;
@@ -231,6 +264,9 @@ test.describe("slice 2 – splash and shake (W67)", () => {
 
     // Reference: same seed, same frame count, API splash with the default `at` (rect centre).
     await w67Open(page);
+    // Same interaction state as the keyboard run: Split is focused here too.
+    const splitRef = page.getByRole("button", { name: "Split", exact: true });
+    await w67TabTo(page, splitRef);
     await page.evaluate(() => {
       const t = (window as unknown as { __liquidTest: W67Hook }).__liquidTest;
       const el = Array.from(document.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Split");
@@ -258,11 +294,20 @@ test.describe("slice 2 – splash and shake (W67)", () => {
 
   test("step 6 – given shake when ticking then everything sloshes and every restAlpha returns to 1 within 3 s", async ({ page }) => {
     await w67Open(page);
+    const before = await w67OpaquePixelsOutsideElements(page);
     await page.evaluate(() => (window as unknown as { __liquidTest: W67Hook }).__liquidTest.instance.shake());
-    await w67Advance(page, 10);
+    let peak = before;
+    for (let f = 0; f < 30; f++) {
+      await w67Advance(page, 1);
+      peak = Math.max(peak, await w67OpaquePixelsOutsideElements(page));
+    }
+    // N = 500 canvas px. At rest the liquid is the exact roundRect, so the count outside the
+    // 8 px-inflated rects is ~0; damage alone (restAlpha < 1, no particle motion) stays ~0 too.
+    // A real shake throws liquid out of four ~100x40 px rects: thousands of px. 500 leaves margin both ways.
+    expect(peak - before, "shake visibly moves liquid outside the element rects").toBeGreaterThan(500);
     const soft = await w67RestAlphas(page);
     expect(soft.every((a) => a < 1), `every element sloshes: ${soft}`).toBe(true);
-    const frames = await w67FramesUntilAllRest(page, Math.round(W67_SHAKE_REFORM_BUDGET_S * W67_FPS) - 10);
+    const frames = await w67FramesUntilAllRest(page, Math.round(W67_SHAKE_REFORM_BUDGET_S * W67_FPS) - 30);
     expect(frames, `every restAlpha back to 1 within ${W67_SHAKE_REFORM_BUDGET_S} s`).toBeGreaterThan(0);
   });
 
