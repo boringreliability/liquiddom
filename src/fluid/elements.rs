@@ -464,4 +464,33 @@ mod w67_tests {
             "inactive slot: no-op"
         );
     }
+
+    #[test]
+    fn given_s_between_0_94_and_0_96_when_ticking_then_rest_s_min_is_0_95() {
+        // D67-1 option 1: REST_S_MIN = 0.95 (spec §2 said 0.98).
+        assert!((REST_S_MIN - 0.95).abs() < 1e-7, "{REST_S_MIN}");
+
+        let mut above = one_element();
+        above.stiffness[0] = 0.96;
+        for _ in 0..20 {
+            above.update_rest_state(0, 0.1, DT_STEP, false);
+        }
+        assert_eq!(alpha(&above), 1.0, "s = 0.96 > REST_S_MIN raises alpha");
+        assert!(
+            above.rest_hold_s[0] >= REST_HOLD_S - 1e-6,
+            "and fills the hold"
+        );
+
+        let mut below = one_element();
+        below.stiffness[0] = 0.94;
+        for _ in 0..20 {
+            below.update_rest_state(0, 0.1, DT_STEP, false);
+            assert_eq!(alpha(&below), 0.0, "s = 0.94 keeps alpha at 0");
+            assert_eq!(below.rest_hold_s[0], 0.0, "and the hold at 0");
+        }
+        assert!(
+            0.1 < REST_MAX_DEV_PX,
+            "maxDev is under the threshold in both cases"
+        );
+    }
 }

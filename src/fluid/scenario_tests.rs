@@ -274,6 +274,7 @@ mod w67 {
     use crate::fluid::sampling::{
         ring_spacing_px, rounded_rect_inward_distance, rounded_rect_perimeter,
     };
+    use crate::fluid::solver::COMPRESS_MIN;
 
     const FPS: f32 = 60.0;
     /// D67-1 option 1: spec §6 step 3, amended in W67.
@@ -325,6 +326,11 @@ mod w67 {
     }
 
     fn run_stress(core: &mut FluidCore) {
+        run_stress_observed(core, |_| {});
+    }
+
+    /// `run_stress`, calling `observe` with the core after every tick (and its injections).
+    fn run_stress_observed(core: &mut FluidCore, mut observe: impl FnMut(&FluidCore)) {
         for f in 0..600u32 {
             let [x, y, w, h, r] = LAYOUT[SPLASH];
             let dx = if (420..480).contains(&f) {
@@ -347,23 +353,34 @@ mod w67 {
                 330 => core.shake(1.0),
                 _ => {}
             }
+            observe(core);
         }
     }
 
     #[test]
     fn given_stress_sequence_pointer_splash_shake_when_run_then_mean_j_within_5_percent_of_1() {
+        // Bound over EVERY frame, not only the last. J relaxes towards 1 at J_RELAX = 1.5/s and
+        // is clamped to [COMPRESS_MIN = 0.55, 1 + tension_max], and one splash or shake only
+        // perturbs part of the volume, so the mean over all particles stays near 1 even at the
+        // worst frame of the shake; 0.05 is the spec's bound and is kept for every frame.
         let mut core = acceptance_core(1);
-        run_stress(&mut core);
-        let j = core.mean_j();
-        assert!((j - 1.0).abs() <= 0.05, "mean J {j}");
+        let mut worst = 0.0f32;
+        run_stress_observed(&mut core, |c| worst = worst.max((c.mean_j() - 1.0).abs()));
+        assert!(worst <= 0.05, "max |mean J - 1| over all frames: {worst}");
     }
 
     #[test]
-    fn given_stress_sequence_when_run_then_no_nan_or_inf_and_every_f_finite_with_det_positive() {
+    fn given_stress_sequence_when_run_then_no_nan_or_inf_and_j_within_clamp_bounds() {
+        // Slice 2 never updates F (it is render-only, for liquid text in a later slice), so
+        // stability is asserted on position, velocity, C and J.
         let mut core = acceptance_core(1);
         run_stress(&mut core);
         assert!(core.all_particles_finite());
-        assert!(core.min_det_f() > 0.0, "min det F {}", core.min_det_f());
+        assert!(
+            core.min_j() >= COMPRESS_MIN - 1e-6,
+            "min J {} below COMPRESS_MIN",
+            core.min_j()
+        );
     }
 
     #[test]
@@ -512,9 +529,13 @@ mod w67 {
     }
 
     /// D67-13 edge metric for element `id`, whose DOM rect is `rect`.
-    /// - The rect is first shifted by the element's mean displacement from its targets, so a
-    ///   rigid lag does not count as raggedness.
-    /// - Every particle within two spacings of that outline is binned by `arc_position`. The
+    /// - D67-7's wobble is intentional, spatially varying motion, and D67-10 measures
+    ///   deviation against the target the spring used. So each particle is placed at its
+    ///   un-wobbled target plus its deviation from its OWN spring target (the wobbled one,
+    ///   `FluidCore::spring_target_px`, which Task W67.10 must provide). A perfect ring
+    ///   scores 0 however much it wobbles; without this the wobble alone scores 0.69-0.78 px.
+    /// - The element's mean deviation is subtracted, so a rigid lag does not count.
+    /// - Every particle within two spacings of the outline is binned by `arc_position`. The
     ///   bins are two spacings long, so each holds at least one ring particle.
     /// - The outermost particle of each bin gives one inward distance, and the metric is the
     ///   sd of those distances, in px.
@@ -523,18 +544,27 @@ mod w67 {
         let spacing = ring_spacing_px(core.cell_px());
         let ids = core.particle_indices_of(id as u32);
         let n = ids.len().max(1) as f32;
-        let (sx, sy) = ids.iter().fold((0.0f32, 0.0f32), |(ax, ay), &i| {
-            let (px, py) = core.particle_px(i);
-            let (tx, ty) = core.target_px(i).unwrap_or((px, py));
-            (ax + px - tx, ay + py - ty)
-        });
-        let (ox, oy) = (x0 + sx / n, y0 + sy / n);
+        // (un-wobbled target, deviation from the spring target) per particle.
+        let placed: Vec<((f32, f32), (f32, f32))> = ids
+            .iter()
+            .map(|&i| {
+                let (px, py) = core.particle_px(i);
+                let t = core.target_px(i).unwrap_or((px, py));
+                let st = core.spring_target_px(i).unwrap_or(t);
+                (t, (px - st.0, py - st.1))
+            })
+            .collect();
+        let (mdx, mdy) = placed
+            .iter()
+            .fold((0.0f32, 0.0f32), |(ax, ay), &(_, (dx, dy))| {
+                (ax + dx, ay + dy)
+            });
+        let (mdx, mdy) = (mdx / n, mdy / n);
         let perimeter = rounded_rect_perimeter(w, h, r);
         let bins = ((perimeter / (2.0 * spacing)).floor() as usize).max(1);
         let mut outer = vec![f32::INFINITY; bins];
-        for &i in &ids {
-            let (px, py) = core.particle_px(i);
-            let (lx, ly) = (px - ox, py - oy);
+        for &((tx, ty), (dx, dy)) in &placed {
+            let (lx, ly) = (tx - x0 + dx - mdx, ty - y0 + dy - mdy);
             let d = rounded_rect_inward_distance(lx, ly, w, h, r);
             if d > 2.0 * spacing {
                 continue;

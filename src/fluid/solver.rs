@@ -178,7 +178,7 @@ mod w67_tests {
     use super::*;
     use std::f32::consts::TAU;
 
-    use crate::fluid::elements::S_FLOOR;
+    use crate::fluid::elements::{REST_MAX_DEV_PX, S_FLOOR};
     use crate::fluid::layout::{EL_VISCOSITY, ST_REST_ALPHA};
     use crate::fluid::material::DEFAULT_MATERIAL;
 
@@ -486,5 +486,58 @@ mod w67_tests {
             assert!(hy.abs() <= 0.5 * WOBBLE_PX + 1e-6 && hx.abs() <= 0.3 * WOBBLE_PX + 1e-6);
         }
         assert!(peak > 0.5 * WOBBLE_PX, "wobble exists while liquid: {peak}");
+    }
+
+    #[test]
+    fn given_particle_on_wobbled_target_when_max_dev_measured_then_below_rest_threshold() {
+        // D67-10: maxDev is measured against the target the spring used (wobble included).
+        let mut rig = Rig::block([170.0, 170.0, 60.0, 60.0], 20, 1.0, |_, _| (0.0, 0.0));
+        rig.e.state[ST_REST_ALPHA] = 0.0; // liquid: the full 1.1 px wobble is active
+        let inp = StepInput {
+            dt: DT,
+            time_s: 0.37,
+            pointer: PointerField::default(),
+        };
+        substep(&mut rig.p, &mut rig.g, &rig.e, &rig.m, &inp, &mut rig.s);
+        let used_x = rig.s.tgt_x.clone();
+        let used_y = rig.s.tgt_y.clone();
+        // Put every particle exactly on the target the spring used.
+        for i in 0..rig.p.cap {
+            rig.p.x[i] = used_x[i];
+            rig.p.y[i] = used_y[i];
+        }
+        let mut dev_used = vec![0.0; 1];
+        measure_max_dev(&rig.p, &rig.g, &used_x, &used_y, &mut dev_used);
+        assert!(
+            dev_used[0] < REST_MAX_DEV_PX,
+            "on the wobbled target: {}",
+            dev_used[0]
+        );
+
+        // Against the un-wobbled target the same positions deviate by the wobble itself.
+        let mut plain = Scratch::new(rig.p.cap, 1);
+        compute_targets(&rig.p, &rig.g, &rig.e, false, &mut plain);
+        let mut dev_plain = vec![0.0; 1];
+        measure_max_dev(&rig.p, &rig.g, &plain.tgt_x, &plain.tgt_y, &mut dev_plain);
+        assert!(
+            dev_plain[0] > 0.5 && dev_plain[0] <= WOBBLE_PX * 1.2 + 1e-3,
+            "the un-wobbled deviation is the wobble offset (~1.1 px): {}",
+            dev_plain[0]
+        );
+    }
+
+    #[test]
+    fn given_d67_7_constants_when_read_then_spike_values_pinned() {
+        assert_eq!(SPRING_K, 220.0);
+        assert_eq!(SPRING_ZETA, 0.8);
+        assert_eq!(SPRING_AMAX_PX_S2, 3200.0);
+        assert_eq!(SOUND_SPEED_PX_S, 380.0);
+        assert_eq!(COMPRESS_MIN, 0.55);
+        assert_eq!(J_RELAX_PER_S, 1.5);
+        assert_eq!(AIR_DRAG_PER_S, 0.8);
+        assert_eq!(MAX_CELLS_PER_SUBSTEP, 0.45);
+        assert_eq!(WOBBLE_PX, 1.1);
+        assert_eq!(SLIP_RATE_PER_S, 3.0);
+        assert_eq!(SLIP_MAX_PX_S, 160.0);
     }
 }

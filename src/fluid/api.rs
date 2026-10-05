@@ -590,18 +590,21 @@ impl FluidCore {
                 .iter()
                 .all(|v| v.is_finite())
                 && p.c[i].iter().all(|v| v.is_finite())
-                && p.f[i].iter().all(|v| v.is_finite())
         })
     }
 
-    pub(crate) fn min_det_f(&self) -> f32 {
+    pub(crate) fn min_j(&self) -> f32 {
         (0..self.particles.cap)
             .filter(|&i| self.particles.home_of(i).is_some())
-            .map(|i| {
-                let [a, b, c, d] = self.particles.f[i];
-                a * d - b * c
-            })
+            .map(|i| self.particles.j[i])
             .fold(f32::INFINITY, f32::min)
+    }
+
+    /// D67-10: the target the spring used in the last substep, wobble included (px).
+    /// Task W67.10 must keep `scratch.tgt_x/tgt_y` as the substep's used target (the plan does).
+    pub(crate) fn spring_target_px(&self, i: usize) -> Option<(f32, f32)> {
+        let (gx, gy) = (*self.scratch.tgt_x.get(i)?, *self.scratch.tgt_y.get(i)?);
+        (gx.is_finite() && gy.is_finite()).then(|| self.grid.to_px(gx, gy))
     }
 
     pub(crate) fn position_bits(&self) -> Vec<u32> {

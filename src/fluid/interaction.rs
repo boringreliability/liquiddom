@@ -227,4 +227,19 @@ mod w67_tests {
             "D67-8: no damage at strength 0"
         );
     }
+
+    #[test]
+    fn given_d67_3_constants_when_read_then_splash_and_shake_values_pinned() {
+        use crate::fluid::interaction::{
+            SHAKE_NOISE, SHAKE_SPEED_PX_S, SHAKE_STIFFNESS_CAP, SPLASH_RADIUS_MIN_PX,
+            SPLASH_RADIUS_PER_DIAGONAL, SPLASH_SPEED_PX_S, STRENGTH_MAX,
+        };
+        assert_eq!(SPLASH_SPEED_PX_S, 950.0, "speed 950 px/s · strength");
+        assert_eq!(SPLASH_RADIUS_MIN_PX, 110.0, "radius floor 110 px");
+        assert_eq!(SPLASH_RADIUS_PER_DIAGONAL, 0.75);
+        assert_eq!(SHAKE_SPEED_PX_S, 520.0);
+        assert_eq!(SHAKE_NOISE, 0.9);
+        assert_eq!(SHAKE_STIFFNESS_CAP, 0.4);
+        assert_eq!(STRENGTH_MAX, 2.0);
+    }
 }
