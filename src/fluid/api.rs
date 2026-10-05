@@ -533,3 +533,176 @@ mod tests {
         assert_eq!((d.particle_capacity(), d.element_capacity()), (65_536, 256));
     }
 }
+
+// ---- W67: test-only helpers ---------------------------------------------------
+#[cfg(test)]
+impl FluidCore {
+    pub(crate) fn particle_vel_px_s(&self, i: usize) -> (f32, f32) {
+        let c = self.grid.cell_px;
+        (self.particles.vx[i] * c, self.particles.vy[i] * c)
+    }
+
+    pub(crate) fn particle_j(&self, i: usize) -> f32 {
+        self.particles.j[i]
+    }
+
+    pub(crate) fn set_particle_j(&mut self, i: usize, j: f32) {
+        self.particles.j[i] = j;
+    }
+
+    pub(crate) fn particle_indices_of(&self, id: u32) -> Vec<usize> {
+        self.particles
+            .home
+            .iter()
+            .enumerate()
+            .filter(|&(_, &h)| h == id)
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    pub(crate) fn stiffness_of(&self, id: usize) -> f32 {
+        self.elements.stiffness[id]
+    }
+
+    pub(crate) fn material_params(&self) -> super::material::MaterialParams {
+        self.settings.material.params()
+    }
+
+    pub(crate) fn max_j(&self) -> f32 {
+        (0..self.particles.cap)
+            .filter(|&i| self.particles.home_of(i).is_some())
+            .map(|i| self.particles.j[i])
+            .fold(f32::NEG_INFINITY, f32::max)
+    }
+
+    /// restAlpha of every active element, in slot order.
+    pub(crate) fn rest_alphas(&self) -> Vec<f32> {
+        (0..self.elements.cap)
+            .filter(|&id| self.elements.is_active(id))
+            .map(|id| self.state(id)[super::layout::ST_REST_ALPHA])
+            .collect()
+    }
+
+    pub(crate) fn all_particles_finite(&self) -> bool {
+        let p = &self.particles;
+        (0..p.cap).filter(|&i| p.home_of(i).is_some()).all(|i| {
+            [p.x[i], p.y[i], p.vx[i], p.vy[i], p.j[i]]
+                .iter()
+                .all(|v| v.is_finite())
+                && p.c[i].iter().all(|v| v.is_finite())
+                && p.f[i].iter().all(|v| v.is_finite())
+        })
+    }
+
+    pub(crate) fn min_det_f(&self) -> f32 {
+        (0..self.particles.cap)
+            .filter(|&i| self.particles.home_of(i).is_some())
+            .map(|i| {
+                let [a, b, c, d] = self.particles.f[i];
+                a * d - b * c
+            })
+            .fold(f32::INFINITY, f32::min)
+    }
+
+    pub(crate) fn position_bits(&self) -> Vec<u32> {
+        self.particles
+            .x
+            .iter()
+            .chain(self.particles.y.iter())
+            .map(|v| v.to_bits())
+            .collect()
+    }
+
+    pub(crate) fn velocity_bits(&self) -> Vec<u32> {
+        self.particles
+            .vx
+            .iter()
+            .chain(self.particles.vy.iter())
+            .map(|v| v.to_bits())
+            .collect()
+    }
+
+    /// Max |x − target| per active element against the UN-wobbled target (px).
+    pub(crate) fn max_dev_px(&self) -> Vec<f32> {
+        let mut s = Scratch::new(self.particles.cap, self.elements.cap);
+        solver::compute_targets(
+            &self.particles,
+            &self.grid,
+            &self.elements,
+            self.settings.reduced_motion,
+            &mut s,
+        );
+        solver::measure_max_dev(
+            &self.particles,
+            &self.grid,
+            &s.tgt_x,
+            &s.tgt_y,
+            &mut s.max_dev,
+        );
+        (0..self.elements.cap)
+            .filter(|&id| self.elements.is_active(id))
+            .map(|id| s.max_dev[id])
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod w67_tests {
+    use super::FluidCore;
+
+    #[test]
+    fn given_set_material_when_called_then_cohesion_applies_globally_only() {
+        let mut core = FluidCore::new(2000, 4, 640.0, 480.0, 12_452.0, 48.0, 3);
+        core.write_element(
+            0,
+            [
+                100.0,
+                100.0,
+                140.0,
+                48.0,
+                24.0,
+                0.0,
+                0.0,
+                0.0,
+                f32::NAN,
+                f32::NAN,
+            ],
+        );
+        core.write_element(
+            1,
+            [
+                300.0,
+                100.0,
+                140.0,
+                48.0,
+                24.0,
+                0.0,
+                0.0,
+                0.0,
+                0.9,
+                f32::NAN,
+            ],
+        );
+        core.redistribute();
+        core.set_material(0.5, 0.0, 0.7);
+        assert!((core.material_params().tension_max - 0.02).abs() < 1e-6);
+        core.splash(0, 170.0, 124.0, 2.0);
+        core.splash(1, 370.0, 124.0, 2.0);
+        for _ in 0..30 {
+            core.tick(1.0 / 60.0, 0.0, 0.0, 0.0, 0.0, false, 0.0, 0.0);
+            assert!(
+                core.max_j() <= 1.02 + 1e-5,
+                "one global TENSION_MAX caps every element, incl. the viscosity override: {}",
+                core.max_j()
+            );
+        }
+        core.set_material(0.5, 1.0, 0.7);
+        assert!((core.material_params().tension_max - 0.30).abs() < 1e-6);
+        core.set_material(f32::NAN, f32::NAN, f32::NAN);
+        let p = core.material_params();
+        assert!(
+            (p.tension_max - 0.16).abs() < 1e-6 && (p.recovery_s - 0.7).abs() < 1e-6,
+            "NaN → defaults"
+        );
+    }
+}

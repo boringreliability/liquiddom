@@ -18,6 +18,7 @@ pub mod api;
 pub mod clock;
 pub mod elements;
 pub mod grid;
+pub mod interaction;
 pub mod layout;
 pub mod material;
 pub mod particles;
