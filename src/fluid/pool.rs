@@ -8,13 +8,17 @@
 //! below the new count keeps its home AND its exact `rest_uv`. Only the
 //! surplus ranks are freed and refilled. Never-placed particles snap to their
 //! target; already-placed particles keep `x, y` (they crawl, never snap).
+//!
+//! W67 (D67-13): each element's rest set is the edge ring (ranks below
+//! `edge_ring_count`, fixed per rect and core) followed by the progressive R2
+//! interior, so the stable assignment above still holds.
 
 use super::access::{positive, rd, rd_or, rd_u32, wr, wr_u32};
 use super::elements::Elements;
 use super::grid::Grid;
 use super::particles::{NO_HOME, Particles};
 use super::rng::Rng;
-use super::sampling::{apportion, rounded_rect_area, sample_rounded_rect};
+use super::sampling::{apportion, ring_spacing_px, rounded_rect_area, sample_edge_aligned};
 
 /// Pre-allocated scratch so `redistribute` never allocates (B7).
 pub struct PoolScratch {
@@ -57,7 +61,9 @@ pub fn redistribute(
     let total = u32::try_from(p.cap).unwrap_or(u32::MAX);
     let assigned = apportion(&s.weights, total, &mut s.counts);
 
-    // 2. Rest samples per element, stored contiguously by element id.
+    // 2. Rest samples per element, stored contiguously by element id: the edge ring
+    //    first, then the R2 interior (W67, D67-13).
+    let spacing = ring_spacing_px(g.cell_px);
     let mut start = 0usize;
     for id in 0..e.cap {
         let n = rd_u32(&s.counts, id) as usize;
@@ -70,7 +76,7 @@ pub fn redistribute(
                 (s.u.get_mut(start..start + n), s.v.get_mut(start..start + n))
         {
             let mut rng = Rng::derive(seed, u32::try_from(id).unwrap_or(u32::MAX));
-            sample_rounded_rect(r.w, r.h, r.r, &mut rng, ou, ov);
+            sample_edge_aligned(r.w, r.h, r.r, spacing, &mut rng, ou, ov);
         }
         let area = rd(&s.weights, id);
         wr_u32(&mut e.counts, id, u32::try_from(n).unwrap_or(u32::MAX));
