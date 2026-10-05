@@ -3,10 +3,10 @@ ward: 67
 revision: null
 name: "Splash and shake, end to end"
 epic: "fluid-engine"
-status: "planned"
+status: "red"
 dependencies: [66]
 layer: "both"
-estimated_tests: 49
+estimated_tests: 80
 created: "2026-10-03"
 completed: null
 ---
@@ -41,7 +41,7 @@ Playwright verifies steps 3, 4 and 6.
 - Spike constants (reference only).
 
 ## Outputs
-- Modified: `src/fluid/{material,grid,solver,elements,api,scenario_tests}.rs`; created: `src/fluid/interaction.rs`.
+- Modified: `src/fluid/{material,grid,sampling,pool,solver,elements,api,scenario_tests}.rs`; created: `src/fluid/interaction.rs`.
 - `packages/core/ts/src/input.ts` (click listener); `index.ts` with `splash(el, opts?)`, `shake(strength?)` and the exported type `SplashOptions`.
 - Tests `splash-input.test.ts`, `splash-api.test.ts`; `e2e/acceptance.spec.ts` steps 3, 4 and 6 with baselines.
 - Scene: shake via `__liquidTest.instance.shake()`.
@@ -130,18 +130,20 @@ Decision: APPROVED 2026-10-05 — scenario probe; fallback is slice-6 parking (s
   - air drag.
 - **Home spring:**
   - ζ = 0.8;
-  - damping is relative to the element's own velocity, measured as the rect delta per fixed step;
+  - damping is relative to the element's own velocity, measured once per tick as the rect delta over the tick's simulated time and shared by its fixed steps (D67-14);
   - acceleration is saturated at 3200 px/s².
 - **Stiffness:**
-  - damage: splash sets `s ← max(S_FLOOR, min(s, 0.25·(2 − strength)))` (unless D67-1 changes it); shake sets `s ← min(s, 0.4)`;
+  - damage: splash sets `s ← max(S_FLOOR, min(s, 0.25·(2 − strength)))` (D67-1 keeps it); shake sets `s ← min(s, 0.4)`;
   - recovery: `ds/dt = (1 − s)/recovery`.
 - **Slip drift:** `3/s·s²` towards the target, capped at 160 px/s. It is non-physical, and the code comment says so.
 - **Rest state:**
-  - `restAlpha` rises after `s > 0.98` and `maxDev < 0.75 px` have held for ≥ 150 ms;
+  - `restAlpha` rises after `s > REST_S_MIN` (0.95, D67-1 option 1) and `maxDev < 0.75 px` have held for ≥ 150 ms;
   - it falls immediately when either condition breaks;
   - the fade is 120 ms both ways.
 - **Wobble:** `1.1 px·(1 − restAlpha)`.
-- **Reduced motion:** splash and shake are ignored, in Rust and before TS calls them.
+- **Rest layout (D67-13):** at `redistribute()`, each element's first `edge_ring_count` ranks lie evenly on its rounded outline, inset by half a spacing. The spacing is `cell_px / 2`, the particle spacing at the area hint, and it is fixed per core. The R2 sequence fills the interior, one spacing inside the outline. Counts per element are unchanged (largest remainder), and kept particles keep their `rest_uv` (D64-3).
+- **Lock probe (D67-15):** an element moved ±1000 px and back is at rest again within 5 s through slip drift. If it cannot be, the limitation is parked for slice 6.
+- **Reduced motion:** splash and shake are ignored in Rust (W67). The TS input gating is W68 (D67-11, D68-5).
 - **TS `splash(el, { strength = 1, at })`:** `at` is in client px and is converted to buffer space (minus the container offset); the default is the rect centre. `shake(strength = 1)`.
 - **Click listener:** on every observed element. Pointer clicks splash at `clientX/Y`. `event.detail === 0` (keyboard Enter/Space) splashes at the rect centre. Native activation is never prevented, and exactly one splash fires per click.
 
@@ -152,51 +154,82 @@ Decision: APPROVED 2026-10-05 — scenario probe; fallback is slice-6 parking (s
 | 2 | given_viscosity_0_5_when_mapped_then_about_447 | material map |
 | 3 | given_cohesion_0_5_when_mapped_then_0_16_and_bounds_0_02_0_30 | material map |
 | 4 | given_recovery_nan_or_out_of_range_when_sanitized_then_default_0_7_or_clamped_0_2_3 | sanitising |
-| 5 | given_element_viscosity_slot_nan_when_ticking_then_material_default_used | per-element override |
-| 6 | given_set_material_when_called_then_cohesion_applies_globally_only | cohesion global |
-| 7 | given_compressed_particles_when_substep_then_J_clamped_at_0_55_and_relaxes_towards_1 | J clamp/relax |
-| 8 | given_stretch_beyond_tension_max_when_substep_then_J_yields_at_1_plus_tension_max | tension yield |
-| 9 | given_high_velocity_when_substep_then_particle_and_grid_speed_capped_at_0_45_cells_per_substep | CFL |
-| 10 | given_free_moving_particle_when_ticking_then_air_drag_decays_velocity | drag |
-| 11 | given_shear_flow_when_substep_then_viscous_stress_reduces_velocity_gradient | viscosity |
-| 12 | given_element_moving_at_v_and_particles_co_moving_on_target_when_spring_evaluated_then_damping_force_zero | relative damping |
-| 13 | given_droplet_far_from_home_when_spring_evaluated_then_acceleration_saturates | saturation |
-| 14 | given_rect_velocity_when_elements_updated_then_velocity_from_rect_delta_per_fixed_step | element velocity |
-| 15 | given_splash_strength_1_when_damaged_then_s_at_most_0_25 | damage (per D67-1) |
-| 16 | given_splash_strength_2_when_damaged_then_s_equals_floor_0_015 | damage floor |
-| 17 | given_shake_when_damaged_then_s_at_most_0_4 | shake damage |
-| 18 | given_s_0_25_and_recovery_0_7_when_recovering_then_matches_ds_dt_1_minus_s_over_recovery | recovery |
-| 19 | given_s_1_and_offset_particle_when_ticking_then_slip_rate_3_per_s_capped_160px_per_s | slip |
-| 20 | given_s_floor_when_ticking_then_slip_scaled_by_s_squared | slip scale |
-| 21 | given_rest_alpha_1_when_ticking_then_wobble_zero | wobble |
-| 22 | given_s_above_0_98_and_maxdev_below_0_75_for_150ms_when_ticking_then_rest_alpha_rises_to_1_over_120ms | rest rise |
-| 23 | given_rest_alpha_1_when_condition_breaks_then_it_falls_immediately_reaching_0_after_120ms | rest fall |
-| 24 | given_condition_flickering_under_150ms_when_ticking_then_rest_alpha_stays_0 | hysteresis |
-| 25 | given_splash_when_applied_then_hit_particles_get_J_1_and_outward_velocity_with_seeded_lobes | splash |
-| 26 | given_same_seed_when_splashing_twice_then_identical_velocities | determinism |
-| 27 | given_invalid_id_or_nan_coords_when_splash_then_no_op | robustness |
-| 28 | given_shake_when_applied_then_each_element_gets_seeded_direction_plus_particle_noise | shake |
-| 29 | given_reduced_motion_when_splash_or_shake_then_ignored | RM |
-| 30 | given_stress_sequence_pointer_splash_shake_when_run_then_mean_J_within_5_percent_of_1 | volume |
-| 31 | given_stress_sequence_when_run_then_no_nan_or_inf_and_every_F_finite_with_det_positive | stability |
-| 32 | given_stress_sequence_when_run_then_particle_count_and_mass_exactly_constant | conservation |
-| 33 | given_strength_1_splash_on_button_when_ticking_then_rest_alpha_1_within_1_5_s | re-form (timing per D67-1) |
-| 34 | given_shake_strength_1_when_ticking_then_all_rest_alpha_1_within_3_s | re-form |
-| 35 | given_same_seed_and_inputs_when_stress_sequence_run_twice_then_positions_bit_identical | determinism |
-| 36 | #[ignore = "slice 6"] given_gravity_when_ticking_then_liquid_falls | D67-2 |
-| 37 | given_pointer_click_on_observed_element_when_dispatched_then_core_splash_at_pointer_in_buffer_space_strength_1 | click splash |
-| 38 | given_keyboard_click_detail_0_when_dispatched_then_core_splash_at_rect_centre | keyboard splash |
-| 39 | given_click_when_handled_then_default_not_prevented_and_exactly_one_splash | native activation |
-| 40 | given_reduced_motion_when_clicked_then_no_splash | RM gating |
-| 41 | given_splash_without_options_when_called_then_strength_1_at_rect_centre | API defaults |
-| 42 | given_splash_at_client_point_in_container_mode_when_called_then_converted_with_container_offset | coordinates |
-| 43 | given_strength_nan_or_out_of_0_2_when_splash_or_shake_then_TypeError | D67-4 |
-| 44 | given_unobserved_element_when_splash_then_Error | D67-5 |
-| 45 | given_shake_without_argument_when_called_then_core_shake_1 | API defaults |
-| 46 | given_destroyed_instance_when_splash_or_shake_then_Error | lifecycle |
-| 47 | step 3 – given a click on Splash when ticking then liquid leaves the rect and every restAlpha returns to 1 within 1.5 s | step 3 (timing per D67-1) |
-| 48 | step 4 – given Tab focus on Split and Enter when ticking then splash at centre and focus ring visible throughout | step 4 |
-| 49 | step 6 – given shake when ticking then every restAlpha returns to 1 within 3 s | step 6 |
+| 5 | given_default_material_when_mapped_then_params_match_spec_defaults | defaults |
+| 6 | given_speed_above_cap_when_capped_then_scaled_to_cap_and_direction_kept | CFL helper |
+| 7 | given_non_finite_velocity_when_capped_then_zero | CFL helper |
+| 8 | given_compressed_particles_when_substep_then_j_clamped_at_0_55_and_relaxes_towards_1 | J clamp/relax |
+| 9 | given_stretch_beyond_tension_max_when_substep_then_j_yields_at_1_plus_tension_max | tension yield |
+| 10 | given_high_velocity_when_substep_then_particle_and_grid_speed_capped_at_0_45_cells_per_substep | CFL |
+| 11 | given_free_moving_particle_when_ticking_then_air_drag_decays_velocity | drag |
+| 12 | given_shear_flow_when_substep_then_viscous_stress_reduces_velocity_gradient | viscosity |
+| 13 | given_element_viscosity_slot_nan_when_ticking_then_material_default_used | per-element override |
+| 14 | given_element_moving_at_v_and_particles_co_moving_on_target_when_spring_evaluated_then_damping_force_zero | relative damping |
+| 15 | given_droplet_far_from_home_when_spring_evaluated_then_acceleration_saturates | saturation |
+| 16 | given_s_1_and_offset_particle_when_ticking_then_slip_rate_3_per_s_capped_160px_per_s | slip |
+| 17 | given_s_floor_when_ticking_then_slip_scaled_by_s_squared | slip scale |
+| 18 | given_rest_alpha_1_when_ticking_then_wobble_zero | wobble |
+| 19 | given_rect_velocity_when_elements_updated_then_velocity_from_rect_delta_over_dt | element velocity |
+| 20 | given_s_0_25_and_recovery_0_7_when_recovering_then_matches_ds_dt_1_minus_s_over_recovery | recovery |
+| 21 | given_element_recovery_override_when_recovering_then_override_time_constant_used | recovery override |
+| 22 | given_damage_below_floor_when_applied_then_s_clamped_to_floor_0_015 | damage floor |
+| 23 | given_s_above_rest_threshold_and_maxdev_below_0_75_for_150ms_when_ticking_then_rest_alpha_rises_to_1_over_120ms | rest rise |
+| 24 | given_rest_alpha_1_when_condition_breaks_then_it_falls_immediately_reaching_0_after_120ms | rest fall |
+| 25 | given_condition_flickering_under_150ms_when_ticking_then_rest_alpha_stays_0 | hysteresis |
+| 26 | given_element_already_on_target_when_redistributed_then_rest_alpha_starts_at_1 | D67-12 |
+| 27 | given_splash_when_applied_then_hit_particles_get_j_1_and_outward_velocity_with_seeded_lobes | splash |
+| 28 | given_same_seed_when_splashing_twice_then_identical_velocities | determinism |
+| 29 | given_invalid_id_or_nan_coords_when_splash_then_no_op | robustness |
+| 30 | given_shake_when_applied_then_each_element_gets_seeded_direction_plus_particle_noise | shake |
+| 31 | given_reduced_motion_when_splash_or_shake_then_ignored | RM (Rust) |
+| 32 | given_splash_strength_1_when_damaged_then_s_at_most_0_25 | damage |
+| 33 | given_splash_strength_2_when_damaged_then_s_equals_floor_0_015 | damage floor |
+| 34 | given_shake_when_damaged_then_s_at_most_0_4 | shake damage |
+| 35 | given_strength_0_when_splash_or_shake_then_no_op | D67-8 |
+| 36 | given_set_material_when_called_then_cohesion_applies_globally_only | cohesion global |
+| 37 | given_stress_sequence_pointer_splash_shake_when_run_then_mean_j_within_5_percent_of_1 | volume (every frame) |
+| 38 | given_stress_sequence_when_run_then_no_nan_or_inf_and_j_within_clamp_bounds | stability (F is render-only until a later slice) |
+| 39 | given_stress_sequence_when_run_then_particle_count_and_mass_exactly_constant | conservation |
+| 40 | given_strength_1_splash_on_button_when_ticking_then_rest_alpha_1_within_3_s | re-form (D67-1) |
+| 41 | given_shake_strength_1_when_ticking_then_all_rest_alpha_1_within_3_s | re-form |
+| 42 | given_same_seed_and_inputs_when_stress_sequence_run_twice_then_positions_bit_identical | determinism |
+| 43 | given_gravity_args_when_ticking_then_positions_identical_to_zero_gravity_until_slice_6 | D67-2 |
+| 44 | #[ignore = "slice 6"] given_gravity_when_ticking_then_liquid_falls | D67-2 |
+| 45 | given_rounded_rect_when_edge_layout_sampled_then_every_ring_point_on_contour_inset_half_spacing | D67-13 ring on contour |
+| 46 | given_edge_ring_when_laid_out_then_neighbour_spacing_coefficient_of_variation_below_0_05 | D67-13 even spacing |
+| 47 | given_edge_layout_when_sampled_then_interior_points_strictly_inside_the_ring | D67-13 interior |
+| 48 | given_same_seed_when_edge_layout_sampled_twice_then_uv_bit_identical_and_ring_seed_independent | D67-13 determinism, D64-3 prefix |
+| 49 | given_rect_too_small_or_non_finite_when_edge_layout_sampled_then_r2_fallback_without_panic | D67-13 robustness |
+| 50 | given_edge_layout_when_redistributed_then_counts_per_element_unchanged_and_ring_ranks_first | D67-13 counts |
+| 51 | given_button_moving_at_120px_s_when_ticking_then_edge_envelope_sd_below_0_2px | D67-13 edge in motion |
+| 52 | given_rect_moved_once_in_a_three_step_tick_when_ticking_then_all_three_steps_use_delta_over_three_fixed_dt | D67-14 |
+| 53 | given_element_moved_1000px_away_and_back_when_ticking_then_every_rest_alpha_1_within_5_s | D67-15 |
+| 54 | given_splash_without_options_when_called_then_strength_1_at_rect_centre | API defaults |
+| 55 | given_splash_with_at_and_strength_when_called_then_core_receives_buffer_point_and_strength | API |
+| 56 | given_splash_at_client_point_in_container_mode_when_called_then_converted_with_container_offset | coordinates |
+| 57 | given_strength_nan_or_out_of_0_2_when_splash_or_shake_then_TypeError | D67-4 |
+| 58 | given_strength_0_and_2_when_splash_or_shake_then_accepted_bounds_inclusive | D67-4, D67-8 |
+| 59 | given_invalid_at_when_splash_then_TypeError | D67-4 |
+| 60 | given_old_or_unknown_splash_option_when_splash_then_TypeError_naming_new_shape | D67-4, B9 |
+| 61 | given_unobserved_element_when_splash_then_Error | D67-5 |
+| 62 | given_shake_without_argument_when_called_then_core_shake_1 | API defaults |
+| 63 | given_destroyed_instance_when_splash_or_shake_then_Error | lifecycle |
+| 64 | given_pointer_click_on_observed_element_when_dispatched_then_core_splash_at_pointer_in_buffer_space_strength_1 | click splash |
+| 65 | given_keyboard_click_detail_0_when_dispatched_then_core_splash_at_rect_centre | keyboard splash |
+| 66 | given_click_when_handled_then_default_not_prevented_and_exactly_one_splash | native activation |
+| 67 | given_nested_observed_elements_when_inner_clicked_then_exactly_one_splash_on_inner | D67-9 |
+| 68 | given_click_on_child_of_observed_element_when_dispatched_then_splash_on_observed_element | click target |
+| 69 | given_container_mode_when_clicked_then_splash_container_relative | coordinates |
+| 70 | given_unobserved_or_destroyed_when_clicked_then_no_splash | lifecycle |
+| 71 | step 3 – given a click on Splash when ticking then liquid leaves the rect and every restAlpha returns to 1 within the D67-1 budget | step 3 |
+| 72 | step 3 – given the splash 12 frames after a click when screenshotted then it matches the baseline | step 3 baseline |
+| 73 | step 4 – given Tab focus on Split and Enter when ticking then the splash is at the centre and the focus ring is visible throughout | step 4 |
+| 74 | step 4 – given the keyboard splash on Split at frame 30 when screenshotted then the focus ring matches the baseline | step 4 baseline |
+| 75 | step 6 – given shake when ticking then everything sloshes and every restAlpha returns to 1 within 3 s | step 6 |
+| 76 | step 6 – given the shake at frame 20 when screenshotted then it matches the baseline | step 6 baseline |
+| 77 | given_s_between_0_94_and_0_96_when_ticking_then_rest_s_min_is_0_95 | D67-1 pin |
+| 78 | given_particle_on_wobbled_target_when_max_dev_measured_then_below_rest_threshold | D67-10 |
+| 79 | given_d67_7_constants_when_read_then_spike_values_pinned | D67-7 pin |
+| 80 | given_d67_3_constants_when_read_then_splash_and_shake_values_pinned | D67-3 pin |
 
 ## Must NOT
 - Change the FFI layout or the strides.
