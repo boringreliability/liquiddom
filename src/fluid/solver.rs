@@ -1047,4 +1047,97 @@ mod w67_tests {
         let (wx, wy) = cached_wobble_px(&still, 3.0, 4.0, &mut [f32::NAN; 2], &mut [0.0; 4]);
         assert_eq!((wx, wy), (0.0, 0.0), "restAlpha 1: no wobble");
     }
+
+    // ---- W68 D68-10: fused AABB invalidation ----
+
+    fn w68_input(k: usize, pointer: PointerField) -> StepInput {
+        StepInput {
+            dt: DT,
+            time_s: k as f32 * DT,
+            pointer,
+        }
+    }
+
+    #[test]
+    fn given_particle_moved_outside_the_fused_aabb_and_bounds_invalidated_when_substep_reuses_bounds_then_bit_identical_to_plain_substep()
+     {
+        let mut a = moving_rig();
+        let mut b = moving_rig();
+        let first = w68_input(0, PointerField::default());
+        substep(&mut a.p, &mut a.g, &a.e, &a.m, &first, &mut a.s);
+        let fresh = SubstepOpts {
+            measure_dev: true,
+            reuse_bounds: false,
+        };
+        substep_with(&mut b.p, &mut b.g, &b.e, &b.m, &first, &mut b.s, fresh);
+        assert!(b.s.bounds_valid, "precondition: G2P left a fused AABB");
+
+        // What redistribute, the reduced-motion pin or a test setter does between two
+        // substeps: particle 0 jumps ~90 px outside the block's AABB (170..230 px).
+        let (fx, fy) = a.g.to_grid(320.0, 320.0);
+        for rig in [&mut a, &mut b] {
+            rig.p.x[0] = fx;
+            rig.p.y[0] = fy;
+        }
+        b.s.invalidate_bounds();
+        assert!(!b.s.bounds_valid, "invalidate_bounds forgets the AABB");
+
+        let second = w68_input(1, PointerField::default());
+        substep(&mut a.p, &mut a.g, &a.e, &a.m, &second, &mut a.s);
+        let reuse = SubstepOpts {
+            measure_dev: true,
+            reuse_bounds: true,
+        };
+        substep_with(&mut b.p, &mut b.g, &b.e, &b.m, &second, &mut b.s, reuse);
+        assert_eq!(
+            a.g.region(),
+            b.g.region(),
+            "the region covers the moved particle"
+        );
+        assert_eq!(a.p.x, b.p.x);
+        assert_eq!(a.p.y, b.p.y);
+        assert_eq!(a.p.vx, b.p.vx);
+        assert_eq!(a.p.vy, b.p.vy);
+        assert_eq!(a.p.j, b.p.j);
+    }
+
+    #[test]
+    fn given_active_pointer_over_the_block_when_stepping_with_api_options_then_bit_identical_to_plain_substep_and_the_block_moved()
+     {
+        // D68-10, pointer path: the field changes velocities before P2G, so G2P's fused
+        // AABB already contains every position it causes and reuse stays exact.
+        let pointer = PointerField {
+            active: true,
+            x_px: 200.0,
+            y_px: 200.0,
+            vx_px: 1500.0,
+            vy_px: 0.0,
+        };
+        let mut a = moving_rig();
+        let mut b = moving_rig();
+        let mut off = moving_rig();
+        for step in 0..3 {
+            for sub in 0..8 {
+                let k = step * 8 + sub;
+                let inp = w68_input(k, pointer);
+                substep(&mut a.p, &mut a.g, &a.e, &a.m, &inp, &mut a.s);
+                let opts = SubstepOpts {
+                    measure_dev: sub == 7,
+                    reuse_bounds: step > 0 || sub > 0,
+                };
+                substep_with(&mut b.p, &mut b.g, &b.e, &b.m, &inp, &mut b.s, opts);
+                let still = w68_input(k, PointerField::default());
+                substep(&mut off.p, &mut off.g, &off.e, &off.m, &still, &mut off.s);
+            }
+            assert_eq!(a.p.x, b.p.x);
+            assert_eq!(a.p.y, b.p.y);
+            assert_eq!(a.p.vx, b.p.vx);
+            assert_eq!(a.p.vy, b.p.vy);
+            assert_eq!(a.g.region(), b.g.region());
+        }
+        assert_ne!(
+            a.p.x, off.p.x,
+            "the soft pointer field moved the block (D68-3)"
+        );
+    }
 }
