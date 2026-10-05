@@ -1,4 +1,157 @@
-//! Splash and shake (spec §2 "Interaction"; W67). Implementation: Task W67.8.
+//! Splash and shake (spec §2 "Interaction"; W67). W68 adds the soft pointer field here.
+//!
+//! Both add velocity to particles and damage element stiffness, so the liquid
+//! goes soft and then re-forms (T-1000). They draw only from the core's
+//! interaction RNG stream: same seed + same call sequence = bit-identical velocities.
+
+use std::f32::consts::TAU;
+
+use super::access::{add, rd, wr};
+use super::elements::{Elements, S_FLOOR};
+use super::grid::Grid;
+use super::particles::Particles;
+use super::rng::Rng;
+
+/// Splash speed at strength 1, px/s (D67-3).
+pub const SPLASH_SPEED_PX_S: f32 = 950.0;
+/// Splash radius = max(110 px, 0.75 · element diagonal) (D67-3).
+pub const SPLASH_RADIUS_MIN_PX: f32 = 110.0;
+pub const SPLASH_RADIUS_PER_DIAGONAL: f32 = 0.75;
+/// Angular jitter per particle (±rad), so the sheet tears into fingers.
+pub const SPLASH_ANGLE_JITTER_RAD: f32 = 0.45;
+/// Shake speed at strength 1, px/s (D67-3); noise ±0.45 per particle.
+pub const SHAKE_SPEED_PX_S: f32 = 520.0;
+pub const SHAKE_NOISE: f32 = 0.9;
+/// Spec §2: shake sets s ← min(s, 0.4).
+pub const SHAKE_STIFFNESS_CAP: f32 = 0.4;
+pub const STRENGTH_MAX: f32 = 2.0;
+
+/// The scalars of `FluidCore::splash` (buffer-space px).
+#[derive(Clone, Copy, Debug)]
+pub struct SplashAt {
+    pub id: u32,
+    pub x_px: f32,
+    pub y_px: f32,
+    pub strength: f32,
+}
+
+/// Strength in (0, 2]. NaN, ±inf and ≤ 0 → None (D67-8: 0 is a no-op).
+pub fn sanitize_strength(strength: f32) -> Option<f32> {
+    if !strength.is_finite() || strength <= 0.0 {
+        return None;
+    }
+    Some(strength.min(STRENGTH_MAX))
+}
+
+/// Spec §2: splash sets s ← min(s, 0.25·(2 − strength)), at least s_floor.
+pub fn splash_stiffness_cap(strength: f32) -> f32 {
+    (0.25 * (2.0 - strength)).max(S_FLOOR)
+}
+
+/// Two seeded low-frequency angular lobes: jets and fingers instead of a uniform ring.
+struct Lobes {
+    k1: f32,
+    k2: f32,
+    phase1: f32,
+    phase2: f32,
+}
+
+impl Lobes {
+    fn draw(rng: &mut Rng) -> Lobes {
+        let k1 = 4.0 + (rng.next_f32() * 4.0).floor();
+        let k2 = k1 + 2.0 + (rng.next_f32() * 3.0).floor();
+        let phase1 = rng.next_f32() * TAU;
+        let phase2 = rng.next_f32() * TAU;
+        Lobes {
+            k1,
+            k2,
+            phase1,
+            phase2,
+        }
+    }
+
+    /// Angular gain in [0.3, 1.2].
+    fn gain(&self, theta: f32) -> f32 {
+        let raw = 0.6 * (self.k1 * theta + self.phase1).sin()
+            + 0.4 * (self.k2 * theta + self.phase2).sin();
+        0.3 + 0.9 * (raw.max(-0.2) + 0.2) / 1.2
+    }
+}
+
+/// Radial splash on the particles of element `at.id` within the splash radius.
+/// Neighbours are hit only by the flying liquid (D67-3). Hit particles get J = 1.
+/// Returns false and changes nothing for an inactive or out-of-range id, non-finite
+/// coordinates, or a strength that `sanitize_strength` rejects.
+pub fn splash(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, at: SplashAt) -> bool {
+    let Some(strength) = sanitize_strength(at.strength) else {
+        return false;
+    };
+    if !(at.x_px.is_finite() && at.y_px.is_finite()) {
+        return false;
+    }
+    let id = at.id as usize;
+    let Some(rect) = e.rect(id) else {
+        return false;
+    };
+    let radius = SPLASH_RADIUS_MIN_PX.max(SPLASH_RADIUS_PER_DIAGONAL * rect.w.hypot(rect.h));
+    let speed = SPLASH_SPEED_PX_S * strength * g.inv_cell;
+    let lobes = Lobes::draw(rng);
+    for i in 0..p.cap {
+        if p.home_of(i) != Some(id) {
+            continue;
+        }
+        let (px, py) = g.to_px(rd(&p.x, i), rd(&p.y, i));
+        let (dx, dy) = (px - at.x_px, py - at.y_px);
+        let d = dx.hypot(dy);
+        if d.is_nan() || d >= radius {
+            continue;
+        }
+        let (ux, uy) = if d > 1e-3 {
+            (dx / d, dy / d)
+        } else {
+            (1.0, 0.0)
+        };
+        let (sin_a, cos_a) = ((rng.next_f32() - 0.5) * 2.0 * SPLASH_ANGLE_JITTER_RAD).sin_cos();
+        let (rx, ry) = (ux * cos_a - uy * sin_a, ux * sin_a + uy * cos_a);
+        let gain =
+            (1.0 - d / radius).sqrt() * lobes.gain(dy.atan2(dx)) * (0.8 + 0.4 * rng.next_f32());
+        add(&mut p.vx, i, rx * speed * gain);
+        add(&mut p.vy, i, ry * speed * gain);
+        wr(&mut p.j, i, 1.0);
+    }
+    e.damage(id, splash_stiffness_cap(strength));
+    true
+}
+
+/// Global shake: each active element gets one seeded direction, each particle gets
+/// noise, and every active element goes soft (s ← min(s, 0.4)).
+pub fn shake(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, strength: f32) -> bool {
+    let Some(strength) = sanitize_strength(strength) else {
+        return false;
+    };
+    let speed = SHAKE_SPEED_PX_S * strength * g.inv_cell;
+    let stream = rng.next_u32();
+    for i in 0..p.cap {
+        let Some(h) = p.home_of(i) else {
+            continue;
+        };
+        if !e.is_active(h) {
+            continue;
+        }
+        let angle = Rng::derive(stream, u32::try_from(h).unwrap_or(u32::MAX)).next_f32() * TAU;
+        let (dir_y, dir_x) = angle.sin_cos();
+        let nx = rng.next_f32() - 0.5;
+        let ny = rng.next_f32() - 0.5;
+        add(&mut p.vx, i, (dir_x + SHAKE_NOISE * nx) * speed);
+        add(&mut p.vy, i, (dir_y + SHAKE_NOISE * ny) * speed);
+    }
+    for id in 0..e.cap {
+        if e.is_active(id) {
+            e.damage(id, SHAKE_STIFFNESS_CAP);
+        }
+    }
+    true
+}
 
 #[cfg(test)]
 mod w67_tests {
