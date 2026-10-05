@@ -22,7 +22,7 @@
 | W64 | 1 | [W64.md](W64.md) | **Liquid at rest, end to end:** Rust core, FFI, single-flight loader, FluidBridge, Canvas2D renderer, acceptance scene | 12 tasks |
 | W65 | 1 | [W65.md](W65.md) | Verification harness: Playwright (canvas2d blocking, webgpu soft), multi-instance stress, visual baseline, perf, CI | 13 tasks |
 | W66 | 1 | [W66.md](W66.md) | Public API swap, stylesheet, soft-body retirement, site freeze, adapters, versioning | 12 tasks |
-| W67 | 2 | [W67.md](W67.md) | **Splash and shake, end to end:** MPM dynamics, stiffness, restAlpha, click and keyboard splash | 15 tasks |
+| W67 | 2 | [W67.md](W67.md) | **Splash and shake, end to end:** MPM dynamics, stiffness, restAlpha, click and keyboard splash | 17 tasks (amended 2026-10-05: W67.3b, W67.6b) |
 | W68 | 2 | [W68.md](W68.md) | Pointer field, hover, material API and presets, reduced-motion gating | 15 tasks |
 | W69 | 2 | [W69.md](W69.md) | Playground on material, splash scene, **whole-picture check**, then STOP before slice 3 is planned | 9 tasks |
 
