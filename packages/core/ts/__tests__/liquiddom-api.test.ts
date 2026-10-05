@@ -36,7 +36,7 @@ describe("W66 T3: create and capacities", () => {
     expect(inst.elementCapacity).toBe(6);
     expect(inst.isPaused).toBe(false);
     expect(inst.activeRenderer).toBe("canvas2d");
-    for (const m of ["observe", "unobserve", "refresh", "splash", "shake", "pause", "resume", "destroy", "requestOrientationPermission", "autoDiscover", "stopAutoDiscover"]) {
+    for (const m of ["observe", "unobserve", "refresh", "splash", "shake", "setMaterial", "getMaterial", "pause", "resume", "destroy", "requestOrientationPermission", "autoDiscover", "stopAutoDiscover"]) {
       expect(typeof (inst as unknown as Record<string, unknown>)[m], m).toBe("function");
     }
     expect(document.querySelectorAll("canvas.liquid-canvas")).toHaveLength(1);
@@ -49,7 +49,9 @@ describe("W66 T3: create and capacities", () => {
   });
 
   it("given_root_index_when_imported_then_export_keys_equal_whitelist", () => {
-    expect(Object.keys(liquiddom).sort()).toEqual(["LiquidDOM", "LiquidWasmLoadError", "WebGPUUnavailableError", "validateMaterial"]);
+    expect(Object.keys(liquiddom).sort()).toEqual(
+      ["LiquidDOM", "LiquidWasmLoadError", "WebGPUUnavailableError", "presets", "validateMaterial"].sort(), // W68 D68-6 (A2): presets back, material-shaped
+    );
   });
 });
 
@@ -254,5 +256,12 @@ describe("W66 T3: pause, visibility, destroy", () => {
     expect(inst.particleCapacity).toBe(1024);
     expect(inst.activeRenderer).toBe("canvas2d");
     expect(inst.elementCapacity).toBe(4);
+  });
+
+  it("given_instance_when_created_then_setMaterial_and_getMaterial_are_functions_and_getMaterial_returns_resolved_material", async () => {
+    const instance = await create({ material: { cohesion: 0.25 } });
+    expect(typeof instance.setMaterial).toBe("function");
+    expect(typeof instance.getMaterial).toBe("function");
+    expect(instance.getMaterial()).toEqual({ viscosity: 0.5, cohesion: 0.25, recovery: 0.7 });
   });
 });
