@@ -3,7 +3,7 @@ ward: 67
 revision: null
 name: "Splash and shake, end to end"
 epic: "fluid-engine"
-status: "red"
+status: "approved"
 dependencies: [66]
 layer: "both"
 estimated_tests: 80
