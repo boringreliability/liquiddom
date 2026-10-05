@@ -271,6 +271,9 @@ fn given_huge_finite_home_offset_for_5_frames_when_restored_then_particles_finit
 mod w67 {
     use super::{CARD, LAYOUT, acceptance_core, slot};
     use crate::fluid::api::FluidCore;
+    use crate::fluid::sampling::{
+        ring_spacing_px, rounded_rect_inward_distance, rounded_rect_perimeter,
+    };
 
     const FPS: f32 = 60.0;
     /// D67-1 option 1: spec §6 step 3, amended in W67.
@@ -465,5 +468,139 @@ mod w67 {
             mean_y(&core) > before + 5.0,
             "the card's liquid sags under gravity"
         );
+    }
+
+    // ---- W67 amendment: D67-13 edge metric and D67-15 lock probe ---------------------
+
+    /// D67-13: maximum edge-envelope sd in px. The W64 ledger records "sd 0.48 px", but not
+    /// the metric behind it. With the metric below, the W64 R2 layout scores ≈ 0.61–0.70 px
+    /// on the Splash button (prototype, seeds 1–3) and a perfect ring scores 0. 0.2 px is
+    /// under half of either figure and about 1/15 of the 3.08 px spacing.
+    const EDGE_SD_MAX_PX: f32 = 0.2;
+    /// D67-15: re-form budget after a ±1000 px excursion. At the CFL cap (0.45 cells per
+    /// substep ≈ 1.3 kpx/s) the way back takes ≈ 1 s. The 160 px/s slip clears a residual
+    /// tangle of ≈ 150 px in about another 1 s, and the re-form itself has the 3 s shake budget.
+    const LOCK_PROBE_BUDGET_S: f32 = 5.0;
+
+    /// Arc length (px) of the outline point nearest to the local point `(lx, ly)` of the
+    /// rounded rect `[0, w] × [0, h]`, clockwise from `(r, 0)` with y down (the
+    /// parametrisation of `sampling::rounded_rect_point_at`).
+    fn arc_position(lx: f32, ly: f32, w: f32, h: f32, r: f32) -> f32 {
+        use std::f32::consts::{FRAC_PI_2, PI};
+        let r = r.min(0.5 * w).min(0.5 * h).max(0.0);
+        let (a, b, q) = (w - 2.0 * r, h - 2.0 * r, FRAC_PI_2 * r);
+        let (dx, dy) = (lx - lx.clamp(r, w - r), ly - ly.clamp(r, h - r));
+        if dx.abs() > 0.0 && dy.abs() > 0.0 {
+            let ang = dy.atan2(dx);
+            return match (dx > 0.0, dy > 0.0) {
+                (true, false) => a + (ang + FRAC_PI_2) * r,
+                (true, true) => a + q + b + ang * r,
+                (false, true) => 2.0 * a + 2.0 * q + b + (ang - FRAC_PI_2) * r,
+                (false, false) => 2.0 * a + 3.0 * q + 2.0 * b + (ang + PI) * r,
+            };
+        }
+        let (top, right, bottom, left) = (ly, w - lx, h - ly, lx);
+        if top <= right && top <= bottom && top <= left {
+            (lx - r).clamp(0.0, a)
+        } else if right <= bottom && right <= left {
+            a + q + (ly - r).clamp(0.0, b)
+        } else if bottom <= left {
+            a + 2.0 * q + b + (w - r - lx).clamp(0.0, a)
+        } else {
+            2.0 * a + 3.0 * q + b + (h - r - ly).clamp(0.0, b)
+        }
+    }
+
+    /// D67-13 edge metric for element `id`, whose DOM rect is `rect`.
+    /// - The rect is first shifted by the element's mean displacement from its targets, so a
+    ///   rigid lag does not count as raggedness.
+    /// - Every particle within two spacings of that outline is binned by `arc_position`. The
+    ///   bins are two spacings long, so each holds at least one ring particle.
+    /// - The outermost particle of each bin gives one inward distance, and the metric is the
+    ///   sd of those distances, in px.
+    fn edge_envelope_sd(core: &FluidCore, id: usize, rect: [f32; 5]) -> f32 {
+        let [x0, y0, w, h, r] = rect;
+        let spacing = ring_spacing_px(core.cell_px());
+        let ids = core.particle_indices_of(id as u32);
+        let n = ids.len().max(1) as f32;
+        let (sx, sy) = ids.iter().fold((0.0f32, 0.0f32), |(ax, ay), &i| {
+            let (px, py) = core.particle_px(i);
+            let (tx, ty) = core.target_px(i).unwrap_or((px, py));
+            (ax + px - tx, ay + py - ty)
+        });
+        let (ox, oy) = (x0 + sx / n, y0 + sy / n);
+        let perimeter = rounded_rect_perimeter(w, h, r);
+        let bins = ((perimeter / (2.0 * spacing)).floor() as usize).max(1);
+        let mut outer = vec![f32::INFINITY; bins];
+        for &i in &ids {
+            let (px, py) = core.particle_px(i);
+            let (lx, ly) = (px - ox, py - oy);
+            let d = rounded_rect_inward_distance(lx, ly, w, h, r);
+            if d > 2.0 * spacing {
+                continue;
+            }
+            let b =
+                ((arc_position(lx, ly, w, h, r) / perimeter * bins as f32) as usize).min(bins - 1);
+            outer[b] = outer[b].min(d);
+        }
+        let filled: Vec<f32> = outer.into_iter().filter(|d| d.is_finite()).collect();
+        assert!(
+            filled.len() * 10 >= bins * 9,
+            "the outline is covered: {} of {bins} bins",
+            filled.len()
+        );
+        let mean = filled.iter().sum::<f32>() / filled.len() as f32;
+        (filled.iter().map(|d| (d - mean).powi(2)).sum::<f32>() / filled.len() as f32).sqrt()
+    }
+
+    #[test]
+    fn given_button_moving_at_120px_s_when_ticking_then_edge_envelope_sd_below_0_2px() {
+        let mut core = settled_core(1);
+        let [x, y, w, h, r] = LAYOUT[SPLASH];
+        let at_rest = edge_envelope_sd(&core, SPLASH, LAYOUT[SPLASH]);
+        // Leftwards into free space (Split starts 24 px to the right of Splash): 2 px per frame.
+        for f in 1..=20u32 {
+            core.write_element(SPLASH, slot([x - 2.0 * f as f32, y, w, h, r]));
+            frame(&mut core);
+        }
+        let moving = edge_envelope_sd(&core, SPLASH, [x - 40.0, y, w, h, r]);
+        eprintln!(
+            "W67 D67-13 evidence: edge envelope sd {at_rest:.3} px at rest, {moving:.3} px moving at 120 px/s"
+        );
+        assert!(at_rest < EDGE_SD_MAX_PX, "at rest: {at_rest} px");
+        assert!(moving < EDGE_SD_MAX_PX, "moving: {moving} px");
+    }
+
+    #[test]
+    fn given_element_moved_1000px_away_and_back_when_ticking_then_every_rest_alpha_1_within_5_s() {
+        let mut core = settled_core(1);
+        let home = LAYOUT[SPLASH];
+        // +1000 px ploughs through the Split and Merge liquid; −1000 px leaves the world (clamped).
+        for dx in [1000.0f32, -1000.0] {
+            let [x, y, w, h, r] = home;
+            core.write_element(SPLASH, slot([x + dx, y, w, h, r]));
+            for _ in 0..60 {
+                frame(&mut core);
+            }
+            assert!(
+                core.rest_alphas()[SPLASH] < 1.0,
+                "dx {dx}: the Splash liquid left its home"
+            );
+            core.write_element(SPLASH, slot(home));
+            let frames = frames_until_rest(&mut core, budget_frames(LOCK_PROBE_BUDGET_S, 0));
+            eprintln!(
+                "W67 D67-15 evidence: dx {dx}: every restAlpha back to 1 after {frames:?} frames"
+            );
+            assert!(
+                frames.is_some(),
+                "dx {dx}: every restAlpha back to 1 within {LOCK_PROBE_BUDGET_S} s (cross-element lock, D67-15): {:?}",
+                core.rest_alphas()
+            );
+            assert!(
+                core.max_dev_px().iter().all(|&d| d < 0.75),
+                "dx {dx}: {:?}",
+                core.max_dev_px()
+            );
+        }
     }
 }

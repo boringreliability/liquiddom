@@ -644,6 +644,11 @@ impl FluidCore {
             .map(|id| s.max_dev[id])
             .collect()
     }
+
+    /// D67-14: element 0's rect velocity (px/s) as each fixed step of the last tick saw it.
+    pub(crate) fn step_velocities(&self) -> &[(f32, f32)] {
+        &self.step_vel_trace
+    }
 }
 
 #[cfg(test)]
@@ -703,6 +708,65 @@ mod w67_tests {
         assert!(
             (p.tension_max - 0.16).abs() < 1e-6 && (p.recovery_s - 0.7).abs() < 1e-6,
             "NaN → defaults"
+        );
+    }
+
+    #[test]
+    fn given_rect_moved_once_in_a_three_step_tick_when_ticking_then_all_three_steps_use_delta_over_three_fixed_dt()
+     {
+        use crate::fluid::clock::FIXED_DT_S;
+        let button = [
+            100.0,
+            100.0,
+            140.0,
+            48.0,
+            24.0,
+            0.0,
+            0.0,
+            0.0,
+            f32::NAN,
+            f32::NAN,
+        ];
+        let mut core = FluidCore::new(2000, 4, 640.0, 480.0, 6_226.0, 48.0, 3);
+        core.write_element(0, button);
+        core.redistribute();
+        assert_eq!(
+            core.tick(1.0 / 60.0, 0.0, 0.0, 0.0, 0.0, false, 0.0, 0.0),
+            1
+        );
+        assert_eq!(
+            core.step_velocities(),
+            &[(0.0f32, 0.0f32)],
+            "the first sample has no velocity"
+        );
+
+        let mut moved = button;
+        moved[0] += 15.0;
+        core.write_element(0, moved);
+        assert_eq!(
+            core.tick(0.05, 0.0, 0.0, 0.0, 0.0, false, 0.0, 0.0),
+            3,
+            "50 ms = 3 fixed steps"
+        );
+        let expected = 15.0 / (3.0 * FIXED_DT_S);
+        let seen = core.step_velocities().to_vec();
+        assert_eq!(seen.len(), 3, "one entry per fixed step");
+        for (k, &(vx, vy)) in seen.iter().enumerate() {
+            assert!(
+                (vx - expected).abs() < 0.05,
+                "step {}: {vx} px/s, expected Δ/(3·dt) = {expected} (no 3Δ/dt spike, no 0)",
+                k + 1
+            );
+            assert!(vy.abs() < 1e-4);
+        }
+
+        assert_eq!(
+            core.tick(1.0 / 60.0, 0.0, 0.0, 0.0, 0.0, false, 0.0, 0.0),
+            1
+        );
+        assert!(
+            core.step_velocities()[0].0.abs() < 1e-4,
+            "the rect stopped: 0 px/s"
         );
     }
 }
