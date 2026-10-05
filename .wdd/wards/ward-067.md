@@ -3,7 +3,7 @@ ward: 67
 revision: null
 name: "Splash and shake, end to end"
 epic: "fluid-engine"
-status: "approved"
+status: "gold"
 dependencies: [66]
 layer: "both"
 estimated_tests: 80
@@ -273,3 +273,41 @@ Rust evidence (W67.10, `cargo test --lib fluid::scenario_tests -- --nocapture`, 
 - D67-15: `W67 D67-15 evidence: dx 1000: every restAlpha back to 1 after Some(270) frames` (≤ 300)
 - D67-15: `W67 D67-15 evidence: dx -1000: every restAlpha back to 1 after Some(158) frames` (≤ 300)
 - Open: `given_stress_sequence_pointer_splash_shake_when_run_then_mean_j_within_5_percent_of_1` measures max |mean J − 1| = 0.1206 over all frames (frame 264, after the strength-2 card splash); the final-frame value is 0.0001. Awaiting a ruling.
+
+## Gold notes
+
+**North-star steps moved (canvas2d):**
+- Step 3: a click on Splash throws the liquid out of the button; it re-forms within the 3 s budget (D67-1: measured 135 frames for splash, 120 for shake, out of 180). Baseline `acceptance.spec.ts/acceptance-step3-splash-f12-canvas2d-linux.png`. Vision: an open ring of droplets on the left and a gathered mass on the right. The splash is clearly visible.
+- Step 4: Tab then Enter on Split splashes from the rect centre. Baseline `acceptance-step4-split-focus-f30-canvas2d-linux.png`. Vision: the focus ring is continuous around Split and drawn above the liquid, with the splash hole around the label.
+- Step 6: `shake()` displaces every body (more than 500 px of liquid outside the rects) and all of them re-form within 3 s. Baseline `acceptance-step6-shake-f20-canvas2d-linux.png`. Vision: all four bodies are pushed off their places and the card is deformed; the DOM text stays put.
+- The step 1, step 8 and a11y baselines are unchanged; the pinned linux/amd64 image runs 26/26 against all baselines.
+
+**Decision evidence:**
+- D67-13: edge sd 0.000 px at rest and 0.120 px in motion (bound 0.2); W64 R2 scored 0.61–0.69 px.
+- D67-15: the lock probe recovers via slip in 270 frames (dx +1000) and 158 frames (dx −1000) out of 300, so no slice-6 parking is needed.
+- D67-14: velocity is computed once per tick (a test pins it). A clock-clamped hiccup divides by wall time.
+
+**Reviews and controller rulings:**
+- Every task was reviewed.
+- The opus review of the Rust range found the performance cost of the per-particle wobble trig. A behaviour-preserving round cut p95 from about 5.3 ms to about 3.6 ms per fixed step, which is about 11 ms for 3 catch-up steps.
+- The whole-ward opus review found that stiffness survived slot reuse. That is fixed, along with:
+  - damage applied only on a hit;
+  - reduced motion resetting stiffness;
+  - no core calls after a failed frame;
+  - a stronger step-3 motion proof (peak 1979 px, bound 500, plus a pointer-position hash).
+- Controller error, fixed: the red fix round applied the ±5 % mean-J bound to every frame. A strength-2 card splash legitimately swings it to about 12 %. The test now follows spec §6: ±5 % after the sequence (measured 0.0001), plus an every-frame runaway guard of 0.2.
+
+**Verification:**
+- cargo: 116 passed, 1 ignored (gravity, slice 6).
+- vitest: 348 passed, 4 skipped.
+- canvas2d (macOS): 20 passed, with the visual specs skipped.
+- linux/amd64 image: 26 passed.
+- Clippy and fmt are clean.
+
+**For Dennis (observations, not W67 defects):**
+1. While liquid is away from an element, its white DOM text sits on the beige page at low contrast until the liquid returns (spec step 3: no liquid text yet).
+2. In motion the edges are furry from the density renderer; the ring only smooths the rest edge.
+3. Shake reads more like sliding blobs than sloshing. Tune it in W69.
+4. `shake()` before the first redistribute damages active elements without moving them. This is consistent with spec §2.
+
+**Carry:** W68 adds `Scratch::invalidate_bounds()` on the pointer paths. The ring density when the area hint is off is tuned in W69. A browser that loads the published `dist` remains a W69 whole-picture item.
