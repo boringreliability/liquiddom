@@ -78,6 +78,10 @@ pub fn redistribute(
             let mut rng = Rng::derive(seed, u32::try_from(id).unwrap_or(u32::MAX));
             sample_edge_aligned(r.w, r.h, r.r, spacing, &mut rng, ou, ov);
         }
+        if rect.is_none() {
+            // W67 ward-review fix: an inactive slot starts fresh when it is reused.
+            e.reset_slot(id);
+        }
         let area = rd(&s.weights, id);
         wr_u32(&mut e.counts, id, u32::try_from(n).unwrap_or(u32::MAX));
         wr(

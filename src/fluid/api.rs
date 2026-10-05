@@ -997,3 +997,144 @@ mod perf_fix_round_tests {
         assert_eq!(wobble_time_s(-1.0), (WOBBLE_PERIOD_S - 1.0) as f32);
     }
 }
+
+#[cfg(test)]
+mod ward_fix_tests {
+    //! W67 whole-ward review fixes (items 1–3).
+    use super::FluidCore;
+    use crate::fluid::elements::REST_MAX_DEV_PX;
+    use crate::fluid::layout::{EL_W, ELEMENT_STRIDE, ST_REST_ALPHA};
+
+    const BUTTON: [f32; ELEMENT_STRIDE] = [
+        100.0,
+        100.0,
+        140.0,
+        48.0,
+        24.0,
+        0.0,
+        0.0,
+        0.0,
+        f32::NAN,
+        f32::NAN,
+    ];
+    const BUTTON_2: [f32; ELEMENT_STRIDE] = [
+        300.0,
+        100.0,
+        140.0,
+        48.0,
+        24.0,
+        0.0,
+        0.0,
+        0.0,
+        f32::NAN,
+        f32::NAN,
+    ];
+
+    fn frame(core: &mut FluidCore) -> u32 {
+        core.tick(1.0 / 60.0, 0.0, 0.0, 0.0, 0.0, false, 0.0, 0.0)
+    }
+
+    /// Item 1: a slot that was shaken, hidden (w = 0) and reused with a new rect starts
+    /// fresh: stiffness 1, no inherited rest hold, no rect velocity from old → new rect.
+    #[test]
+    fn given_a_shaken_slot_hidden_and_reused_with_a_new_rect_when_redistributed_then_it_starts_fresh()
+     {
+        let mut core = FluidCore::new(2000, 4, 640.0, 480.0, 6_226.0, 48.0, 3);
+        core.write_element(0, BUTTON);
+        core.write_element(1, BUTTON_2);
+        core.redistribute();
+        for _ in 0..5 {
+            frame(&mut core);
+        }
+        core.shake(1.0);
+        frame(&mut core);
+        frame(&mut core);
+        assert!(core.stiffness_of(0) < 0.5, "the shake softened slot 0");
+
+        // Hide slot 0 (w = 0) and redistribute, no tick in between.
+        let mut hidden = BUTTON;
+        hidden[EL_W] = 0.0;
+        core.write_element(0, hidden);
+        core.redistribute();
+
+        // Reuse slot 0 with a new rect 200 px lower and redistribute.
+        let mut moved = BUTTON;
+        moved[1] += 200.0;
+        core.write_element(0, moved);
+        core.redistribute();
+        assert_eq!(
+            core.stiffness_of(0),
+            1.0,
+            "a reused slot starts at full stiffness"
+        );
+
+        // Reused particles crawl from where they were (pool contract), so to isolate the
+        // slot state from that crawl, put slot 0's particles on target and redistribute
+        // again (same rects: stable assignment). D67-12 must then settle it at once.
+        for i in core.particle_indices_of(0) {
+            let (tx, ty) = core.target_px(i).unwrap();
+            core.set_particle_px(i, tx, ty);
+        }
+        core.redistribute();
+        assert_eq!(
+            core.state(0)[ST_REST_ALPHA],
+            1.0,
+            "D67-12: a fresh, on-target slot is at rest immediately"
+        );
+
+        assert_eq!(frame(&mut core), 1);
+        let (vx, vy) = core.step_velocities()[0];
+        assert!(
+            vx.abs() < 1e-4 && vy.abs() < 1e-4,
+            "no rect velocity from the old → new rect jump: ({vx}, {vy}) px/s"
+        );
+    }
+
+    /// Item 2: a splash before the first redistribute (no particle has a home yet)
+    /// changes nothing: no damage, no motion.
+    #[test]
+    fn given_an_active_rect_without_redistribute_when_splashed_then_stiffness_and_particles_unchanged()
+     {
+        let mut core = FluidCore::new(2000, 4, 640.0, 480.0, 6_226.0, 48.0, 3);
+        core.write_element(0, BUTTON);
+        let (pos, vel) = (core.position_bits(), core.velocity_bits());
+        core.splash(0, 170.0, 124.0, 1.0);
+        assert_eq!(
+            core.stiffness_of(0),
+            1.0,
+            "nothing was hit, nothing is damaged"
+        );
+        assert_eq!(core.position_bits(), pos);
+        assert_eq!(core.velocity_bits(), vel);
+    }
+
+    /// Item 3: under reduced motion the element is at rest (spec §2), so the damage of a
+    /// shake does not survive an RM on → off round trip.
+    #[test]
+    fn given_a_shake_then_reduced_motion_on_and_off_when_ticking_then_rest_alpha_stays_1_and_no_wobble()
+     {
+        let mut core = FluidCore::new(2000, 4, 640.0, 480.0, 6_226.0, 48.0, 3);
+        core.write_element(0, BUTTON);
+        core.redistribute();
+        frame(&mut core);
+        core.shake(1.0);
+        core.set_reduced_motion(true);
+        frame(&mut core);
+        assert_eq!(core.state(0)[ST_REST_ALPHA], 1.0);
+        core.set_reduced_motion(false);
+        for k in 0..3 {
+            frame(&mut core);
+            assert_eq!(
+                core.state(0)[ST_REST_ALPHA],
+                1.0,
+                "frame {k} after RM off: still at rest (stiffness {})",
+                core.stiffness_of(0)
+            );
+            let dev = core.max_dev_px()[0];
+            assert!(
+                dev < REST_MAX_DEV_PX,
+                "frame {k}: no wobble, maxDev {dev} px"
+            );
+        }
+    }
+}

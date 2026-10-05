@@ -180,6 +180,31 @@ impl Elements {
         }
     }
 
+    /// W67 ward-review fix: back to the state of a never-used slot (stiffness 1, no rest
+    /// hold, no previous rect, rect velocity 0, rest state as `update_rest_state` writes
+    /// for an inactive slot). `pool::redistribute` calls it for every inactive slot, so a
+    /// hidden (w = 0) slot reused with a new rect inherits neither damage nor a velocity
+    /// from the old → new rect jump.
+    pub fn reset_slot(&mut self, id: usize) {
+        if id >= self.cap {
+            return;
+        }
+        wr(&mut self.stiffness, id, 1.0);
+        wr(&mut self.rest_hold_s, id, 0.0);
+        if let Some(slot) = self.has_prev.get_mut(id) {
+            *slot = false;
+        }
+        wr(&mut self.prev_x, id, 0.0);
+        wr(&mut self.prev_y, id, 0.0);
+        wr(&mut self.vel_x, id, 0.0);
+        wr(&mut self.vel_y, id, 0.0);
+        let base = id * STATE_STRIDE;
+        wr(&mut self.state, base + ST_S, 1.0);
+        wr(&mut self.state, base + ST_MAX_DEV, 0.0);
+        wr(&mut self.state, base + ST_REST_ALPHA, 0.0);
+        wr(&mut self.state, base + ST_RESERVED, 0.0);
+    }
+
     /// `s ← max(min(s, cap), S_FLOOR)` (spec §2 stiffness damage). Restarts the rest
     /// hold and writes s to the state view. A NaN/±inf cap or an out-of-range id is a no-op.
     pub fn damage(&mut self, id: usize, cap: f32) {
@@ -215,7 +240,7 @@ impl Elements {
     /// W67 rest state with hysteresis (spec §2). restAlpha rises (fade REST_FADE_S) only
     /// once `s > REST_S_MIN && maxDev < REST_MAX_DEV_PX` has held for REST_HOLD_S, and
     /// falls at once (same fade) when either breaks. Reduced motion: at rest
-    /// (restAlpha 1, maxDev 0). Inactive slot: reset. Writes s, maxDev and restAlpha.
+    /// (stiffness 1, restAlpha 1, maxDev 0). Inactive slot: reset. Writes s, maxDev and restAlpha.
     pub fn update_rest_state(&mut self, id: usize, max_dev: f32, dt: f32, reduced_motion: bool) {
         if id >= self.cap {
             return;
@@ -229,15 +254,18 @@ impl Elements {
             wr(&mut self.state, base + ST_RESERVED, 0.0);
             return;
         }
-        let s = rd_or(&self.stiffness, id, 1.0);
         if reduced_motion {
+            // W67 ward-review fix: under reduced motion the element is at rest (spec §2),
+            // so pending damage is dropped instead of frozen until motion returns.
+            wr(&mut self.stiffness, id, 1.0);
             wr(&mut self.rest_hold_s, id, REST_HOLD_S);
-            wr(&mut self.state, base + ST_S, s);
+            wr(&mut self.state, base + ST_S, 1.0);
             wr(&mut self.state, base + ST_MAX_DEV, 0.0);
             wr(&mut self.state, base + ST_REST_ALPHA, 1.0);
             wr(&mut self.state, base + ST_RESERVED, 0.0);
             return;
         }
+        let s = rd_or(&self.stiffness, id, 1.0);
         let dev = finite_or(max_dev, f32::MAX).max(0.0);
         let dt = if dt.is_finite() { dt.max(0.0) } else { 0.0 };
         let holds = s > REST_S_MIN && dev < REST_MAX_DEV_PX;

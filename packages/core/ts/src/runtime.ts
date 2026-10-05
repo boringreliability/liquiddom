@@ -71,10 +71,11 @@ export interface FluidRuntime {
   /**
    * W67: splash an observed element. `at` is client px (null → rect centre); it is
    * converted to buffer space with the container offset. Returns false when `el` is
-   * not observed or the runtime is destroyed. No validation: the facade validates.
+   * not observed or the runtime is destroyed. After a failed frame it returns true
+   * without calling the core. No validation: the facade validates.
    */
   splash(el: HTMLElement, at: ClientPoint | null, strength: number): boolean;
-  /** W67: shake every observed element. */
+  /** W67: shake every observed element. No-op once destroyed or after a failed frame. */
   shake(strength: number): void;
   /** Idempotent. */
   destroy(): void;
@@ -239,6 +240,9 @@ function buildRuntime(
     if (destroyed) return false;
     const id = registry.idOf(el);
     if (id === undefined) return false;
+    // W67 ward-review fix: after a failed frame the core may be poisoned; the element is
+    // still observed (no facade error), but the core is not called.
+    if (failed) return true;
     const point = at ?? rectCentre(el);
     const offset = coordOffset();
     core.splash(id, point.x - offset.x, point.y - offset.y, strength);
@@ -382,7 +386,7 @@ function buildRuntime(
     },
     splash: splashAt,
     shake(strength: number): void {
-      if (destroyed) return;
+      if (destroyed || failed) return;
       core.shake(strength);
     },
     frame,

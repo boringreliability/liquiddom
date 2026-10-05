@@ -129,26 +129,6 @@ async function w67FramesUntilAllRest(page: Page, maxFrames: number): Promise<num
   }, maxFrames);
 }
 
-/** Canvas pixels with alpha > 128 in the 60 px band above an element's rect. */
-async function w67OpaquePixelsAbove(page: Page, box: { x: number; y: number; width: number; height: number }): Promise<number> {
-  return page.evaluate((b) => {
-    const canvas = document.querySelector<HTMLCanvasElement>("canvas.liquid-canvas");
-    if (!canvas) throw new Error("W67: canvas.liquid-canvas not found");
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("W67: the liquid canvas has no 2d context");
-    const sx = canvas.width / canvas.clientWidth;
-    const sy = canvas.height / canvas.clientHeight;
-    const x0 = Math.max(0, Math.floor((b.x - 20) * sx));
-    const y0 = Math.max(0, Math.floor((b.y - 64) * sy));
-    const w = Math.max(1, Math.floor((b.width + 40) * sx));
-    const h = Math.max(1, Math.floor(60 * sy));
-    const data = ctx.getImageData(x0, y0, w, h).data;
-    let n = 0;
-    for (let i = 3; i < data.length; i += 4) if (data[i] > 128) n++;
-    return n;
-  }, box);
-}
-
 /** FNV-1a over the liquid canvas pixels. */
 async function w67CanvasHash(page: Page): Promise<string> {
   return page.evaluate(() => {
@@ -226,19 +206,62 @@ test.describe("slice 2 – splash and shake (W67)", () => {
   test("step 3 – given a click on Splash when ticking then liquid leaves the rect and every restAlpha returns to 1 within the D67-1 budget", async ({ page }) => {
     await w67Open(page);
     const splash = page.getByRole("button", { name: "Splash", exact: true });
-    const box = await splash.boundingBox();
-    if (!box) throw new Error("W67: the Splash button has no box");
-    const before = await w67OpaquePixelsAbove(page, box);
+    const before = await w67OpaquePixelsOutsideElements(page);
+    // Record the click's real client point for the pointer-position check below.
+    await splash.evaluate((el) => {
+      el.addEventListener(
+        "click",
+        (ev) => {
+          const { clientX: x, clientY: y } = ev as MouseEvent;
+          (window as unknown as { __w67Click: { x: number; y: number } }).__w67Click = { x, y };
+        },
+        { once: true },
+      );
+    });
     await w67ClickSplash(page);
     let peak = before;
     for (let f = 0; f < 30; f++) {
       await w67Advance(page, 1);
-      peak = Math.max(peak, await w67OpaquePixelsAbove(page, box));
+      peak = Math.max(peak, await w67OpaquePixelsOutsideElements(page));
     }
-    expect(peak - before, "jets leave the rect").toBeGreaterThan(20);
+    // Ward-review fix: same metric as step 6. At rest the liquid is the exact roundRect, so
+    // the count outside the 8 px-inflated rects is ~0, and damage alone (restAlpha < 1, no
+    // particle motion) stays ~0 too. Measured 2026-10-05 (canvas2d, seed 1, macOS): before 0,
+    // peak 1979 within 30 frames. 500 is a quarter of that and far above what damage gives.
+    expect(peak - before, "the splash throws liquid outside the element rects").toBeGreaterThan(500);
     expect(Math.min(...(await w67RestAlphas(page)))).toBeLessThan(1);
+    const clickHash = await w67CanvasHash(page);
     const frames = await w67FramesUntilAllRest(page, Math.round(W67_SPLASH_REFORM_BUDGET_S * W67_FPS) - 30);
     expect(frames, `every restAlpha back to 1 within ${W67_SPLASH_REFORM_BUDGET_S} s`).toBeGreaterThan(0);
+
+    // Pointer position: the click at x = 30 splashes where the pointer was. Reference: same
+    // seed, same frame count, API splash with `at` = the click's own client point.
+    const at = await page.evaluate(() => (window as unknown as { __w67Click: { x: number; y: number } }).__w67Click);
+    expect(at, "the click reached the Splash button").toBeTruthy();
+    await w67Open(page);
+    await page.getByRole("button", { name: "Splash", exact: true }).focus(); // the click focused it too
+    await page.mouse.move(1279, 799);
+    await page.evaluate((point) => {
+      const t = (window as unknown as { __liquidTest: W67Hook }).__liquidTest;
+      const el = Array.from(document.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Splash");
+      if (!el) throw new Error("W67: Splash button not found");
+      t.instance.splash(el, { at: point });
+    }, at);
+    await w67Advance(page, 30);
+    expect(await w67CanvasHash(page), "click splash == splash(el, { at }) at the click's client point").toBe(clickHash);
+
+    // The hash discriminates: a splash at the rect centre (40 px right of the click) differs.
+    await w67Open(page);
+    await page.getByRole("button", { name: "Splash", exact: true }).focus();
+    await page.mouse.move(1279, 799);
+    await page.evaluate(() => {
+      const t = (window as unknown as { __liquidTest: W67Hook }).__liquidTest;
+      const el = Array.from(document.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Splash");
+      if (!el) throw new Error("W67: Splash button not found");
+      t.instance.splash(el);
+    });
+    await w67Advance(page, 30);
+    expect(await w67CanvasHash(page), "a centre splash is not the click splash").not.toBe(clickHash);
   });
 
   test("step 3 – given the splash 12 frames after a click when screenshotted then it matches the baseline", async ({ page }) => {

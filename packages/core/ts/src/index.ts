@@ -36,7 +36,11 @@ export interface LiquidDOMInstance {
    * is destroyed. Ignored under reduced motion.
    */
   splash(el: HTMLElement, opts?: SplashOptions): void;
-  /** Shake every observed element. `strength` 0–2 (default 1). Throws like `splash`. */
+  /**
+   * Shake every observed element. `strength` 0–2 (default 1, 0 = no-op). Throws
+   * `TypeError` when `strength` is not a finite number in [0, 2], and `Error` when
+   * the instance is destroyed. Ignored under reduced motion.
+   */
   shake(strength?: number): void;
   pause(): void;
   resume(): void;

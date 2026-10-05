@@ -6,7 +6,7 @@
 
 use std::f32::consts::TAU;
 
-use super::access::{add, rd, wr};
+use super::access::{add, rd, rd_u32, wr};
 use super::elements::{Elements, S_FLOOR};
 use super::grid::Grid;
 use super::particles::Particles;
@@ -80,8 +80,9 @@ impl Lobes {
 
 /// Radial splash on the particles of element `at.id` within the splash radius.
 /// Neighbours are hit only by the flying liquid (D67-3). Hit particles get J = 1.
-/// Returns false and changes nothing for an inactive or out-of-range id, non-finite
-/// coordinates, or a strength that `sanitize_strength` rejects.
+/// Returns false and changes nothing for an inactive or out-of-range id, an element with
+/// no particles assigned yet, non-finite coordinates, or a strength that
+/// `sanitize_strength` rejects.
 pub fn splash(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, at: SplashAt) -> bool {
     let Some(strength) = sanitize_strength(at.strength) else {
         return false;
@@ -93,6 +94,11 @@ pub fn splash(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, at: 
     let Some(rect) = e.rect(id) else {
         return false;
     };
+    // W67 ward-review fix: no particles assigned (e.g. before the first redistribute)
+    // means nothing to hit, so no damage either.
+    if rd_u32(&e.counts, id) == 0 {
+        return false;
+    }
     let radius = SPLASH_RADIUS_MIN_PX.max(SPLASH_RADIUS_PER_DIAGONAL * rect.w.hypot(rect.h));
     let speed = SPLASH_SPEED_PX_S * strength * g.inv_cell;
     let lobes = Lobes::draw(rng);

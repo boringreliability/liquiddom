@@ -2,7 +2,7 @@
  * W67 – public splash() / shake() (spec §5; decisions D67-4, D67-5, D67-8; B9).
  * Facade → runtime → FluidCore FFI, asserted through W66's spyBackend.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LiquidDOM, type LiquidDOMInstance, type SplashOptions } from "../src/index";
 import { createManualClock } from "../src/clock";
 import { installFakeCanvas2D, type FakeCanvasHandle } from "./_fake-canvas";
@@ -183,5 +183,54 @@ describe("W67 splash() / shake() API", () => {
     }
     expect(splashCalls()).toEqual([]);
     expect(shakeCalls()).toEqual([]);
+  });
+});
+
+describe("W67 ward-review fix: no core splash/shake after a failed frame", () => {
+  it("given_a_frame_that_threw_when_clicked_or_shaken_then_no_core_call_no_uncaught_error_and_one_console_error", async () => {
+    sb = spyBackend();
+    const clock = createManualClock();
+    live = await LiquidDOM.create({
+      testBackend: sb.backend,
+      clock,
+      renderer: "canvas2d",
+      autoObserve: false,
+      particles: 1024,
+      maxElements: 4,
+      seed: 1,
+    });
+    const liquid = live;
+    const el = makeButton(10, 20);
+    liquid.observe(el);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const uncaught: unknown[] = [];
+    const onError = (ev: ErrorEvent): void => {
+      uncaught.push(ev.error);
+      ev.preventDefault();
+    };
+    window.addEventListener("error", onError);
+    try {
+      const core = sb.cores[0] as unknown as { tick: (...a: unknown[]) => number };
+      core.tick = () => {
+        throw new Error("tick boom");
+      };
+      clock.advance(1);
+      expect(error).toHaveBeenCalledTimes(1);
+
+      el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1, clientX: 30, clientY: 40 }));
+      expect(() => liquid.shake()).not.toThrow();
+      expect(() => liquid.splash(el)).not.toThrow();
+
+      expect(splashCalls()).toEqual([]);
+      expect(shakeCalls()).toEqual([]);
+      expect(uncaught).toEqual([]);
+      expect(error).toHaveBeenCalledTimes(1);
+      // The facade still validates and still rejects an unobserved element.
+      expect(caught(() => liquid.shake(3))).toBeInstanceOf(TypeError);
+      expect(String(caught(() => liquid.splash(makeButton(300, 20))))).toMatch(/element is not observed/);
+    } finally {
+      window.removeEventListener("error", onError);
+      error.mockRestore();
+    }
   });
 });

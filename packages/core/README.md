@@ -66,7 +66,8 @@ liquid.shake(0.5);
 - `strength` is 0–2 (default 1). `0` is a no-op. Anything else throws `TypeError`.
 - `splash` on an element that is not observed throws `Error`.
 - Clicking an observed element splashes at the pointer. Keyboard activation (Enter/Space, `event.detail === 0`) splashes at the rect centre. Native activation is never prevented.
-- Under reduced motion both are ignored.
+- `splash` on an observed element that is currently hidden (zero width or height) is a silent no-op.
+- Under reduced motion both are ignored: they still validate, and `splash` still throws for an element that is not observed, but nothing visible happens.
 - `SplashOptions` changed shape in 0.3: `threshold`, `count`, `jitter`, `speedScale`, `lifetimeMs` and `radius` are gone and throw a `TypeError`.
 
 ## Accessibility
