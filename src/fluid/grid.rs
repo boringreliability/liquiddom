@@ -66,6 +66,21 @@ fn world_extent(v: f32, fallback: f32) -> f32 {
     }
 }
 
+/// W67 CFL cap (spec §2: 0.45 cells per substep, on particles AND grid). Scales
+/// (vx, vy) down to |v| ≤ vmax and keeps the direction. Non-finite input → 0.
+pub fn cap_speed(vx: f32, vy: f32, vmax: f32) -> (f32, f32) {
+    if !(vx.is_finite() && vy.is_finite()) {
+        return (0.0, 0.0);
+    }
+    let speed = vx.hypot(vy);
+    if vmax.is_finite() && vmax >= 0.0 && speed > vmax {
+        let k = vmax / speed;
+        (vx * k, vy * k)
+    } else {
+        (vx, vy)
+    }
+}
+
 pub struct Grid {
     pub cell_px: f32,
     pub inv_cell: f32,
@@ -243,10 +258,10 @@ impl Grid {
         }
     }
 
-    /// Momentum → velocity inside the dirty region, with slip walls at the
-    /// grid edges. `_dt` (gravity, slice 6) and `_vmax_cells` (grid CFL cap,
-    /// W67) are part of the contract and unused in W64.
-    pub fn update_velocities(&mut self, _dt: f32, _vmax_cells: f32) {
+    /// Momentum → velocity inside the dirty region, with slip walls at the grid
+    /// edges and the W67 CFL cap `vmax_cells` (cells/s; the solver passes
+    /// `MAX_CELLS_PER_SUBSTEP / dt`). `_dt` is for gravity (slice 6).
+    pub fn update_velocities(&mut self, _dt: f32, vmax_cells: f32) {
         let r = self.region;
         for y in r.y0..r.y1 {
             for x in r.x0..r.x1 {
@@ -263,6 +278,7 @@ impl Grid {
                 if (y < WALL_CELLS && vy < 0.0) || (y + WALL_CELLS + 1 > self.h && vy > 0.0) {
                     vy = 0.0;
                 }
+                let (vx, vy) = cap_speed(vx, vy, vmax_cells);
                 wr(&mut self.mvx, idx, vx);
                 wr(&mut self.mvy, idx, vy);
             }

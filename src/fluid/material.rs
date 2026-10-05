@@ -21,6 +21,77 @@ impl Default for Material {
     }
 }
 
+// ---- W67: sanitising and mapping onto solver units (spec §2) -------------------
+//
+// The public material is normalised: `viscosity` and `cohesion` in [0, 1],
+// `recovery` in seconds [0.2, 3]. Cohesion is global only: one TENSION_MAX for
+// the whole liquid.
+
+pub const VISCOSITY_MIN_PX2_S: f32 = 100.0;
+pub const VISCOSITY_MAX_PX2_S: f32 = 2000.0;
+pub const TENSION_MAX_MIN: f32 = 0.02;
+pub const TENSION_MAX_MAX: f32 = 0.30;
+pub const RECOVERY_MIN_S: f32 = 0.2;
+pub const RECOVERY_MAX_S: f32 = 3.0;
+
+/// The material in solver units.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MaterialParams {
+    /// Kinematic viscosity in px²/s (log-mapped 100–2000).
+    pub viscosity_px2_s: f32,
+    /// Plastic yield on stretch: J ≤ 1 + tension_max (linear 0.02–0.30).
+    pub tension_max: f32,
+    /// Stiffness recovery time constant in seconds.
+    pub recovery_s: f32,
+}
+
+fn unit_or(value: f32, fallback: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(0.0, 1.0)
+    } else {
+        fallback
+    }
+}
+
+/// `viscosity` [0,1] → px²/s on a log scale: 100·20^v (0.5 ≈ 447).
+pub fn map_viscosity(viscosity: f32) -> f32 {
+    let v = unit_or(viscosity, DEFAULT_MATERIAL.viscosity);
+    VISCOSITY_MIN_PX2_S * (VISCOSITY_MAX_PX2_S / VISCOSITY_MIN_PX2_S).powf(v)
+}
+
+/// `cohesion` [0,1] → TENSION_MAX, linear 0.02–0.30 (0.5 = 0.16).
+pub fn map_cohesion(cohesion: f32) -> f32 {
+    let c = unit_or(cohesion, DEFAULT_MATERIAL.cohesion);
+    TENSION_MAX_MIN + (TENSION_MAX_MAX - TENSION_MAX_MIN) * c
+}
+
+/// Seconds clamped to [0.2, 3]; NaN/±inf → the 0.7 s default.
+pub fn sanitize_recovery(recovery_s: f32) -> f32 {
+    if recovery_s.is_finite() {
+        recovery_s.clamp(RECOVERY_MIN_S, RECOVERY_MAX_S)
+    } else {
+        DEFAULT_MATERIAL.recovery_s
+    }
+}
+
+impl Material {
+    pub fn sanitized(viscosity: f32, cohesion: f32, recovery_s: f32) -> Material {
+        Material {
+            viscosity: unit_or(viscosity, DEFAULT_MATERIAL.viscosity),
+            cohesion: unit_or(cohesion, DEFAULT_MATERIAL.cohesion),
+            recovery_s: sanitize_recovery(recovery_s),
+        }
+    }
+
+    pub fn params(&self) -> MaterialParams {
+        MaterialParams {
+            viscosity_px2_s: map_viscosity(self.viscosity),
+            tension_max: map_cohesion(self.cohesion),
+            recovery_s: sanitize_recovery(self.recovery_s),
+        }
+    }
+}
+
 #[cfg(test)]
 mod w67_tests {
     use super::*;
