@@ -11,7 +11,7 @@
  * Timings are wall-clock (±50 ms) and go to manifest.json for the status report.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { errors, type Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
 import { NORTH_STAR_PATH, reformBudgetMs } from "./north-star";
@@ -24,6 +24,12 @@ type SceneHook = {
 
 const OUT_DIR = resolve(process.cwd(), "test-results/whole-picture");
 const SHOTS_DIR = resolve(OUT_DIR, "shots");
+/**
+ * Stable, gitignored video path outside test-results: Playwright moves its video to
+ * test-results/<test>/video.webm only after the page closes, and parallel runs can wipe
+ * test-results. The manifest points here so scripts/webm-to-gif.mjs reads a file that exists.
+ */
+const VIDEO_PATH = resolve(process.cwd(), "tmp/whole-picture/slice-2.webm");
 const SCENE_URL = "/scenes/acceptance.html?seed=1&renderer=canvas2d&test=1";
 
 const NORTH_STAR_MD = readFileSync(resolve(process.cwd(), NORTH_STAR_PATH), "utf8");
@@ -180,8 +186,11 @@ test("whole picture – slice 2 – acceptance steps 1-4 and 6 recorded in canva
   await page.waitForTimeout(1_500);
 
   const video = page.video();
-  const videoPath = video === null ? null : await video.path();
-  expect(videoPath, "video recording is not enabled (PROJECT_USE.record)").not.toBeNull();
+  expect(video, "video recording is not enabled (PROJECT_USE.record)").not.toBeNull();
+  mkdirSync(dirname(VIDEO_PATH), { recursive: true });
+  // The video is only finalised once the page is closed; saveAs then copies it to the stable path.
+  await page.close();
+  await video?.saveAs(VIDEO_PATH);
   writeFileSync(
     resolve(OUT_DIR, "manifest.json"),
     JSON.stringify(
@@ -193,7 +202,7 @@ test("whole picture – slice 2 – acceptance steps 1-4 and 6 recorded in canva
         budgetsFrom: NORTH_STAR_PATH,
         budgetsMs: { splash: SPLASH_BUDGET_MS, shake: SHAKE_BUDGET_MS },
         recordedAt: new Date().toISOString(),
-        video: videoPath,
+        video: VIDEO_PATH,
         timings,
         shots,
       },

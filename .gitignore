@@ -37,6 +37,8 @@ Thumbs.db
 
 # Playwright (W65). Baselines are committed even when named w*-*.png (D65-2).
 test-results/
+# Whole-picture recording video (record spec saves it here, outside test-results)
+tmp/
 playwright-report/
 blob-report/
 !e2e/__screenshots__/**
