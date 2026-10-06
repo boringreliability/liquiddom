@@ -3,7 +3,7 @@ ward: 70
 revision: null
 name: "Slice 2 fix: sloshing shake, readable bulge, clean cross-fade"
 epic: "fluid-engine"
-status: "approved"
+status: "gold"
 dependencies: [69]
 layer: "both"
 estimated_tests: 18
@@ -141,3 +141,36 @@ Guards that stay unchanged and must stay green:
 
 ## Verification
 `npm run verify`, canvas2d and dist e2e are green; the slice-2 addendum rates steps 2 and 6 with evidence; Dennis approves.
+
+## Gold notes
+
+**Steps (canvas2d)**, from the addendum `.wdd/memory/whole-picture/slice-2-addendum.md` and the GIF `docs/superpowers/whole-picture/slice-2-addendum-canvas2d.gif` (1.04 MiB, 29 s):
+
+- **Step 2 ✅** (was ❌). Drag 12. Bulge across the pills 7.40–7.72 px (e2e) and 6.33–6.81 px (Rust), threshold 5. The no-hole worst alpha after D70-4 is 250 against a floor of 128. On the step-2 baseline Merge reaches ~888 px against 874 at rest. Subtle at GIF scale.
+- **Step 6 ✅ provisional** (was ❌). Coherent field with cap 0.2. Procrustes slosh 34.19 / 23.67 / 50.97 / 61.68 px, against a same-metric W67 baseline of 2.06–6.64 / 5.87 px. Re-form 2413 ms of a 3000 ms budget.
+  - Vision at f20 / peak: Splash forms a V, Split a Λ, Merge stretches into a filament of droplets, the card is torn into a mesh, and some labels are unreadable for about 0.5 s.
+  - No test bounds over-violence. **Dennis decides the strength:** amplitude 0.8 → 0.5, or cap 0.2 → 0.3.
+- **Step 8 ✅.** The `?rm=1` segment shows no reaction to click or shake, and its frames are byte-identical.
+- **Cross-fade:** the pale flash is gone. The fill stays opaque from soft to crisp at the end of re-form.
+
+**Constants chosen by measurement:**
+- `SHAKE_STIFFNESS_CAP` 0.2
+- `SHAKE_PROFILE_AMPLITUDE` 0.8
+- `POINTER_DRAG_PER_S` 12
+- `SHAKE_NOISE` removed
+
+**Decisions:** D70-1, D70-2, D70-4 and D70-6 as approved. D70-3 and D70-5 were AMENDED by Option A after the pre-plan measurements (saga dec_7db9a25c). A misclick recorded "drag 18"; that entry was deleted and corrected.
+
+**Reviews:**
+- Every task was reviewed.
+- The red review moved the slosh metric to Procrustes, so rigid rotation no longer counts.
+- The green review had minors only; the spec §2 cap and the `shake_gain` NaN/Inf guard test were fixed.
+- The whole-ward review was ready for gold. Four doc minors were fixed in 2bfd1cf: the same-metric baseline, stale numbers, the post-D70-4 alpha, and marking step 6 provisional.
+
+**Baselines (uncommitted, D65-7):** `acceptance-step2-canvas2d-linux.png` and `acceptance-step6-shake-f20-canvas2d-linux.png` were regenerated in the pinned image (34 passed). No other baseline changed. Both were vision-checked by the controller and await Dennis.
+
+**Verification:** cargo 151 passed + 1 ignored; vitest 424; clippy clean; canvas2d 27; dist 1. p95 is 3.75 ms with the pointer inactive and 3.82 ms with the pointer active.
+
+**Known limitation:** the shake profile varies along x only.
+
+**Open:** should the W69 report `slice-2.md` get a one-line pointer to the addendum? (Dennis.)
