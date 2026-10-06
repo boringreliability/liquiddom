@@ -22,9 +22,21 @@ export interface PointerSample {
   readonly active: boolean;
 }
 
-const INACTIVE: PointerSample = Object.freeze({ x: 0, y: 0, vx: 0, vy: 0, active: false });
+interface MutableSample {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  active: boolean;
+}
 
 export class PointerTracker {
+  /**
+   * W68 perf: `sample()` fills and returns this one object every frame (no per-frame
+   * allocation). Callers read it within the frame and never keep it: the next
+   * `sample()` overwrites it.
+   */
+  private readonly out: MutableSample = { x: 0, y: 0, vx: 0, vy: 0, active: false };
   private inside = false;
   private moved = false;
   private hasSample = false;
@@ -54,9 +66,20 @@ export class PointerTracker {
     this.vy = 0;
   }
 
-  /** Called once per frame with the runtime clock's time and the buffer-space offset. */
+  /**
+   * Called once per frame with the runtime clock's time and the buffer-space offset.
+   * Returns the tracker's reused sample object: valid until the next `sample()` call.
+   */
   sample(nowMs: number, offset: { readonly x: number; readonly y: number }): PointerSample {
-    if (!this.inside) return INACTIVE;
+    const out = this.out;
+    if (!this.inside) {
+      out.x = 0;
+      out.y = 0;
+      out.vx = 0;
+      out.vy = 0;
+      out.active = false;
+      return out;
+    }
     const now = Number.isFinite(nowMs) ? nowMs : this.sampleT;
     if (this.moved) {
       this.moved = false;
@@ -72,10 +95,18 @@ export class PointerTracker {
       this.sampleT = now;
       this.hasSample = true;
     } else if (now - this.sampleT > POINTER_IDLE_MS) {
+      // Known limitation (D68-4 notes): the ×0.8 is applied per sampled frame, not per unit
+      // of time, so the idle tail is display-rate dependent: at 120 Hz it decays twice as
+      // fast in wall time as at 60 Hz. The 120 ms hold before it is time-based.
       this.vx *= POINTER_IDLE_DECAY;
       this.vy *= POINTER_IDLE_DECAY;
     }
-    return { x: this.cx - offset.x, y: this.cy - offset.y, vx: this.vx, vy: this.vy, active: true };
+    out.x = this.cx - offset.x;
+    out.y = this.cy - offset.y;
+    out.vx = this.vx;
+    out.vy = this.vy;
+    out.active = true;
+    return out;
   }
 
   /** Wire document/window input (spec §3.5, D68-7). Returns the detach function. */

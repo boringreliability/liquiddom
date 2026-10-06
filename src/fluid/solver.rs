@@ -547,7 +547,8 @@ pub fn substep_with(
         };
         // W68 soft pointer field (D68-3): after the saturated home spring, so the
         // spring's acceleration cap never clips the pointer coupling. Applies to
-        // every homed particle; it is zero for a resting pointer.
+        // every homed particle; no radial term; a resting pointer only damps moving
+        // liquid (−v·k).
         let (pax, pay) = pointer_accel(x, y, vx, vy, &inp.pointer, g);
         vx += pax * dt;
         vy += pay * dt;

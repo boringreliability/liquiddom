@@ -45,6 +45,28 @@ export function validateMaterial(m: Partial<Material>): void {
   }
 }
 
+/**
+ * @internal W68 green review: a plain-object snapshot of a caller's partial, so every
+ * value (getters included) is read exactly once before validate → merge. The material
+ * keys are read (own or inherited, as `validateMaterial` reads them); any other own
+ * enumerable key is kept by name with the value `undefined`, so `validateMaterial`
+ * still names it without its getter running. Non-objects pass through unchanged for
+ * `validateMaterial` to reject.
+ */
+export function snapshotMaterial(m: Partial<Material>): Partial<Material> {
+  const raw: unknown = m;
+  if (!isObject(raw)) return m;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(raw)) {
+    if (!(MATERIAL_KEYS as readonly string[]).includes(key)) out[key] = undefined;
+  }
+  for (const key of MATERIAL_KEYS) {
+    const v = raw[key];
+    if (v !== undefined) out[key] = v;
+  }
+  return out as Partial<Material>;
+}
+
 /** D66-14: a fresh, complete copy of `base` with every defined key of `partial` applied. Call validateMaterial first. */
 export function mergeMaterial(base: Readonly<Material>, partial: Partial<Material>): Material {
   const out: Material = { viscosity: base.viscosity, cohesion: base.cohesion, recovery: base.recovery };

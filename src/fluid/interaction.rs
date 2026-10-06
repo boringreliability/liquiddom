@@ -192,8 +192,8 @@ pub const POINTER_VMAX_PX_S: f32 = 2000.0;
 
 /// Soft pointer field: pulls a particle's velocity towards the pointer velocity with
 /// weight `(1 − d/r)²` inside `POINTER_RADIUS_PX`. There is deliberately no radial
-/// term, so a resting pointer exerts no force and cannot dig a hole (the spike's
-/// `POINTER_PUSH_PX` did). Positions in grid units, velocities in grid units/s;
+/// term; a resting pointer only damps moving liquid (−v·k), so it cannot dig a hole
+/// (the spike's `POINTER_PUSH_PX` did). Positions in grid units, velocities in grid units/s;
 /// returns an acceleration in grid units/s². Explicit and stable: the largest
 /// coupling per substep is `6 · dt_substep ≪ 1`.
 #[inline]

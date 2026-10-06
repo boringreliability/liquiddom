@@ -186,6 +186,21 @@ describe("PointerTracker (W68, D68-4, D68-7)", () => {
     move(document, 99, 30);
     expect(next().x).toBe(44);
   });
+
+  // W68 perf (7d): one mutable sample object per tracker, no per-frame allocation.
+  it("given_successive_samples_when_compared_then_the_same_object_is_reused_with_current_values", () => {
+    const t = new PointerTracker();
+    const inactive = t.sample(1000, ORIGIN);
+    expect(inactive).toEqual({ x: 0, y: 0, vx: 0, vy: 0, active: false });
+    t.move(100, 50);
+    const a = t.sample(1000 + FRAME_MS, ORIGIN);
+    expect(a).toBe(inactive);
+    expect(a).toEqual({ x: 100, y: 50, vx: 0, vy: 0, active: true });
+    t.leave();
+    const b = t.sample(1000 + 2 * FRAME_MS, ORIGIN);
+    expect(b).toBe(a);
+    expect(b).toEqual({ x: 0, y: 0, vx: 0, vy: 0, active: false });
+  });
 });
 
 describe("runtime pointer wiring (W68)", () => {
@@ -304,5 +319,25 @@ describe("runtime pointer wiring (W68)", () => {
     };
     check(docAdd, docRemove, ["pointermove", "pointerout", "pointercancel", "pointerup"]);
     check(winAdd, winRemove, ["blur"]);
+  });
+
+  // W68 green review: the tracker listens on the container's own document (and its window).
+  it("given_container_in_a_second_document_when_pointer_moves_there_then_tick_receives_it", async () => {
+    const other = document.implementation.createHTMLDocument("other");
+    const container = other.createElement("div");
+    container.style.position = "relative";
+    stubRect(container, 100, 40, 800, 600);
+    other.body.appendChild(container);
+    const docAdd = vi.spyOn(other, "addEventListener");
+    const docRemove = vi.spyOn(other, "removeEventListener");
+    const { tick, clock } = await start({ container });
+    move(other, 300, 140);
+    clock.advance(1);
+    expect(lastPointer(tick)).toMatchObject({ px: 200, py: 100, active: true });
+    runtime!.destroy();
+    runtime = null;
+    const added = docAdd.mock.calls.filter((c) => c[0] === "pointermove").map((c) => c[1]);
+    expect(added).toHaveLength(1);
+    expect(docRemove.mock.calls.filter((c) => c[0] === "pointermove").map((c) => c[1])).toContain(added[0]);
   });
 });

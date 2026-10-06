@@ -14,7 +14,7 @@ import {
   type LiquidOptions,
   type SplashOptions,
 } from "./options";
-import { mergeMaterial, validateMaterial, type Material } from "./material";
+import { mergeMaterial, snapshotMaterial, validateMaterial, type Material } from "./material";
 import { LiquidWasmLoadError } from "./wasm-loader";
 import { WebGPUUnavailableError } from "./renderers/webgpu-renderer";
 import { bindRuntime, unbindRuntime } from "./internal";
@@ -164,10 +164,13 @@ export class LiquidDOM {
 
       setMaterial(partial: Partial<Material>): void {
         live("setMaterial");
-        validateMaterial(partial); // W66: TypeError for non-objects, unknown keys (named), bad values
-        const next = mergeMaterial(material, partial);
-        material = next;
+        // W68 green review: read the caller's values once (getters included), then
+        // validate and merge that snapshot, so the core and getMaterial() agree.
+        const snap = snapshotMaterial(partial);
+        validateMaterial(snap); // W66: TypeError for non-objects, unknown keys (named), bad values
+        const next = mergeMaterial(material, snap);
         runtime.setMaterial(next);
+        material = next;
       },
 
       getMaterial(): Material {

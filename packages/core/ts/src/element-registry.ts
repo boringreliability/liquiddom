@@ -53,7 +53,7 @@ export function createMicrotaskBatcher(run: () => void): MicrotaskBatcher {
 
 interface InternalRecord extends ElementRecord {
   readonly rawRadius: string;
-  /** W68: pointer is over the element (mouseenter/mouseleave). */
+  /** W68: a hover-capable pointer is over the element (pointerenter/pointerleave, touch ignored; D68-2 amended). */
   hovered: boolean;
   /** W68: the element itself has focus (focus/blur). */
   focused: boolean;
@@ -72,19 +72,29 @@ export class ElementRegistry {
 
   private readonly interactionListeners = new Map<
     HTMLElement,
-    { readonly enter: () => void; readonly leave: () => void; readonly focus: () => void; readonly blur: () => void }
+    {
+      readonly enter: (e: PointerEvent) => void;
+      readonly leave: (e: PointerEvent) => void;
+      readonly focus: () => void;
+      readonly blur: () => void;
+    }
   >();
 
+  /**
+   * D68-2 (amended 2026-10-06, saga dec_58e41ded): hover comes from pointerenter/pointerleave
+   * with touch ignored (a tap's compatibility mouseenter has no matching mouseleave, so the
+   * swell stuck). The initial `:hover` is read only where the primary input can hover.
+   */
   private attachInteraction(rec: InternalRecord): void {
     const el = rec.el;
-    rec.hovered = matchesHover(el);
+    rec.hovered = canHover(el) && matchesHover(el);
     rec.focused = el.ownerDocument.activeElement === el;
     const ls = {
-      enter: () => {
-        rec.hovered = true;
+      enter: (e: PointerEvent) => {
+        if (e.pointerType !== "touch") rec.hovered = true;
       },
-      leave: () => {
-        rec.hovered = false;
+      leave: (e: PointerEvent) => {
+        if (e.pointerType !== "touch") rec.hovered = false;
       },
       focus: () => {
         rec.focused = true;
@@ -93,8 +103,8 @@ export class ElementRegistry {
         rec.focused = false;
       },
     };
-    el.addEventListener("mouseenter", ls.enter);
-    el.addEventListener("mouseleave", ls.leave);
+    el.addEventListener("pointerenter", ls.enter);
+    el.addEventListener("pointerleave", ls.leave);
     el.addEventListener("focus", ls.focus);
     el.addEventListener("blur", ls.blur);
     this.interactionListeners.set(el, ls);
@@ -103,8 +113,8 @@ export class ElementRegistry {
   private detachInteraction(el: HTMLElement): void {
     const ls = this.interactionListeners.get(el);
     if (!ls) return;
-    el.removeEventListener("mouseenter", ls.enter);
-    el.removeEventListener("mouseleave", ls.leave);
+    el.removeEventListener("pointerenter", ls.enter);
+    el.removeEventListener("pointerleave", ls.leave);
     el.removeEventListener("focus", ls.focus);
     el.removeEventListener("blur", ls.blur);
     this.interactionListeners.delete(el);
@@ -246,6 +256,16 @@ export class ElementRegistry {
     v[o + El.W] = r.width;
     v[o + El.H] = r.height;
     v[o + El.RADIUS] = parseBorderRadius(rec.rawRadius, r.width, r.height);
+  }
+}
+
+/** D68-2 amended: `(hover: hover)` on the element's own window; no matchMedia → cannot tell → false. */
+function canHover(el: HTMLElement): boolean {
+  try {
+    const win = el.ownerDocument.defaultView ?? (typeof window === "undefined" ? null : window);
+    return typeof win?.matchMedia === "function" && win.matchMedia("(hover: hover)").matches;
+  } catch {
+    return false;
   }
 }
 

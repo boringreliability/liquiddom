@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { ElementRegistry } from "../src/element-registry";
 import { FluidBridge } from "../src/fluid-bridge";
 import { ELEMENT_STRIDE, El, Interaction } from "../src/fluid-layout";
@@ -35,12 +35,37 @@ function button(label = "Split"): HTMLButtonElement {
   return b;
 }
 
-const enter = (el: Element) => el.dispatchEvent(new MouseEvent("mouseenter"));
-const leave = (el: Element) => el.dispatchEvent(new MouseEvent("mouseleave"));
+// D68-2 amended (saga dec_58e41ded): hover comes from pointerenter/pointerleave with a non-touch pointerType.
+const enter = (el: Element, pointerType = "mouse") => el.dispatchEvent(new PointerEvent("pointerenter", { pointerType }));
+const leave = (el: Element, pointerType = "mouse") => el.dispatchEvent(new PointerEvent("pointerleave", { pointerType }));
+
+/** Stubs window.matchMedia so `(hover: hover)` matches iff `canHover`; other queries never match. */
+function stubHoverMedia(canHover: boolean): void {
+  const mql = (q: string, matches: boolean) => ({
+    matches,
+    media: q,
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent: () => true,
+  });
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: vi.fn((q: string) => mql(q, q.replace(/\s+/g, "") === "(hover:hover)" ? canHover : false)),
+  });
+}
+const originalMatchMedia = Object.getOwnPropertyDescriptor(window, "matchMedia");
 
 describe("hover and focus → interaction slot (W68, D68-2, D68-5)", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
+  });
+  afterEach(() => {
+    if (originalMatchMedia) Object.defineProperty(window, "matchMedia", originalMatchMedia);
+    else delete (window as { matchMedia?: unknown }).matchMedia;
   });
 
   it("given_mouseenter_when_synced_then_interaction_slot_1", () => {
@@ -142,6 +167,7 @@ describe("hover and focus → interaction slot (W68, D68-2, D68-5)", () => {
 
   it("given_element_already_hovered_when_observed_then_interaction_slot_1_on_first_sync", () => {
     const { registry, interaction } = setup();
+    stubHoverMedia(true); // D68-2 amended: the initial :hover read needs (hover: hover)
     const b = button();
     b.matches = (s: string) => s === ":hover";
     const id = registry.observe(b);
@@ -156,7 +182,7 @@ describe("hover and focus → interaction slot (W68, D68-2, D68-5)", () => {
     const remove = vi.spyOn(b, "removeEventListener");
     registry.observe(b);
     registry.unobserve(b);
-    for (const type of ["mouseenter", "mouseleave", "focus", "blur"]) {
+    for (const type of ["pointerenter", "pointerleave", "focus", "blur"]) {
       const added = add.mock.calls.filter((c) => c[0] === type).map((c) => c[1]);
       const removed = remove.mock.calls.filter((c) => c[0] === type).map((c) => c[1]);
       expect(added, `${type} attached once`).toHaveLength(1);
@@ -170,6 +196,54 @@ describe("hover and focus → interaction slot (W68, D68-2, D68-5)", () => {
     const add = vi.spyOn(b, "addEventListener");
     registry.observe(b);
     registry.observe(b);
-    expect(add.mock.calls.filter((c) => c[0] === "mouseenter")).toHaveLength(1);
+    expect(add.mock.calls.filter((c) => c[0] === "pointerenter")).toHaveLength(1);
+  });
+
+  // ---- D68-2 amended 2026-10-06 (saga dec_58e41ded) ----
+
+  it("given_touch_tap_with_compat_mouseenter_when_synced_then_slot_idle_and_no_stuck_swell", () => {
+    const { registry, interaction } = setup();
+    const b = button();
+    const id = registry.observe(b);
+    // A tap: pointerenter (touch), then the browser's compatibility mouseover/mouseenter, then
+    // pointerleave (touch) on lift. No mouseleave follows until the next tap elsewhere.
+    enter(b, "touch");
+    b.dispatchEvent(new MouseEvent("mouseenter"));
+    registry.sync();
+    expect(interaction(id), "during the tap").toBe(Interaction.IDLE);
+    leave(b, "touch");
+    registry.sync();
+    expect(interaction(id), "after the lift (no stuck swell)").toBe(Interaction.IDLE);
+  });
+
+  it("given_mouse_or_pen_pointerenter_when_synced_then_hover_and_pointerleave_clears_it", () => {
+    for (const pointerType of ["mouse", "pen"]) {
+      document.body.innerHTML = "";
+      const { registry, interaction } = setup();
+      const b = button();
+      const id = registry.observe(b);
+      enter(b, pointerType);
+      registry.sync();
+      expect(interaction(id), `${pointerType}: enter`).toBe(Interaction.HOVER);
+      leave(b, pointerType);
+      registry.sync();
+      expect(interaction(id), `${pointerType}: leave`).toBe(Interaction.IDLE);
+    }
+  });
+
+  it("given_element_matching_hover_at_observe_when_hover_none_then_idle_and_when_hover_hover_then_hover", () => {
+    for (const [canHover, expected] of [
+      [false, Interaction.IDLE],
+      [true, Interaction.HOVER],
+    ] as const) {
+      document.body.innerHTML = "";
+      stubHoverMedia(canHover);
+      const { registry, interaction } = setup();
+      const b = button();
+      b.matches = (s: string) => s === ":hover";
+      const id = registry.observe(b);
+      registry.sync();
+      expect(interaction(id), `(hover: ${canHover ? "hover" : "none"})`).toBe(expected);
+    }
   });
 });

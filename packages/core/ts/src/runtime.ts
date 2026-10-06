@@ -278,8 +278,11 @@ function buildRuntime(
   mql?.addEventListener("change", onMotionChange);
 
   // W68: pointer input for the soft pointer field (D68-4, D68-7).
+  // The container's own document and window (W68 green review), so a container in another
+  // document (e.g. an iframe) gets its pointer input; a window-less document falls back to `window`.
   const pointer = new PointerTracker();
-  const detachPointer = pointer.attach(document, window);
+  const pointerDoc = container?.ownerDocument ?? document;
+  const detachPointer = pointer.attach(pointerDoc, pointerDoc.defaultView ?? window);
 
   // Canvas backing store + DPR (D64-14, C2).
   const resizeCanvas = (): void => {
