@@ -90,11 +90,19 @@ jobs:
           name: wasm-pkg
           path: pkg
 
+      # D69-6: core (clean -> tsc -> copy-wasm, needs pkg/), the React adapter, then
+      # examples/react without its wasm-pack prebuild (pkg/ comes from the artifact).
+      - name: Build published dist + React example (dist smoke)
+        run: npm run e2e:dist:build
       - name: E2E canvas2d (blocking)
         run: npx playwright test --project=canvas2d
         env:
           E2E_SUITE: canvas2d
 
+      - name: E2E dist smoke (blocking, D69-6)
+        run: npx playwright test --project=dist
+        env:
+          E2E_SUITE: dist
       - name: E2E webgpu smoke (soft until 10 green runs in a row)
         if: ${{ !cancelled() }}
         continue-on-error: true

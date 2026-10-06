@@ -25,6 +25,8 @@ function useFor(name: ProjectName): NonNullable<PlaywrightTestConfig["use"]> {
     ...desktopChrome,
     ...(o.channel ? { channel: o.channel } : {}),
     ...(o.launchArgs ? { launchOptions: { args: [...o.launchArgs] } } : {}),
+    // W69 (D69-2): record project only; the video has the viewport size.
+    ...(o.video ? { video: { mode: o.video, size: { ...VIEWPORT } } } : {}),
   };
 }
 
