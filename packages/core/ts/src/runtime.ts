@@ -15,6 +15,7 @@ import { SplashInput, rectCentre, type ClientPoint } from "./input";
 import { DEFAULT_STRENGTH, type ElementOptions } from "./options";
 import type { ElementPaint, RenderFrame, Renderer, RenderViewport } from "./renderers/frame";
 import { LoopController } from "./loop-control";
+import { PointerTracker } from "./pointer-tracker";
 import { acquireLiquidStyles, mountLiquidCanvas } from "./stylesheet";
 import { selectRenderer, type ActiveRenderer, type RendererChoice } from "./renderers/select";
 import { loadFluidWasm, type FluidBackend, type FluidCoreLike } from "./wasm-loader";
@@ -72,11 +73,14 @@ export interface FluidRuntime {
    * W67: splash an observed element. `at` is client px (null → rect centre); it is
    * converted to buffer space with the container offset. Returns false when `el` is
    * not observed or the runtime is destroyed. After a failed frame it returns true
+   * without calling the core. Under reduced motion (W68 D68-5) it also returns true
    * without calling the core. No validation: the facade validates.
    */
   splash(el: HTMLElement, at: ClientPoint | null, strength: number): boolean;
-  /** W67: shake every observed element. No-op once destroyed or after a failed frame. */
+  /** W67: shake every observed element. No-op once destroyed, after a failed frame or under reduced motion (D68-5). */
   shake(strength: number): void;
+  /** W68: forward a resolved, validated material to the core (the facade validates). */
+  setMaterial(m: Readonly<Material>): void;
   /** Idempotent. */
   destroy(): void;
 }
@@ -233,6 +237,8 @@ function buildRuntime(
   const registry = new ElementRegistry(bridge, {
     coordOffset,
     scheduleRedistribute: () => batcher.schedule(),
+    // W68 (D68-5): read live; `reducedMotion` is declared below and only read during sync().
+    reducedMotion: () => reducedMotion,
   });
 
   // ---- W67: splash / shake ----------------------------------------------------
@@ -243,6 +249,10 @@ function buildRuntime(
     // W67 ward-review fix: after a failed frame the core may be poisoned; the element is
     // still observed (no facade error), but the core is not called.
     if (failed) return true;
+    // W68 D68-5: an observed element under reduced motion is not an error. Report
+    // success (true) so the facade does not throw "not observed", but skip the core.
+    // The facade has already validated strength/at (D67-4) before calling us.
+    if (reducedMotion) return true;
     const point = at ?? rectCentre(el);
     const offset = coordOffset();
     core.splash(id, point.x - offset.x, point.y - offset.y, strength);
@@ -266,6 +276,10 @@ function buildRuntime(
     core.set_reduced_motion(reducedMotion);
   };
   mql?.addEventListener("change", onMotionChange);
+
+  // W68: pointer input for the soft pointer field (D68-4, D68-7).
+  const pointer = new PointerTracker();
+  const detachPointer = pointer.attach(document, window);
 
   // Canvas backing store + DPR (D64-14, C2).
   const resizeCanvas = (): void => {
@@ -340,7 +354,19 @@ function buildRuntime(
     inFrame = true;
     try {
       registry.sync();
-      core.tick(dtS, 0, 0, 0, 0, false, 0, 0);
+      // W68: soft pointer field input, gated by reduced motion (D68-5).
+      const ptr = pointer.sample(nowMs, frameOffset);
+      const pointerOn = ptr.active && !reducedMotion;
+      core.tick(
+        dtS,
+        pointerOn ? ptr.x : 0,
+        pointerOn ? ptr.y : 0,
+        pointerOn ? ptr.vx : 0,
+        pointerOn ? ptr.vy : 0,
+        pointerOn,
+        0,
+        0,
+      );
       if (bridge.syncGeneration() || paintsDirty) {
         paintsDirty = false;
         rebuildPaints();
@@ -386,8 +412,13 @@ function buildRuntime(
     },
     splash: splashAt,
     shake(strength: number): void {
-      if (destroyed || failed) return;
+      if (destroyed || failed || reducedMotion) return;
       core.shake(strength);
+    },
+    setMaterial(m: Readonly<Material>): void {
+      // W67 ward-fix (3861e77): no core calls after a failed frame (the core may be poisoned).
+      if (destroyed || failed) return;
+      core.set_material(m.viscosity, m.cohesion, m.recovery);
     },
     frame,
     elementState(el) {
@@ -429,6 +460,7 @@ function buildRuntime(
       registry.unobserveAll();
       releaseStyles();
       mql?.removeEventListener("change", onMotionChange);
+      detachPointer();
       resizeObserver?.disconnect();
       window.removeEventListener("resize", resizeCanvas);
       renderer.destroy();

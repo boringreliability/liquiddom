@@ -7,8 +7,8 @@
  * - Native activation is never prevented and propagation is never stopped.
  * - One splash per click event: the innermost observed element wins (D67-9).
  *
- * W68 extends this module with the pointer tracker, hover/focus listeners and the
- * reduced-motion input gating (D68-5).
+ * W68: the pointer tracker is `pointer-tracker.ts`, hover/focus is in
+ * `element-registry.ts`, and the reduced-motion input gating (D68-5) is in `runtime.ts`.
  */
 
 export interface ClientPoint {
