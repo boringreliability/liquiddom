@@ -44,7 +44,7 @@ const OLD_INSTANCE_MEMBERS: Readonly<Record<string, Fate>> = {
   unobserve: kept,
   grow: removed("fixed pool"),
   tween: removed("targets follow the rect"),
-  impulse: removed("→ splash() in W68"),
+  impulse: removed("→ splash() (W67)"),
   pause: kept,
   resume: kept,
   autoDiscover: kept,
@@ -82,7 +82,7 @@ const OLD_OPTIONS: ReadonlyArray<[string, unknown, Fate]> = [
 const OLD_RUNTIME_EXPORTS: Readonly<Record<string, Fate>> = {
   LiquidDOM: kept,
   WebGPUUnavailableError: kept,
-  presets: removed("physics presets gone; material presets water/honey/jelly arrive in W68"),
+  presets: kept, // W68 D68-6 (A2): same name, material-shaped (water/honey/jelly); old values asserted gone below
   validatePhysicsConfig: renamed("validateMaterial"),
 };
 
@@ -206,11 +206,11 @@ describe("W66 T4: retirement and release notes", () => {
   });
 
   it("given_retired_demo_scenes_when_checked_then_deleted_and_acceptance_scene_kept", () => {
-    for (const name of ["dragable-cards", "fusion", "refraction", "scroll-hero", "splash-buttons", "tilt-bowl", "playground"]) {
+    // W69 recreates playground.{html,ts} + playground-state.ts on the material API (spec §5).
+    for (const name of ["dragable-cards", "fusion", "refraction", "scroll-hero", "splash-buttons", "tilt-bowl"]) {
       expect(existsSync(resolve(ROOT, `demo/scenes/${name}.html`)), name).toBe(false);
       expect(existsSync(resolve(ROOT, `demo/scenes/${name}.ts`)), name).toBe(false);
     }
-    expect(existsSync(resolve(ROOT, "demo/scenes/playground-state.ts"))).toBe(false);
     expect(existsSync(resolve(ROOT, "demo/main.ts"))).toBe(false);
     expect(existsSync(resolve(ROOT, "demo/scenes/acceptance.html"))).toBe(true);
     expect(existsSync(resolve(ROOT, "demo/scenes/stress.html"))).toBe(true);
@@ -229,5 +229,27 @@ describe("W66 T4: retirement and release notes", () => {
     for (const name of Object.keys(OLD_INSTANCE_MEMBERS).filter((n) => OLD_INSTANCE_MEMBERS[n]!.kind !== "kept")) {
       expect(md, name).toContain(name);
     }
+  });
+});
+
+describe("presets migration (W68, resolution A2)", () => {
+  it("given_presets_when_imported_then_material_presets_water_honey_jelly_replace_the_old_physics_presets", () => {
+    const mod = liquiddom as unknown as Record<string, unknown>;
+    const p = mod.presets as Record<string, Record<string, unknown>>;
+    expect(Object.keys(p).sort()).toEqual(["honey", "jelly", "water"]);
+    expect(p).not.toHaveProperty("goo");
+    expect(p).not.toHaveProperty("firm");
+    for (const preset of Object.values(p)) {
+      expect(Object.keys(preset).sort()).toEqual(["cohesion", "recovery", "viscosity"]);
+      for (const old of ["tension", "damping", "repulsionRadius", "repulsionStrength", "substeps", "neighborSpringK"]) {
+        expect(preset).not.toHaveProperty(old);
+      }
+    }
+  });
+
+  it("given_old_physics_shaped_config_when_setMaterial_then_TypeError_naming_the_key_and_the_material_fields", async () => {
+    const inst = await create();
+    expect(() => inst.setMaterial({ tension: 80, damping: 4 } as never)).toThrow(TypeError);
+    expect(() => inst.setMaterial({ tension: 80 } as never)).toThrow(/tension.*viscosity, cohesion, recovery/s);
   });
 });

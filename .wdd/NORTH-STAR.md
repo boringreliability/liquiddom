@@ -11,7 +11,7 @@ What a person sees and feels. Every ward moves at least one of these closer, or 
 
 - **The elements are liquid.** Buttons and cards on an ordinary page are made of liquid. At rest they look exactly like themselves: crisp edges, their own colour, the real DOM text.
 - **A click splashes.** Clicking a button bursts it into jets and fingers of liquid at the pointer. Enter or Space on a focused button splashes it from its centre.
-- **It always re-forms (T-1000).** However hard it was splashed or shaken, the liquid crawls home and re-forms the element: a button within 1.5 s of a splash, everything within 3 s of a shake.
+- **It always re-forms (T-1000).** However hard it was splashed or shaken, the liquid crawls home and re-forms the element: a button within 3 s of a splash, everything within 3 s of a shake.
 - **The pointer is felt, not punched.** Moving the pointer over the liquid raises a soft bulge that follows the pointer's motion. It never leaves a hole.
 - **Liquids merge and separate.** Dragging one element into another displaces and merges the two liquids. On release they separate and both re-form, and their labels never overlap.
 - **The text is liquid too.** While an element moves, its text stretches and tears with its own liquid (WebGPU). At rest the real DOM text is shown, pixel-exact.
@@ -31,7 +31,7 @@ What a person sees and feels. Every ward moves at least one of these closer, or 
 ### Scene steps
 1. Idle for 2 s: crisp edges and the DOM text visible at rest.
 2. Pointer sweep: soft bulge, no holes.
-3. Click "Splash": jets and fingers. **[WebGPU]** the text tears with the liquid. Re-form within **1.5 s** (`restAlpha = 1`).
+3. Click "Splash": jets and fingers. **[WebGPU]** the text tears with the liquid. Re-form within **3 s** (`restAlpha = 1`; amended in W67, D67-1).
 4. Tab + Enter on "Split": the same splash at the centre. The focus ring is visible throughout.
 5. Drag "Merge" into the card and release: displacement merge, separation, both re-form within **3 s**, and the labels never overlap.
 6. Shake: everything sloshes and re-forms within **3 s**.
@@ -152,3 +152,40 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D66-13 | Area hint comes from autoObserve candidates | W66 | dec_4189fd3e |
 | D66-14 | Resolved options carry a full Material | W66 | dec_1e47c536 |
 | D66-15 | Injected CSS in @layer liquiddom with !important; AMENDED 2026-10-04: paint/stacking rules scoped to screen and forced-colors: none instead of revert-layer (reverted to the UA default in print; was dec_2911ef26); two axe passes | W66 | dec_d05913c9 |
+| D67-1 | Re-form timing against the constants (blocking): `REST_S_MIN` 0.98 → 0.95 and a 3 s splash re-form budget (option 1) | W67 | dec_fe306ff0 |
+| D67-2 | Gravity stays unused until slice 6: gravity ignored until slice 6, proven by a no-effect test | W67 | dec_f525fbc3 |
+| D67-3 | Splash and shake impulses from the spike: spike impulses with spec damage (splash target only, shake all) | W67 | dec_c3555fda |
+| D67-4 | splash() and shake() validate strictly: strict whitelist validation in TS | W67 | dec_06beb181 |
+| D67-5 | splash on an unobserved element throws: Error for unobserved, TypeError for non-element | W67 | dec_602c802d |
+| D67-6 | The scene triggers shake through the test hook: shake via the test hook, no button | W67 | dec_c5bb8271 |
+| D67-7 | Physics constants: spike constants with the spec material mapping | W67 | dec_44d36e1b |
+| D67-8 | Strength 0 is a no-op: strength 0 is a no-op | W67 | dec_5570e6c1 |
+| D67-9 | One splash per click event: one splash per click, innermost element | W67 | dec_f78d0bca |
+| D67-10 | maxDev against the target the spring used: maxDev against the wobbled spring target | W67 | dec_9f4f536c |
+| D67-11 | Reduced-motion click gating belongs to W68: Rust-side ignore in W67, TS gating in W68 | W67 | dec_681bc282 |
+| D67-12 | Elements already on their targets start at rest: settle_if_at_rest after redistribute | W67 | dec_ff2cdb75 |
+| D67-13 | Edge-aligned rest ring plus R2 interior: edge-aligned ring + R2 interior | W67 | dec_d09082c5 |
+| D67-14 | Element velocity once per tick: rect velocity per tick, shared by its fixed steps | W67 | dec_41131b84 |
+| D67-15 | Cross-element lock probe: scenario probe; fallback is slice-6 parking | W67 | dec_14e3ffed |
+| D68-1 | Material preset values: water/honey/jelly as proposed | W68 | dec_42a7df27 |
+| D68-2 | Hover and focus: AMENDED 2026-10-06 — pointerenter/leave ignoring touch, initial :hover under (hover: hover), hover beats focus until slice 5 (was mouseenter/leave + focus beats hover, dec_802fccd4, dec_58e41ded) | W68 | dec_e431420b |
+| D68-3 | The soft pointer field is in Rust: velocity-only coupling, drag 6/s, radius 70 px | W68 | dec_0a6cdade |
+| D68-4 | Pointer velocity smoothing: per-frame sampling from the runtime clock | W68 | dec_f9697a6b |
+| D68-5 | Reduced-motion input gating in TS: TS gating with validation first | W68 | dec_2ca25ef8 |
+| D68-6 | presets join the export whitelist: `presets` exported with the material shape | W68 | dec_fce3114b |
+| D68-7 | Pointer end events: AMENDED 2026-10-06 — document pointerout with relatedTarget null (was pointerleave, dec_8adfe545), cancel, touch-up, blur deactivate | W68 | dec_ed96cd8d |
+| D68-8 | Swell shape: step change per spec B1 | W68 | dec_5bf52509 |
+| D68-9 | setMaterial/getMaterial semantics: atomic set, copying get | W68 | dec_e41cbdee |
+| D68-10 | Invalidate the fused AABB on particle-moving paths: invalidate on every particle-moving path | W68 | dec_b8d7e2bb |
+| D69-1 | Playground storage v2: playground v2: schema 2, v1 discarded, URL params validated and stripped, revert on TypeError | W69 | dec_4ef6c25e |
+| D69-2 | Recording pipeline: local record project (video on, RAF clock, canvas2d only), budgets read from NORTH-STAR, webm-to-gif via local ffmpeg | W69 | dec_1858b12e |
+| D69-3 | Splash scene layout: splash scene: Thin/Medium/Thick drops with per-element viscosity/recovery, pointer-only pool, strength/Splash all/Shake controls | W69 | dec_d116cb2e |
+| D69-4 | Whole-picture gate semantics: whole-picture gate checks structure and honesty; a ❌ step does not block gold | W69 | dec_ea35ba46 |
+| D69-5 | Carried observations go into the report: report + recommendation per carried item, no engine change in W69 | W69 | dec_035bc206 |
+| D69-6 | Published-dist browser smoke in CI: blocking dist smoke in CI with a core build step | W69 | dec_6de03f81 |
+| D70-1 | Spatially coherent shake impulse: coherent per-element shake field d·speed·(1 + 0.8·sin(π·u + φ)), no white noise, no rotation | W70 | dec_d54a6ce1 |
+| D70-2 | Lower the shake stiffness cap: SHAKE_STIFFNESS_CAP 0.4 → ~0.15, final in [0.1, 0.2] by measurement | W70 | dec_0412fd9a |
+| D70-3 | Raise the pointer drag: AMENDED — POINTER_DRAG_PER_S 12 (was range 12–24 with a pointer-only 3 px bar, dec_2bb9f606) | W70 | dec_7db9a25c |
+| D70-4 | Full density weight during the Canvas2D cross-fade: full density weight while restAlpha < 1, roundRect at restAlpha on top | W70 | dec_b98514b2 |
+| D70-5 | Make experience measurable: AMENDED — bulge ≥ 5 px across the pills, no-hole margin 10 px, slosh ≥ 24 px card / 12 px pills (was 3 px / 6 px / 3 px, dec_ec207f57) | W70 | dec_7db9a25c |
+| D70-6 | Step 8 in the recording plus a slice-2 addendum: ?rm=1 segment in the recording, re-record, slice-2 addendum for steps 2, 6, 8 | W70 | dec_40e9ea63 |

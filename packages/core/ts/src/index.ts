@@ -4,14 +4,24 @@
  * in the exports below is internal.
  */
 import { createFluidRuntime } from "./runtime";
-import { resolveOptions, validateElementOptions, type ElementOptions, type GravityOptions, type LiquidOptions } from "./options";
-import { validateMaterial, type Material } from "./material";
+import {
+  resolveOptions,
+  validateElementOptions,
+  validateShakeStrength,
+  validateSplashOptions,
+  type ElementOptions,
+  type GravityOptions,
+  type LiquidOptions,
+  type SplashOptions,
+} from "./options";
+import { mergeMaterial, snapshotMaterial, validateMaterial, type Material } from "./material";
 import { LiquidWasmLoadError } from "./wasm-loader";
 import { WebGPUUnavailableError } from "./renderers/webgpu-renderer";
 import { bindRuntime, unbindRuntime } from "./internal";
 
 export { LiquidWasmLoadError, WebGPUUnavailableError, validateMaterial };
-export type { ElementOptions, GravityOptions, LiquidOptions, Material };
+export { presets } from "./material";
+export type { ElementOptions, GravityOptions, LiquidOptions, Material, SplashOptions };
 
 export interface LiquidDOMInstance {
   /** Observe an element (idempotent). Returns its slot id. RangeError when all maxElements slots are taken. */
@@ -20,6 +30,23 @@ export interface LiquidDOMInstance {
   unobserve(el: HTMLElement): void;
   /** Re-read the element's background-color and color (needed after colour changes until slice 4). */
   refresh(el: HTMLElement): void;
+  /**
+   * Splash an observed element (spec §5). `strength` 0–2 (default 1, 0 = no-op);
+   * `at` in client px (default: the rect centre). Throws `TypeError` for invalid
+   * options or a non-element, and `Error` if `el` is not observed or the instance
+   * is destroyed. Ignored under reduced motion.
+   */
+  splash(el: HTMLElement, opts?: SplashOptions): void;
+  /**
+   * Shake every observed element. `strength` 0–2 (default 1, 0 = no-op). Throws
+   * `TypeError` when `strength` is not a finite number in [0, 2], and `Error` when
+   * the instance is destroyed. Ignored under reduced motion.
+   */
+  shake(strength?: number): void;
+  /** Validate, merge and apply a material change atomically (TypeError on invalid input; state unchanged). */
+  setMaterial(partial: Partial<Material>): void;
+  /** A copy of the current material. */
+  getMaterial(): Material;
   pause(): void;
   resume(): void;
   destroy(): void;
@@ -68,6 +95,8 @@ export class LiquidDOM {
     });
 
     let destroyed = false;
+    // W68 (D68-9): current material, the single source of truth for getMaterial().
+    let material: Material = { ...o.material };
     let discovery: MutationObserver | null = null;
     let warnedOverflow = false;
 
@@ -115,6 +144,38 @@ export class LiquidDOM {
       refresh(el: HTMLElement): void {
         live("refresh");
         runtime.refresh(el);
+      },
+
+      splash(el: HTMLElement, opts?: SplashOptions): void {
+        live("splash");
+        if (typeof HTMLElement === "undefined" || !(el instanceof HTMLElement)) {
+          throw new TypeError("[liquiddom] splash(el): el must be an HTMLElement");
+        }
+        const { strength, at } = validateSplashOptions(opts);
+        if (!runtime.splash(el, at, strength)) {
+          throw new Error("[liquiddom] splash: element is not observed");
+        }
+      },
+
+      shake(strength?: number): void {
+        live("shake");
+        runtime.shake(validateShakeStrength(strength));
+      },
+
+      setMaterial(partial: Partial<Material>): void {
+        live("setMaterial");
+        // W68 green review: read the caller's values once (getters included), then
+        // validate and merge that snapshot, so the core and getMaterial() agree.
+        const snap = snapshotMaterial(partial);
+        validateMaterial(snap); // W66: TypeError for non-objects, unknown keys (named), bad values
+        const next = mergeMaterial(material, snap);
+        runtime.setMaterial(next);
+        material = next;
+      },
+
+      getMaterial(): Material {
+        live("getMaterial");
+        return { ...material };
       },
 
       pause(): void {

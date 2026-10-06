@@ -2,7 +2,7 @@
  * Canvas2D fluid renderer (spec §3 "Canvas2D fallback", decision D64-11):
  * moving particles go through the density grid (blended colour, threshold),
  * resting elements are an exact `roundRect` at their home rect (plan
- * resolution B1), cross-faded by `restAlpha`. No liquid text: the DOM text is
+ * resolution B1), drawn at `restAlpha` over a full-weight density field while `restAlpha < 1` (D70-4). No liquid text: the DOM text is
  * always visible.
  *
  * Plan resolution A6: never `new ImageData` / `new OffscreenCanvas`; the
@@ -93,8 +93,10 @@ export class FluidCanvas2DRenderer implements Renderer {
       const id = home | 0;
       const paint = paints[id];
       if (!paint) continue; // no paint record (B12)
-      const weight = 1 - clamp01(state[id * STATE_STRIDE + St.REST_ALPHA]);
-      if (weight <= 0) continue;
+      // D70-4: full density weight while the element is not at rest. The rest roundRect fades
+      // in on top at restAlpha, so there is no translucent dip mid-transition (W69: ~151/255 at
+      // restAlpha 0.58, the pale flash on hover and at the end of a re-form).
+      if (!(clamp01(state[id * STATE_STRIDE + St.REST_ALPHA]) < 1)) continue;
       const radius = Math.min(KERNEL_RADIUS_PER_SPACING * paint.spacingPx, KERNEL_RADIUS_CAP_PX);
       grid.splat(
         dyn[Dyn.X * cap + i],
@@ -102,7 +104,7 @@ export class FluidCanvas2DRenderer implements Renderer {
         paint.areaPerParticle,
         radius,
         paint.background,
-        weight,
+        1,
       );
     }
   }

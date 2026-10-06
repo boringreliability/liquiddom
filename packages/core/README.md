@@ -54,6 +54,37 @@ liquid.isPaused; liquid.activeRenderer; liquid.particleCapacity; liquid.elementC
 
 After `destroy()`, every method throws except `unobserve()` and `destroy()`; `requestOrientationPermission()` returns a rejected promise instead of throwing synchronously.
 
+### Splash and shake
+
+```ts
+liquid.splash(el);                                                        // strength 1 at the rect centre
+liquid.splash(el, { strength: 1.6, at: { x: e.clientX, y: e.clientY } }); // client px
+liquid.shake();                                                           // every observed element sloshes
+liquid.shake(0.5);
+```
+
+- `strength` is 0–2 (default 1). `0` is a no-op. Anything else throws `TypeError`.
+- `splash` on an element that is not observed throws `Error`.
+- Clicking an observed element splashes at the pointer. Keyboard activation (Enter/Space, `event.detail === 0`) splashes at the rect centre. Native activation is never prevented.
+- `splash` on an observed element that is currently hidden (zero width or height) is a silent no-op.
+- Under reduced motion both are ignored: they still validate, and `splash` still throws for an element that is not observed, but nothing visible happens.
+- `SplashOptions` changed shape in 0.3: `threshold`, `count`, `jitter`, `speedScale`, `lifetimeMs` and `radius` are gone and throw a `TypeError`.
+
+### Material
+
+```ts
+import { LiquidDOM, presets } from "liquiddom";
+const liquid = await LiquidDOM.create({ material: presets.honey });
+liquid.setMaterial({ cohesion: 0.8 }); // validated and merged atomically, TypeError on invalid input
+liquid.getMaterial();                  // { viscosity: 0.9, cohesion: 0.8, recovery: 1.6 }
+```
+
+`viscosity` and `cohesion` are in [0, 1]; `recovery` is the re-form time in seconds, [0.2, 3]. Presets: `water`, `honey`, `jelly`. The 0.2 physics presets (`goo`, `jelly`, `firm` with `tension`, `damping`, …) no longer exist; passing their fields throws a `TypeError`.
+
+### Pointer and hover
+
+The liquid follows the pointer's motion within 70 px; a resting pointer only damps moving liquid and never digs a hole. Hovering an observed element swells its contour by 2 %. Hover comes from `pointerenter`/`pointerleave` on the element itself, mouse or pen only: touch is ignored, so a tap never leaves a stuck swell. Focus has no swell, and hover beats focus, so the click that focuses a hovered button keeps the swell. A detached or disabled element loses its hover at the next frame. Under reduced motion (`prefers-reduced-motion` or `forceReducedMotion`) the pointer field and hover are ignored. Known limitation: the pointer's idle velocity decay (×0.8) is per frame, so at 120 Hz the tail fades twice as fast in wall time as at 60 Hz.
+
 ## Accessibility
 
 - The canvas is `aria-hidden="true"` with `pointer-events: none`. It sits below the observed elements, so focus rings are always visible.

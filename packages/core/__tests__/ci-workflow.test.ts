@@ -150,3 +150,24 @@ describe("W65 CI e2e workflow", () => {
     expect(upload?.if ?? "").toMatch(RUNS_UNLESS_CANCELLED);
   });
 });
+
+describe("W69 CI dist smoke (D69-6)", () => {
+  it("given_ci_yml_when_parsed_then_dist_smoke_is_blocking_and_runs_after_the_pkg_download_and_the_dist_build", () => {
+    const e2e = job("e2e");
+    const down = stepIndex(
+      e2e,
+      (s) => typeof s.uses === "string" && s.uses.startsWith("actions/download-artifact@") && s.with?.name === "wasm-pkg",
+    );
+    expect(down, "e2e downloads wasm-pkg").toBeGreaterThanOrEqual(0);
+    // Core (clean → tsc → copy-wasm needs pkg/), the React adapter, then the example without its wasm-pack prebuild.
+    const build = stepIndex(e2e, (s) => s.run === "npm run e2e:dist:build");
+    expect(build, "e2e builds the published dist after the pkg/ download").toBeGreaterThan(down);
+    expect(stepsOf(e2e)[build]["continue-on-error"] ?? false, "the dist build step is blocking too").toBe(false);
+    const dist = runSteps(e2e, "--project=dist");
+    expect(dist).toHaveLength(1);
+    expect(dist[0].run).toBe("npx playwright test --project=dist");
+    expect(dist[0]["continue-on-error"] ?? false, "D69-6: the dist smoke is blocking").toBe(false);
+    expect(dist[0].env?.E2E_SUITE).toBe("dist");
+    expect(stepsOf(e2e).indexOf(dist[0])).toBeGreaterThan(build);
+  });
+});

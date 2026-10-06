@@ -88,7 +88,7 @@ export class DensityGrid {
   /**
    * Adds `massPx2 · weight · (1 − r²/R²)² / (πR²/3)` around `(xPx, yPx)`, so a
    * uniformly filled interior reads 1. `R` is capped at 8 px (and at least one
-   * cell). `weight` is `1 − restAlpha`.
+   * cell). `weight` scales the mass; the Canvas2D renderer passes 1 while `restAlpha < 1` (D70-4).
    */
   splat(xPx: number, yPx: number, massPx2: number, radiusPx: number, rgb: RGBA, weight = 1): void {
     if (!(weight > 0) || !(massPx2 > 0) || !Number.isFinite(xPx) || !Number.isFinite(yPx)) return;

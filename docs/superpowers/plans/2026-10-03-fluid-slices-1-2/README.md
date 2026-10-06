@@ -1,6 +1,6 @@
 # liquiddom fluid engine, slices 1–2: implementation plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking. **Every ward also follows WDD / GS-TDD:** write tests first → `wdd ward status NN red` → STOP for Dennis' "godkendt" → implement → green → `wdd ward status NN gold` → STOP. AI never runs `wdd complete`.
+> **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking. **Every ward also follows WDD / GS-TDD:** write tests first → `wdd ward status NN red` → STOP for Dennis' "godkendt" → implement → green → `wdd ward status NN gold` → STOP. AI never decides on its own that a ward is complete; after Dennis approves gold, AI may run `wdd complete` (or apply the transition by hand when the harness blocks it).
 
 **Goal:** Replace the retired soft-body engine with an MLS-MPM fluid engine in Rust/WASM. By the end of slice 2, observed DOM elements *are* liquid in the acceptance scene. They rest crisply, splash when clicked or activated from the keyboard, slosh on shake, respond to the pointer and hover, and always re-form. Everything is verified in real browsers.
 
@@ -22,9 +22,10 @@
 | W64 | 1 | [W64.md](W64.md) | **Liquid at rest, end to end:** Rust core, FFI, single-flight loader, FluidBridge, Canvas2D renderer, acceptance scene | 12 tasks |
 | W65 | 1 | [W65.md](W65.md) | Verification harness: Playwright (canvas2d blocking, webgpu soft), multi-instance stress, visual baseline, perf, CI | 13 tasks |
 | W66 | 1 | [W66.md](W66.md) | Public API swap, stylesheet, soft-body retirement, site freeze, adapters, versioning | 12 tasks |
-| W67 | 2 | [W67.md](W67.md) | **Splash and shake, end to end:** MPM dynamics, stiffness, restAlpha, click and keyboard splash | 15 tasks |
+| W67 | 2 | [W67.md](W67.md) | **Splash and shake, end to end:** MPM dynamics, stiffness, restAlpha, click and keyboard splash | 17 tasks (amended 2026-10-05: W67.3b, W67.6b) |
 | W68 | 2 | [W68.md](W68.md) | Pointer field, hover, material API and presets, reduced-motion gating | 15 tasks |
 | W69 | 2 | [W69.md](W69.md) | Playground on material, splash scene, **whole-picture check**, then STOP before slice 3 is planned | 9 tasks |
+| W70 | 2 (fix) | [W70.md](W70.md) | **Slice 2 fix:** coherent sloshing shake and cap 0.2, pointer drag 12 for a readable bulge, full-weight Canvas2D cross-fade, step 8 in the recording, slice-2 addendum. **Blocker before red** (D70-3/D70-5 thresholds, see the plan header) | 7 tasks |
 
 Order: W63 → W64 → W65 → W66 → W67 → W68 → W69. Each ward leaves `npm run verify` green.
 

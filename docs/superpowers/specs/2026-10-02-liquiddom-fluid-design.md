@@ -118,7 +118,7 @@ The elements **are** liquid, and so is their text. They splash, split, merge wit
 - **Target** = `rest_uv` mapped into the element's **current home rect** (slots 0–3 plus `home_dx/dy`, see the FFI section). A resize therefore changes the targets and the liquid gently follows the new shape. Scroll and drag become something the liquid follows.
 - **Stiffness:**
   - Each element has a stiffness `s ∈ [s_floor, 1]`, with `s_floor = 0.015`.
-  - Damage rules: `splash` sets `s ← min(s, 0.25·(2 − strength))` clamped to ≥ `s_floor`, `shake` sets `s ← min(s, 0.4)`, and drag sets `s ← min(s, 0.5)` while dragging.
+  - Damage rules: `splash` sets `s ← min(s, 0.25·(2 − strength))` clamped to ≥ `s_floor`, `shake` sets `s ← min(s, 0.2)` (amended in W70, D70-2), and drag sets `s ← min(s, 0.5)` while dragging.
   - Recovery: `ds/dt = (1 − s)/recovery`, with `recovery` defaulting to 0.7 s.
   - These are internal constants. Only `recovery` is a parameter.
 - **Slip drift** is kept: a grid-independent drift towards the target, scaled by `s²`, at rate 3/s, max 160 px/s. It is **documented as non-physical** (it does not conserve momentum). Without it, merged liquids never separate.
@@ -129,7 +129,7 @@ The elements **are** liquid, and so is their text. They splash, split, merge wit
 
 Rust owns it and exports it:
 - During G2P, Rust computes `maxDev` for each element: the max |x − target| over its particles, O(n).
-- `restAlpha ∈ [0,1]` rises towards 1 when `s > 0.98` and `maxDev < 0.75 px` have both held for at least 150 ms. It falls towards 0 immediately when either is broken. This hysteresis prevents flicker.
+- `restAlpha ∈ [0,1]` rises towards 1 when `s > 0.95` (amended in W67, D67-1) and `maxDev < 0.75 px` have both held for at least 150 ms. It falls towards 0 immediately when either is broken. This hysteresis prevents flicker.
 - The fade time is 120 ms both ways.
 
 ### Deformation gradient F (render-only)
@@ -169,7 +169,7 @@ F's cost (+4 floats of SoA plus an SVD per substep) is benchmarked in slice 4. I
 | Pointer move | A soft velocity field: particles within a 70 px radius are pulled towards the pointer's velocity with weight `(1 − d/r)²`. This replaces the spike's hard radial push (`POINTER_PUSH_PX`), which caused the hole |
 | `click` on an observed element | `splash` at the pointer position. **If `event.detail === 0`** (a keyboard-triggered click from Enter or Space on a focusable element), the splash is at the rect centre instead. Native activation is never prevented, so there is never a double splash |
 | Drag (pointerdown + > 4 px movement) | `home_dx/dy` follow the pointer while the DOM stays put. After the threshold, the following click splash is suppressed. On release `home_dx/dy` → 0 and the liquid crawls home |
-| `shake(strength)` | Global impulse: a random direction per element (seeded RNG) plus per-particle noise. Everything goes soft |
+| `shake(strength)` | Global impulse: a seeded direction `d` and phase `φ` per element, speed profile `1 + 0.8·sin(π·u + φ)` across the element (`u = (x − cx)/(w/2)`), no per-particle noise, no rotation (amended in W70, D70-1). Everything goes soft |
 | Gravity | `(gx, gy)` in the grid update. Clamped to 0 under reduced motion |
 | Droplets | Particles flung far away are ordinary liquid that crawls home. There is no separate entity type |
 
@@ -422,7 +422,7 @@ The page is `demo/scenes/acceptance.html`: three buttons ("Splash", "Split", "Me
 **Scene steps:**
 1. Idle for 2 s: crisp edges and the DOM text visible at rest.
 2. Pointer sweep: soft bulge, no holes.
-3. Click "Splash": jets and fingers. **[WebGPU]** the text tears with the liquid. Re-form within **1.5 s** (`restAlpha = 1`).
+3. Click "Splash": jets and fingers. **[WebGPU]** the text tears with the liquid. Re-form within **3 s** (`restAlpha = 1`; amended in W67, D67-1).
 4. Tab + Enter on "Split": the same splash at the centre. The focus ring is visible throughout.
 5. Drag "Merge" into the card and release: displacement merge, separation, both re-form within **3 s**, and the labels never overlap.
 6. Shake: everything sloshes and re-forms within **3 s**.
@@ -460,7 +460,7 @@ The page is `demo/scenes/acceptance.html`: three buttons ("Splash", "Split", "Me
   - mass conservation exactly (constant particle count and mass),
   - volume (mean J) within ±5% after the stress sequence,
   - no NaN or Inf, and every F finite with det > 0 after the stress sequence,
-  - re-form: `restAlpha = 1` within 1.5 s after a strength-1 splash and within 3 s after shake,
+  - re-form: `restAlpha = 1` within 3 s after a strength-1 splash and within 3 s after shake,
   - determinism: same seed and inputs give bit-identical positions,
   - the buffer strides match.
 - **Vitest (jsdom)** stays for TS logic that doesn't need a browser (option validation, the old-to-new mapping, adapters, lifecycle), using the explicit `testBackend`.

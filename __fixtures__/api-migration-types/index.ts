@@ -21,8 +21,8 @@ import type { LiquidPhysicsConfig } from "liquiddom";
 
 // ── SplashOptions changed shape (B9) ────────────────────────────────
 // 0.2: { threshold, count, jitter?, speedScale?, lifetimeMs?, radius? } (impulse() droplets).
-// 0.3: { strength?, at? } for splash(el, opts), added in W68. Before W68 the
-// type is absent; after W68 the old fields are excess properties. Both are errors.
+// 0.3: { strength?, at? } for splash(el, opts), added in W67. Before W67 the
+// type is absent; after W67 the old fields are excess properties. Both are errors.
 // @ts-expect-error the 0.2 SplashOptions shape no longer type-checks
 const oldSplash: Core.SplashOptions = { threshold: 5, count: 4, jitter: 1, speedScale: 0.3, lifetimeMs: 500, radius: 4 };
 
@@ -39,7 +39,7 @@ inst.getBuffer();
 void inst.capacity;
 // @ts-expect-error tween() is gone
 inst.tween(el, { toX: 0, toY: 0, duration: 100 });
-// @ts-expect-error impulse() is gone (splash() arrives in W68)
+// @ts-expect-error impulse() is gone (use splash(), W67)
 inst.impulse(el, { magnitude: 10 });
 // @ts-expect-error spawnDroplet() is gone
 inst.spawnDroplet({ x: 0, y: 0, vx: 0, vy: 0 });
@@ -121,3 +121,9 @@ export const migrationFixture = {
   oldSplash, o1, o2, o3, o4, o5, o6, o7, o8, o9, o10, options, elementOptions, material, gravity, id, capacities,
   renderer, created, reactRefOptions, reactOldRefOptions, elementProps, oldElementProps, vueRefOptions, vueOldRefOptions,
 };
+
+// W67: the 0.3 SplashOptions shape type-checks (B9).
+export const w67SplashNew: Core.SplashOptions = { strength: 1.5, at: { x: 10, y: 20 } };
+export const w67SplashDefault: Core.SplashOptions = {};
+// @ts-expect-error — `strength` is a number, not a string
+export const w67SplashBadStrength: Core.SplashOptions = { strength: "1" };

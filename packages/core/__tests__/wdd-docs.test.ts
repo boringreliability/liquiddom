@@ -513,3 +513,171 @@ describe("W63 direction gate discovery", () => {
     expect(gateViolations(fixture, 100)).toEqual([]);
   });
 });
+
+describe("W69: whole-picture check after slice 2", () => {
+  it("given_whole_picture_slice_2_when_read_then_it_has_status_per_scene_step_against_north_star_and_links_the_gif", async () => {
+    const reportPath = resolve(ROOT, ".wdd/memory/whole-picture/slice-2.md");
+    expect(existsSync(reportPath), "missing .wdd/memory/whole-picture/slice-2.md").toBe(true);
+    const report = readFileSync(reportPath, "utf8");
+    const lines = report.split("\n");
+    // Variable specifier: a literal path would fail vite import analysis for the whole file while e2e/north-star.ts is missing.
+    // Absolute path: a relative specifier under @vite-ignore resolves against the core project root (→ /e2e/north-star).
+    const northStarModule = resolve(ROOT, "e2e/north-star.ts");
+    const { reformBudgetMs } = (await import(/* @vite-ignore */ northStarModule)) as typeof import("../../../e2e/north-star");
+
+    // | Step | Scene step | Expected S2 | Observed | Evidence |
+    // Rows are searched only inside "## Scene steps" (other sections may hold numbered tables).
+    const stepsStart = lines.findIndex((l) => l.trim() === "## Scene steps");
+    expect(stepsStart, "missing ## Scene steps").toBeGreaterThanOrEqual(0);
+    const stepsEnd = lines.findIndex((l, i) => i > stepsStart && /^## /.test(l));
+    const stepLines = lines.slice(stepsStart + 1, stepsEnd === -1 ? lines.length : stepsEnd);
+    function rowCells(step: string): string[] {
+      const row = stepLines.find((l) => new RegExp(`^\\|\\s*${step}\\s*\\|`).test(l));
+      expect(row, `no table row for scene step ${step}`).toBeDefined();
+      return (row ?? "").split("|").slice(1, -1).map((c) => c.trim());
+    }
+
+    // The S2 column of the slice matrix, verbatim from spec §6 (= NORTH-STAR.md, W63 asserts equality).
+    const expectedS2: Record<string, string> = {
+      "1": "✅ C",
+      "2": "✅ C",
+      "3": "✅ C (no text)",
+      "4": "✅",
+      "5": "⏳",
+      "6": "✅",
+      "7": "⏳",
+      "8": "✅",
+    };
+    for (const [step, expected] of Object.entries(expectedS2)) {
+      const cells = rowCells(step);
+      expect(cells, `step ${step} row must have 5 cells`).toHaveLength(5);
+      expect(cells[2], `step ${step} expected-S2 cell`).toBe(expected);
+      const observed = cells[3] ?? "";
+      expect(["✅", "❌", "⏳"], `step ${step} observed status token`).toContain(observed.split(" ")[0]);
+      if (expected.startsWith("✅")) {
+        expect(observed.startsWith("⏳"), `step ${step} is expected in S2: observe ✅ or ❌, never ⏳`).toBe(false);
+      }
+      expect((cells[4] ?? "").length, `step ${step} needs evidence`).toBeGreaterThan(0);
+      if (expected.startsWith("✅")) {
+        // Concrete evidence: a screenshot name, a frame reference or a measured time, never prose alone.
+        expect(cells[4], `step ${step} evidence must be concrete (s2-stepN shot, frame, or a time)`).toMatch(
+          /s2-step\d|frame|\d+(\.\d+)?\s*(ms|s)\b/,
+        );
+      }
+    }
+    // Steps 3, 4 and 6 are re-form steps: the evidence carries the measured re-form time in ms.
+    for (const step of ["3", "4", "6"]) {
+      expect(rowCells(step)[4], `step ${step} evidence needs a measured re-form time in ms`).toMatch(/\b\d{2,5}\s*ms\b/);
+    }
+
+    // Steps 3 and 6 quote the re-form budget NORTH-STAR holds after D67-1 (never a stale 1.5 s).
+    const northStar = read(NORTH_STAR);
+    for (const step of [3, 6]) {
+      const seconds = String(reformBudgetMs(northStar, step) / 1000);
+      expect(rowCells(String(step))[1], `step ${step} scene-step cell quotes the NORTH-STAR budget`).toContain(
+        `within ${seconds} s`,
+      );
+    }
+
+    expect(report).toContain("NORTH-STAR.md");
+    expect(report).toContain("docs/superpowers/whole-picture/slice-2-canvas2d.gif");
+    expect(report).toMatch(/canvas2d only/i);
+    for (const heading of ["## Renderers", "## Scene steps", "## Carried", "## Perf", "## Drift check", "## Open points for slice 3"]) {
+      expect(report, `missing heading ${heading}`).toContain(heading);
+    }
+
+    // D69-5: one row per carried item, | Item | Evidence | Recommendation |, inside ## Carried.
+    const carriedStart = lines.findIndex((l) => l.trim() === "## Carried");
+    const carriedEnd = lines.findIndex((l, i) => i > carriedStart && /^## /.test(l));
+    const carried = lines.slice(carriedStart + 1, carriedEnd === -1 ? lines.length : carriedEnd);
+    const CARRIED_ITEMS = [
+      "DOM text contrast while the liquid is away",
+      "Furry in-motion edges (density renderer)",
+      "Shake reads as sliding blobs",
+      "Pointer-bulge strength (drag 6.0)",
+      "Material preset tuning",
+      "Ring density when the area hint is off",
+    ];
+    // Exactly the six D69-5 data rows (header and separator excluded).
+    const carriedData = carried.filter((l) => l.startsWith("|") && !/^\|\s*-/.test(l) && !/^\|\s*Item\s*\|/.test(l));
+    expect(carriedData, "## Carried must hold exactly 6 data rows").toHaveLength(6);
+    for (const item of CARRIED_ITEMS) {
+      const rows = carried.filter((l) => l.startsWith(`| ${item} |`));
+      expect(rows, `## Carried needs exactly one row for "${item}"`).toHaveLength(1);
+      const cells = (rows[0] ?? "").split("|").slice(1, -1).map((c) => c.trim());
+      expect(cells, `"${item}" row must have 3 cells`).toHaveLength(3);
+      expect((cells[1] ?? "").length, `"${item}" needs evidence`).toBeGreaterThan(0);
+      expect(cells[1], `"${item}" evidence must reference a frame, a value or a probe`).toMatch(/\d|frame|playground|probe/i);
+      expect((cells[2] ?? "").length, `"${item}" needs a recommendation`).toBeGreaterThan(0);
+    }
+    expect(report, "unfilled «…» tokens left in the report").not.toContain("«");
+
+    // ## Perf must carry at least one measured number with a unit.
+    const perfStart = lines.findIndex((l) => l.trim() === "## Perf");
+    const perfEnd = lines.findIndex((l, i) => i > perfStart && /^## /.test(l));
+    const perf = lines.slice(perfStart + 1, perfEnd === -1 ? lines.length : perfEnd).join("\n");
+    expect(perf, "## Perf needs at least one number in ms").toMatch(/\d+(\.\d+)?\s*ms\b/);
+
+    const gifPath = resolve(ROOT, "docs/superpowers/whole-picture/slice-2-canvas2d.gif");
+    expect(existsSync(gifPath), "missing GIF").toBe(true);
+    const gif = readFileSync(gifPath);
+    expect(gif.subarray(0, 6).toString("latin1")).toBe("GIF89a");
+    expect(gif.length).toBeLessThanOrEqual(10 * 1024 * 1024);
+  });
+});
+
+describe("W70: slice-2 addendum (D70-6)", () => {
+  it("given_the_slice_2_addendum_when_read_then_steps_2_6_and_8_are_re_rated_with_measured_evidence_and_the_addendum_gif_exists", async () => {
+    const path = resolve(ROOT, ".wdd/memory/whole-picture/slice-2-addendum.md");
+    expect(existsSync(path), "missing .wdd/memory/whole-picture/slice-2-addendum.md").toBe(true);
+    const md = readFileSync(path, "utf8");
+    const lines = md.split("\n");
+    const start = lines.findIndex((l) => l.trim() === "## Re-rated steps");
+    expect(start, "missing ## Re-rated steps").toBeGreaterThanOrEqual(0);
+    const end = lines.findIndex((l, i) => i > start && /^## /.test(l));
+    const table = lines.slice(start + 1, end === -1 ? lines.length : end);
+    // | Step | Scene step | W69 observed | W70 observed | Evidence |
+    function cells(step: string): string[] {
+      const row = table.find((l) => new RegExp(`^\\|\\s*${step}\\s*\\|`).test(l));
+      expect(row, `no row for scene step ${step}`).toBeDefined();
+      return (row ?? "").split("|").slice(1, -1).map((c) => c.trim());
+    }
+    for (const step of ["2", "6", "8"]) {
+      const c = cells(step);
+      expect(c, `step ${step} row must have 5 cells`).toHaveLength(5);
+      expect(["✅", "❌"], `step ${step} W70 status token`).toContain((c[3] ?? "").split(" ")[0]);
+      expect((c[4] ?? "").length, `step ${step} needs evidence`).toBeGreaterThan(0);
+    }
+    expect(cells("2")[2].startsWith("❌"), "W69 rated step 2 ❌").toBe(true);
+    expect(cells("6")[2].startsWith("❌"), "W69 rated step 6 ❌").toBe(true);
+    expect(cells("2")[4], "step 2: a measured bulge in px").toMatch(/\d+(\.\d+)?\s*px/);
+    expect(cells("2")[4], "step 2: a shot or frame").toMatch(/s2-step2|frame/);
+    expect(cells("6")[4], "step 6: the measured re-form in ms").toMatch(/\b\d{3,5}\s*ms\b/);
+    expect(cells("6")[4], "step 6: the measured slosh in px").toMatch(/\d+(\.\d+)?\s*px/);
+    expect(cells("6")[4], "step 6: a shot or frame").toMatch(/s2-step6|frame/);
+    expect(cells("8")[4], "step 8: the ?rm=1 recording").toMatch(/rm=1/);
+    expect(cells("8")[4], "step 8: a shot").toMatch(/s2-step8/);
+
+    const northStarModule = resolve(ROOT, "e2e/north-star.ts");
+    const { reformBudgetMs } = (await import(/* @vite-ignore */ northStarModule)) as typeof import("../../../e2e/north-star");
+    expect(cells("6")[1], "step 6 quotes the NORTH-STAR budget").toContain(
+      `within ${reformBudgetMs(read(NORTH_STAR), 6) / 1000} s`,
+    );
+
+    for (const heading of ["## Re-rated steps", "## Constants", "## Open points"]) {
+      expect(md, `missing heading ${heading}`).toContain(heading);
+    }
+    const cStart = lines.findIndex((l) => l.trim() === "## Constants");
+    const cEnd = lines.findIndex((l, i) => i > cStart && /^## /.test(l));
+    const constants = lines.slice(cStart + 1, cEnd === -1 ? lines.length : cEnd).join("\n");
+    for (const name of ["SHAKE_STIFFNESS_CAP", "SHAKE_PROFILE_AMPLITUDE", "POINTER_DRAG_PER_S"]) {
+      expect(constants, `## Constants names ${name}`).toContain(name);
+    }
+    expect(md, "links the W69 report it amends").toContain("slice-2.md");
+    expect(md).toContain("docs/superpowers/whole-picture/slice-2-addendum-canvas2d.gif");
+    expect(md, "unfilled «…» tokens left in the addendum").not.toContain("«");
+    const gif = readFileSync(resolve(ROOT, "docs/superpowers/whole-picture/slice-2-addendum-canvas2d.gif"));
+    expect(gif.subarray(0, 6).toString("latin1")).toBe("GIF89a");
+    expect(gif.length).toBeLessThanOrEqual(10 * 1024 * 1024);
+  });
+});

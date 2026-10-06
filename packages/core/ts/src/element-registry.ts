@@ -1,7 +1,7 @@
 import { parseBorderRadius } from "./border-radius";
 import { snapshotColorsWithout, type RGBA } from "./color";
 import type { FluidBridge } from "./fluid-bridge";
-import { ELEMENT_STRIDE, El, roundedRectArea } from "./fluid-layout";
+import { ELEMENT_STRIDE, El, Interaction, roundedRectArea } from "./fluid-layout";
 import type { ElementOptions } from "./options";
 import { ELEMENT_CLASS, decorateElement, undecorateElement } from "./stylesheet";
 
@@ -18,6 +18,8 @@ export interface RegistryDeps {
   coordOffset(): { x: number; y: number };
   /** Called on every observe/unobserve; the caller batches (see createMicrotaskBatcher). */
   scheduleRedistribute(): void;
+  /** W68: live reduced-motion state; interaction is written as IDLE while true (D68-5). */
+  reducedMotion?(): boolean;
 }
 
 export interface MicrotaskBatcher {
@@ -51,6 +53,10 @@ export function createMicrotaskBatcher(run: () => void): MicrotaskBatcher {
 
 interface InternalRecord extends ElementRecord {
   readonly rawRadius: string;
+  /** W68: a hover-capable pointer is over the element (pointerenter/pointerleave, touch ignored; D68-2 amended). */
+  hovered: boolean;
+  /** W68: the element itself has focus (focus/blur). */
+  focused: boolean;
 }
 
 /**
@@ -63,6 +69,67 @@ export class ElementRegistry {
   private readonly byEl = new Map<HTMLElement, InternalRecord>();
   /** This registry's decoration claims; the refcount itself lives in stylesheet.ts (shared across instances). */
   private readonly decorated = new Set<HTMLElement>();
+
+  private readonly interactionListeners = new Map<
+    HTMLElement,
+    {
+      readonly enter: (e: PointerEvent) => void;
+      readonly leave: (e: PointerEvent) => void;
+      readonly focus: () => void;
+      readonly blur: () => void;
+    }
+  >();
+
+  /**
+   * D68-2 (amended 2026-10-06, saga dec_58e41ded): hover comes from pointerenter/pointerleave
+   * with touch ignored (a tap's compatibility mouseenter has no matching mouseleave, so the
+   * swell stuck). The initial `:hover` is read only where the primary input can hover.
+   */
+  private attachInteraction(rec: InternalRecord): void {
+    const el = rec.el;
+    rec.hovered = canHover(el) && matchesHover(el);
+    rec.focused = el.ownerDocument.activeElement === el;
+    const ls = {
+      enter: (e: PointerEvent) => {
+        if (e.pointerType !== "touch") rec.hovered = true;
+      },
+      leave: (e: PointerEvent) => {
+        if (e.pointerType !== "touch") rec.hovered = false;
+      },
+      focus: () => {
+        rec.focused = true;
+      },
+      blur: () => {
+        rec.focused = false;
+      },
+    };
+    el.addEventListener("pointerenter", ls.enter);
+    el.addEventListener("pointerleave", ls.leave);
+    el.addEventListener("focus", ls.focus);
+    el.addEventListener("blur", ls.blur);
+    this.interactionListeners.set(el, ls);
+  }
+
+  private detachInteraction(el: HTMLElement): void {
+    const ls = this.interactionListeners.get(el);
+    if (!ls) return;
+    el.removeEventListener("pointerenter", ls.enter);
+    el.removeEventListener("pointerleave", ls.leave);
+    el.removeEventListener("focus", ls.focus);
+    el.removeEventListener("blur", ls.blur);
+    this.interactionListeners.delete(el);
+  }
+
+  /**
+   * D68-2 (amended again 2026-10-06, saga dec_e431420b): hover beats focus until slice 5, so the
+   * click that focuses a hovered button keeps its swell; D68-5: IDLE under reduced motion.
+   */
+  private interactionCode(rec: InternalRecord): number {
+    if (this.deps.reducedMotion?.() === true) return Interaction.IDLE;
+    if (rec.hovered) return Interaction.HOVER;
+    if (rec.focused) return Interaction.FOCUSED;
+    return Interaction.IDLE;
+  }
 
   constructor(
     private readonly bridge: FluidBridge,
@@ -112,9 +179,12 @@ export class ElementRegistry {
       background,
       text,
       rawRadius: cs.borderRadius || cs.borderTopLeftRadius || "",
+      hovered: false,
+      focused: false,
     };
     this.slots[id] = rec;
     this.byEl.set(el, rec);
+    this.attachInteraction(rec);
     const v = this.bridge.elementView();
     const o = id * ELEMENT_STRIDE;
     v[o + El.INTERACTION] = 0;
@@ -135,6 +205,7 @@ export class ElementRegistry {
   unobserve(el: HTMLElement): void {
     const rec = this.byEl.get(el);
     if (!rec) return;
+    this.detachInteraction(el);
     this.byEl.delete(el);
     this.slots[rec.id] = undefined;
     const o = rec.id * ELEMENT_STRIDE;
@@ -163,7 +234,13 @@ export class ElementRegistry {
     if (this.byEl.size === 0) return;
     const v = this.bridge.elementView();
     const off = this.deps.coordOffset();
-    for (const rec of this.byEl.values()) this.writeRect(rec, v, off);
+    for (const rec of this.byEl.values()) {
+      // Ward review: no pointerleave reaches a detached or disabled element, so hover would
+      // stick. Checked only while hovered (usually one element), so the cost is one test a frame.
+      if (rec.hovered && (!rec.el.isConnected || matchesDisabled(rec.el))) rec.hovered = false;
+      this.writeRect(rec, v, off);
+      v[rec.id * ELEMENT_STRIDE + El.INTERACTION] = this.interactionCode(rec);
+    }
   }
 
   /** Σ rounded-rect area of the observed elements (the density-budget warning). */
@@ -185,5 +262,31 @@ export class ElementRegistry {
     v[o + El.W] = r.width;
     v[o + El.H] = r.height;
     v[o + El.RADIUS] = parseBorderRadius(rec.rawRadius, r.width, r.height);
+  }
+}
+
+/** D68-2 amended: `(hover: hover)` on the element's own window; no matchMedia → cannot tell → false. */
+function canHover(el: HTMLElement): boolean {
+  try {
+    const win = el.ownerDocument.defaultView ?? (typeof window === "undefined" ? null : window);
+    return typeof win?.matchMedia === "function" && win.matchMedia("(hover: hover)").matches;
+  } catch {
+    return false;
+  }
+}
+
+function matchesHover(el: HTMLElement): boolean {
+  try {
+    return el.matches(":hover");
+  } catch {
+    return false;
+  }
+}
+
+function matchesDisabled(el: HTMLElement): boolean {
+  try {
+    return el.matches(":disabled");
+  } catch {
+    return false;
   }
 }

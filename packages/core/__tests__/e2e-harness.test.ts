@@ -12,6 +12,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   BASE_URL,
+  DIST_EXAMPLE_ROOT,
+  DIST_PORT,
   PORT,
   PROJECT_FILES,
   PROJECT_USE,
@@ -72,20 +74,52 @@ describe("W65 e2e harness", () => {
     expect(configRoutedTo("webgpu")).toEqual(["webgpu-smoke.spec.ts"]);
   });
 
-  it("given_e2e_spec_files_when_routed_then_canvas2d_runs_every_spec_except_smoke_and_perf", () => {
-    const expected = SPECS.filter((f) => f !== "webgpu-smoke.spec.ts" && f !== "perf.spec.ts");
+  it("given_e2e_spec_files_when_routed_then_canvas2d_runs_every_spec_except_smoke_perf_record_and_dist", () => {
+    const expected = SPECS.filter(
+      (f) => !["webgpu-smoke.spec.ts", "perf.spec.ts", "record.spec.ts", "dist.spec.ts"].includes(f),
+    );
     expect(routedTo("canvas2d")).toEqual(expected);
     expect(expected).toEqual(
       expect.arrayContaining(["acceptance.spec.ts", "guard.spec.ts", "modes.spec.ts", "multi-instance.spec.ts"]),
     );
   });
 
-  it("given_project_table_when_read_then_only_canvas2d_is_blocking_and_perf_runs_only_perf_spec", () => {
-    expect(PROJECT_FILES.filter((p) => p.blocking).map((p) => p.name)).toEqual(["canvas2d"]);
+  it("given_project_table_when_read_then_canvas2d_and_dist_are_blocking_and_perf_runs_only_perf_spec", () => {
+    // W69 (D69-6): the published-dist smoke is blocking as well.
+    expect(PROJECT_FILES.filter((p) => p.blocking).map((p) => p.name)).toEqual(["canvas2d", "dist"]);
     expect(routedTo("perf")).toEqual(["perf.spec.ts"]);
     expect(configRoutedTo("perf")).toEqual(["perf.spec.ts"]);
     expect(configRoutedTo("canvas2d")).toEqual(routedTo("canvas2d"));
     expect(cfgProjects.map((p) => p.name)).toEqual(PROJECT_FILES.map((p) => p.name));
+  });
+
+  it("given_e2e_spec_files_when_routed_then_record_project_runs_only_the_record_spec_and_is_not_blocking", () => {
+    // W69 (D69-2): the whole-picture recording is local-only.
+    expect(SPECS).toContain("record.spec.ts");
+    expect(routedTo("record")).toEqual(["record.spec.ts"]);
+    expect(PROJECT_FILES.find((p) => p.name === "record")?.blocking).toBe(false);
+    // Video only in the record project (useFor() in playwright.config.ts maps it to use.video).
+    expect(PROJECT_USE.record.video).toBe("on");
+    expect(PROJECT_USE.canvas2d.video).toBeUndefined();
+  });
+
+  it("given_e2e_spec_files_when_routed_then_dist_project_runs_only_the_dist_spec_on_its_own_port_and_is_blocking", () => {
+    // W69 (D69-6): the spec serves examples/react/dist itself (Vite preview API).
+    expect(SPECS).toContain("dist.spec.ts");
+    expect(routedTo("dist")).toEqual(["dist.spec.ts"]);
+    expect(configRoutedTo("dist")).toEqual(["dist.spec.ts"]);
+    expect(PROJECT_FILES.find((p) => p.name === "dist")?.blocking).toBe(true);
+    expect(PROJECT_USE.dist.video).toBeUndefined();
+    // 4173 is the demo server (D65-2) and Vite preview's default, so the dist port is explicit.
+    expect(DIST_PORT).toBe(4174);
+    expect(DIST_PORT).not.toBe(PORT);
+    expect(DIST_EXAMPLE_ROOT).toBe("examples/react");
+    const pkg = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
+    // --ignore-scripts skips the example's prebuild (wasm-pack is not in the Playwright CI image).
+    expect(pkg.scripts["e2e:dist:build"]).toBe(
+      "npm run build -w liquiddom && npm run build -w @liquiddom/react && npm run build -w liquiddom-react-example --ignore-scripts",
+    );
+    expect(pkg.scripts["e2e:dist"]).toBe("npm run e2e:dist:build && playwright test --project=dist");
   });
 
   it("given_webgpu_launch_args_when_read_then_they_equal_the_spec_swiftshader_flags", () => {

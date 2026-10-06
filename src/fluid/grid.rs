@@ -66,6 +66,39 @@ fn world_extent(v: f32, fallback: f32) -> f32 {
     }
 }
 
+/// W67 CFL cap (spec §2: 0.45 cells per substep, on particles AND grid). Scales
+/// (vx, vy) down to |v| ≤ vmax and keeps the direction. Non-finite input → 0.
+pub fn cap_speed(vx: f32, vy: f32, vmax: f32) -> (f32, f32) {
+    if !(vx.is_finite() && vy.is_finite()) {
+        return (0.0, 0.0);
+    }
+    if !(vmax.is_finite() && vmax >= 0.0) {
+        return (vx, vy);
+    }
+    match norm_if_above(vx, vy, vmax) {
+        Some(speed) => {
+            let k = vmax / speed;
+            (vx * k, vy * k)
+        }
+        None => (vx, vy),
+    }
+}
+
+/// `|(x, y)|` when it exceeds `max`, else `None` (perf round). Compares squared
+/// magnitudes, so the sqrt is only taken when the caller has to clamp. Falls back to
+/// `hypot` when the square overflows or `max` is negative/NaN, so huge finite input
+/// clamps exactly as before. NaN input gives `None`, as `hypot(NaN) > max` did.
+#[inline]
+pub fn norm_if_above(x: f32, y: f32, max: f32) -> Option<f32> {
+    let n2 = x * x + y * y;
+    if n2.is_finite() && max >= 0.0 {
+        (n2 > max * max).then(|| n2.sqrt())
+    } else {
+        let n = x.hypot(y);
+        (n > max).then_some(n)
+    }
+}
+
 pub struct Grid {
     pub cell_px: f32,
     pub inv_cell: f32,
@@ -243,10 +276,10 @@ impl Grid {
         }
     }
 
-    /// Momentum → velocity inside the dirty region, with slip walls at the
-    /// grid edges. `_dt` (gravity, slice 6) and `_vmax_cells` (grid CFL cap,
-    /// W67) are part of the contract and unused in W64.
-    pub fn update_velocities(&mut self, _dt: f32, _vmax_cells: f32) {
+    /// Momentum → velocity inside the dirty region, with slip walls at the grid
+    /// edges and the W67 CFL cap `vmax_cells` (cells/s; the solver passes
+    /// `MAX_CELLS_PER_SUBSTEP / dt`). `_dt` is for gravity (slice 6).
+    pub fn update_velocities(&mut self, _dt: f32, vmax_cells: f32) {
         let r = self.region;
         for y in r.y0..r.y1 {
             for x in r.x0..r.x1 {
@@ -263,6 +296,7 @@ impl Grid {
                 if (y < WALL_CELLS && vy < 0.0) || (y + WALL_CELLS + 1 > self.h && vy > 0.0) {
                     vy = 0.0;
                 }
+                let (vx, vy) = cap_speed(vx, vy, vmax_cells);
                 wr(&mut self.mvx, idx, vx);
                 wr(&mut self.mvy, idx, vy);
             }
@@ -363,5 +397,52 @@ mod tests {
         g.update_velocities(1.0 / 480.0, 0.45);
         assert_eq!(g.cells_touched - before, 2 * r.cells() as u64);
         assert!(r.cells() * 50 < g.w * g.h, "{} of {}", r.cells(), g.w * g.h);
+    }
+}
+
+#[cfg(test)]
+mod w67_tests {
+    use super::{cap_speed, norm_if_above};
+
+    #[test]
+    fn given_speed_above_cap_when_capped_then_scaled_to_cap_and_direction_kept() {
+        let (x, y) = cap_speed(30.0, 40.0, 25.0);
+        assert!((x - 15.0).abs() < 1e-5 && (y - 20.0).abs() < 1e-5);
+        let (x, y) = cap_speed(3.0, 4.0, 25.0);
+        assert!(
+            (x - 3.0).abs() < 1e-7 && (y - 4.0).abs() < 1e-7,
+            "below the cap: unchanged"
+        );
+    }
+
+    #[test]
+    fn given_non_finite_velocity_when_capped_then_zero() {
+        for (vx, vy) in [
+            (f32::NAN, 1.0),
+            (1.0, f32::INFINITY),
+            (f32::NEG_INFINITY, f32::NAN),
+        ] {
+            let (x, y) = cap_speed(vx, vy, 25.0);
+            assert!(x.abs() < f32::MIN_POSITIVE && y.abs() < f32::MIN_POSITIVE);
+        }
+    }
+
+    #[test]
+    fn given_huge_or_nan_speeds_when_capped_with_squared_norms_then_same_as_hypot() {
+        // Perf round: squares overflow at ~1.8e19; the hypot fallback keeps the old clamp.
+        let (x, y) = cap_speed(3.0e30, 4.0e30, 25.0);
+        assert!(
+            (x - 15.0).abs() < 1e-3 && (y - 20.0).abs() < 1e-3,
+            "({x}, {y})"
+        );
+        assert_eq!(norm_if_above(f32::NAN, 1.0, 5.0), None);
+        assert_eq!(norm_if_above(3.0, 4.0, 5.0), None, "on the cap: not above");
+        assert_eq!(norm_if_above(3.0, 4.0, 4.9), Some(5.0));
+        assert_eq!(norm_if_above(3.0, 4.0, f32::INFINITY), None);
+        assert_eq!(
+            norm_if_above(0.0, 0.0, -1.0),
+            Some(0.0),
+            "negative max: as hypot did"
+        );
     }
 }

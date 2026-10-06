@@ -140,8 +140,8 @@ Decision: APPROVED 2026-10-04 — window.__liquidTest contract in demo/test-hook
 | 21 | given_ci_yml_when_parsed_then_perf_step_is_non_blocking_and_its_json_is_uploaded | perf in CI (D65-8) |
 | 22 | given_ci_yml_when_parsed_then_e2e_update_baselines_job_is_workflow_dispatch_and_uploads_baselines | D65-7 |
 | 23 | given_playwright_config_when_loaded_then_webgpu_project_matches_only_the_smoke_spec | D65-5 (C8) |
-| 24 | given_e2e_spec_files_when_routed_then_canvas2d_runs_every_spec_except_smoke_and_perf | routing |
-| 25 | given_project_table_when_read_then_only_canvas2d_is_blocking_and_perf_runs_only_perf_spec | routing (D65-3) |
+| 24 | given_e2e_spec_files_when_routed_then_canvas2d_runs_every_spec_except_smoke_perf_record_and_dist | routing |
+| 25 | given_project_table_when_read_then_canvas2d_and_dist_are_blocking_and_perf_runs_only_perf_spec | routing (D65-3) |
 | 26 | given_webgpu_launch_args_when_read_then_they_equal_the_spec_swiftshader_flags | D65-5 |
 | 27 | given_playwright_config_when_loaded_then_webgpu_runs_new_headless_chromium_and_web_server_has_BROWSER_none_and_strictPort | D65-5, D65-2 |
 | 28 | given_samples_when_summarized_then_nearest_rank_p50_p95_mean_and_max | perf stats |

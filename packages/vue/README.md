@@ -35,6 +35,25 @@ import { LiquidProvider, LiquidElement } from "@liquiddom/vue";
 
 SSR-safe: nothing runs on the server.
 
+## Material
+
+`config` is read once on mount, so changing `config.material` later does nothing. Change the material live through the instance, for example with one of the core's `presets` (`water`, `honey`, `jelly`). `useLiquid()` returns a `Ref`, so read `.value`:
+
+```vue
+<script setup lang="ts">
+import { presets } from "liquiddom";
+import { useLiquid } from "@liquiddom/vue";
+
+const liquid = useLiquid();
+</script>
+
+<template>
+  <button @click="liquid?.setMaterial(presets.honey)">Honey</button>
+</template>
+```
+
+In a template the ref is unwrapped; in script use `useLiquid().value?.setMaterial(...)`. `getMaterial()` returns the resolved material. A preset also works at create time: `<LiquidProvider :config="{ material: presets.jelly }">`.
+
 ## Migrating from 0.2
 
 `useLiquidRef({ liquidType })` and `<LiquidElement :liquidType>` are gone; use `{ viscosity?, recovery? }`.

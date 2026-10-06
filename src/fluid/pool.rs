@@ -8,13 +8,17 @@
 //! below the new count keeps its home AND its exact `rest_uv`. Only the
 //! surplus ranks are freed and refilled. Never-placed particles snap to their
 //! target; already-placed particles keep `x, y` (they crawl, never snap).
+//!
+//! W67 (D67-13): each element's rest set is the edge ring (ranks below
+//! `edge_ring_count`, fixed per rect and core) followed by the progressive R2
+//! interior, so the stable assignment above still holds.
 
 use super::access::{positive, rd, rd_or, rd_u32, wr, wr_u32};
 use super::elements::Elements;
 use super::grid::Grid;
 use super::particles::{NO_HOME, Particles};
 use super::rng::Rng;
-use super::sampling::{apportion, rounded_rect_area, sample_rounded_rect};
+use super::sampling::{apportion, ring_spacing_px, rounded_rect_area, sample_edge_aligned};
 
 /// Pre-allocated scratch so `redistribute` never allocates (B7).
 pub struct PoolScratch {
@@ -57,7 +61,9 @@ pub fn redistribute(
     let total = u32::try_from(p.cap).unwrap_or(u32::MAX);
     let assigned = apportion(&s.weights, total, &mut s.counts);
 
-    // 2. Rest samples per element, stored contiguously by element id.
+    // 2. Rest samples per element, stored contiguously by element id: the edge ring
+    //    first, then the R2 interior (W67, D67-13).
+    let spacing = ring_spacing_px(g.cell_px);
     let mut start = 0usize;
     for id in 0..e.cap {
         let n = rd_u32(&s.counts, id) as usize;
@@ -70,7 +76,11 @@ pub fn redistribute(
                 (s.u.get_mut(start..start + n), s.v.get_mut(start..start + n))
         {
             let mut rng = Rng::derive(seed, u32::try_from(id).unwrap_or(u32::MAX));
-            sample_rounded_rect(r.w, r.h, r.r, &mut rng, ou, ov);
+            sample_edge_aligned(r.w, r.h, r.r, spacing, &mut rng, ou, ov);
+        }
+        if rect.is_none() {
+            // W67 ward-review fix: an inactive slot starts fresh when it is reused.
+            e.reset_slot(id);
         }
         let area = rd(&s.weights, id);
         wr_u32(&mut e.counts, id, u32::try_from(n).unwrap_or(u32::MAX));
@@ -266,6 +276,8 @@ mod tests {
             .collect();
         put(&mut e, 1, LAYOUT[0]);
         redistribute(&mut p, &mut e, &g, 1, false, &mut s);
+        // W67 D67-13 changed the layout: kept ranks below `edge_ring_count` are ring points.
+        // The ring spacing is fixed per core, so this now also proves the ring does not move.
         let mut kept = 0;
         for i in 0..N {
             if p.home[i] == 0 {
@@ -317,5 +329,83 @@ mod tests {
             (total - expected).abs() / expected < 1e-4,
             "{total} vs {expected}"
         );
+    }
+}
+
+#[cfg(test)]
+mod w67_tests {
+    use super::*;
+    use crate::fluid::layout::{EL_H, EL_RADIUS, EL_W, EL_X, EL_Y, ELEMENT_STRIDE};
+    use crate::fluid::sampling::{edge_ring_count, ring_spacing_px, rounded_rect_inward_distance};
+    use crate::fluid::scenario_tests::LAYOUT;
+
+    const N: usize = 8000;
+
+    #[test]
+    fn given_edge_layout_when_redistributed_then_counts_per_element_unchanged_and_ring_ranks_first()
+    {
+        let (mut p, mut e) = (Particles::new(N), Elements::new(32));
+        let g = Grid::new(1280.0, 800.0, 6.0, 200.0);
+        let mut s = PoolScratch::new(N, 32);
+        for (id, &[x, y, w, h, r]) in LAYOUT.iter().enumerate() {
+            let b = id * ELEMENT_STRIDE;
+            e.buf[b + EL_X] = x;
+            e.buf[b + EL_Y] = y;
+            e.buf[b + EL_W] = w;
+            e.buf[b + EL_H] = h;
+            e.buf[b + EL_RADIUS] = r;
+        }
+        assert_eq!(redistribute(&mut p, &mut e, &g, 1, false, &mut s), N as u32);
+
+        let weights: Vec<f32> = (0..32)
+            .map(|id| {
+                LAYOUT
+                    .get(id)
+                    .map_or(0.0, |l| rounded_rect_area(l[2], l[3], l[4]))
+            })
+            .collect();
+        let mut expected = [0u32; 32];
+        apportion(&weights, N as u32, &mut expected);
+        assert_eq!(
+            &e.counts[..],
+            &expected[..],
+            "D67-13 leaves the counts to the largest-remainder apportionment"
+        );
+
+        let spacing = ring_spacing_px(g.cell_px);
+        assert!(
+            (spacing - 3.0).abs() < 1e-6,
+            "cell 6 px → spacing 3 px: {spacing}"
+        );
+        for (id, &[_, _, w, h, r]) in LAYOUT.iter().enumerate() {
+            let ring = u32::try_from(edge_ring_count(w, h, r, spacing)).unwrap();
+            assert!(
+                ring > 0 && ring < e.counts[id],
+                "element {id}: ring {ring} of {}",
+                e.counts[id]
+            );
+            let mut on_ring = 0;
+            for i in (0..N).filter(|&i| p.home[i] == id as u32) {
+                let d = rounded_rect_inward_distance(p.rest_u[i] * w, p.rest_v[i] * h, w, h, r);
+                if p.rank[i] < ring {
+                    assert!(
+                        (d - 0.5 * spacing).abs() < 1e-3,
+                        "element {id} rank {}: inset {d}",
+                        p.rank[i]
+                    );
+                    on_ring += 1;
+                } else {
+                    assert!(
+                        d >= spacing - 1e-3,
+                        "element {id} rank {}: interior inset {d}",
+                        p.rank[i]
+                    );
+                }
+            }
+            assert_eq!(
+                on_ring, ring,
+                "element {id}: exactly the first {ring} ranks form the ring"
+            );
+        }
     }
 }

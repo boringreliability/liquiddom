@@ -1,7 +1,10 @@
 //! Rounded-rect geometry, largest-remainder apportionment and seeded
 //! progressive sampling (spec §2 "Particle pool and elements", decision D64-3).
 
+use std::f32::consts::{FRAC_PI_2, PI, TAU};
+
 use super::access::positive;
+use super::grid::PARTICLES_PER_CELL_AT_HINT;
 use super::rng::Rng;
 
 /// Sample points keep this distance (px) from the rounded-rect outline.
@@ -105,15 +108,31 @@ pub fn sample_rounded_rect(
     out_u: &mut [f32],
     out_v: &mut [f32],
 ) {
-    let inset2 = 2.0 * SAMPLE_INSET_PX;
-    let usable = positive(w) && positive(h) && w > inset2 && h > inset2;
+    sample_rounded_rect_inset(w, h, r, SAMPLE_INSET_PX, rng, out_u, out_v);
+}
+
+/// `sample_rounded_rect` with the outline inset by `inset` px instead of
+/// `SAMPLE_INSET_PX`. W67 (D67-13) samples the interior behind the edge ring with an
+/// inset of one ring spacing. For `SAMPLE_INSET_PX` it is bit-identical to W64's sampler.
+pub fn sample_rounded_rect_inset(
+    w: f32,
+    h: f32,
+    r: f32,
+    inset: f32,
+    rng: &mut Rng,
+    out_u: &mut [f32],
+    out_v: &mut [f32],
+) {
+    let inset2 = 2.0 * inset;
+    let usable =
+        inset.is_finite() && inset >= 0.0 && positive(w) && positive(h) && w > inset2 && h > inset2;
     if !usable {
         out_u.fill(0.5);
         out_v.fill(0.5);
         return;
     }
     let (iw, ih) = (w - inset2, h - inset2);
-    let ir = (clamp_radius(w, h, r) - SAMPLE_INSET_PX).max(0.0);
+    let ir = (clamp_radius(w, h, r) - inset).max(0.0);
     let off_x = f64::from(rng.next_f32());
     let off_y = f64::from(rng.next_f32());
     let n = out_u.len().min(out_v.len());
@@ -128,8 +147,8 @@ pub fn sample_rounded_rect(
             let lx = (off_x + k as f64 * R2_A1).fract() as f32 * iw;
             let ly = (off_y + k as f64 * R2_A2).fract() as f32 * ih;
             if inside_rounded_rect(lx, ly, iw, ih, ir) {
-                *u = (lx + SAMPLE_INSET_PX) / w;
-                *v = (ly + SAMPLE_INSET_PX) / h;
+                *u = (lx + inset) / w;
+                *v = (ly + inset) / h;
                 placed = true;
                 break;
             }
@@ -138,6 +157,158 @@ pub fn sample_rounded_rect(
             *u = 0.5;
             *v = 0.5;
         }
+    }
+}
+
+// ---- W67 (D67-13): edge-aligned rest ring + R2 interior --------------------------
+//
+// W64's R2 layout is anisotropic at the outline (edge raggedness sd 0.48 px in motion,
+// against 0.02 px for a regular grid). W67 puts each element's outermost layer evenly
+// on its rounded outline and keeps R2 for the interior. The cost is paid at
+// redistribute only, and the layout stays deterministic.
+
+/// The rest-ring spacing in px: the particle spacing at the area hint. The cell holds
+/// `PARTICLES_PER_CELL_AT_HINT` (4) particles at the hint (B5), so it is cell / 2. It is
+/// fixed for the core's lifetime, so a kept element's ring never moves when another
+/// element is observed (the D64-3 stable assignment holds).
+pub fn ring_spacing_px(cell_px: f32) -> f32 {
+    cell_px / PARTICLES_PER_CELL_AT_HINT.sqrt()
+}
+
+/// Perimeter (px) of the rounded rect `(w, h, r)`, with the radius clamped; 0 for a degenerate rect.
+pub fn rounded_rect_perimeter(w: f32, h: f32, r: f32) -> f32 {
+    if !positive(w) || !positive(h) {
+        return 0.0;
+    }
+    let r = clamp_radius(w, h, r);
+    2.0 * (w - 2.0 * r) + 2.0 * (h - 2.0 * r) + TAU * r
+}
+
+/// The point at arc length `s` (px) along the outline of the rounded rect
+/// `[0, w] × [0, h]`, clockwise from `(r, 0)` with y down. The segment order is top,
+/// top-right corner, right, bottom-right, bottom, bottom-left, left and top-left.
+/// `s` wraps around. Degenerate input gives the centre.
+pub fn rounded_rect_point_at(w: f32, h: f32, r: f32, s: f32) -> (f32, f32) {
+    let p = rounded_rect_perimeter(w, h, r);
+    if !positive(p) || !s.is_finite() {
+        return (0.5 * w.max(0.0), 0.5 * h.max(0.0));
+    }
+    let r = clamp_radius(w, h, r);
+    let (a, b, q) = (w - 2.0 * r, h - 2.0 * r, FRAC_PI_2 * r);
+    let arc = |cx: f32, cy: f32, start: f32, len: f32| -> (f32, f32) {
+        let t = start + if r > 0.0 { len / r } else { 0.0 };
+        (cx + r * t.cos(), cy + r * t.sin())
+    };
+    let mut s = s.rem_euclid(p);
+    if s <= a {
+        return (r + s, 0.0);
+    }
+    s -= a;
+    if s <= q {
+        return arc(w - r, r, -FRAC_PI_2, s);
+    }
+    s -= q;
+    if s <= b {
+        return (w, r + s);
+    }
+    s -= b;
+    if s <= q {
+        return arc(w - r, h - r, 0.0, s);
+    }
+    s -= q;
+    if s <= a {
+        return (w - r - s, h);
+    }
+    s -= a;
+    if s <= q {
+        return arc(r, h - r, FRAC_PI_2, s);
+    }
+    s -= q;
+    if s <= b {
+        return (0.0, h - r - s);
+    }
+    s -= b;
+    arc(r, r, PI, s.min(q))
+}
+
+/// Distance (px) from the local point `(lx, ly)` inward to the outline of the rounded
+/// rect `[0, w] × [0, h]`: 0 on the outline, positive inside, negative outside.
+/// A degenerate rect gives −∞. W67 uses it to check the ring and to measure edge raggedness.
+pub fn rounded_rect_inward_distance(lx: f32, ly: f32, w: f32, h: f32, r: f32) -> f32 {
+    if !positive(w) || !positive(h) {
+        return f32::NEG_INFINITY;
+    }
+    let r = clamp_radius(w, h, r);
+    let (dx, dy) = (lx - lx.clamp(r, w - r), ly - ly.clamp(r, h - r));
+    if dx.abs() > 0.0 && dy.abs() > 0.0 {
+        return r - dx.hypot(dy);
+    }
+    lx.min(w - lx).min(ly).min(h - ly)
+}
+
+/// The inset outline the ring lies on: `(w − spacing, h − spacing, r − spacing/2)`,
+/// offset by `spacing / 2`. Its corner centres are the original ones.
+fn ring_outline(w: f32, h: f32, r: f32, spacing: f32) -> (f32, f32, f32) {
+    (
+        w - spacing,
+        h - spacing,
+        (clamp_radius(w, h, r) - 0.5 * spacing).max(0.0),
+    )
+}
+
+/// The number of ring points for `(w, h, r)` at `spacing`: the inset outline divided
+/// into arcs of about one spacing. It is 0 (no ring) for a non-positive spacing, a
+/// degenerate rect, or a rect with `w` or `h ≤ 2·spacing`.
+pub fn edge_ring_count(w: f32, h: f32, r: f32, spacing: f32) -> usize {
+    if !positive(spacing)
+        || !positive(w)
+        || !positive(h)
+        || w <= 2.0 * spacing
+        || h <= 2.0 * spacing
+    {
+        return 0;
+    }
+    let (iw, ih, ir) = ring_outline(w, h, r, spacing);
+    (rounded_rect_perimeter(iw, ih, ir) / spacing).round() as usize
+}
+
+/// D67-13 rest layout of one element, written to `out_u/out_v` (uv in `[0, 1]²`):
+/// - The first `min(n, edge_ring_count)` points lie evenly on the outline inset by
+///   `spacing / 2`, at arc length `(k + 0.5)·P/m`. They depend only on
+///   `(w, h, r, spacing)` and never draw from `rng`.
+/// - The rest are the R2 sequence inside the outline inset by one `spacing`, so every
+///   interior point lies strictly inside the ring.
+///
+/// For a fixed rect and spacing, the layout of `n` points is therefore a prefix of the
+/// layout of `n + 1` (D64-3). The exception is `n` below the ring count; the ring is
+/// then spread over the `n` points. A rect too small for a ring falls back to
+/// `sample_rounded_rect`, which is W64's layout.
+pub fn sample_edge_aligned(
+    w: f32,
+    h: f32,
+    r: f32,
+    spacing: f32,
+    rng: &mut Rng,
+    out_u: &mut [f32],
+    out_v: &mut [f32],
+) {
+    let ring = edge_ring_count(w, h, r, spacing);
+    if ring == 0 {
+        sample_rounded_rect(w, h, r, rng, out_u, out_v);
+        return;
+    }
+    let n = out_u.len().min(out_v.len());
+    let m = ring.min(n);
+    let half = 0.5 * spacing;
+    let (iw, ih, ir) = ring_outline(w, h, r, spacing);
+    let step = rounded_rect_perimeter(iw, ih, ir) / m.max(1) as f32;
+    for (k, (u, v)) in out_u.iter_mut().zip(out_v.iter_mut()).take(m).enumerate() {
+        let (lx, ly) = rounded_rect_point_at(iw, ih, ir, (k as f32 + 0.5) * step);
+        *u = (lx + half) / w;
+        *v = (ly + half) / h;
+    }
+    if let (Some(iu), Some(iv)) = (out_u.get_mut(m..n), out_v.get_mut(m..n)) {
+        sample_rounded_rect_inset(w, h, r, spacing, rng, iu, iv);
     }
 }
 
@@ -246,5 +417,180 @@ mod tests {
             assert!(u.iter().chain(v.iter()).all(|x| (0.0..=1.0).contains(x)));
         }
         assert_eq!(rounded_rect_area(f32::NAN, 1.0, 0.0), 0.0);
+    }
+}
+
+#[cfg(test)]
+mod w67_tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    /// The acceptance scene's ring spacing: the cell is √(4·76 057 / 8000) ≈ 6.166 px (B5),
+    /// so the spacing is ≈ 3.083 px.
+    const SPACING: f32 = 3.083;
+    /// Acceptance counts (8000 particles over 76 057 px²): about 655 per button and 6035 for the card.
+    const SHAPES: [(f32, f32, f32, usize); 2] =
+        [(140.0, 48.0, 24.0, 655), (320.0, 180.0, 16.0, 6035)];
+
+    fn layout(w: f32, h: f32, r: f32, n: usize, seed: u32) -> (Vec<f32>, Vec<f32>) {
+        let mut u = vec![-1.0; n];
+        let mut v = vec![-1.0; n];
+        sample_edge_aligned(w, h, r, SPACING, &mut Rng::new(seed), &mut u, &mut v);
+        (u, v)
+    }
+
+    /// The ring points of a seed-1 layout, in local px.
+    fn ring_px(w: f32, h: f32, r: f32, n: usize) -> Vec<(f32, f32)> {
+        let m = edge_ring_count(w, h, r, SPACING);
+        let (u, v) = layout(w, h, r, n, 1);
+        u.iter()
+            .zip(v.iter())
+            .take(m)
+            .map(|(&a, &b)| (a * w, b * h))
+            .collect()
+    }
+
+    fn bits(x: &[f32]) -> Vec<u32> {
+        x.iter().map(|f| f.to_bits()).collect()
+    }
+
+    #[test]
+    fn given_rounded_rect_when_edge_layout_sampled_then_every_ring_point_on_contour_inset_half_spacing()
+     {
+        for (w, h, r, n) in SHAPES {
+            let m = edge_ring_count(w, h, r, SPACING);
+            assert!(m > 50 && m < n, "{w}×{h}: a ring of {m} for {n} particles");
+            let ring = ring_px(w, h, r, n);
+            assert_eq!(ring.len(), m);
+            for (k, &(x, y)) in ring.iter().enumerate() {
+                let d = rounded_rect_inward_distance(x, y, w, h, r);
+                assert!(
+                    (d - 0.5 * SPACING).abs() < 1e-3,
+                    "{w}×{h} ring point {k} at ({x}, {y}): inset {d}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn given_edge_ring_when_laid_out_then_neighbour_spacing_coefficient_of_variation_below_0_05() {
+        for (w, h, r, n) in SHAPES {
+            let ring = ring_px(w, h, r, n);
+            let gaps: Vec<f32> = (0..ring.len())
+                .map(|k| {
+                    let (a, b) = (ring[k], ring[(k + 1) % ring.len()]);
+                    (a.0 - b.0).hypot(a.1 - b.1)
+                })
+                .collect();
+            let mean = gaps.iter().sum::<f32>() / gaps.len() as f32;
+            let sd =
+                (gaps.iter().map(|g| (g - mean).powi(2)).sum::<f32>() / gaps.len() as f32).sqrt();
+            assert!(
+                sd / mean < 0.05,
+                "{w}×{h}: spacing CV {} (mean {mean}, sd {sd})",
+                sd / mean
+            );
+            assert!(
+                (mean - SPACING).abs() < 0.05 * SPACING,
+                "{w}×{h}: the ring spacing matches the interior spacing: {mean}"
+            );
+        }
+    }
+
+    #[test]
+    fn given_edge_layout_when_sampled_then_interior_points_strictly_inside_the_ring() {
+        for (w, h, r, n) in SHAPES {
+            let m = edge_ring_count(w, h, r, SPACING);
+            let (u, v) = layout(w, h, r, n, 1);
+            assert_eq!(u.len(), n, "the total count is unchanged");
+            assert!(u.iter().chain(v.iter()).all(|x| (0.0..=1.0).contains(x)));
+            let interior: Vec<(f32, f32)> = u
+                .iter()
+                .zip(v.iter())
+                .skip(m)
+                .map(|(&a, &b)| (a * w, b * h))
+                .collect();
+            assert_eq!(interior.len(), n - m);
+            let min = interior
+                .iter()
+                .map(|&(x, y)| rounded_rect_inward_distance(x, y, w, h, r))
+                .fold(f32::INFINITY, f32::min);
+            assert!(
+                min >= SPACING - 1e-3,
+                "{w}×{h}: interior points keep one spacing from the outline: {min}"
+            );
+            assert!(
+                min > 0.5 * SPACING + 1e-3,
+                "{w}×{h}: strictly inside the ring"
+            );
+            let distinct: HashSet<(u32, u32)> = interior
+                .iter()
+                .map(|&(x, y)| (x.to_bits(), y.to_bits()))
+                .collect();
+            assert_eq!(distinct.len(), n - m, "{w}×{h}: no fallback to the centre");
+        }
+    }
+
+    #[test]
+    fn given_same_seed_when_edge_layout_sampled_twice_then_uv_bit_identical_and_ring_seed_independent()
+     {
+        let (w, h, r, n) = SHAPES[1];
+        let m = edge_ring_count(w, h, r, SPACING);
+        let (u1, v1) = layout(w, h, r, n, 9);
+        let (u2, v2) = layout(w, h, r, n, 9);
+        assert_eq!(bits(&u1), bits(&u2));
+        assert_eq!(bits(&v1), bits(&v2));
+        let (u3, v3) = layout(w, h, r, n, 10);
+        assert_eq!(
+            bits(&u1[..m]),
+            bits(&u3[..m]),
+            "the ring depends on the geometry only"
+        );
+        assert_eq!(bits(&v1[..m]), bits(&v3[..m]));
+        assert_ne!(bits(&u1[m..]), bits(&u3[m..]), "the interior is seeded");
+        let (u4, v4) = layout(w, h, r, n - 500, 9);
+        assert_eq!(
+            bits(&u4),
+            bits(&u1[..n - 500]),
+            "D64-3: a shorter layout is a prefix"
+        );
+        assert_eq!(bits(&v4), bits(&v1[..n - 500]));
+    }
+
+    #[test]
+    fn given_rect_too_small_or_non_finite_when_edge_layout_sampled_then_r2_fallback_without_panic()
+    {
+        assert_eq!(
+            edge_ring_count(6.0, 6.0, 0.0, SPACING),
+            0,
+            "w ≤ 2·spacing: no ring"
+        );
+        for (w, h, r, s) in [
+            (6.0, 6.0, 0.0, SPACING),
+            (140.0, 48.0, 24.0, f32::NAN),
+            (140.0, 48.0, 24.0, 0.0),
+            (140.0, 48.0, 24.0, -3.0),
+            (f32::NAN, 48.0, 4.0, SPACING),
+            (140.0, f32::INFINITY, 4.0, SPACING),
+            (140.0, 48.0, f32::NAN, SPACING),
+            (0.8, 0.8, 0.0, SPACING),
+        ] {
+            let mut u = vec![-1.0; 16];
+            let mut v = vec![-1.0; 16];
+            sample_edge_aligned(w, h, r, s, &mut Rng::new(1), &mut u, &mut v);
+            assert!(
+                u.iter().chain(v.iter()).all(|x| (0.0..=1.0).contains(x)),
+                "({w}, {h}, {r}, {s})"
+            );
+        }
+        let (mut a, mut b) = (vec![0.0; 16], vec![0.0; 16]);
+        let (mut c, mut d) = (vec![0.0; 16], vec![0.0; 16]);
+        sample_edge_aligned(6.0, 6.0, 0.0, SPACING, &mut Rng::new(1), &mut a, &mut b);
+        sample_rounded_rect(6.0, 6.0, 0.0, &mut Rng::new(1), &mut c, &mut d);
+        assert_eq!(
+            (bits(&a), bits(&b)),
+            (bits(&c), bits(&d)),
+            "no ring: exactly W64's R2 layout"
+        );
     }
 }

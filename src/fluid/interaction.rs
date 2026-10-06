@@ -1,0 +1,674 @@
+//! Splash and shake (spec §2 "Interaction"; W67). W68 adds the soft pointer field here.
+//!
+//! Both add velocity to particles and damage element stiffness, so the liquid
+//! goes soft and then re-forms (T-1000). They draw only from the core's
+//! interaction RNG stream: same seed + same call sequence = bit-identical velocities.
+//! W70: shake is a spatially coherent field per element (D70-1), cap 0.2 (D70-2).
+
+use std::f32::consts::{PI, TAU};
+
+use super::access::{add, rd, rd_u32, wr};
+use super::elements::{Elements, S_FLOOR};
+use super::grid::Grid;
+use super::particles::Particles;
+use super::rng::Rng;
+use super::solver::{PointerField, PointerGrid};
+
+/// Splash speed at strength 1, px/s (D67-3).
+pub const SPLASH_SPEED_PX_S: f32 = 950.0;
+/// Splash radius = max(110 px, 0.75 · element diagonal) (D67-3).
+pub const SPLASH_RADIUS_MIN_PX: f32 = 110.0;
+pub const SPLASH_RADIUS_PER_DIAGONAL: f32 = 0.75;
+/// Angular jitter per particle (±rad), so the sheet tears into fingers.
+pub const SPLASH_ANGLE_JITTER_RAD: f32 = 0.45;
+/// Shake speed at strength 1, px/s (D67-3).
+pub const SHAKE_SPEED_PX_S: f32 = 520.0;
+/// D70-1: amplitude `A` of the coherent speed profile `1 + A · sin(π · u + φ)` across an element.
+pub const SHAKE_PROFILE_AMPLITUDE: f32 = 0.8;
+/// D70-2 (amends spec §2's 0.4): shake sets s ← min(s, 0.2). The highest value in [0.1, 0.2]
+/// that passes the W70 slosh metric (pre-plan: re-form 136 frames, budget 180).
+pub const SHAKE_STIFFNESS_CAP: f32 = 0.2;
+pub const STRENGTH_MAX: f32 = 2.0;
+
+/// The scalars of `FluidCore::splash` (buffer-space px).
+#[derive(Clone, Copy, Debug)]
+pub struct SplashAt {
+    pub id: u32,
+    pub x_px: f32,
+    pub y_px: f32,
+    pub strength: f32,
+}
+
+/// Strength in (0, 2]. NaN, ±inf and ≤ 0 → None (D67-8: 0 is a no-op).
+pub fn sanitize_strength(strength: f32) -> Option<f32> {
+    if !strength.is_finite() || strength <= 0.0 {
+        return None;
+    }
+    Some(strength.min(STRENGTH_MAX))
+}
+
+/// Spec §2: splash sets s ← min(s, 0.25·(2 − strength)), at least s_floor.
+pub fn splash_stiffness_cap(strength: f32) -> f32 {
+    (0.25 * (2.0 - strength)).max(S_FLOOR)
+}
+
+/// Two seeded low-frequency angular lobes: jets and fingers instead of a uniform ring.
+struct Lobes {
+    k1: f32,
+    k2: f32,
+    phase1: f32,
+    phase2: f32,
+}
+
+impl Lobes {
+    fn draw(rng: &mut Rng) -> Lobes {
+        let k1 = 4.0 + (rng.next_f32() * 4.0).floor();
+        let k2 = k1 + 2.0 + (rng.next_f32() * 3.0).floor();
+        let phase1 = rng.next_f32() * TAU;
+        let phase2 = rng.next_f32() * TAU;
+        Lobes {
+            k1,
+            k2,
+            phase1,
+            phase2,
+        }
+    }
+
+    /// Angular gain in [0.3, 1.2].
+    fn gain(&self, theta: f32) -> f32 {
+        let raw = 0.6 * (self.k1 * theta + self.phase1).sin()
+            + 0.4 * (self.k2 * theta + self.phase2).sin();
+        0.3 + 0.9 * (raw.max(-0.2) + 0.2) / 1.2
+    }
+}
+
+/// Radial splash on the particles of element `at.id` within the splash radius.
+/// Neighbours are hit only by the flying liquid (D67-3). Hit particles get J = 1.
+/// Returns false and changes nothing for an inactive or out-of-range id, an element with
+/// no particles assigned yet, non-finite coordinates, or a strength that
+/// `sanitize_strength` rejects.
+pub fn splash(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, at: SplashAt) -> bool {
+    let Some(strength) = sanitize_strength(at.strength) else {
+        return false;
+    };
+    if !(at.x_px.is_finite() && at.y_px.is_finite()) {
+        return false;
+    }
+    let id = at.id as usize;
+    let Some(rect) = e.rect(id) else {
+        return false;
+    };
+    // W67 ward-review fix: no particles assigned (e.g. before the first redistribute)
+    // means nothing to hit, so no damage either.
+    if rd_u32(&e.counts, id) == 0 {
+        return false;
+    }
+    let radius = SPLASH_RADIUS_MIN_PX.max(SPLASH_RADIUS_PER_DIAGONAL * rect.w.hypot(rect.h));
+    let speed = SPLASH_SPEED_PX_S * strength * g.inv_cell;
+    let lobes = Lobes::draw(rng);
+    for i in 0..p.cap {
+        if p.home_of(i) != Some(id) {
+            continue;
+        }
+        let (px, py) = g.to_px(rd(&p.x, i), rd(&p.y, i));
+        let (dx, dy) = (px - at.x_px, py - at.y_px);
+        let d = dx.hypot(dy);
+        if d.is_nan() || d >= radius {
+            continue;
+        }
+        let (ux, uy) = if d > 1e-3 {
+            (dx / d, dy / d)
+        } else {
+            (1.0, 0.0)
+        };
+        let (sin_a, cos_a) = ((rng.next_f32() - 0.5) * 2.0 * SPLASH_ANGLE_JITTER_RAD).sin_cos();
+        let (rx, ry) = (ux * cos_a - uy * sin_a, ux * sin_a + uy * cos_a);
+        let gain =
+            (1.0 - d / radius).sqrt() * lobes.gain(dy.atan2(dx)) * (0.8 + 0.4 * rng.next_f32());
+        add(&mut p.vx, i, rx * speed * gain);
+        add(&mut p.vy, i, ry * speed * gain);
+        wr(&mut p.j, i, 1.0);
+    }
+    e.damage(id, splash_stiffness_cap(strength));
+    true
+}
+
+/// Size of `shake`'s per-element table (= the FFI's max elements).
+const SHAKE_TABLE: usize = super::api::ELEMENTS_MAX as usize;
+
+/// One element's field for one shake (D70-1): a seeded unit direction and a phase.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShakeField {
+    pub dir_x: f32,
+    pub dir_y: f32,
+    pub phase: f32,
+}
+
+/// Element `id`'s field for this shake's `stream`. The direction is W67's draw (the first value
+/// of the derived stream), so a seed keeps its directions; the phase is the second value.
+pub(crate) fn shake_field(stream: u32, id: usize) -> ShakeField {
+    let mut rng = Rng::derive(stream, u32::try_from(id).unwrap_or(u32::MAX));
+    let angle = rng.next_f32() * TAU;
+    let phase = rng.next_f32() * TAU;
+    let (dir_y, dir_x) = angle.sin_cos();
+    ShakeField {
+        dir_x,
+        dir_y,
+        phase,
+    }
+}
+
+/// D70-1 gain at the element-local position `u = (x − cx) / (w / 2)`: `1 + A · sin(π · u + φ)`,
+/// in [1 − A, 1 + A] = [0.2, 1.8], so no part of the element reverses. Non-finite input gives 1.
+#[inline]
+pub fn shake_gain(u: f32, phase: f32) -> f32 {
+    if !(u.is_finite() && phase.is_finite()) {
+        return 1.0;
+    }
+    1.0 + SHAKE_PROFILE_AMPLITUDE * (PI * u + phase).sin()
+}
+
+/// Per-element shake data, derived once per shake: the field, plus the home rect's centre x
+/// and inverse half width in grid units.
+#[derive(Clone, Copy)]
+struct ShakeSlot {
+    field: ShakeField,
+    cx: f32,
+    inv_half_w: f32,
+}
+
+/// `None` for an inactive element. `shake` never runs under reduced motion (`FluidCore::shake`
+/// returns early), so the home rect is the one the targets use, hover swell included.
+fn shake_slot(stream: u32, id: usize, e: &Elements, g: &Grid) -> Option<ShakeSlot> {
+    let r = e.home_rect(id, false)?;
+    let (cx, _) = g.to_grid(r.x + 0.5 * r.w, r.y);
+    let half_w = 0.5 * r.w * g.inv_cell;
+    Some(ShakeSlot {
+        field: shake_field(stream, id),
+        cx,
+        inv_half_w: if half_w > 0.0 { 1.0 / half_w } else { 0.0 },
+    })
+}
+
+/// Global shake (D70-1, D70-2). Every active element moves along one seeded direction with a
+/// spatially coherent speed profile across its width, `d · speed · (1 + A · sin(π · u + φ))`, so
+/// it bends and waves instead of sliding intact. There is no per-particle noise (it averaged out)
+/// and no rotation term (that would be rigid motion). Every active element goes soft:
+/// s ← min(s, `SHAKE_STIFFNESS_CAP`).
+pub fn shake(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, strength: f32) -> bool {
+    let Some(strength) = sanitize_strength(strength) else {
+        return false;
+    };
+    let speed = SHAKE_SPEED_PX_S * strength * g.inv_cell;
+    let stream = rng.next_u32();
+    // One slot per element, derived once per shake (a pure function of (stream, id) and the
+    // rect); stack table, no allocation. `None` = inactive.
+    let mut slots = [None::<ShakeSlot>; SHAKE_TABLE];
+    for (id, slot) in slots.iter_mut().enumerate().take(e.cap) {
+        *slot = shake_slot(stream, id, e, g);
+    }
+    for i in 0..p.cap {
+        let Some(h) = p.home_of(i) else {
+            continue;
+        };
+        let slot = match slots.get(h) {
+            Some(s) => *s,
+            // Beyond the table (cap > ELEMENTS_MAX, tests only): derive in place.
+            None => shake_slot(stream, h, e, g),
+        };
+        let Some(s) = slot else {
+            continue;
+        };
+        let u = (rd(&p.x, i) - s.cx) * s.inv_half_w;
+        let k = speed * shake_gain(u, s.field.phase);
+        add(&mut p.vx, i, s.field.dir_x * k);
+        add(&mut p.vy, i, s.field.dir_y * k);
+    }
+    for id in 0..e.cap {
+        if e.is_active(id) {
+            e.damage(id, SHAKE_STIFFNESS_CAP);
+        }
+    }
+    true
+}
+
+// ---- W68: soft pointer field (spec §2 Interaction; D68-3) ----------------------
+
+/// Radius of the soft pointer field, px [SPEC].
+pub const POINTER_RADIUS_PX: f32 = 70.0;
+/// Coupling rate towards the pointer velocity at the field centre, 1/s. D70-3: 12, the lowest
+/// of [12, 24] (W68 started at the spike's 6, D68-3). Pre-plan: a 600 px/s sweep through a pill
+/// moves its liquid 6.3–6.8 px with no interior hole; 18 and 24 open holes.
+pub const POINTER_DRAG_PER_S: f32 = 12.0;
+/// Defensive cap on the pointer speed the field couples to, px/s (D68-3).
+pub const POINTER_VMAX_PX_S: f32 = 2000.0;
+
+/// Soft pointer field: pulls a particle's velocity towards the pointer velocity with
+/// weight `(1 − d/r)²` inside `POINTER_RADIUS_PX`. There is deliberately no radial
+/// term; a resting pointer only damps moving liquid (−v·k), so it cannot dig a hole
+/// (the spike's `POINTER_PUSH_PX` did). Positions in grid units, velocities in grid units/s;
+/// returns an acceleration in grid units/s². Explicit and stable: the largest
+/// coupling per substep is `POINTER_DRAG_PER_S · dt_substep = 12 / 480 = 0.025 ≪ 1`.
+///
+/// Convenience form of `pointer_accel_grid` for a px-space pointer (the solver hoists
+/// `PointerGrid` once per tick instead).
+#[inline]
+pub fn pointer_accel(x: f32, y: f32, vx: f32, vy: f32, ptr: &PointerField, g: &Grid) -> (f32, f32) {
+    pointer_accel_grid(x, y, vx, vy, &PointerGrid::new(ptr, g))
+}
+
+/// `pointer_accel` with the pointer already in grid units (W68 perf, 7a/7b). Bit-identical
+/// to the per-particle form: the same f32 operations, and the cheap `|dx| > r || |dy| > r`
+/// rejection only drops points where `d2 ≥ r²` held anyway (f32 squaring and adding a
+/// non-negative term are monotone, so `|dx| > r` gives `d2 ≥ dx² ≥ r²`).
+#[inline]
+pub fn pointer_accel_grid(x: f32, y: f32, vx: f32, vy: f32, ptr: &PointerGrid) -> (f32, f32) {
+    if !ptr.active {
+        return (0.0, 0.0);
+    }
+    let r = ptr.r;
+    let dx = x - ptr.x;
+    let dy = y - ptr.y;
+    if dx.abs() > r || dy.abs() > r {
+        return (0.0, 0.0);
+    }
+    let d2 = dx * dx + dy * dy;
+    if !d2.is_finite() || d2 >= ptr.r2 {
+        return (0.0, 0.0);
+    }
+    let f = 1.0 - d2.sqrt() / r;
+    let k = f * f * POINTER_DRAG_PER_S;
+    let (ax, ay) = ((ptr.vx - vx) * k, (ptr.vy - vy) * k);
+    if ax.is_finite() && ay.is_finite() {
+        (ax, ay)
+    } else {
+        (0.0, 0.0)
+    }
+}
+
+#[cfg(test)]
+mod w67_tests {
+    use crate::fluid::api::FluidCore;
+    use crate::fluid::elements::S_FLOOR;
+    use crate::fluid::layout::ELEMENT_STRIDE;
+
+    const BUTTON: [f32; ELEMENT_STRIDE] = [
+        100.0,
+        100.0,
+        140.0,
+        48.0,
+        24.0,
+        0.0,
+        0.0,
+        0.0,
+        f32::NAN,
+        f32::NAN,
+    ];
+    const BUTTON_2: [f32; ELEMENT_STRIDE] = [
+        300.0,
+        100.0,
+        140.0,
+        48.0,
+        24.0,
+        0.0,
+        0.0,
+        0.0,
+        f32::NAN,
+        f32::NAN,
+    ];
+    const CENTRE: (f32, f32) = (170.0, 124.0);
+    /// rounded_rect_area(140, 48, 24) ≈ 6226 px² per button; the tallest element is 48 px.
+    const BUTTON_AREA_PX2: f32 = 6_226.0;
+    const BUTTON_H_PX: f32 = 48.0;
+
+    fn button_core(seed: u32) -> FluidCore {
+        let mut core = FluidCore::new(2000, 4, 640.0, 480.0, BUTTON_AREA_PX2, BUTTON_H_PX, seed);
+        core.write_element(0, BUTTON);
+        core.redistribute();
+        core
+    }
+
+    fn two_button_core(seed: u32) -> FluidCore {
+        let mut core = FluidCore::new(
+            2000,
+            4,
+            640.0,
+            480.0,
+            2.0 * BUTTON_AREA_PX2,
+            BUTTON_H_PX,
+            seed,
+        );
+        core.write_element(0, BUTTON);
+        core.write_element(1, BUTTON_2);
+        core.redistribute();
+        core
+    }
+
+    fn mean_velocity(core: &FluidCore, id: u32) -> (f32, f32) {
+        let ids = core.particle_indices_of(id);
+        let n = ids.len().max(1) as f32;
+        let (sx, sy) = ids.iter().fold((0.0f32, 0.0f32), |(ax, ay), &i| {
+            let (vx, vy) = core.particle_vel_px_s(i);
+            (ax + vx, ay + vy)
+        });
+        (sx / n, sy / n)
+    }
+
+    #[test]
+    fn given_splash_when_applied_then_hit_particles_get_j_1_and_outward_velocity_with_seeded_lobes()
+    {
+        let mut core = button_core(7);
+        let ids = core.particle_indices_of(0);
+        assert!(ids.len() > 1000);
+        for &i in &ids {
+            core.set_particle_j(i, 0.8);
+        }
+        core.splash(0, CENTRE.0, CENTRE.1, 1.0);
+        let mut band = Vec::new();
+        for &i in &ids {
+            assert!(
+                (core.particle_j(i) - 1.0).abs() < 1e-7,
+                "J reset to 1 for hit particle {i}"
+            );
+            let (px, py) = core.particle_px(i);
+            let (vx, vy) = core.particle_vel_px_s(i);
+            let (dx, dy) = (px - CENTRE.0, py - CENTRE.1);
+            let d = dx.hypot(dy);
+            if d > 2.0 {
+                assert!(dx * vx + dy * vy > 0.0, "particle {i} moves outward");
+            }
+            if (30.0..40.0).contains(&d) {
+                band.push(vx.hypot(vy));
+            }
+        }
+        assert!(band.len() > 20);
+        let max = band.iter().copied().fold(0.0f32, f32::max);
+        let min = band.iter().copied().fold(f32::INFINITY, f32::min);
+        assert!(
+            max > 1.5 * min,
+            "angular lobes: speeds in the 30–40 px band vary (min {min}, max {max})"
+        );
+    }
+
+    #[test]
+    fn given_same_seed_when_splashing_twice_then_identical_velocities() {
+        let mut a = button_core(7);
+        let mut b = button_core(7);
+        let mut c = button_core(8);
+        for core in [&mut a, &mut b, &mut c] {
+            core.splash(0, CENTRE.0, CENTRE.1, 1.0);
+        }
+        assert_eq!(a.velocity_bits(), b.velocity_bits());
+        assert_ne!(
+            a.velocity_bits(),
+            c.velocity_bits(),
+            "another seed gives other lobes"
+        );
+    }
+
+    #[test]
+    fn given_invalid_id_or_nan_coords_when_splash_then_no_op() {
+        let mut core = button_core(7);
+        let before = core.velocity_bits();
+        core.splash(9, CENTRE.0, CENTRE.1, 1.0);
+        core.splash(2, CENTRE.0, CENTRE.1, 1.0);
+        core.splash(u32::MAX, CENTRE.0, CENTRE.1, 1.0);
+        core.splash(0, f32::NAN, CENTRE.1, 1.0);
+        core.splash(0, CENTRE.0, f32::INFINITY, 1.0);
+        core.splash(0, CENTRE.0, CENTRE.1, f32::NAN);
+        assert_eq!(core.velocity_bits(), before);
+        assert!((core.stiffness_of(0) - 1.0).abs() < 1e-7);
+    }
+
+    #[test]
+    fn given_shake_when_applied_then_each_element_moves_along_one_seeded_direction_with_a_coherent_sine_profile_across_u_and_no_particle_noise()
+     {
+        // D70-1: v = d · 520 · (1 + 0.8 · sin(π·u + φ)), u = (x − cx) / (w / 2). Fit
+        // s = v·d/520 − 1 = a·sin(πu) + b·cos(πu); amplitude hypot(a, b) = 0.8, and no particle
+        // may deviate from the fit (white noise did, by ±0.45 · 520 px/s).
+        let mut core = two_button_core(7);
+        core.shake(1.0);
+        for (id, rect) in [(0u32, BUTTON), (1, BUTTON_2)] {
+            let (mx, my) = mean_velocity(&core, id);
+            let speed = mx.hypot(my);
+            assert!(
+                (speed - 520.0).abs() < 52.0,
+                "element {id}: mean speed {speed} ≈ 520 px/s"
+            );
+            let (dx, dy) = (mx / speed, my / speed);
+            let (cx, half) = (rect[0] + 0.5 * rect[2], 0.5 * rect[2]);
+            let ids = core.particle_indices_of(id);
+            assert!(ids.len() > 500);
+            let samples: Vec<(f64, f64)> = ids
+                .iter()
+                .map(|&i| {
+                    let (vx, vy) = core.particle_vel_px_s(i);
+                    let cross = vx * dy - vy * dx;
+                    assert!(
+                        cross.abs() < 0.5,
+                        "element {id} particle {i}: {cross} px/s off the shake direction (noise or rotation)"
+                    );
+                    let (px, _) = core.particle_px(i);
+                    (
+                        f64::from((px - cx) / half),
+                        f64::from((vx * dx + vy * dy) / 520.0) - 1.0,
+                    )
+                })
+                .collect();
+            let (mut ss, mut cc, mut sc, mut ys, mut yc) = (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
+            for &(u, y) in &samples {
+                let (s, c) = (std::f64::consts::PI * u).sin_cos();
+                ss += s * s;
+                cc += c * c;
+                sc += s * c;
+                ys += y * s;
+                yc += y * c;
+            }
+            let det = ss * cc - sc * sc;
+            let a = (ys * cc - yc * sc) / det;
+            let b = (yc * ss - ys * sc) / det;
+            let worst = samples
+                .iter()
+                .map(|&(u, y)| {
+                    let (s, c) = (std::f64::consts::PI * u).sin_cos();
+                    (y - a * s - b * c).abs()
+                })
+                .fold(0.0f64, f64::max);
+            assert!(
+                (a.hypot(b) - 0.8).abs() < 2e-3,
+                "element {id}: profile amplitude {} (D70-1: 0.8)",
+                a.hypot(b)
+            );
+            assert!(
+                worst < 2e-3,
+                "element {id}: a particle deviates {worst} from the coherent profile (no white noise)"
+            );
+        }
+        let mut same = two_button_core(7);
+        same.shake(1.0);
+        assert_eq!(core.velocity_bits(), same.velocity_bits());
+        let mut other = two_button_core(8);
+        other.shake(1.0);
+        let (ax, ay) = mean_velocity(&core, 0);
+        let (bx, by) = mean_velocity(&other, 0);
+        assert!(
+            (ay.atan2(ax) - by.atan2(bx)).abs() > 1e-3,
+            "the direction is seeded"
+        );
+    }
+
+    #[test]
+    fn given_non_finite_u_when_evaluating_shake_gain_then_it_is_exactly_1() {
+        use crate::fluid::interaction::shake_gain;
+        // Guard (W70 review): a NaN/Inf u (e.g. a degenerate home rect) must not poison the
+        // impulse. Every phase in [0, τ) and the non-finite phases give the neutral gain 1.
+        for phase in [
+            0.0f32,
+            1.0,
+            std::f32::consts::PI,
+            5.0,
+            f32::NAN,
+            f32::INFINITY,
+        ] {
+            for u in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+                assert_eq!(shake_gain(u, phase), 1.0, "u {u}, φ {phase}");
+            }
+        }
+    }
+
+    #[test]
+    fn given_shake_gain_when_evaluated_across_u_then_it_is_1_plus_0_8_sin_pi_u_plus_phase_within_0_2_and_1_8()
+     {
+        use crate::fluid::interaction::shake_gain;
+        use std::f32::consts::{FRAC_PI_2, PI};
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-5;
+        // φ = 0: sin(π·u). The two halves move at different speeds: the element shears.
+        for (u, g) in [
+            (-1.0f32, 1.0f32),
+            (-0.5, 0.2),
+            (0.0, 1.0),
+            (0.5, 1.8),
+            (1.0, 1.0),
+        ] {
+            assert!(
+                close(shake_gain(u, 0.0), g),
+                "u {u}: {}",
+                shake_gain(u, 0.0)
+            );
+        }
+        // φ = π/2: cos(π·u). The centre leads and both ends lag: the element bends.
+        assert!(close(shake_gain(0.0, FRAC_PI_2), 1.8));
+        assert!(close(shake_gain(-1.0, FRAC_PI_2), 0.2));
+        assert!(close(shake_gain(1.0, FRAC_PI_2), 0.2));
+        // Never reverses: every part of the element moves along d.
+        for k in 0..=200 {
+            let u = -1.0 + k as f32 / 100.0;
+            for phase in [0.0f32, 1.0, PI, 5.0] {
+                let g = shake_gain(u, phase);
+                assert!(
+                    (0.2 - 1e-5..=1.8 + 1e-5).contains(&g),
+                    "u {u}, φ {phase}: {g}"
+                );
+            }
+        }
+        // Non-finite input gives the plain W67 direction.
+        assert_eq!(shake_gain(f32::NAN, 0.0), 1.0);
+        assert_eq!(shake_gain(f32::INFINITY, 0.0), 1.0);
+        assert_eq!(shake_gain(0.5, f32::NAN), 1.0);
+    }
+
+    #[test]
+    fn given_shake_field_when_drawn_twice_for_one_stream_and_id_then_bit_identical_with_the_w67_unit_direction_and_a_phase_in_0_to_tau()
+     {
+        use crate::fluid::interaction::shake_field;
+        use crate::fluid::rng::Rng;
+        use std::f32::consts::TAU;
+        for (stream, id) in [(1u32, 0usize), (7, 3), (0xDEAD_BEEF, 31)] {
+            let f = shake_field(stream, id);
+            assert_eq!(f, shake_field(stream, id), "deterministic");
+            assert!(
+                (f.dir_x.hypot(f.dir_y) - 1.0).abs() < 1e-6,
+                "unit direction"
+            );
+            // W67's draw: the first value of the derived stream, so a seed keeps its directions.
+            let angle = Rng::derive(stream, id as u32).next_f32() * TAU;
+            assert_eq!((f.dir_x, f.dir_y), (angle.cos(), angle.sin()));
+            assert!((0.0..TAU).contains(&f.phase), "phase {}", f.phase);
+        }
+        assert_ne!(
+            shake_field(1, 0).phase,
+            shake_field(1, 1).phase,
+            "per element"
+        );
+        assert_ne!(
+            shake_field(1, 0).phase,
+            shake_field(2, 0).phase,
+            "per shake"
+        );
+    }
+
+    #[test]
+    fn given_reduced_motion_when_splash_or_shake_then_ignored() {
+        let mut core = button_core(7);
+        core.set_reduced_motion(true);
+        core.splash(0, CENTRE.0, CENTRE.1, 2.0);
+        core.shake(2.0);
+        assert!(
+            core.velocity_bits()
+                .iter()
+                .all(|&b| f32::from_bits(b).abs() < f32::MIN_POSITIVE)
+        );
+        assert!((core.stiffness_of(0) - 1.0).abs() < 1e-7);
+        assert_eq!(
+            core.tick(1.0 / 60.0, 0.0, 0.0, 0.0, 0.0, false, 0.0, 0.0),
+            0,
+            "D64-4: 0 steps under RM"
+        );
+        assert!(core.rest_alphas().iter().all(|&a| a == 1.0));
+    }
+
+    #[test]
+    fn given_splash_strength_1_when_damaged_then_s_at_most_0_25() {
+        let mut core = button_core(7);
+        core.splash(0, CENTRE.0, CENTRE.1, 1.0);
+        assert!(
+            core.stiffness_of(0) <= 0.25 + 1e-6,
+            "{}",
+            core.stiffness_of(0)
+        );
+    }
+
+    #[test]
+    fn given_splash_strength_2_when_damaged_then_s_equals_floor_0_015() {
+        let mut core = button_core(7);
+        core.splash(0, CENTRE.0, CENTRE.1, 2.0);
+        assert!((core.stiffness_of(0) - S_FLOOR).abs() < 1e-7);
+    }
+
+    #[test]
+    fn given_shake_when_damaged_then_s_at_most_0_2() {
+        let mut core = two_button_core(7);
+        core.shake(1.0);
+        assert!(
+            core.stiffness_of(0) <= 0.2 + 1e-6,
+            "{}",
+            core.stiffness_of(0)
+        );
+        assert!(
+            core.stiffness_of(1) <= 0.2 + 1e-6,
+            "{}",
+            core.stiffness_of(1)
+        );
+    }
+
+    #[test]
+    fn given_strength_0_when_splash_or_shake_then_no_op() {
+        let mut core = button_core(7);
+        let before = core.velocity_bits();
+        core.splash(0, CENTRE.0, CENTRE.1, 0.0);
+        core.shake(0.0);
+        assert_eq!(core.velocity_bits(), before);
+        assert!(
+            (core.stiffness_of(0) - 1.0).abs() < 1e-7,
+            "D67-8: no damage at strength 0"
+        );
+    }
+
+    #[test]
+    fn given_d67_3_and_d70_constants_when_read_then_splash_and_shake_values_pinned() {
+        use crate::fluid::interaction::{
+            SHAKE_PROFILE_AMPLITUDE, SHAKE_SPEED_PX_S, SHAKE_STIFFNESS_CAP, SPLASH_RADIUS_MIN_PX,
+            SPLASH_RADIUS_PER_DIAGONAL, SPLASH_SPEED_PX_S, STRENGTH_MAX,
+        };
+        assert_eq!(SPLASH_SPEED_PX_S, 950.0, "speed 950 px/s · strength");
+        assert_eq!(SPLASH_RADIUS_MIN_PX, 110.0, "radius floor 110 px");
+        assert_eq!(SPLASH_RADIUS_PER_DIAGONAL, 0.75);
+        assert_eq!(SHAKE_SPEED_PX_S, 520.0);
+        assert_eq!(SHAKE_PROFILE_AMPLITUDE, 0.8, "D70-1");
+        assert_eq!(
+            SHAKE_STIFFNESS_CAP, 0.2,
+            "D70-2: held by the re-form budget (<= 180 frames) and D70-2, not by the slosh metric"
+        );
+        assert_eq!(STRENGTH_MAX, 2.0);
+    }
+}

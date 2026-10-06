@@ -99,7 +99,12 @@ fn given_particles_displaced_10px_when_ticking_1s_then_max_dev_below_0_75px_and_
     frames(&mut c, 1);
     for id in 0..4 {
         assert!(max_dev(&c, id) > 5.0, "element {id}: {}", max_dev(&c, id));
-        assert_eq!(rest_alpha(&c, id), 0.0);
+        // W67 D67-12: elements start settled, and restAlpha now fades over 120 ms (≈ 0.86 after one frame).
+        assert!(
+            rest_alpha(&c, id) < 1.0,
+            "element {id}: {}",
+            rest_alpha(&c, id)
+        );
     }
     frames(&mut c, 60);
     for id in 0..4 {
@@ -260,4 +265,537 @@ fn given_huge_finite_home_offset_for_5_frames_when_restored_then_particles_finit
     assert!(c.dynamic_view().iter().all(|v| v.is_finite()));
     assert!(max_dev(&c, CARD) < REST_MAX_DEV, "{}", max_dev(&c, CARD));
     assert_eq!(rest_alpha(&c, CARD), 1.0);
+}
+
+// ---- W67: dynamics scenarios (spec §6 Rust list) -------------------------------
+mod w67 {
+    use super::{CARD, LAYOUT, acceptance_core, slot};
+    use crate::fluid::api::FluidCore;
+    use crate::fluid::sampling::{
+        ring_spacing_px, rounded_rect_inward_distance, rounded_rect_perimeter,
+    };
+    use crate::fluid::solver::COMPRESS_MIN;
+
+    const FPS: f32 = 60.0;
+    /// D67-1 option 1: spec §6 step 3, amended in W67.
+    const REFORM_SPLASH_BUDGET_S: f32 = 3.0;
+    /// Spec §6 step 6.
+    const REFORM_SHAKE_BUDGET_S: f32 = 3.0;
+    const SPLASH: usize = 0;
+    const SPLIT: usize = 1;
+
+    fn centre(id: usize) -> (f32, f32) {
+        let [x, y, w, h, _] = LAYOUT[id];
+        (x + 0.5 * w, y + 0.5 * h)
+    }
+
+    fn frame(core: &mut FluidCore) {
+        assert_eq!(
+            core.tick(1.0 / 60.0, -1.0e4, -1.0e4, 0.0, 0.0, false, 0.0, 0.0),
+            1
+        );
+    }
+
+    fn all_at_rest(core: &FluidCore) -> bool {
+        let a = core.rest_alphas();
+        a.len() == 4 && a.iter().all(|&x| x >= 1.0)
+    }
+
+    fn frames_until_rest(core: &mut FluidCore, max: u32) -> Option<u32> {
+        (1..=max).find(|_| {
+            frame(core);
+            all_at_rest(core)
+        })
+    }
+
+    fn settled_core(seed: u32) -> FluidCore {
+        let mut core = acceptance_core(seed);
+        for _ in 0..60 {
+            frame(&mut core);
+        }
+        assert!(
+            all_at_rest(&core),
+            "precondition: at rest after 1 s idle, {:?}",
+            core.rest_alphas()
+        );
+        core
+    }
+
+    fn budget_frames(seconds: f32, already: u32) -> u32 {
+        ((seconds * FPS).round() as u32).saturating_sub(already)
+    }
+
+    fn run_stress(core: &mut FluidCore) {
+        run_stress_observed(core, |_| {});
+    }
+
+    /// `run_stress`, calling `observe` with the core after every tick (and its injections).
+    fn run_stress_observed(core: &mut FluidCore, mut observe: impl FnMut(&FluidCore)) {
+        for f in 0..600u32 {
+            let [x, y, w, h, r] = LAYOUT[SPLASH];
+            let dx = if (420..480).contains(&f) {
+                (f - 420) as f32 / 60.0 * 164.0
+            } else {
+                0.0
+            };
+            core.write_element(SPLASH, slot([x + dx, y, w, h, r]));
+            let px = 300.0 + ((f * 7) % 700) as f32;
+            core.tick(1.0 / 60.0, px, 284.0, 420.0, 0.0, true, 0.0, 0.0);
+            match f {
+                60 => {
+                    let (cx, cy) = centre(SPLASH);
+                    core.splash(SPLASH as u32, cx, cy, 1.0);
+                }
+                200 => {
+                    let (cx, cy) = centre(CARD);
+                    core.splash(CARD as u32, cx, cy, 2.0);
+                }
+                330 => core.shake(1.0),
+                _ => {}
+            }
+            observe(core);
+        }
+    }
+
+    #[test]
+    fn given_stress_sequence_pointer_splash_shake_when_run_then_mean_j_within_5_percent_of_1() {
+        // Spec §6: mean J within ±5 % of 1 AFTER the stress sequence. During it the bound cannot
+        // hold: the card owns ~6000 of 8000 particles and a strength-2 splash covers all of it at
+        // 4–5× SOUND_SPEED, so the volume legitimately swings ~12 % (W67.10 measured 0.1206 at
+        // frame 264). The every-frame guard is 0.2: well inside the COMPRESS_MIN = 0.55 clamp,
+        // it still catches a runaway (J not relaxing) while allowing the physical transient.
+        let mut core = acceptance_core(1);
+        let mut worst = 0.0f32;
+        run_stress_observed(&mut core, |c| worst = worst.max((c.mean_j() - 1.0).abs()));
+        let after = (core.mean_j() - 1.0).abs();
+        assert!(
+            after <= 0.05,
+            "|mean J - 1| after the stress sequence: {after}"
+        );
+        assert!(
+            worst <= 0.2,
+            "max |mean J - 1| over all frames (runaway guard): {worst}"
+        );
+    }
+
+    #[test]
+    fn given_stress_sequence_when_run_then_no_nan_or_inf_and_j_within_clamp_bounds() {
+        // Slice 2 never updates F (it is render-only, for liquid text in a later slice), so
+        // stability is asserted on position, velocity, C and J.
+        let mut core = acceptance_core(1);
+        run_stress(&mut core);
+        assert!(core.all_particles_finite());
+        assert!(
+            core.min_j() >= COMPRESS_MIN - 1e-6,
+            "min J {} below COMPRESS_MIN",
+            core.min_j()
+        );
+    }
+
+    #[test]
+    fn given_stress_sequence_when_run_then_particle_count_and_mass_exactly_constant() {
+        let mut core = acceptance_core(1);
+        let count = core.active_particles();
+        let mass = core.total_mass().to_bits();
+        run_stress(&mut core);
+        assert_eq!(core.active_particles(), count);
+        assert_eq!(count, core.particle_capacity());
+        assert_eq!(
+            core.total_mass().to_bits(),
+            mass,
+            "no redistribute during the stress: mass bit-identical"
+        );
+    }
+
+    #[test]
+    fn given_strength_1_splash_on_button_when_ticking_then_rest_alpha_1_within_3_s() {
+        let mut core = settled_core(1);
+        let (cx, cy) = centre(SPLASH);
+        core.splash(SPLASH as u32, cx, cy, 1.0);
+        for _ in 0..10 {
+            frame(&mut core);
+        }
+        assert!(
+            core.rest_alphas()[SPLASH] < 1.0,
+            "the splash softened the Splash button"
+        );
+        let frames = frames_until_rest(&mut core, budget_frames(REFORM_SPLASH_BUDGET_S, 10));
+        eprintln!("W67 D67-1 evidence: splash re-form after {frames:?} (+10) frames");
+        assert!(
+            frames.is_some(),
+            "every restAlpha back to 1 within {REFORM_SPLASH_BUDGET_S} s"
+        );
+        assert!(
+            core.max_dev_px().iter().all(|&d| d < 0.75),
+            "at rest the particles sit on the real target"
+        );
+    }
+
+    #[test]
+    fn given_shake_strength_1_when_ticking_then_all_rest_alpha_1_within_3_s() {
+        let mut core = settled_core(1);
+        core.shake(1.0);
+        for _ in 0..10 {
+            frame(&mut core);
+        }
+        assert!(
+            core.rest_alphas().iter().all(|&a| a < 1.0),
+            "everything sloshes"
+        );
+        let frames = frames_until_rest(&mut core, budget_frames(REFORM_SHAKE_BUDGET_S, 10));
+        eprintln!("W67 D67-1 evidence: shake re-form after {frames:?} (+10) frames");
+        assert!(
+            frames.is_some(),
+            "every restAlpha back to 1 within {REFORM_SHAKE_BUDGET_S} s"
+        );
+    }
+
+    #[test]
+    fn given_same_seed_and_inputs_when_stress_sequence_run_twice_then_positions_bit_identical() {
+        let mut a = acceptance_core(42);
+        let mut b = acceptance_core(42);
+        run_stress(&mut a);
+        run_stress(&mut b);
+        assert_eq!(a.position_bits(), b.position_bits());
+    }
+
+    #[test]
+    fn given_gravity_args_when_ticking_then_positions_identical_to_zero_gravity_until_slice_6() {
+        let mut a = settled_core(5);
+        let mut b = settled_core(5);
+        let (cx, cy) = centre(SPLIT);
+        a.splash(SPLIT as u32, cx, cy, 1.0);
+        b.splash(SPLIT as u32, cx, cy, 1.0);
+        for _ in 0..60 {
+            a.tick(1.0 / 60.0, -1.0e4, -1.0e4, 0.0, 0.0, false, 0.0, 980.0);
+            b.tick(1.0 / 60.0, -1.0e4, -1.0e4, 0.0, 0.0, false, 0.0, 0.0);
+        }
+        assert_eq!(
+            a.position_bits(),
+            b.position_bits(),
+            "D67-2: gravity has no effect before slice 6"
+        );
+    }
+
+    #[test]
+    #[ignore = "slice 6: gravity in the grid update (spec §6 interim state, D67-2)"]
+    fn given_gravity_when_ticking_then_liquid_falls() {
+        let mut core = settled_core(5);
+        let ids = core.particle_indices_of(CARD as u32);
+        let mean_y = |c: &FluidCore| {
+            ids.iter().map(|&i| c.particle_px(i).1).sum::<f32>() / ids.len().max(1) as f32
+        };
+        let before = mean_y(&core);
+        core.shake(0.5);
+        for _ in 0..60 {
+            core.tick(1.0 / 60.0, -1.0e4, -1.0e4, 0.0, 0.0, false, 0.0, 980.0);
+        }
+        assert!(
+            mean_y(&core) > before + 5.0,
+            "the card's liquid sags under gravity"
+        );
+    }
+
+    // ---- W67 amendment: D67-13 edge metric and D67-15 lock probe ---------------------
+
+    /// D67-13: maximum edge-envelope sd in px. The W64 ledger records "sd 0.48 px", but not
+    /// the metric behind it. With the metric below, the W64 R2 layout scores ≈ 0.61–0.70 px
+    /// on the Splash button (prototype, seeds 1–3) and a perfect ring scores 0. 0.2 px is
+    /// under half of either figure and about 1/15 of the 3.08 px spacing.
+    const EDGE_SD_MAX_PX: f32 = 0.2;
+    /// D67-15: re-form budget after a ±1000 px excursion. At the CFL cap (0.45 cells per
+    /// substep ≈ 1.3 kpx/s) the way back takes ≈ 1 s. The 160 px/s slip clears a residual
+    /// tangle of ≈ 150 px in about another 1 s, and the re-form itself has the 3 s shake budget.
+    const LOCK_PROBE_BUDGET_S: f32 = 5.0;
+
+    /// Arc length (px) of the outline point nearest to the local point `(lx, ly)` of the
+    /// rounded rect `[0, w] × [0, h]`, clockwise from `(r, 0)` with y down (the
+    /// parametrisation of `sampling::rounded_rect_point_at`).
+    fn arc_position(lx: f32, ly: f32, w: f32, h: f32, r: f32) -> f32 {
+        use std::f32::consts::{FRAC_PI_2, PI};
+        let r = r.min(0.5 * w).min(0.5 * h).max(0.0);
+        let (a, b, q) = (w - 2.0 * r, h - 2.0 * r, FRAC_PI_2 * r);
+        let (dx, dy) = (lx - lx.clamp(r, w - r), ly - ly.clamp(r, h - r));
+        if dx.abs() > 0.0 && dy.abs() > 0.0 {
+            let ang = dy.atan2(dx);
+            return match (dx > 0.0, dy > 0.0) {
+                (true, false) => a + (ang + FRAC_PI_2) * r,
+                (true, true) => a + q + b + ang * r,
+                (false, true) => 2.0 * a + 2.0 * q + b + (ang - FRAC_PI_2) * r,
+                (false, false) => 2.0 * a + 3.0 * q + 2.0 * b + (ang + PI) * r,
+            };
+        }
+        let (top, right, bottom, left) = (ly, w - lx, h - ly, lx);
+        if top <= right && top <= bottom && top <= left {
+            (lx - r).clamp(0.0, a)
+        } else if right <= bottom && right <= left {
+            a + q + (ly - r).clamp(0.0, b)
+        } else if bottom <= left {
+            a + 2.0 * q + b + (w - r - lx).clamp(0.0, a)
+        } else {
+            2.0 * a + 3.0 * q + b + (h - r - ly).clamp(0.0, b)
+        }
+    }
+
+    /// D67-13 edge metric for element `id`, whose DOM rect is `rect`.
+    /// - D67-7's wobble is intentional, spatially varying motion, and D67-10 measures
+    ///   deviation against the target the spring used. So each particle is placed at its
+    ///   un-wobbled target plus its deviation from its OWN spring target (the wobbled one,
+    ///   `FluidCore::spring_target_px`, which Task W67.10 must provide). A perfect ring
+    ///   scores 0 however much it wobbles; without this the wobble alone scores 0.69-0.78 px.
+    /// - The element's mean deviation is subtracted, so a rigid lag does not count.
+    /// - Every particle within two spacings of the outline is binned by `arc_position`. The
+    ///   bins are two spacings long, so each holds at least one ring particle.
+    /// - The outermost particle of each bin gives one inward distance, and the metric is the
+    ///   sd of those distances, in px.
+    fn edge_envelope_sd(core: &FluidCore, id: usize, rect: [f32; 5]) -> f32 {
+        let [x0, y0, w, h, r] = rect;
+        let spacing = ring_spacing_px(core.cell_px());
+        let ids = core.particle_indices_of(id as u32);
+        let n = ids.len().max(1) as f32;
+        // (un-wobbled target, deviation from the spring target) per particle.
+        let placed: Vec<((f32, f32), (f32, f32))> = ids
+            .iter()
+            .map(|&i| {
+                let (px, py) = core.particle_px(i);
+                let t = core.target_px(i).unwrap_or((px, py));
+                let st = core.spring_target_px(i).unwrap_or(t);
+                (t, (px - st.0, py - st.1))
+            })
+            .collect();
+        let (mdx, mdy) = placed
+            .iter()
+            .fold((0.0f32, 0.0f32), |(ax, ay), &(_, (dx, dy))| {
+                (ax + dx, ay + dy)
+            });
+        let (mdx, mdy) = (mdx / n, mdy / n);
+        let perimeter = rounded_rect_perimeter(w, h, r);
+        let bins = ((perimeter / (2.0 * spacing)).floor() as usize).max(1);
+        let mut outer = vec![f32::INFINITY; bins];
+        for &((tx, ty), (dx, dy)) in &placed {
+            let (lx, ly) = (tx - x0 + dx - mdx, ty - y0 + dy - mdy);
+            let d = rounded_rect_inward_distance(lx, ly, w, h, r);
+            if d > 2.0 * spacing {
+                continue;
+            }
+            let b =
+                ((arc_position(lx, ly, w, h, r) / perimeter * bins as f32) as usize).min(bins - 1);
+            outer[b] = outer[b].min(d);
+        }
+        let filled: Vec<f32> = outer.into_iter().filter(|d| d.is_finite()).collect();
+        assert!(
+            filled.len() * 10 >= bins * 9,
+            "the outline is covered: {} of {bins} bins",
+            filled.len()
+        );
+        let mean = filled.iter().sum::<f32>() / filled.len() as f32;
+        (filled.iter().map(|d| (d - mean).powi(2)).sum::<f32>() / filled.len() as f32).sqrt()
+    }
+
+    #[test]
+    fn given_button_moving_at_120px_s_when_ticking_then_edge_envelope_sd_below_0_2px() {
+        let mut core = settled_core(1);
+        let [x, y, w, h, r] = LAYOUT[SPLASH];
+        let at_rest = edge_envelope_sd(&core, SPLASH, LAYOUT[SPLASH]);
+        // Leftwards into free space (Split starts 24 px to the right of Splash): 2 px per frame.
+        for f in 1..=20u32 {
+            core.write_element(SPLASH, slot([x - 2.0 * f as f32, y, w, h, r]));
+            frame(&mut core);
+        }
+        let moving = edge_envelope_sd(&core, SPLASH, [x - 40.0, y, w, h, r]);
+        eprintln!(
+            "W67 D67-13 evidence: edge envelope sd {at_rest:.3} px at rest, {moving:.3} px moving at 120 px/s"
+        );
+        assert!(at_rest < EDGE_SD_MAX_PX, "at rest: {at_rest} px");
+        assert!(moving < EDGE_SD_MAX_PX, "moving: {moving} px");
+    }
+
+    #[test]
+    fn given_element_moved_1000px_away_and_back_when_ticking_then_every_rest_alpha_1_within_5_s() {
+        let mut core = settled_core(1);
+        let home = LAYOUT[SPLASH];
+        // +1000 px ploughs through the Split and Merge liquid; −1000 px leaves the world (clamped).
+        for dx in [1000.0f32, -1000.0] {
+            let [x, y, w, h, r] = home;
+            core.write_element(SPLASH, slot([x + dx, y, w, h, r]));
+            for _ in 0..60 {
+                frame(&mut core);
+            }
+            assert!(
+                core.rest_alphas()[SPLASH] < 1.0,
+                "dx {dx}: the Splash liquid left its home"
+            );
+            core.write_element(SPLASH, slot(home));
+            let frames = frames_until_rest(&mut core, budget_frames(LOCK_PROBE_BUDGET_S, 0));
+            eprintln!(
+                "W67 D67-15 evidence: dx {dx}: every restAlpha back to 1 after {frames:?} frames"
+            );
+            assert!(
+                frames.is_some(),
+                "dx {dx}: every restAlpha back to 1 within {LOCK_PROBE_BUDGET_S} s (cross-element lock, D67-15): {:?}",
+                core.rest_alphas()
+            );
+            assert!(
+                core.max_dev_px().iter().all(|&d| d < 0.75),
+                "dx {dx}: {:?}",
+                core.max_dev_px()
+            );
+        }
+    }
+}
+
+// ---- W70: slosh metric (D70-5) -------------------------------------------------
+mod w70 {
+    use super::{CARD, acceptance_core};
+    use crate::fluid::api::FluidCore;
+
+    /// D70-5 as amended (A4), set from the W70 pre-plan measurement: W67 white noise peaks
+    /// at 6.64 px (max pill) and 5.87 px (card); the coherent field at cap 0.2 gives ≥ 23.67 px
+    /// on every pill (min) and 61.68 px on the card.
+    const SLOSH_CARD_MIN_PX: f32 = 24.0;
+    const SLOSH_PILL_MIN_PX: f32 = 12.0;
+    /// The shake peak lies in frames 10–24 (measured).
+    const SLOSH_FRAMES: u32 = 30;
+
+    fn frame(core: &mut FluidCore) {
+        assert_eq!(
+            core.tick(1.0 / 60.0, -1.0e4, -1.0e4, 0.0, 0.0, false, 0.0, 0.0),
+            1
+        );
+    }
+
+    fn settled() -> FluidCore {
+        let mut core = acceptance_core(1);
+        for _ in 0..60 {
+            frame(&mut core);
+        }
+        assert!(
+            core.rest_alphas().iter().all(|&a| a >= 1.0),
+            "precondition: at rest"
+        );
+        core
+    }
+
+    fn positions(core: &FluidCore) -> Vec<(f32, f32)> {
+        (0..core.particle_capacity() as usize)
+            .map(|i| core.particle_px(i))
+            .collect()
+    }
+
+    /// (rest, current) position of one particle, px.
+    type PosPair = ((f64, f64), (f64, f64));
+
+    /// RMS (px) of what is left of an element's deformation after the best rigid motion
+    /// (2D Procrustes: translation plus rotation, no scale) is removed. Centre the rest and
+    /// current point sets, theta = atan2(sum p x q, sum p . q), residual = q - R(theta) p. ~0 for
+    /// a slide and for a rotation; only a change of shape (slosh, shear, bend) scores.
+    fn residual_rms_px(core: &FluidCore, ids: &[usize], rest: &[(f32, f32)]) -> f32 {
+        let n = ids.len().max(1) as f64;
+        let pairs: Vec<((f64, f64), (f64, f64))> = ids
+            .iter()
+            .map(|&i| {
+                let (x, y) = core.particle_px(i);
+                (
+                    (f64::from(rest[i].0), f64::from(rest[i].1)),
+                    (f64::from(x), f64::from(y)),
+                )
+            })
+            .collect();
+        let centre = |sel: fn(&PosPair) -> (f64, f64)| {
+            let (sx, sy) = pairs.iter().fold((0.0f64, 0.0f64), |(ax, ay), pr| {
+                (ax + sel(pr).0, ay + sel(pr).1)
+            });
+            (sx / n, sy / n)
+        };
+        let (pc, qc) = (centre(|pr| pr.0), centre(|pr| pr.1));
+        let (mut cross, mut dot) = (0.0f64, 0.0f64);
+        for &(p, q) in &pairs {
+            let (px, py) = (p.0 - pc.0, p.1 - pc.1);
+            let (qx, qy) = (q.0 - qc.0, q.1 - qc.1);
+            cross += px * qy - py * qx;
+            dot += px * qx + py * qy;
+        }
+        let (sin, cos) = cross.atan2(dot).sin_cos();
+        let sum_sq: f64 = pairs
+            .iter()
+            .map(|&(p, q)| {
+                let (px, py) = (p.0 - pc.0, p.1 - pc.1);
+                let (qx, qy) = (q.0 - qc.0, q.1 - qc.1);
+                (qx - (cos * px - sin * py)).powi(2) + (qy - (sin * px + cos * py)).powi(2)
+            })
+            .sum();
+        (sum_sq / n).sqrt() as f32
+    }
+
+    #[test]
+    fn given_a_rigid_rotation_of_every_particle_about_its_element_centroid_when_measuring_slosh_then_the_residual_rms_is_below_0_01px()
+     {
+        let mut core = settled();
+        let rest = positions(&core);
+        let (sin, cos) = 10.0f32.to_radians().sin_cos();
+        for id in 0..4u32 {
+            let ids = core.particle_indices_of(id);
+            let n = ids.len().max(1) as f32;
+            let cx = ids.iter().map(|&i| rest[i].0).sum::<f32>() / n;
+            let cy = ids.iter().map(|&i| rest[i].1).sum::<f32>() / n;
+            for &i in &ids {
+                let (dx, dy) = (rest[i].0 - cx, rest[i].1 - cy);
+                core.set_particle_px(i, cx + cos * dx - sin * dy, cy + sin * dx + cos * dy);
+            }
+        }
+        for id in 0..4u32 {
+            let r = residual_rms_px(&core, &core.particle_indices_of(id), &rest);
+            assert!(
+                r < 0.01,
+                "element {id}: a rigid rotation must score ~0, got {r} px"
+            );
+        }
+    }
+
+    #[test]
+    fn given_a_rigid_translation_of_every_particle_when_measuring_slosh_then_the_residual_rms_is_below_0_01px()
+     {
+        let mut core = settled();
+        let rest = positions(&core);
+        for (i, &(x, y)) in rest.iter().enumerate() {
+            core.set_particle_px(i, x + 37.0, y - 12.5);
+        }
+        for id in 0..4u32 {
+            let r = residual_rms_px(&core, &core.particle_indices_of(id), &rest);
+            assert!(
+                r < 0.01,
+                "element {id}: a rigid slide must score ~0, got {r} px"
+            );
+        }
+    }
+
+    #[test]
+    fn given_shake_strength_1_when_ticking_30_frames_then_the_rigid_fit_residual_rms_reaches_24px_on_the_card_and_12px_on_each_pill()
+     {
+        let mut core = settled();
+        let rest = positions(&core);
+        let ids: Vec<Vec<usize>> = (0..4u32).map(|id| core.particle_indices_of(id)).collect();
+        core.shake(1.0);
+        let mut peak = [0.0f32; 4];
+        for _ in 0..SLOSH_FRAMES {
+            frame(&mut core);
+            for (id, p) in peak.iter_mut().enumerate() {
+                *p = p.max(residual_rms_px(&core, &ids[id], &rest));
+            }
+        }
+        eprintln!(
+            "W70 D70-5 evidence: peak non-rigid RMS [Splash, Split, Merge, card] = {peak:?} px"
+        );
+        for (id, &p) in peak.iter().enumerate() {
+            let min = if id == CARD {
+                SLOSH_CARD_MIN_PX
+            } else {
+                SLOSH_PILL_MIN_PX
+            };
+            assert!(
+                p >= min,
+                "element {id}: peak non-rigid RMS {p} px < {min} px (sliding intact, not sloshing)"
+            );
+        }
+    }
 }
