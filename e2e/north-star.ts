@@ -20,7 +20,15 @@ export function sceneStepLine(md: string, step: number): string {
   const prefix = `${step}. `;
   for (const line of lines.slice(start + 1)) {
     if (/^#{1,6}\s/.test(line)) break;
-    if (line.startsWith(prefix)) return line;
+    if (line.startsWith(prefix)) {
+      // Join indented continuation lines so a wrapped budget is still found.
+      const parts = [line];
+      for (const next of lines.slice(lines.indexOf(line, start) + 1)) {
+        if (!/^\s+\S/.test(next)) break;
+        parts.push(next.trim());
+      }
+      return parts.join(" ");
+    }
   }
   throw new Error(`scene step ${step} not found`);
 }

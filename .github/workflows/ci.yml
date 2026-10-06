@@ -100,6 +100,7 @@ jobs:
           E2E_SUITE: canvas2d
 
       - name: E2E dist smoke (blocking, D69-6)
+        if: ${{ !cancelled() }}
         run: npx playwright test --project=dist
         env:
           E2E_SUITE: dist

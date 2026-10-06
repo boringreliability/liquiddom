@@ -198,9 +198,11 @@ function parseStrictBool(raw: string | null): boolean | undefined {
 
 /**
  * Init-only overrides from `window.location.search`, validated one by one.
- * Invalid values are ignored. If any value is valid, the query string is
- * stripped with `history.replaceState` so a reload uses the saved state (W49).
+ * Invalid values are ignored. If any known key is present (valid or not), the
+ * query string is stripped (the hash is kept) with `history.replaceState` so a reload uses the saved state (W49).
  */
+const KNOWN_URL_KEYS: readonly string[] = ["particles", "seed", "renderer", "forceReducedMotion"];
+
 export function parseUrlParams(): UrlParamOverrides {
   const params = new URLSearchParams(window.location.search);
   const out: UrlParamOverrides = {};
@@ -217,8 +219,8 @@ export function parseUrlParams(): UrlParamOverrides {
   const frm = parseStrictBool(params.get("forceReducedMotion"));
   if (frm !== undefined) out.forceReducedMotion = frm;
 
-  if (Object.keys(out).length > 0) {
-    window.history.replaceState({}, "", window.location.pathname);
+  if (KNOWN_URL_KEYS.some((k) => params.has(k))) {
+    window.history.replaceState({}, "", window.location.pathname + window.location.hash);
   }
   return out;
 }

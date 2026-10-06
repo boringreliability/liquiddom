@@ -1,9 +1,10 @@
 /**
  * W69 (D69-6): browser smoke of the published core `dist` (project `dist`, blocking in CI).
  * - examples/react is built by Vite against the workspace-linked `liquiddom`, which
- *   resolves to packages/core (`exports` → ./dist/index.js). The page therefore runs
- *   the copy-wasm `./wasm/` rewrite and the runtime .wasm fetch exactly as an npm
- *   consumer gets them (W66 ward-review carry, M4).
+ *   resolves to packages/core (`exports` → ./dist/index.js). The test verifies that a
+ *   Vite consumer resolves the copy-wasm-rewritten `./wasm/` URL and that the wasm is
+ *   served as `application/wasm`. Vite re-emits the asset, so this does not claim that
+ *   `dist/wasm/` itself is served (W66 ward-review carry, M4).
  * - Build first: `npm run e2e:dist:build` (core clean → tsc → copy-wasm, the React
  *   adapter, then the example with --ignore-scripts; pkg/ must exist).
  * - The spec owns its server (Vite preview API on DIST_PORT), so the canvas2d,

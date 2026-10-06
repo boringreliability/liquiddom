@@ -103,6 +103,9 @@ describe("W69: e2e/north-star.ts (re-form budgets from the canonical scene)", ()
     expect(reformBudgetMs(md, 3)).toBe(3_000);
     expect(reformBudgetMs(md, 6)).toBe(3_000);
     expect(reformBudgetMs(md.replace("**3 s**", "**1.5 s**"), 3)).toBe(1_500);
+    const wrapped = ["### Scene steps", "3. Click \"Splash\": jets and fingers.", "   Re-form within **2 s** (wrapped line).", "4. Next step."].join("\n");
+    expect(reformBudgetMs(wrapped, 3)).toBe(2_000);
+    expect(() => reformBudgetMs(wrapped, 4)).toThrow(/no re-form budget/);
     expect(() => reformBudgetMs(md, 1)).toThrow(/no re-form budget/);
     expect(() => reformBudgetMs(md, 7)).toThrow(/scene step 7 not found/);
     expect(() => reformBudgetMs("# nothing here", 3)).toThrow(/no scene steps list/);

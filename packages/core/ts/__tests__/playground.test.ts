@@ -140,9 +140,9 @@ describe("W69: playground URL params", () => {
     replaceStateSpy.mockRestore();
   });
 
-  function setSearch(search: string): void {
+  function setSearch(search: string, hash = ""): void {
     Object.defineProperty(window, "location", {
-      value: { ...originalLocation, search, pathname: "/playground.html" },
+      value: { ...originalLocation, search, hash, pathname: "/playground.html" },
       writable: true,
       configurable: true,
     });
@@ -160,18 +160,24 @@ describe("W69: playground URL params", () => {
     expect(replaceStateSpy).toHaveBeenCalledTimes(1);
     replaceStateSpy.mockClear();
 
-    // Every field invalid → empty result, address bar untouched.
-    setSearch("?particles=100&seed=-1&renderer=vulkan&forceReducedMotion=yes");
+    // Known keys present but every value invalid: defaults kept, query still stripped.
+    for (const q of ["?particles=100&seed=-1&renderer=vulkan&forceReducedMotion=yes", "?particles=8000abc&seed=4294967296", "?particles=65537&seed=1.5"]) {
+      setSearch(q);
+      expect(parseUrlParams()).toEqual({});
+      expect(replaceStateSpy).toHaveBeenCalledTimes(1);
+      replaceStateSpy.mockClear();
+    }
+
+    // Unknown keys only: address bar untouched.
+    setSearch("?utm=1");
     expect(parseUrlParams()).toEqual({});
     expect(replaceStateSpy).not.toHaveBeenCalled();
 
-    setSearch("?particles=8000abc&seed=4294967296");
+    // Invalid value plus a hash: query stripped, hash kept.
+    setSearch("?particles=abc", "#x");
     expect(parseUrlParams()).toEqual({});
-    expect(replaceStateSpy).not.toHaveBeenCalled();
-
-    setSearch("?particles=65537&seed=1.5");
-    expect(parseUrlParams()).toEqual({});
-    expect(replaceStateSpy).not.toHaveBeenCalled();
+    expect(replaceStateSpy).toHaveBeenCalledWith({}, "", "/playground.html#x");
+    replaceStateSpy.mockClear();
 
     // A mix: invalid ones dropped, valid ones kept.
     setSearch("?particles=abc&seed=9");

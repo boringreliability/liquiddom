@@ -3,7 +3,7 @@
 // Usage: node scripts/webm-to-gif.mjs <input.webm|manifest.json> <output.gif> [--width 640] [--fps 12]
 // Needs ffmpeg on PATH (local only; not assumed in CI).
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -76,7 +76,8 @@ function main(argv) {
   mkdirSync(dirname(resolve(args.output)), { recursive: true });
   const run = spawnSync("ffmpeg", buildFfmpegArgs({ ...args, input }), { stdio: "inherit" });
   if (run.status !== 0) {
-    console.error(`[webm-to-gif] ffmpeg exited with ${String(run.status)}`);
+    const why = run.error !== undefined ? run.error.message : `ffmpeg exited with ${String(run.status)}`;
+    console.error(`[webm-to-gif] ${why}`);
     return 1;
   }
   const bytes = statSync(args.output).size;
@@ -85,6 +86,7 @@ function main(argv) {
   );
   if (bytes > MAX_GIF_BYTES) {
     console.error(`[webm-to-gif] GIF exceeds ${MAX_GIF_BYTES} bytes; re-run with --fps 8 or --width 480`);
+    unlinkSync(args.output);
     return 2;
   }
   return 0;

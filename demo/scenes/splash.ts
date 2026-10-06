@@ -45,17 +45,25 @@ async function build(params: SceneParams): Promise<SceneBinding> {
   const liquid: LiquidDOMInstance = await LiquidDOM.create(options);
 
   const observed: HTMLElement[] = [];
-  for (const el of document.querySelectorAll<HTMLElement>("[data-drop]")) {
-    liquid.observe(el, dropOptions(el));
-    observed.push(el);
+  try {
+    for (const el of document.querySelectorAll<HTMLElement>("[data-drop]")) {
+      liquid.observe(el, dropOptions(el));
+      observed.push(el);
+    }
+    const pool = requireElement<HTMLElement>("#pool");
+    liquid.observe(pool);
+    observed.push(pool);
+  } catch (err) {
+    liquid.destroy();
+    throw err;
   }
-  const pool = requireElement<HTMLElement>("#pool");
-  liquid.observe(pool);
-  observed.push(pool);
 
   const strength = requireElement<HTMLInputElement>("#strength");
   const strengthOut = requireElement<HTMLOutputElement>("#strength-out");
-  const currentStrength = (): number => Math.min(2, Math.max(0, Number(strength.value)));
+  const currentStrength = (): number => {
+    const v = Number(strength.value);
+    return Number.isFinite(v) ? Math.min(2, Math.max(0, v)) : 1;
+  };
   strength.addEventListener("input", () => {
     strengthOut.textContent = currentStrength().toFixed(1);
   });
