@@ -5,7 +5,13 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
 
-type SceneHook = { ready: Promise<void>; restAlpha(): number[]; cellPx(): number; instance: unknown };
+type SceneHook = {
+  ready: Promise<void>;
+  restAlpha(): number[];
+  cellPx(): number;
+  elementOptionsOf(el: HTMLElement): { viscosity: number; recovery: number } | null;
+  instance: unknown;
+};
 type MaterialShape = { viscosity: number; cohesion: number; recovery: number };
 type PlaygroundHandle = {
   instance: { getMaterial(): MaterialShape };
@@ -82,6 +88,30 @@ test("given the splash scene when buttons are clicked and keyboard-activated the
     { drop: "medium", viscosity: 0.5, recovery: 0.7 },
     { drop: "thick", viscosity: 0.9, recovery: 1.2 },
   ]);
+  // W69 ward review: the attributes alone prove nothing about observe(). Read back what
+  // reached the runtime: element buffer slots 8/9 (viscosity, recovery). The registry
+  // stores the values unclamped (the facade range-checks and throws); Float32 → toBeCloseTo.
+  const reached = await page.evaluate(() => {
+    const hook = (window as unknown as { __liquidTest: SceneHook }).__liquidTest;
+    return [...document.querySelectorAll<HTMLElement>("[data-drop]"), document.getElementById("pool")!].map((el) =>
+      hook.elementOptionsOf(el),
+    );
+  });
+  const expected = [
+    { viscosity: 0.1, recovery: 0.4 },
+    { viscosity: 0.5, recovery: 0.7 },
+    { viscosity: 0.9, recovery: 1.2 },
+  ];
+  expect(reached).toHaveLength(4);
+  expected.forEach((want, i) => {
+    const got = reached[i];
+    expect(got, `drop ${i} read-back`).not.toBeNull();
+    expect(got!.viscosity, `drop ${i} viscosity`).toBeCloseTo(want.viscosity, 5);
+    expect(got!.recovery, `drop ${i} recovery`).toBeCloseTo(want.recovery, 5);
+  });
+  // The pool is observed without options: NaN in both slots (engine default).
+  expect(reached[3]).not.toBeNull();
+  expect(Number.isNaN(reached[3]!.viscosity) && Number.isNaN(reached[3]!.recovery), "pool uses the defaults").toBe(true);
 
   // The pool is pointer-only (spec §4): no tabindex, and Tab never lands on it.
   expect(await page.locator("#pool").getAttribute("tabindex")).toBeNull();
@@ -129,10 +159,16 @@ test("given the splash scene when buttons are clicked and keyboard-activated the
 
 test("given the playground when the honey preset is applied and the page reloaded then no console error and the material is restored from liquiddom-playground-v2", async ({ page }, testInfo) => {
   test.setTimeout(60_000);
+  // W69 ward review: seed the legacy v1 key before every load, so the null checks below
+  // prove the playground removes it (an unseeded key is null whatever the code does).
+  await page.addInitScript(() => {
+    localStorage.setItem("liquiddom-playground-v1", JSON.stringify({ schema: 1, liquidType: "water" }));
+  });
   await page.goto("/scenes/playground.html");
   await page.waitForFunction(() => (window as unknown as { __playground?: unknown }).__playground !== undefined, undefined, {
     timeout: 10_000,
   });
+  expect(await page.evaluate(() => localStorage.getItem("liquiddom-playground-v1")), "v1 removed on first load").toBeNull();
   await expect(page.locator("#tweak-mount > *")).not.toHaveCount(0);
 
   const honey = await page.evaluate(() => {
@@ -152,5 +188,5 @@ test("given the playground when the honey preset is applied and the page reloade
     (window as unknown as { __playground: PlaygroundHandle }).__playground.instance.getMaterial(),
   );
   expect(restored).toEqual(honey.expected);
-  expect(await page.evaluate(() => localStorage.getItem("liquiddom-playground-v1"))).toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem("liquiddom-playground-v1")), "v1 removed after reload").toBeNull();
 });

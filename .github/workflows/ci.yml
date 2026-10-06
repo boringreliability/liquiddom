@@ -90,15 +90,18 @@ jobs:
           name: wasm-pkg
           path: pkg
 
-      # D69-6: core (clean -> tsc -> copy-wasm, needs pkg/), the React adapter, then
-      # examples/react without its wasm-pack prebuild (pkg/ comes from the artifact).
-      - name: Build published dist + React example (dist smoke)
-        run: npm run e2e:dist:build
       - name: E2E canvas2d (blocking)
         run: npx playwright test --project=canvas2d
         env:
           E2E_SUITE: canvas2d
 
+      # D69-6: core (clean -> tsc -> copy-wasm, needs pkg/), the React adapter, then
+      # examples/react without its wasm-pack prebuild (pkg/ comes from the artifact).
+      # After canvas2d (W69 ward review): a dist build failure must not hide the
+      # canvas2d result; both stay blocking and run unless the job is cancelled.
+      - name: Build published dist + React example (dist smoke)
+        if: ${{ !cancelled() }}
+        run: npm run e2e:dist:build
       - name: E2E dist smoke (blocking, D69-6)
         if: ${{ !cancelled() }}
         run: npx playwright test --project=dist

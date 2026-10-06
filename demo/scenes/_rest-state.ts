@@ -8,6 +8,7 @@
  * "at rest" checks stay honest.
  */
 import type { LiquidDOMInstance } from "liquiddom";
+import { El, ELEMENT_STRIDE } from "../../packages/core/ts/src/fluid-layout";
 import { runtimeOf } from "../../packages/core/ts/src/internal";
 
 export function restAlphaOf(instance: LiquidDOMInstance, el: HTMLElement): number {
@@ -21,4 +22,22 @@ export function restAlphaOf(instance: LiquidDOMInstance, el: HTMLElement): numbe
  */
 export function cellPxOf(instance: LiquidDOMInstance): number {
   return runtimeOf(instance)?.bridge.core.cell_px() ?? Number.NaN;
+}
+
+/**
+ * What reached the runtime for one element slot (element id == slot index): the
+ * element buffer's `viscosity` (slot 8) and `recovery` (slot 9), as the registry
+ * wrote them at observe() (Float32, NaN = engine default). W69 ward review: the
+ * scenes spec reads this back instead of the HTML data-* attributes.
+ * Runtime not bound, or slot out of range → null.
+ */
+export function elementOptionsAt(
+  instance: LiquidDOMInstance,
+  slot: number,
+): { viscosity: number; recovery: number } | null {
+  const runtime = runtimeOf(instance);
+  if (runtime === undefined || !(slot >= 0 && slot < runtime.bridge.elementCapacity)) return null;
+  const v = runtime.bridge.elementView();
+  const o = slot * ELEMENT_STRIDE;
+  return { viscosity: v[o + El.VISCOSITY] ?? Number.NaN, recovery: v[o + El.RECOVERY] ?? Number.NaN };
 }

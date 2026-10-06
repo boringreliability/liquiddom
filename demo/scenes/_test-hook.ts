@@ -1,6 +1,6 @@
 /**
  * Shared `?test=1` hook for demo scenes (W69), shape per skeleton §3.5:
- * window.__liquidTest = { ready, restAlpha, advance, cellPx, instance }.
+ * window.__liquidTest = { ready, restAlpha, advance, cellPx, elementOptionsOf, instance }.
  * These scenes run on the RAF clock; `advance` exists only for shape parity.
  * `cellPx` is the D69-5 ring-density read (grid cell px; ring spacing = cell / 2).
  *
@@ -11,19 +11,23 @@
  * `restAlpha()` is `[]` and `cellPx()` is NaN. `ready` rejects if `started` does.
  */
 import type { LiquidDOMInstance } from "liquiddom";
-import { cellPxOf, restAlphaOf } from "./_rest-state";
+import { cellPxOf, elementOptionsAt, restAlphaOf } from "./_rest-state";
 
 export interface SceneTestHook {
   ready: Promise<void>;
   restAlpha(): number[];
   advance(frames: number): void;
   cellPx(): number;
+  /** Element-buffer read-back of `{ viscosity, recovery }` for an observed element; null when unbound or unknown. */
+  elementOptionsOf(el: HTMLElement): { viscosity: number; recovery: number } | null;
   instance: LiquidDOMInstance;
 }
 
 export interface SceneBinding {
   instance: LiquidDOMInstance;
   elements: readonly HTMLElement[];
+  /** Element id (== slot index) per observed element, as returned by `observe()`. */
+  slots?: ReadonlyMap<HTMLElement, number>;
 }
 
 export function installPendingSceneTestHook(started: Promise<SceneBinding>, sceneName: string): SceneTestHook {
@@ -42,6 +46,10 @@ export function installPendingSceneTestHook(started: Promise<SceneBinding>, scen
       throw new Error(`[${sceneName}] advance() needs ?clock=manual, which this scene does not support`);
     },
     cellPx: () => (bound === undefined ? Number.NaN : cellPxOf(bound.instance)),
+    elementOptionsOf: (el: HTMLElement) => {
+      const slot = bound?.slots?.get(el);
+      return bound === undefined || slot === undefined ? null : elementOptionsAt(bound.instance, slot);
+    },
     get instance(): LiquidDOMInstance {
       if (bound === undefined) throw new Error(`[${sceneName}] instance read before ready`);
       return bound.instance;

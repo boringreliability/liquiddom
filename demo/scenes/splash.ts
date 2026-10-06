@@ -45,13 +45,14 @@ async function build(params: SceneParams): Promise<SceneBinding> {
   const liquid: LiquidDOMInstance = await LiquidDOM.create(options);
 
   const observed: HTMLElement[] = [];
+  const slots = new Map<HTMLElement, number>();
   try {
     for (const el of document.querySelectorAll<HTMLElement>("[data-drop]")) {
-      liquid.observe(el, dropOptions(el));
+      slots.set(el, liquid.observe(el, dropOptions(el)));
       observed.push(el);
     }
     const pool = requireElement<HTMLElement>("#pool");
-    liquid.observe(pool);
+    slots.set(pool, liquid.observe(pool));
     observed.push(pool);
   } catch (err) {
     liquid.destroy();
@@ -79,7 +80,7 @@ async function build(params: SceneParams): Promise<SceneBinding> {
   });
 
   (window as unknown as { liquid: LiquidDOMInstance }).liquid = liquid;
-  return { instance: liquid, elements: observed };
+  return { instance: liquid, elements: observed, slots };
 }
 
 const params = readParams();
