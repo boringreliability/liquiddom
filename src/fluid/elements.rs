@@ -370,7 +370,7 @@ mod tests {
     #[test]
     fn given_hover_with_home_offset_and_odd_sizes_when_home_rect_then_bit_identical_to_w64_arithmetic()
      {
-        let (x, y, w, h, r, dx, dy) = (101.3f32, 203.7, 137.9, 47.3, 23.7, 5.3, -3.1);
+        let (x, y, w, h, r, dx, dy) = (101.3f32, 203.7, 137.9, 47.3, 23.6, 5.3, -3.1); // r < h/2 = 23.65, so rect() does not clamp it
         let e = with([x, y, w, h, r, 1.0, dx, dy, f32::NAN, f32::NAN]);
         let k = 1.0 + HOVER_SWELL;
         assert_eq!(

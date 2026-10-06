@@ -278,7 +278,7 @@ fn given_nan_or_infinite_pointer_when_sanitized_then_inactive() {
     }
     let off = PointerField::sanitized(10.0, 20.0, 30.0, 40.0, false);
     assert!(!off.active);
-    assert!(!PointerField::INACTIVE.active);
+    const { assert!(!PointerField::INACTIVE.active) };
 }
 
 #[test]
