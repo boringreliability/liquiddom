@@ -521,7 +521,8 @@ describe("W69: whole-picture check after slice 2", () => {
     const report = readFileSync(reportPath, "utf8");
     const lines = report.split("\n");
     // Variable specifier: a literal path would fail vite import analysis for the whole file while e2e/north-star.ts is missing.
-    const northStarModule = "../../../e2e/north-star";
+    // Absolute path: a relative specifier under @vite-ignore resolves against the core project root (→ /e2e/north-star).
+    const northStarModule = resolve(ROOT, "e2e/north-star.ts");
     const { reformBudgetMs } = (await import(/* @vite-ignore */ northStarModule)) as typeof import("../../../e2e/north-star");
 
     // | Step | Scene step | Expected S2 | Observed | Evidence |
