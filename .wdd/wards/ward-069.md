@@ -3,7 +3,7 @@ ward: 69
 revision: null
 name: "Playground, splash scene, whole-picture check"
 epic: "fluid-engine"
-status: "red"
+status: "approved"
 dependencies: [68]
 layer: "typescript"
 estimated_tests: 26
