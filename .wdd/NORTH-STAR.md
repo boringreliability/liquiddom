@@ -168,7 +168,7 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D67-14 | Element velocity once per tick: rect velocity per tick, shared by its fixed steps | W67 | dec_41131b84 |
 | D67-15 | Cross-element lock probe: scenario probe; fallback is slice-6 parking | W67 | dec_14e3ffed |
 | D68-1 | Material preset values: water/honey/jelly as proposed | W68 | dec_42a7df27 |
-| D68-2 | Hover and focus: AMENDED 2026-10-06 — pointerenter/leave ignoring touch, initial :hover under (hover: hover) (was mouseenter/leave, dec_802fccd4); focus beats hover | W68 | dec_58e41ded |
+| D68-2 | Hover and focus: AMENDED 2026-10-06 — pointerenter/leave ignoring touch, initial :hover under (hover: hover), hover beats focus until slice 5 (was mouseenter/leave + focus beats hover, dec_802fccd4, dec_58e41ded) | W68 | dec_e431420b |
 | D68-3 | The soft pointer field is in Rust: velocity-only coupling, drag 6/s, radius 70 px | W68 | dec_0a6cdade |
 | D68-4 | Pointer velocity smoothing: per-frame sampling from the runtime clock | W68 | dec_f9697a6b |
 | D68-5 | Reduced-motion input gating in TS: TS gating with validation first | W68 | dec_2ca25ef8 |

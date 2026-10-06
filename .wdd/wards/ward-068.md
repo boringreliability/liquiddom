@@ -42,7 +42,7 @@ Decision: APPROVED 2026-10-06 — water/honey/jelly as proposed (saga dec_42a7df
 ### D68-2: Hover via mouseenter/mouseleave; focus beats hover
 Proposal: `mouseenter`/`mouseleave` and `focus`/`blur` on the observed element itself (not `focusin`); focus beats hover; the initial state is read from `:hover` / `document.activeElement` at observe time; slot 5 is written 0/1/2 on every `sync()`, 3 (dragged) is reserved for slice 5.
 Consequence: focus on a child of a card does not count as card focus; touch devices get no hover bulge.
-Decision: AMENDED 2026-10-06 — hover from `pointerenter`/`pointerleave` on the element with `pointerType === "touch"` ignored (mouseenter stuck after a tap on touch), initial `:hover` read only under `(hover: hover)`; focus/blur on the element, focus beats hover (saga dec_58e41ded)
+Decision: AMENDED 2026-10-06 — hover from `pointerenter`/`pointerleave` on the element with `pointerType === "touch"` ignored, initial `:hover` read only under `(hover: hover)`; hover beats focus until slice 5 (a click focuses buttons in Chrome/Firefox and must not remove the swell; FOCUSED has no engine effect yet) (saga dec_e431420b)
 
 ### D68-3: The soft pointer field is in Rust
 Proposal: velocity coupling only: inside `POINTER_RADIUS_PX = 70`, `a = (v_ptr − v_p) · POINTER_DRAG_PER_S · (1 − d/r)²` with `POINTER_DRAG_PER_S = 6.0`, added after the home-spring saturation, with no radial term; NaN/Inf makes the pointer inactive and its speed is clamped to `POINTER_VMAX_PX_S = 2000`.
