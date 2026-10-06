@@ -425,10 +425,25 @@ test.describe("step 2 – pointer sweep (W68)", () => {
     }
     return out;
   }
+  // The scene's pills use `border-radius: 24px` (= h/2). A rectangular 8 px inset puts the corner
+  // lattice points only ~1.4 px inside the rounded contour, so D68-3's intended few-px drag of the
+  // edge took them outside the liquid (alpha ~7) without any interior hole. "No holes" is about the
+  // interior: keep only points at least HOLE_MARGIN_PX inside the rounded contour (2× the 1.5–3 px
+  // expected drag). A radial push would still punch a hole around the pointer, deep inside.
+  const PILL_RADIUS_PX = 24;
+  const HOLE_MARGIN_PX = 6;
+  function insideRounded(b: Box, x: number, y: number): number {
+    const r = Math.min(PILL_RADIUS_PX, b.height / 2, b.width / 2);
+    const cx = Math.min(Math.max(x, b.x + r), b.x + b.width - r);
+    const cy = Math.min(Math.max(y, b.y + r), b.y + b.height - r);
+    return r - Math.hypot(x - cx, y - cy);
+  }
   function lattice(b: Box): Pt[] {
     const pts: Pt[] = [];
     for (let y = b.y + INSET_PX; y <= b.y + b.height - INSET_PX; y += LATTICE_PX) {
-      for (let x = b.x + INSET_PX; x <= b.x + b.width - INSET_PX; x += LATTICE_PX) pts.push([x, y]);
+      for (let x = b.x + INSET_PX; x <= b.x + b.width - INSET_PX; x += LATTICE_PX) {
+        if (insideRounded(b, x, y) >= HOLE_MARGIN_PX) pts.push([x, y]);
+      }
     }
     return pts;
   }
