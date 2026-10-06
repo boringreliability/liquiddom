@@ -236,8 +236,10 @@ pub fn shake(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, stren
 
 /// Radius of the soft pointer field, px [SPEC].
 pub const POINTER_RADIUS_PX: f32 = 70.0;
-/// Coupling rate towards the pointer velocity at the field centre, 1/s (spike `POINTER_DRAG`, D68-3).
-pub const POINTER_DRAG_PER_S: f32 = 6.0;
+/// Coupling rate towards the pointer velocity at the field centre, 1/s. D70-3: 12, the lowest
+/// of [12, 24] (W68 started at the spike's 6, D68-3). Pre-plan: a 600 px/s sweep through a pill
+/// moves its liquid 6.3–6.8 px with no interior hole; 18 and 24 open holes.
+pub const POINTER_DRAG_PER_S: f32 = 12.0;
 /// Defensive cap on the pointer speed the field couples to, px/s (D68-3).
 pub const POINTER_VMAX_PX_S: f32 = 2000.0;
 
@@ -246,7 +248,7 @@ pub const POINTER_VMAX_PX_S: f32 = 2000.0;
 /// term; a resting pointer only damps moving liquid (−v·k), so it cannot dig a hole
 /// (the spike's `POINTER_PUSH_PX` did). Positions in grid units, velocities in grid units/s;
 /// returns an acceleration in grid units/s². Explicit and stable: the largest
-/// coupling per substep is `6 · dt_substep ≪ 1`.
+/// coupling per substep is `POINTER_DRAG_PER_S · dt_substep = 12 / 480 = 0.025 ≪ 1`.
 ///
 /// Convenience form of `pointer_accel_grid` for a px-space pointer (the solver hoists
 /// `PointerGrid` once per tick instead).
