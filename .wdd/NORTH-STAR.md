@@ -183,3 +183,9 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D69-4 | Whole-picture gate semantics: whole-picture gate checks structure and honesty; a ❌ step does not block gold | W69 | dec_ea35ba46 |
 | D69-5 | Carried observations go into the report: report + recommendation per carried item, no engine change in W69 | W69 | dec_035bc206 |
 | D69-6 | Published-dist browser smoke in CI: blocking dist smoke in CI with a core build step | W69 | dec_6de03f81 |
+| D70-1 | Spatially coherent shake impulse: coherent per-element shake field d·speed·(1 + 0.8·sin(π·u + φ)), no white noise, no rotation | W70 | dec_d54a6ce1 |
+| D70-2 | Lower the shake stiffness cap: SHAKE_STIFFNESS_CAP 0.4 → ~0.15, final in [0.1, 0.2] by measurement | W70 | dec_0412fd9a |
+| D70-3 | Raise the pointer drag: POINTER_DRAG_PER_S → lowest in [12, 24] with ≥ 3 px mid-sweep centroid shift | W70 | dec_2bb9f606 |
+| D70-4 | Full density weight during the Canvas2D cross-fade: full density weight while restAlpha < 1, roundRect at restAlpha on top | W70 | dec_b98514b2 |
+| D70-5 | Make experience measurable for steps 2 and 6: rigid-fit residual RMS slosh test (≥ 6 px card, ≥ 3 px pills) and 3 px bulge e2e | W70 | dec_ec207f57 |
+| D70-6 | Step 8 in the recording plus a slice-2 addendum: ?rm=1 segment in the recording, re-record, slice-2 addendum for steps 2, 6, 8 | W70 | dec_40e9ea63 |
