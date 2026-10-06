@@ -16,6 +16,8 @@ npm workspaces: `packages/*` (`liquiddom`, `@liquiddom/react`, `@liquiddom/vue`,
 
 ### Develop
 - `npm run dev`: builds WASM, then Vite on `demo/`. `liquiddom` is aliased to `packages/core/ts/src/index.ts`, so scenes run from source. Scenes: `scenes/acceptance.html` (`?seed&renderer&clock=manual&rm=1&test=1`, hook `window.__liquidTest`) and `scenes/stress.html?n=2..4` (report `window.__stress`). Hook shapes live in `demo/test-hooks.ts`.
+- `demo/scenes/splash.html` and `demo/scenes/playground.html` (W69): fluid splash scene and the Tweakpane material playground (`liquiddom-playground-v2`).
+- `npm run whole-picture` (W69): records the acceptance scene in the local-only Playwright `record` project (canvas2d, RAF clock, re-form budgets read from `.wdd/NORTH-STAR.md`) and converts it with ffmpeg to `docs/superpowers/whole-picture/slice-2-canvas2d.gif`. Never run in CI.
 
 ### Test
 - `npm test`: Vitest 4 projects core, react and vue (jsdom). The adapter tests exercise core's **dist**: run `npm run build -w liquiddom` first. Filter with `npm test -- -t "snippet"` or `npm test -w @liquiddom/react`.
