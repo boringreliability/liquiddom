@@ -43,7 +43,8 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 | Total tests | 50 Rust + 330 TS + 17 Playwright | W66 |
 
 ## Known Limitations
-- Slice 2 is in progress: splash and shake are live (W67); pointer, hover and material presets arrive in W68; no liquid text yet.
+- Slice 2 is in progress: splash and shake (W67) and the soft pointer field, hover swell, `setMaterial`/`getMaterial` and material presets (W68) are live; no liquid text yet.
+- Pointer idle decay (D68-4, W68): the ×0.8 velocity decay is per frame, so at 120 Hz the tail decays twice as fast in wall time as at 60 Hz.
 - Container mode needs a positioned container (one `console.warn` if static; liquiddom never restyles it).
 - Gravity is validated but has no effect until slice 6; scroll is verified only in slice 6.
 - A large scroll can lock particles across elements (W67 slip, slice-6 parking).

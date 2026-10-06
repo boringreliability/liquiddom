@@ -6,7 +6,7 @@ epic: "fluid-engine"
 status: "approved"
 dependencies: [67]
 layer: "both"
-estimated_tests: 72
+estimated_tests: 81
 created: "2026-10-03"
 completed: null
 ---
@@ -46,7 +46,7 @@ Decision: AMENDED 2026-10-06 — hover from `pointerenter`/`pointerleave` on the
 
 ### D68-3: The soft pointer field is in Rust
 Proposal: velocity coupling only: inside `POINTER_RADIUS_PX = 70`, `a = (v_ptr − v_p) · POINTER_DRAG_PER_S · (1 − d/r)²` with `POINTER_DRAG_PER_S = 6.0`, added after the home-spring saturation, with no radial term; NaN/Inf makes the pointer inactive and its speed is clamped to `POINTER_VMAX_PX_S = 2000`.
-Consequence: a resting pointer has exactly zero effect, so it cannot make a hole; a 600 px/s sweep drags the liquid a few px. If the no-hole tests fail, `POINTER_DRAG_PER_S` is lowered in this ward and the value goes into the gold notes.
+Consequence: a resting pointer has no radial effect and only damps moving liquid (−v·k), so it cannot make a hole; a 600 px/s sweep drags the liquid a few px. If the no-hole tests fail, `POINTER_DRAG_PER_S` is lowered in this ward and the value goes into the gold notes.
 Decision: APPROVED 2026-10-06 — velocity-only coupling, drag 6/s, radius 70 px (saga dec_0a6cdade)
 
 ### D68-4: Pointer velocity smoothing
@@ -135,16 +135,16 @@ Decision: APPROVED 2026-10-06 — invalidate on every particle-moving path (saga
 | 37 | given_pointer_left_the_window_when_ticking_then_pointer_active_false | D68-4 tracker |
 | 38 | given_reduced_motion_when_ticking_then_pointer_active_false | D68-4 tracker |
 | 39 | given_runtime_destroyed_when_inspected_then_document_and_window_pointer_listeners_removed | D68-4 tracker |
-| 40 | given_mouseenter_when_synced_then_interaction_slot_1 | D68-2, D68-5 |
+| 40 | given_mouseenter_when_synced_then_interaction_slot_1 | D68-2, D68-5 (the test now fires `pointerenter`, mouse) |
 | 41 | given_focus_while_hovered_when_synced_then_interaction_slot_2 | D68-2, D68-5 |
-| 42 | given_focused_when_mouse_leaves_then_interaction_slot_stays_2 | D68-2, D68-5 |
-| 43 | given_blur_and_mouseleave_when_synced_then_interaction_slot_0 | D68-2, D68-5 |
+| 42 | given_focused_when_mouse_leaves_then_interaction_slot_stays_2 | D68-2, D68-5 (leave is `pointerleave`) |
+| 43 | given_blur_and_mouseleave_when_synced_then_interaction_slot_0 | D68-2, D68-5 (the test now fires `pointerleave`) |
 | 44 | given_element_already_focused_when_observed_then_interaction_slot_2_on_first_sync | D68-2, D68-5 |
 | 45 | given_reduced_motion_when_hovered_or_focused_then_interaction_slot_0 | D68-2, D68-5 (guard) |
 | 46 | given_reduced_motion_turned_off_when_still_hovered_then_interaction_slot_1_on_next_sync | D68-2, D68-5 |
 | 47 | given_child_of_observed_card_focused_when_synced_then_slot_idle | D68-2, D68-5 (guard) |
-| 48 | given_element_already_hovered_when_observed_then_interaction_slot_1_on_first_sync | D68-2, D68-5 |
-| 49 | given_unobserve_when_called_then_all_four_interaction_listeners_removed | D68-2, D68-5 |
+| 48 | given_element_already_hovered_when_observed_then_interaction_slot_1_on_first_sync | D68-2, D68-5 (initial `:hover` read only under `(hover: hover)`) |
+| 49 | given_unobserve_when_called_then_all_four_interaction_listeners_removed | D68-2, D68-5 (`pointerenter`, `pointerleave`, `focus`, `blur`) |
 | 50 | given_observe_called_twice_when_listeners_counted_then_attached_once | D68-2, D68-5 |
 | 51 | given_create_with_material_when_started_then_set_material_called_once_with_resolved_values | D68-1, D68-9 (guard) |
 | 52 | given_setMaterial_partial_when_called_then_merged_validated_and_set_material_called_with_merged_values | D68-1, D68-9 |
@@ -168,6 +168,15 @@ Decision: APPROVED 2026-10-06 — invalidate on every particle-moving path (saga
 | 70 | e2e: step 2 – given the sweep when ticking then the liquid reacts and every restAlpha returns to 1 within 3 s after the pointer leaves | step 2 |
 | 71 | e2e: step 2 – given the pointer resting on Split when settled then the rest contour is swelled 2 % and un-swells when the pointer leaves | step 2, D68-5 |
 | 72 | e2e: step 2 – given the end of the pointer sweep when screenshotted then it matches the baseline (maxDiffPixelRatio 0.01) | step 2 (Linux-only visual, baseline in W68.13) |
+| 73 | solver.rs: given_hoisted_pointer_grid_with_cheap_rejection_when_accel_evaluated_then_bit_identical_to_the_w68_reference | D68-3, perf guard (hoisted field, cheap rejection) |
+| 74 | solver.rs: given_pointer_disc_outside_the_particle_aabb_when_stepping_then_bit_identical_to_no_pointer | D68-3, D68-10, perf guard (AABB disc skip) |
+| 75 | given_touch_tap_with_compat_mouseenter_when_synced_then_slot_idle_and_no_stuck_swell | D68-2 amended (touch ignored) |
+| 76 | given_mouse_or_pen_pointerenter_when_synced_then_hover_and_pointerleave_clears_it | D68-2 amended |
+| 77 | given_element_matching_hover_at_observe_when_hover_none_then_idle_and_when_hover_hover_then_hover | D68-2 amended (`(hover: hover)` gate) |
+| 78 | given_getter_valid_on_first_read_and_invalid_after_when_setMaterial_then_one_consistent_result_matching_the_core | D68-9 (snapshot, getters read once) |
+| 79 | given_unknown_key_beside_a_getter_when_setMaterial_then_TypeError_names_the_key_without_reading_it | D68-9 (snapshot) |
+| 80 | given_successive_samples_when_compared_then_the_same_object_is_reused_with_current_values | D68-4 tracker (no per-frame allocation) |
+| 81 | given_container_in_a_second_document_when_pointer_moves_there_then_tick_receives_it | D68-4 tracker (ownerDocument pointer) |
 
 Totals: 72 rows = 23 Rust (20 `pointer_hover_tests.rs`, 2 `solver.rs`, 1 `elements.rs`) + 45 TS (new and modified-existing) + 4 e2e. Rows marked guard pass at red (or once Rust compiles).
 

@@ -70,6 +70,21 @@ liquid.shake(0.5);
 - Under reduced motion both are ignored: they still validate, and `splash` still throws for an element that is not observed, but nothing visible happens.
 - `SplashOptions` changed shape in 0.3: `threshold`, `count`, `jitter`, `speedScale`, `lifetimeMs` and `radius` are gone and throw a `TypeError`.
 
+### Material
+
+```ts
+import { LiquidDOM, presets } from "liquiddom";
+const liquid = await LiquidDOM.create({ material: presets.honey });
+liquid.setMaterial({ cohesion: 0.8 }); // validated and merged atomically, TypeError on invalid input
+liquid.getMaterial();                  // { viscosity: 0.9, cohesion: 0.8, recovery: 1.6 }
+```
+
+`viscosity` and `cohesion` are in [0, 1]; `recovery` is the re-form time in seconds, [0.2, 3]. Presets: `water`, `honey`, `jelly`. The 0.2 physics presets (`goo`, `jelly`, `firm` with `tension`, `damping`, …) no longer exist; passing their fields throws a `TypeError`.
+
+### Pointer and hover
+
+The liquid follows the pointer's motion within 70 px; a resting pointer only damps moving liquid and never digs a hole. Hovering an observed element (mouse or pen; touch is ignored) swells its contour by 2 %; focus has no swell. Known limitation: the pointer's idle velocity decay (×0.8) is per frame, so at 120 Hz the tail fades twice as fast in wall time as at 60 Hz.
+
 ## Accessibility
 
 - The canvas is `aria-hidden="true"` with `pointer-events: none`. It sits below the observed elements, so focus rings are always visible.
