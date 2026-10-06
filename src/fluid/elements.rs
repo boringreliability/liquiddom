@@ -50,6 +50,26 @@ pub struct Elements {
     pub phase: Vec<f32>,
 }
 
+/// Hover swell (spec §2, resolution B1, D68-8): while hovered the home rect grows by
+/// `HOVER_SWELL` about its centre, radius included, so a pill stays a pill. Idle,
+/// focused, dragged, NaN and reduced motion leave it unchanged. TS draws the rest
+/// contour with the identical rule (`fluid-layout.ts` `homeRect`). The arithmetic is
+/// W64's, unchanged, so Rust and TS stay identical.
+pub fn swell_rect(r: &Rect, interaction: f32, reduced_motion: bool) -> Rect {
+    let hovered = (interaction - INTERACTION_HOVER).abs() < 0.5;
+    if reduced_motion || !hovered {
+        return *r;
+    }
+    let k = 1.0 + HOVER_SWELL;
+    Rect {
+        x: r.x - 0.5 * (r.w * k - r.w),
+        y: r.y - 0.5 * (r.h * k - r.h),
+        w: r.w * k,
+        h: r.h * k,
+        r: r.r * k,
+    }
+}
+
 impl Elements {
     pub fn new(cap: usize) -> Elements {
         let mut state = vec![0.0; cap * STATE_STRIDE];
@@ -114,21 +134,16 @@ impl Elements {
     /// lives in TS as `homeRect()` in `fluid-layout.ts`.
     pub fn home_rect(&self, id: usize, reduced_motion: bool) -> Option<Rect> {
         let r = self.rect(id)?;
-        let mut out = Rect {
+        let moved = Rect {
             x: r.x + finite_or(self.field(id, EL_HOME_DX), 0.0),
             y: r.y + finite_or(self.field(id, EL_HOME_DY), 0.0),
             ..r
         };
-        let hovered = (self.field(id, EL_INTERACTION) - INTERACTION_HOVER).abs() < 0.5;
-        if hovered && !reduced_motion {
-            let k = 1.0 + HOVER_SWELL;
-            out.x -= 0.5 * (r.w * k - r.w);
-            out.y -= 0.5 * (r.h * k - r.h);
-            out.w = r.w * k;
-            out.h = r.h * k;
-            out.r = r.r * k;
-        }
-        Some(out)
+        Some(swell_rect(
+            &moved,
+            self.field(id, EL_INTERACTION),
+            reduced_motion,
+        ))
     }
 
     /// Target = `rest_uv` mapped into the current home rect (spec §2 "T-1000").

@@ -21,6 +21,7 @@
 use super::access::{rd, rd_or, rd4, wr, wr4};
 use super::elements::Elements;
 use super::grid::{Grid, cap_speed, norm_if_above};
+use super::interaction::{POINTER_VMAX_PX_S, pointer_accel};
 use super::layout::{ST_REST_ALPHA, STATE_STRIDE};
 use super::material::{MaterialParams, map_viscosity};
 use super::particles::Particles;
@@ -63,7 +64,7 @@ pub fn wobble_time_s(time_s: f64) -> f32 {
     }
 }
 
-/// Pointer input for one substep. W68's soft pointer field reads it; W67 passes the default.
+/// Pointer input for one substep. `FluidCore::tick` builds it once per tick with `PointerField::sanitized` (W68, D68-3).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PointerField {
     pub active: bool,
@@ -71,6 +72,41 @@ pub struct PointerField {
     pub y_px: f32,
     pub vx_px: f32,
     pub vy_px: f32,
+}
+
+impl PointerField {
+    /// No pointer: the field is off (equal to `PointerField::default()`).
+    pub const INACTIVE: PointerField = PointerField {
+        active: false,
+        x_px: 0.0,
+        y_px: 0.0,
+        vx_px: 0.0,
+        vy_px: 0.0,
+    };
+
+    /// Last-line defence for the FFI pointer (TS validates first): any non-finite
+    /// input disables the field; the speed is clamped to `POINTER_VMAX_PX_S` with
+    /// the direction preserved (`hypot`, so huge finite speeds do not overflow).
+    pub fn sanitized(x_px: f32, y_px: f32, vx_px: f32, vy_px: f32, active: bool) -> PointerField {
+        let finite = x_px.is_finite() && y_px.is_finite() && vx_px.is_finite() && vy_px.is_finite();
+        if !active || !finite {
+            return PointerField::INACTIVE;
+        }
+        let speed = vx_px.hypot(vy_px);
+        let (vx, vy) = if speed > POINTER_VMAX_PX_S {
+            let k = POINTER_VMAX_PX_S / speed;
+            (vx_px * k, vy_px * k)
+        } else {
+            (vx_px, vy_px)
+        };
+        PointerField {
+            active: true,
+            x_px,
+            y_px,
+            vx_px: vx,
+            vy_px: vy,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -187,6 +223,20 @@ impl Scratch {
             bounds: None,
             bounds_valid: false,
         }
+    }
+
+    /// D68-10: forget the fused AABB, so the next `substep_with` measures the particles
+    /// again even with `reuse_bounds`. Called by every path that changes particles
+    /// outside a substep's G2P: redistribute, the reduced-motion pin, splash, shake, an
+    /// active pointer tick and the test setter `set_particle_px`.
+    pub fn invalidate_bounds(&mut self) {
+        self.bounds_valid = false;
+    }
+
+    /// Test-only (D68-10): whether a `reuse_bounds` substep would reuse the fused AABB now.
+    #[cfg(test)]
+    pub(crate) fn bounds_reusable(&self) -> bool {
+        self.bounds_valid
     }
 
     /// Test-only (B7): (capacity, data pointer) of every Vec, for `buffer_fingerprint`.
@@ -402,8 +452,9 @@ pub struct SubstepOpts {
     /// substep, the only one `refresh_rest_state` reads; otherwise `max_dev` is untouched.
     pub measure_dev: bool,
     /// Use the AABB the previous `substep_with` collected in its G2P instead of a full
-    /// pass. Only valid when nothing moved a particle or changed a home since; the api
-    /// sets it for every substep of a tick but the first.
+    /// pass. Only valid when nothing moved a particle or changed a home since: every
+    /// such path calls `Scratch::invalidate_bounds` (D68-10). The api sets it for every
+    /// substep of a tick but the first.
     pub reuse_bounds: bool,
 }
 
@@ -494,6 +545,12 @@ pub fn substep_with(
             }
             _ => (f32::NAN, f32::NAN),
         };
+        // W68 soft pointer field (D68-3): after the saturated home spring, so the
+        // spring's acceleration cap never clips the pointer coupling. Applies to
+        // every homed particle; it is zero for a resting pointer.
+        let (pax, pay) = pointer_accel(x, y, vx, vy, &inp.pointer, g);
+        vx += pax * dt;
+        vy += pay * dt;
         wr(&mut s.tgt_x, i, tx);
         wr(&mut s.tgt_y, i, ty);
         wr(&mut p.vx, i, vx);

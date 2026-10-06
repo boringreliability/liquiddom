@@ -171,17 +171,17 @@ impl FluidCore {
     }
 
     /// Advances by the raw RAF dt (Rust owns the accumulator) and returns the fixed
-    /// steps simulated: 0–3, always 0 under reduced motion (D64-4). The pointer (W68)
-    /// and gravity (slice 6, D67-2) arguments are accepted and unused.
+    /// steps simulated: 0–3, always 0 under reduced motion (D64-4). The pointer drives
+    /// the soft pointer field (W68, D68-3); gravity (slice 6, D67-2) is accepted and unused.
     #[allow(clippy::too_many_arguments)]
     pub fn tick(
         &mut self,
         raw_dt_s: f32,
-        _px: f32,
-        _py: f32,
-        _pvx: f32,
-        _pvy: f32,
-        _pointer_active: bool,
+        px: f32,
+        py: f32,
+        pvx: f32,
+        pvy: f32,
+        pointer_active: bool,
         _gx: f32,
         _gy: f32,
     ) -> u32 {
@@ -204,11 +204,20 @@ impl FluidCore {
                 &mut self.scratch,
             );
             solver::pin_to_targets(&mut self.particles, &self.grid, &self.scratch);
+            self.scratch.invalidate_bounds(); // D68-10: the pin moved particles
             self.refresh_rest_state(true, 0.0, true);
             self.views.write_dynamic(&self.particles, &self.grid);
             return 0;
         }
         let params = self.settings.material.params();
+        // W68 (D68-3): one sanitised pointer per tick, shared by every substep.
+        let pointer = PointerField::sanitized(px, py, pvx, pvy, pointer_active);
+        if pointer.active {
+            // D68-10: the field acts inside the substeps (before P2G), so G2P's fused
+            // AABB already covers it, and this tick's first substep re-measures anyway.
+            // Kept so that "every particle-moving path invalidates" holds if that changes.
+            self.scratch.invalidate_bounds();
+        }
         let dt = FIXED_DT_S / SUBSTEPS as f32;
         if steps > 0 {
             // W67 D67-14: the rect moved once since the last tick that simulated. Its
@@ -228,7 +237,7 @@ impl FluidCore {
                 let input = StepInput {
                     dt,
                     time_s: solver::wobble_time_s(self.time_s),
-                    pointer: PointerField::default(),
+                    pointer,
                 };
                 // Perf round: maxDev only in the last substep (the one refresh_rest_state
                 // reads); the AABB comes from the previous G2P except on the tick's first
@@ -274,6 +283,7 @@ impl FluidCore {
                 strength,
             },
         );
+        self.scratch.invalidate_bounds(); // D68-10
     }
 
     /// Shake every active element. Ignored under reduced motion or for strength ≤ 0.
@@ -288,6 +298,7 @@ impl FluidCore {
             &mut self.interaction_rng,
             strength,
         );
+        self.scratch.invalidate_bounds(); // D68-10
     }
 
     /// Normalised material (spec §2). NaN → defaults; out of range → clamped.
@@ -323,6 +334,7 @@ impl FluidCore {
         for id in 0..self.elements.cap {
             self.elements.settle_if_at_rest(id);
         }
+        self.scratch.invalidate_bounds(); // D68-10: new homes, placed and pinned particles
         self.views.write_dynamic(&self.particles, &self.grid);
     }
 
@@ -394,6 +406,7 @@ impl FluidCore {
         let (gx, gy) = self.grid.to_grid(x, y);
         self.particles.x[i] = gx;
         self.particles.y[i] = gy;
+        self.scratch.invalidate_bounds();
     }
 
     pub fn target_px(&self, i: usize) -> Option<(f32, f32)> {
@@ -765,6 +778,11 @@ impl FluidCore {
 
     pub(crate) fn set_time_s(&mut self, t: f64) {
         self.time_s = t;
+    }
+
+    /// D68-10: whether the next tick's reuse substeps would reuse the current fused AABB.
+    pub(crate) fn bounds_reusable(&self) -> bool {
+        self.scratch.bounds_reusable()
     }
 }
 

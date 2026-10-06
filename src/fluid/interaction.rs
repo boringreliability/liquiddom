@@ -11,6 +11,7 @@ use super::elements::{Elements, S_FLOOR};
 use super::grid::Grid;
 use super::particles::Particles;
 use super::rng::Rng;
+use super::solver::PointerField;
 
 /// Splash speed at strength 1, px/s (D67-3).
 pub const SPLASH_SPEED_PX_S: f32 = 950.0;
@@ -178,6 +179,46 @@ pub fn shake(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, stren
         }
     }
     true
+}
+
+// ---- W68: soft pointer field (spec §2 Interaction; D68-3) ----------------------
+
+/// Radius of the soft pointer field, px [SPEC].
+pub const POINTER_RADIUS_PX: f32 = 70.0;
+/// Coupling rate towards the pointer velocity at the field centre, 1/s (spike `POINTER_DRAG`, D68-3).
+pub const POINTER_DRAG_PER_S: f32 = 6.0;
+/// Defensive cap on the pointer speed the field couples to, px/s (D68-3).
+pub const POINTER_VMAX_PX_S: f32 = 2000.0;
+
+/// Soft pointer field: pulls a particle's velocity towards the pointer velocity with
+/// weight `(1 − d/r)²` inside `POINTER_RADIUS_PX`. There is deliberately no radial
+/// term, so a resting pointer exerts no force and cannot dig a hole (the spike's
+/// `POINTER_PUSH_PX` did). Positions in grid units, velocities in grid units/s;
+/// returns an acceleration in grid units/s². Explicit and stable: the largest
+/// coupling per substep is `6 · dt_substep ≪ 1`.
+#[inline]
+pub fn pointer_accel(x: f32, y: f32, vx: f32, vy: f32, ptr: &PointerField, g: &Grid) -> (f32, f32) {
+    if !ptr.active {
+        return (0.0, 0.0);
+    }
+    let (px, py) = g.to_grid(ptr.x_px, ptr.y_px);
+    let r = POINTER_RADIUS_PX * g.inv_cell;
+    let dx = x - px;
+    let dy = y - py;
+    let d2 = dx * dx + dy * dy;
+    if !d2.is_finite() || d2 >= r * r {
+        return (0.0, 0.0);
+    }
+    let f = 1.0 - d2.sqrt() / r;
+    let k = f * f * POINTER_DRAG_PER_S;
+    let pvx = ptr.vx_px * g.inv_cell;
+    let pvy = ptr.vy_px * g.inv_cell;
+    let (ax, ay) = ((pvx - vx) * k, (pvy - vy) * k);
+    if ax.is_finite() && ay.is_finite() {
+        (ax, ay)
+    } else {
+        (0.0, 0.0)
+    }
 }
 
 #[cfg(test)]
