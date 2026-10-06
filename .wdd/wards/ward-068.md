@@ -3,12 +3,12 @@ ward: 68
 revision: null
 name: "Pointer, hover and material"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [67]
 layer: "both"
 estimated_tests: 81
 created: "2026-10-03"
-completed: null
+completed: "2026-10-06"
 ---
 # Ward 068: Pointer, hover and material
 
