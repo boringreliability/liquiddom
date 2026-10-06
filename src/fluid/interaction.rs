@@ -3,8 +3,9 @@
 //! Both add velocity to particles and damage element stiffness, so the liquid
 //! goes soft and then re-forms (T-1000). They draw only from the core's
 //! interaction RNG stream: same seed + same call sequence = bit-identical velocities.
+//! W70: shake is a spatially coherent field per element (D70-1), cap 0.2 (D70-2).
 
-use std::f32::consts::TAU;
+use std::f32::consts::{PI, TAU};
 
 use super::access::{add, rd, rd_u32, wr};
 use super::elements::{Elements, S_FLOOR};
@@ -20,11 +21,13 @@ pub const SPLASH_RADIUS_MIN_PX: f32 = 110.0;
 pub const SPLASH_RADIUS_PER_DIAGONAL: f32 = 0.75;
 /// Angular jitter per particle (±rad), so the sheet tears into fingers.
 pub const SPLASH_ANGLE_JITTER_RAD: f32 = 0.45;
-/// Shake speed at strength 1, px/s (D67-3); noise ±0.45 per particle.
+/// Shake speed at strength 1, px/s (D67-3).
 pub const SHAKE_SPEED_PX_S: f32 = 520.0;
-pub const SHAKE_NOISE: f32 = 0.9;
-/// Spec §2: shake sets s ← min(s, 0.4).
-pub const SHAKE_STIFFNESS_CAP: f32 = 0.4;
+/// D70-1: amplitude `A` of the coherent speed profile `1 + A · sin(π · u + φ)` across an element.
+pub const SHAKE_PROFILE_AMPLITUDE: f32 = 0.8;
+/// D70-2 (amends spec §2's 0.4): shake sets s ← min(s, 0.2). The highest value in [0.1, 0.2]
+/// that passes the W70 slosh metric (pre-plan: re-form 146 frames, budget 180).
+pub const SHAKE_STIFFNESS_CAP: f32 = 0.2;
 pub const STRENGTH_MAX: f32 = 2.0;
 
 /// The scalars of `FluidCore::splash` (buffer-space px).
@@ -130,48 +133,96 @@ pub fn splash(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, at: 
     true
 }
 
-/// Size of `shake`'s per-element direction table (= the FFI's max elements).
-const SHAKE_DIR_TABLE: usize = super::api::ELEMENTS_MAX as usize;
+/// Size of `shake`'s per-element table (= the FFI's max elements).
+const SHAKE_TABLE: usize = super::api::ELEMENTS_MAX as usize;
 
-/// Element `id`'s seeded shake direction `(x, y)` for this shake's `stream`.
-fn shake_dir(stream: u32, id: usize) -> (f32, f32) {
-    let angle = Rng::derive(stream, u32::try_from(id).unwrap_or(u32::MAX)).next_f32() * TAU;
-    let (dir_y, dir_x) = angle.sin_cos();
-    (dir_x, dir_y)
+/// One element's field for one shake (D70-1): a seeded unit direction and a phase.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShakeField {
+    pub dir_x: f32,
+    pub dir_y: f32,
+    pub phase: f32,
 }
 
-/// Global shake: each active element gets one seeded direction, each particle gets
-/// noise, and every active element goes soft (s ← min(s, 0.4)).
+/// Element `id`'s field for this shake's `stream`. The direction is W67's draw (the first value
+/// of the derived stream), so a seed keeps its directions; the phase is the second value.
+pub(crate) fn shake_field(stream: u32, id: usize) -> ShakeField {
+    let mut rng = Rng::derive(stream, u32::try_from(id).unwrap_or(u32::MAX));
+    let angle = rng.next_f32() * TAU;
+    let phase = rng.next_f32() * TAU;
+    let (dir_y, dir_x) = angle.sin_cos();
+    ShakeField {
+        dir_x,
+        dir_y,
+        phase,
+    }
+}
+
+/// D70-1 gain at the element-local position `u = (x − cx) / (w / 2)`: `1 + A · sin(π · u + φ)`,
+/// in [1 − A, 1 + A] = [0.2, 1.8], so no part of the element reverses. Non-finite input gives 1.
+#[inline]
+pub fn shake_gain(u: f32, phase: f32) -> f32 {
+    if !(u.is_finite() && phase.is_finite()) {
+        return 1.0;
+    }
+    1.0 + SHAKE_PROFILE_AMPLITUDE * (PI * u + phase).sin()
+}
+
+/// Per-element shake data, derived once per shake: the field, plus the home rect's centre x
+/// and inverse half width in grid units.
+#[derive(Clone, Copy)]
+struct ShakeSlot {
+    field: ShakeField,
+    cx: f32,
+    inv_half_w: f32,
+}
+
+/// `None` for an inactive element. `shake` never runs under reduced motion (`FluidCore::shake`
+/// returns early), so the home rect is the one the targets use, hover swell included.
+fn shake_slot(stream: u32, id: usize, e: &Elements, g: &Grid) -> Option<ShakeSlot> {
+    let r = e.home_rect(id, false)?;
+    let (cx, _) = g.to_grid(r.x + 0.5 * r.w, r.y);
+    let half_w = 0.5 * r.w * g.inv_cell;
+    Some(ShakeSlot {
+        field: shake_field(stream, id),
+        cx,
+        inv_half_w: if half_w > 0.0 { 1.0 / half_w } else { 0.0 },
+    })
+}
+
+/// Global shake (D70-1, D70-2). Every active element moves along one seeded direction with a
+/// spatially coherent speed profile across its width, `d · speed · (1 + A · sin(π · u + φ))`, so
+/// it bends and waves instead of sliding intact. There is no per-particle noise (it averaged out)
+/// and no rotation term (that would be rigid motion). Every active element goes soft:
+/// s ← min(s, `SHAKE_STIFFNESS_CAP`).
 pub fn shake(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, strength: f32) -> bool {
     let Some(strength) = sanitize_strength(strength) else {
         return false;
     };
     let speed = SHAKE_SPEED_PX_S * strength * g.inv_cell;
     let stream = rng.next_u32();
-    // Perf/fix round: one seeded direction per element, derived once per element (it is
-    // a pure function of (stream, id)); stack table, no allocation. `None` = inactive.
-    let mut dirs = [None::<(f32, f32)>; SHAKE_DIR_TABLE];
-    for (id, slot) in dirs.iter_mut().enumerate().take(e.cap) {
-        if e.is_active(id) {
-            *slot = Some(shake_dir(stream, id));
-        }
+    // One slot per element, derived once per shake (a pure function of (stream, id) and the
+    // rect); stack table, no allocation. `None` = inactive.
+    let mut slots = [None::<ShakeSlot>; SHAKE_TABLE];
+    for (id, slot) in slots.iter_mut().enumerate().take(e.cap) {
+        *slot = shake_slot(stream, id, e, g);
     }
     for i in 0..p.cap {
         let Some(h) = p.home_of(i) else {
             continue;
         };
-        let dir = match dirs.get(h) {
-            Some(d) => *d,
+        let slot = match slots.get(h) {
+            Some(s) => *s,
             // Beyond the table (cap > ELEMENTS_MAX, tests only): derive in place.
-            None => e.is_active(h).then(|| shake_dir(stream, h)),
+            None => shake_slot(stream, h, e, g),
         };
-        let Some((dir_x, dir_y)) = dir else {
+        let Some(s) = slot else {
             continue;
         };
-        let nx = rng.next_f32() - 0.5;
-        let ny = rng.next_f32() - 0.5;
-        add(&mut p.vx, i, (dir_x + SHAKE_NOISE * nx) * speed);
-        add(&mut p.vy, i, (dir_y + SHAKE_NOISE * ny) * speed);
+        let u = (rd(&p.x, i) - s.cx) * s.inv_half_w;
+        let k = speed * shake_gain(u, s.field.phase);
+        add(&mut p.vx, i, s.field.dir_x * k);
+        add(&mut p.vy, i, s.field.dir_y * k);
     }
     for id in 0..e.cap {
         if e.is_active(id) {
