@@ -3,12 +3,12 @@ ward: 69
 revision: null
 name: "Playground, splash scene, whole-picture check"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [68]
 layer: "typescript"
 estimated_tests: 26
 created: "2026-10-03"
-completed: null
+completed: "2026-10-06"
 ---
 # Ward 069: Playground, splash scene, whole-picture check
 

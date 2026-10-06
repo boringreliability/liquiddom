@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-66 of 69 Wards complete · 816 estimated tests · 1 blocked
+67 of 69 Wards complete · 835 estimated tests · 1 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -74,7 +74,7 @@
 | 066 | Public API swap and soft-body retirement | 154 | ✅ Complete | 2026-10-05 |
 | 067 | Splash and shake, end to end | 80 | ✅ Complete | 2026-10-05 |
 | 068 | Pointer, hover and material | 81 | ✅ Complete | 2026-10-06 |
-| 069 | Playground, splash scene, whole-picture check | 7 | 📋 Planned | - |
+| 069 | Playground, splash scene, whole-picture check | 26 | ✅ Complete | 2026-10-06 |
 
 ## Test Summary
-- Estimated total: 816
+- Estimated total: 835
