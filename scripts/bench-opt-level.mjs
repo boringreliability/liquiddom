@@ -146,8 +146,14 @@ async function measure(dir, pointerMode) {
       steps += n;
     }
   }
+  // FNV-1a over the bits of the final dynamic view: equal across builds ⇔ the same
+  // simulation, bit for bit (checks behaviour-preserving perf changes).
+  const dyn = new Uint32Array(exports.memory.buffer, core.dynamic_ptr(), core.particle_capacity() * core.dynamic_fields());
+  let checksum = 0x811c9dc5;
+  for (let i = 0; i < dyn.length; i++) checksum = Math.imul(checksum ^ dyn[i], 0x01000193) >>> 0;
   const result = {
     pointer: pointerMode,
+    checksum: checksum.toString(16).padStart(8, "0"),
     ...summarize(perStep),
     steps,
     activeParticles: core.active_particles(),

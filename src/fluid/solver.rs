@@ -21,7 +21,7 @@
 use super::access::{rd, rd_or, rd4, wr, wr4};
 use super::elements::Elements;
 use super::grid::{Grid, cap_speed, norm_if_above};
-use super::interaction::{POINTER_VMAX_PX_S, pointer_accel};
+use super::interaction::{POINTER_RADIUS_PX, POINTER_VMAX_PX_S, pointer_accel_grid};
 use super::layout::{ST_REST_ALPHA, STATE_STRIDE};
 use super::material::{MaterialParams, map_viscosity};
 use super::particles::Particles;
@@ -109,11 +109,70 @@ impl PointerField {
     }
 }
 
+/// The sanitised pointer in grid units, hoisted once per tick (W68 perf, 7a): position,
+/// radius, radius² and velocity are computed exactly as `pointer_accel` computed them
+/// per particle before, so the field is bit-identical.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PointerGrid {
+    pub active: bool,
+    pub x: f32,
+    pub y: f32,
+    /// `POINTER_RADIUS_PX · inv_cell`; `r2 = r · r`.
+    pub r: f32,
+    pub r2: f32,
+    pub vx: f32,
+    pub vy: f32,
+}
+
+impl PointerGrid {
+    /// No pointer (equal to `PointerGrid::default()`).
+    pub const INACTIVE: PointerGrid = PointerGrid {
+        active: false,
+        x: 0.0,
+        y: 0.0,
+        r: 0.0,
+        r2: 0.0,
+        vx: 0.0,
+        vy: 0.0,
+    };
+
+    pub fn new(ptr: &PointerField, g: &Grid) -> PointerGrid {
+        if !ptr.active {
+            return PointerGrid::INACTIVE;
+        }
+        let (x, y) = g.to_grid(ptr.x_px, ptr.y_px);
+        let r = POINTER_RADIUS_PX * g.inv_cell;
+        PointerGrid {
+            active: true,
+            x,
+            y,
+            r,
+            r2: r * r,
+            vx: ptr.vx_px * g.inv_cell,
+            vy: ptr.vy_px * g.inv_cell,
+        }
+    }
+
+    /// Perf (7c): whether the field disc can reach the AABB `(x0, y0, x1, y1)`. `false`
+    /// means every particle inside it fails `pointer_accel_grid`'s `|dx| > r || |dy| > r`
+    /// test: f32 subtraction is monotone, so `x ≥ x0` and `x0 − px > r` give `x − px > r`.
+    /// NaN compares false and keeps the field on (the per-particle checks decide).
+    #[inline]
+    pub fn reaches(&self, x0: f32, y0: f32, x1: f32, y1: f32) -> bool {
+        self.active
+            && !(x0 - self.x > self.r
+                || self.x - x1 > self.r
+                || y0 - self.y > self.r
+                || self.y - y1 > self.r)
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct StepInput {
     pub dt: f32,
     pub time_s: f32,
-    pub pointer: PointerField,
+    /// The tick's pointer in grid units (`PointerGrid::new`, once per tick).
+    pub pointer: PointerGrid,
 }
 
 /// Perf round: one element's per-substep constants, so the particle loops do not repeat
@@ -515,6 +574,9 @@ pub fn substep_with(
     let sound = SOUND_SPEED_PX_S * inv;
     let bulk = sound * sound;
     let drag = drag_factor(dt);
+    // Perf (7c): the field cannot reach any particle when its disc misses the AABB.
+    let pointer = &inp.pointer;
+    let pointer_on = pointer.reaches(x0, y0, x1, y1);
 
     // ---- forces + P2G ----
     for i in 0..p.cap {
@@ -548,10 +610,13 @@ pub fn substep_with(
         // W68 soft pointer field (D68-3): after the saturated home spring, so the
         // spring's acceleration cap never clips the pointer coupling. Applies to
         // every homed particle; no radial term; a resting pointer only damps moving
-        // liquid (−v·k).
-        let (pax, pay) = pointer_accel(x, y, vx, vy, &inp.pointer, g);
-        vx += pax * dt;
-        vy += pay * dt;
+        // liquid (−v·k). Skipped when the disc misses the AABB (the term would be
+        // (0, 0); see `PointerGrid::reaches`).
+        if pointer_on {
+            let (pax, pay) = pointer_accel_grid(x, y, vx, vy, pointer);
+            vx += pax * dt;
+            vy += pay * dt;
+        }
         wr(&mut s.tgt_x, i, tx);
         wr(&mut s.tgt_y, i, ty);
         wr(&mut p.vx, i, vx);
@@ -750,7 +815,7 @@ mod w67_tests {
                 let inp = StepInput {
                     dt: DT,
                     time_s: k as f32 * DT,
-                    pointer: PointerField::default(),
+                    pointer: PointerGrid::INACTIVE,
                 };
                 substep(
                     &mut self.p,
@@ -998,7 +1063,7 @@ mod w67_tests {
         let inp = StepInput {
             dt: DT,
             time_s: 0.37,
-            pointer: PointerField::default(),
+            pointer: PointerGrid::INACTIVE,
         };
         substep(&mut rig.p, &mut rig.g, &rig.e, &rig.m, &inp, &mut rig.s);
         let used_x = rig.s.tgt_x.clone();
@@ -1062,7 +1127,7 @@ mod w67_tests {
                 let inp = StepInput {
                     dt: DT,
                     time_s: (step * 8 + sub) as f32 * DT,
-                    pointer: PointerField::default(),
+                    pointer: PointerGrid::INACTIVE,
                 };
                 substep(&mut a.p, &mut a.g, &a.e, &a.m, &inp, &mut a.s);
                 let opts = SubstepOpts {
@@ -1108,11 +1173,11 @@ mod w67_tests {
 
     // ---- W68 D68-10: fused AABB invalidation ----
 
-    fn w68_input(k: usize, pointer: PointerField) -> StepInput {
+    fn w68_input(k: usize, pointer: PointerField, g: &Grid) -> StepInput {
         StepInput {
             dt: DT,
             time_s: k as f32 * DT,
-            pointer,
+            pointer: PointerGrid::new(&pointer, g),
         }
     }
 
@@ -1121,7 +1186,7 @@ mod w67_tests {
      {
         let mut a = moving_rig();
         let mut b = moving_rig();
-        let first = w68_input(0, PointerField::default());
+        let first = w68_input(0, PointerField::default(), &a.g);
         substep(&mut a.p, &mut a.g, &a.e, &a.m, &first, &mut a.s);
         let fresh = SubstepOpts {
             measure_dev: true,
@@ -1140,7 +1205,7 @@ mod w67_tests {
         b.s.invalidate_bounds();
         assert!(!b.s.bounds_valid, "invalidate_bounds forgets the AABB");
 
-        let second = w68_input(1, PointerField::default());
+        let second = w68_input(1, PointerField::default(), &a.g);
         substep(&mut a.p, &mut a.g, &a.e, &a.m, &second, &mut a.s);
         let reuse = SubstepOpts {
             measure_dev: true,
@@ -1177,14 +1242,14 @@ mod w67_tests {
         for step in 0..3 {
             for sub in 0..8 {
                 let k = step * 8 + sub;
-                let inp = w68_input(k, pointer);
+                let inp = w68_input(k, pointer, &a.g);
                 substep(&mut a.p, &mut a.g, &a.e, &a.m, &inp, &mut a.s);
                 let opts = SubstepOpts {
                     measure_dev: sub == 7,
                     reuse_bounds: step > 0 || sub > 0,
                 };
                 substep_with(&mut b.p, &mut b.g, &b.e, &b.m, &inp, &mut b.s, opts);
-                let still = w68_input(k, PointerField::default());
+                let still = w68_input(k, PointerField::default(), &off.g);
                 substep(&mut off.p, &mut off.g, &off.e, &off.m, &still, &mut off.s);
             }
             assert_eq!(a.p.x, b.p.x);
@@ -1197,5 +1262,136 @@ mod w67_tests {
             a.p.x, off.p.x,
             "the soft pointer field moved the block (D68-3)"
         );
+    }
+
+    // ---- W68 green review, perf (7a-c): the pointer path must stay bit-identical ----
+
+    /// The W68 `pointer_accel` as it was before the perf round (HEAD 08e1f61), verbatim,
+    /// as the bit-exact reference for the hoisted `PointerGrid` path.
+    fn reference_pointer_accel(
+        x: f32,
+        y: f32,
+        vx: f32,
+        vy: f32,
+        ptr: &PointerField,
+        g: &Grid,
+    ) -> (f32, f32) {
+        use crate::fluid::interaction::{POINTER_DRAG_PER_S, POINTER_RADIUS_PX};
+        if !ptr.active {
+            return (0.0, 0.0);
+        }
+        let (px, py) = g.to_grid(ptr.x_px, ptr.y_px);
+        let r = POINTER_RADIUS_PX * g.inv_cell;
+        let dx = x - px;
+        let dy = y - py;
+        let d2 = dx * dx + dy * dy;
+        if !d2.is_finite() || d2 >= r * r {
+            return (0.0, 0.0);
+        }
+        let f = 1.0 - d2.sqrt() / r;
+        let k = f * f * POINTER_DRAG_PER_S;
+        let pvx = ptr.vx_px * g.inv_cell;
+        let pvy = ptr.vy_px * g.inv_cell;
+        let (ax, ay) = ((pvx - vx) * k, (pvy - vy) * k);
+        if ax.is_finite() && ay.is_finite() {
+            (ax, ay)
+        } else {
+            (0.0, 0.0)
+        }
+    }
+
+    #[test]
+    fn given_hoisted_pointer_grid_with_cheap_rejection_when_accel_evaluated_then_bit_identical_to_the_w68_reference()
+     {
+        use crate::fluid::interaction::{POINTER_RADIUS_PX, pointer_accel_grid};
+        // The acceptance cell (~6.167 px) and a round one, so `inv_cell` is inexact in one.
+        for g in [
+            Grid::new(1280.0, 800.0, 6.167, 200.0),
+            Grid::new(400.0, 400.0, CELL, 200.0),
+        ] {
+            let pointers = [
+                PointerField::sanitized(500.0, 300.0, 600.0, 0.0, true),
+                PointerField::sanitized(500.3, 299.7, -1234.5, 987.6, true),
+                PointerField::sanitized(0.0, 0.0, 0.0, 0.0, true),
+                PointerField::sanitized(-150.0, 750.25, 1e9, -1e9, true),
+                PointerField::INACTIVE,
+            ];
+            for ptr in pointers {
+                let pg = PointerGrid::new(&ptr, &g);
+                let mut checked = 0usize;
+                let mut inside = 0usize;
+                // Offsets across the disc, its edge (exactly ±r on each axis) and beyond.
+                let r = POINTER_RADIUS_PX;
+                let mut offsets: Vec<f32> = (-120..=120).map(|k| k as f32 * 0.731).collect();
+                offsets.extend([-r, r, -r - 1e-3, r + 1e-3, -r + 1e-3, r - 1e-3, 0.0, -0.0]);
+                for &ox in &offsets {
+                    for &oy in &offsets {
+                        let (x, y) = g.to_grid(ptr.x_px + ox, ptr.y_px + oy);
+                        for (vx, vy) in [(0.0, 0.0), (3.1, -2.2), (-0.0, 0.0), (-50.0, 75.0)] {
+                            let got = pointer_accel_grid(x, y, vx, vy, &pg);
+                            let want = reference_pointer_accel(x, y, vx, vy, &ptr, &g);
+                            assert_eq!(
+                                (got.0.to_bits(), got.1.to_bits()),
+                                (want.0.to_bits(), want.1.to_bits()),
+                                "ptr {ptr:?} at ({x}, {y}) v ({vx}, {vy}): {got:?} vs {want:?}"
+                            );
+                            checked += 1;
+                            if want != (0.0, 0.0) {
+                                inside += 1;
+                            }
+                        }
+                    }
+                }
+                // Non-finite particle state falls through to the same result too.
+                for (x, y) in [(f32::NAN, 10.0), (10.0, f32::INFINITY)] {
+                    assert_eq!(
+                        pointer_accel_grid(x, y, 0.0, 0.0, &pg),
+                        reference_pointer_accel(x, y, 0.0, 0.0, &ptr, &g)
+                    );
+                }
+                assert!(checked > 200_000, "coverage: {checked}");
+                if ptr.active && (ptr.vx_px != 0.0 || ptr.vy_px != 0.0) {
+                    assert!(inside > 10_000, "the disc was sampled: {inside}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn given_pointer_disc_outside_the_particle_aabb_when_stepping_then_bit_identical_to_no_pointer()
+    {
+        // Perf (7c): a substep skips the field when the disc misses the particle AABB.
+        // The block spans 170..230 px; each pointer below is more than 70 px outside it.
+        let g = Grid::new(400.0, 400.0, CELL, 200.0);
+        for (px, py) in [(320.0, 200.0), (80.0, 200.0), (200.0, 330.0), (200.0, 60.0)] {
+            let pointer =
+                PointerGrid::new(&PointerField::sanitized(px, py, 1500.0, -900.0, true), &g);
+            let mut a = moving_rig();
+            let mut off = moving_rig();
+            for step in 0..3 {
+                for sub in 0..8 {
+                    let k = step * 8 + sub;
+                    let opts = SubstepOpts {
+                        measure_dev: sub == 7,
+                        reuse_bounds: step > 0 || sub > 0,
+                    };
+                    let inp = StepInput {
+                        dt: DT,
+                        time_s: k as f32 * DT,
+                        pointer,
+                    };
+                    substep_with(&mut a.p, &mut a.g, &a.e, &a.m, &inp, &mut a.s, opts);
+                    let still = w68_input(k, PointerField::default(), &off.g);
+                    substep_with(
+                        &mut off.p, &mut off.g, &off.e, &off.m, &still, &mut off.s, opts,
+                    );
+                }
+            }
+            assert_eq!(a.p.x, off.p.x, "pointer at ({px}, {py})");
+            assert_eq!(a.p.y, off.p.y);
+            assert_eq!(a.p.vx, off.p.vx);
+            assert_eq!(a.p.vy, off.p.vy);
+            assert_eq!(a.p.j, off.p.j);
+        }
     }
 }

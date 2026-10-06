@@ -11,7 +11,7 @@ use super::elements::{Elements, S_FLOOR};
 use super::grid::Grid;
 use super::particles::Particles;
 use super::rng::Rng;
-use super::solver::PointerField;
+use super::solver::{PointerField, PointerGrid};
 
 /// Splash speed at strength 1, px/s (D67-3).
 pub const SPLASH_SPEED_PX_S: f32 = 950.0;
@@ -196,24 +196,36 @@ pub const POINTER_VMAX_PX_S: f32 = 2000.0;
 /// (the spike's `POINTER_PUSH_PX` did). Positions in grid units, velocities in grid units/s;
 /// returns an acceleration in grid units/s². Explicit and stable: the largest
 /// coupling per substep is `6 · dt_substep ≪ 1`.
+///
+/// Convenience form of `pointer_accel_grid` for a px-space pointer (the solver hoists
+/// `PointerGrid` once per tick instead).
 #[inline]
 pub fn pointer_accel(x: f32, y: f32, vx: f32, vy: f32, ptr: &PointerField, g: &Grid) -> (f32, f32) {
+    pointer_accel_grid(x, y, vx, vy, &PointerGrid::new(ptr, g))
+}
+
+/// `pointer_accel` with the pointer already in grid units (W68 perf, 7a/7b). Bit-identical
+/// to the per-particle form: the same f32 operations, and the cheap `|dx| > r || |dy| > r`
+/// rejection only drops points where `d2 ≥ r²` held anyway (f32 squaring and adding a
+/// non-negative term are monotone, so `|dx| > r` gives `d2 ≥ dx² ≥ r²`).
+#[inline]
+pub fn pointer_accel_grid(x: f32, y: f32, vx: f32, vy: f32, ptr: &PointerGrid) -> (f32, f32) {
     if !ptr.active {
         return (0.0, 0.0);
     }
-    let (px, py) = g.to_grid(ptr.x_px, ptr.y_px);
-    let r = POINTER_RADIUS_PX * g.inv_cell;
-    let dx = x - px;
-    let dy = y - py;
+    let r = ptr.r;
+    let dx = x - ptr.x;
+    let dy = y - ptr.y;
+    if dx.abs() > r || dy.abs() > r {
+        return (0.0, 0.0);
+    }
     let d2 = dx * dx + dy * dy;
-    if !d2.is_finite() || d2 >= r * r {
+    if !d2.is_finite() || d2 >= ptr.r2 {
         return (0.0, 0.0);
     }
     let f = 1.0 - d2.sqrt() / r;
     let k = f * f * POINTER_DRAG_PER_S;
-    let pvx = ptr.vx_px * g.inv_cell;
-    let pvy = ptr.vy_px * g.inv_cell;
-    let (ax, ay) = ((pvx - vx) * k, (pvy - vy) * k);
+    let (ax, ay) = ((ptr.vx - vx) * k, (ptr.vy - vy) * k);
     if ax.is_finite() && ay.is_finite() {
         (ax, ay)
     } else {

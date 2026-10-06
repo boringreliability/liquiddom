@@ -17,7 +17,7 @@ use super::material::{DEFAULT_MATERIAL, Material};
 use super::particles::Particles;
 use super::pool::{self, PoolScratch};
 use super::rng::Rng;
-use super::solver::{self, PointerField, Scratch, StepInput, SubstepOpts};
+use super::solver::{self, PointerField, PointerGrid, Scratch, StepInput, SubstepOpts};
 use super::views::Views;
 
 pub const PARTICLES_MIN: u32 = 16;
@@ -211,7 +211,11 @@ impl FluidCore {
         }
         let params = self.settings.material.params();
         // W68 (D68-3): one sanitised pointer per tick, shared by every substep.
-        let pointer = PointerField::sanitized(px, py, pvx, pvy, pointer_active);
+        // Perf (7a): converted to grid units once per tick (the grid is fixed for its lifetime).
+        let pointer = PointerGrid::new(
+            &PointerField::sanitized(px, py, pvx, pvy, pointer_active),
+            &self.grid,
+        );
         if pointer.active {
             // D68-10: the field acts inside the substeps (before P2G), so G2P's fused
             // AABB already covers it, and this tick's first substep re-measures anyway.
