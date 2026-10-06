@@ -3,7 +3,7 @@ ward: 68
 revision: null
 name: "Pointer, hover and material"
 epic: "fluid-engine"
-status: "approved"
+status: "gold"
 dependencies: [67]
 layer: "both"
 estimated_tests: 81
@@ -218,3 +218,52 @@ Hovered rest contour: covered by W64 fluid-canvas2d.test.ts given_hover_interact
 
 ## Verification
 `npm run verify` and CI e2e canvas2d are green, the screenshots are attached, and Dennis approves.
+
+## Gold notes
+
+**North-star step 2 (canvas2d):**
+- **Pointer sweep, soft bulge, no holes.** Baseline `acceptance.spec.ts/acceptance-step2-canvas2d-linux.png` (end of sweep).
+  - Vision: Splash has already re-formed crisp. Split and Merge are soft and dragged a few px in the sweep direction (Merge reaches ~880 px vs 874 at rest). No holes; the card is at rest.
+  - The effect is deliberately subtle (D68-3: velocity coupling only, drag 6.0); its strength is a W69 tuning item.
+- **Pointer-only proof.** A sweep 30 px below the pills never hovers anything, yet the liquid un-rests and each pill's alpha centroid shifts +0.70 to +0.82 px (threshold 0.35).
+  - With the browser pointer path forced off, that test fails (shift 0) while the old "reacts" test still passed, which is the gap the ward review found.
+- **Hover swell.** Mouse or pen `pointerenter` swells the contour 2 %, and it un-swells on leave. Touch is ignored.
+
+**Decisions changed during execution** (all approved by Dennis):
+- D68-7: `pointerout` with `relatedTarget === null` replaces `pointerleave`.
+- D68-2 amended twice:
+  - `pointerenter`/`leave` ignoring touch, with the initial `:hover` read only under `(hover: hover)`;
+  - hover beats focus until slice 5, so a click no longer drops the swell in Chrome/Firefox.
+- D68-3 consequence corrected: a resting pointer has no radial effect and only damps moving liquid.
+- `POINTER_DRAG_PER_S` stays 6.0; every no-hole test passes at 6.0.
+
+**Reviews:**
+- Every task was reviewed.
+- Green-range opus review: touch hover stuck after a tap (fixed by the amendment), `setMaterial` getter snapshot, pointer bound to `ownerDocument`.
+- Perf hoisting: bit-identical, no measurable gain. The pointer term was already cheap.
+- Whole-ward opus review:
+  - the "reacts" e2e was satisfiable by hover alone, now a pointer-only proof;
+  - click-focus dropped the swell;
+  - hover stuck on detach or disable;
+  - `reaches()` boundary tests;
+  - docs.
+- Controller test-bug fixes, all mine from fix rounds:
+  - the velocity-reset test chained trackers;
+  - the swell guard used r > h/2 (clamped);
+  - the no-holes lattice sampled corner points 1.4 px inside the rounded contour.
+
+**Verification:**
+- cargo: 143 passed, 1 ignored.
+- vitest: 400 passed, 4 skipped.
+- canvas2d (macOS): 24 passed.
+- Linux Docker acceptance: 14 passed. All baselines match, including the new step-2 one.
+- clippy and fmt clean.
+- p95 ~3.5 ms per fixed step with the pointer inactive, ~3.7 ms with it active.
+
+**Known limitations:**
+- The ×0.8 pointer idle decay is per frame, so it is twice as fast at 120 Hz.
+- A detach and reattach within one frame keeps a stale hover.
+- On a hybrid device whose primary input is `hover: none`, a mouse already over an element at observe time is missed until the next `pointerenter`.
+- The pointer-only sweep line passes 2 px above the card, which makes it layout-sensitive.
+
+**Carry to W69:** the W67 observations (text contrast, furry edges, shake feel), pointer-bulge strength, preset tuning, the dist smoke test, and ring density.
