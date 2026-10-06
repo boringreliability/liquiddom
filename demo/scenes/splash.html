@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="data:," />
+  <title>liquiddom: Splash</title>
+  <style>
+    :root {
+      --bg: #0b0914;
+      --fg: #f4efff;
+      --dim: #9a8cb8;
+      --thin: #38bdf8;
+      --medium: #e94560;
+      --thick: #f59e0b;
+      --pool: #1e3a8a;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+    }
+    body { display: flex; flex-direction: column; align-items: center; gap: 2.5rem; padding: 3.5rem 1.5rem; }
+    header { text-align: center; max-width: 640px; }
+    h1 { font-size: 2rem; font-weight: 800; letter-spacing: -0.02em; }
+    header p { color: var(--dim); margin-top: 0.5rem; line-height: 1.5; }
+    header a { color: var(--medium); text-decoration: none; }
+    kbd {
+      background: rgba(255, 255, 255, 0.08);
+      padding: 0.05rem 0.4rem;
+      border-radius: 3px;
+      font-size: 0.85em;
+      color: var(--fg);
+    }
+    .drops { display: flex; gap: 3rem; flex-wrap: wrap; justify-content: center; }
+    /* Liquid colour = computed background (snapshotted before .liquid-element). Uniform radii (v1). */
+    .drop {
+      width: 200px;
+      height: 72px;
+      border-radius: 36px;
+      border: 0;
+      font: inherit;
+      font-weight: 700;
+      font-size: 1.1rem;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.1rem;
+      color: #fff;
+    }
+    .drop small { font-weight: 400; font-size: 0.75rem; opacity: 0.85; }
+    .drop[data-drop="thin"] { background: var(--thin); color: #04202e; }
+    .drop[data-drop="medium"] { background: var(--medium); }
+    .drop[data-drop="thick"] { background: var(--thick); color: #2a1600; }
+    .drop:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
+    #pool {
+      width: 520px;
+      max-width: 100%;
+      height: 200px;
+      border-radius: 24px;
+      background: var(--pool);
+      padding: 1.5rem 2rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+    #pool h2 { font-size: 1.25rem; }
+    #pool p { color: #dbe4ff; line-height: 1.4; font-size: 0.95rem; }
+    .controls { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; justify-content: center; color: var(--dim); }
+    .controls output { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--fg); min-width: 2.5ch; }
+    .ctl {
+      background: transparent;
+      color: var(--fg);
+      border: 1px solid #3b2f5c;
+      border-radius: 8px;
+      padding: 0.55rem 1rem;
+      font: inherit;
+      cursor: pointer;
+    }
+    .ctl:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Splash</h1>
+    <p>
+      Click a drop to splash it where you click. Focus one with <kbd>Tab</kbd> and press <kbd>Enter</kbd> or
+      <kbd>Space</kbd> to splash it at its centre. Each drop has its own viscosity and recovery.
+      <a href="../index.html">← back to scenes</a>
+    </p>
+  </header>
+
+  <section class="drops" aria-label="Liquid drops">
+    <button class="drop" data-drop="thin" data-viscosity="0.1" data-recovery="0.4">Thin<small>viscosity 0.1 · recovery 0.4 s</small></button>
+    <button class="drop" data-drop="medium" data-viscosity="0.5" data-recovery="0.7">Medium<small>viscosity 0.5 · recovery 0.7 s</small></button>
+    <button class="drop" data-drop="thick" data-viscosity="0.9" data-recovery="1.2">Thick<small>viscosity 0.9 · recovery 1.2 s</small></button>
+  </section>
+
+  <div id="pool">
+    <h2>The pool</h2>
+    <p>Pointer only: this card is not focusable, so the keyboard cannot splash it.</p>
+    <p>Splash all at strength 2 to tear it apart, then watch it re-form.</p>
+  </div>
+
+  <div class="controls">
+    <label for="strength">Strength</label>
+    <input id="strength" type="range" min="0" max="2" step="0.1" value="1" />
+    <output id="strength-out" for="strength">1.0</output>
+    <button id="splash-all" class="ctl" type="button">Splash all</button>
+    <button id="shake" class="ctl" type="button">Shake</button>
+  </div>
+
+  <script type="module" src="./splash.ts"></script>
+</body>
+</html>
