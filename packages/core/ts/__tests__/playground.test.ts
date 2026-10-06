@@ -225,6 +225,14 @@ describe("W69: playground material bindings", () => {
         presets,
       ),
     ).toBe("water");
+    // The tolerance is 0.005 per field: pin both sides of it.
+    const nearWater = (dv: number) => ({
+      viscosity: presets.water.viscosity + dv,
+      cohesion: presets.water.cohesion,
+      recovery: presets.water.recovery,
+    });
+    expect(detectPreset(nearWater(0.0049), presets)).toBe("water");
+    expect(detectPreset(nearWater(0.0051), presets)).toBe("custom");
     expect(detectPreset({ ...DEFAULT_MATERIAL }, presets)).toBe("custom");
     expect(detectPreset({ viscosity: 0.33, cohesion: 0.5, recovery: 0.7 }, presets)).toBe("custom");
   });

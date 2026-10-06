@@ -68,6 +68,29 @@ test("given the splash scene when buttons are clicked and keyboard-activated the
   expect(await page.evaluate(() => (window as unknown as { __liquidTest: SceneHook }).__liquidTest.cellPx())).toBe(8);
   await page.screenshot({ path: testInfo.outputPath("splash-rest.png") });
 
+  // D69-3: per-element material options. W69.4: each [data-drop] button carries
+  // data-viscosity / data-recovery, and splash.ts passes exactly those values to observe().
+  const options = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>("[data-drop]")].map((el) => ({
+      drop: el.getAttribute("data-drop"),
+      viscosity: Number(el.getAttribute("data-viscosity")),
+      recovery: Number(el.getAttribute("data-recovery")),
+    })),
+  );
+  expect(options).toEqual([
+    { drop: "thin", viscosity: 0.1, recovery: 0.4 },
+    { drop: "medium", viscosity: 0.5, recovery: 0.7 },
+    { drop: "thick", viscosity: 0.9, recovery: 1.2 },
+  ]);
+
+  // The pool is pointer-only (spec §4): no tabindex, and Tab never lands on it.
+  expect(await page.locator("#pool").getAttribute("tabindex")).toBeNull();
+  await page.mouse.click(4, 4);
+  for (let i = 0; i < 10; i++) {
+    await page.keyboard.press("Tab");
+    expect(await page.evaluate(() => document.activeElement?.id ?? ""), "Tab must never focus #pool").not.toBe("pool");
+  }
+
   // A. Pointer clicks on every liquid element: splash at the pointer, strength 1 (W67 click wiring).
   for (const selector of ['[data-drop="thin"]', '[data-drop="medium"]', '[data-drop="thick"]', "#pool"]) {
     await page.locator(selector).click();

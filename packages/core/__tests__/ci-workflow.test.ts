@@ -162,6 +162,7 @@ describe("W69 CI dist smoke (D69-6)", () => {
     // Core (clean → tsc → copy-wasm needs pkg/), the React adapter, then the example without its wasm-pack prebuild.
     const build = stepIndex(e2e, (s) => s.run === "npm run e2e:dist:build");
     expect(build, "e2e builds the published dist after the pkg/ download").toBeGreaterThan(down);
+    expect(stepsOf(e2e)[build]["continue-on-error"] ?? false, "the dist build step is blocking too").toBe(false);
     const dist = runSteps(e2e, "--project=dist");
     expect(dist).toHaveLength(1);
     expect(dist[0].run).toBe("npx playwright test --project=dist");

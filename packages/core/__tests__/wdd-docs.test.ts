@@ -525,8 +525,13 @@ describe("W69: whole-picture check after slice 2", () => {
     const { reformBudgetMs } = (await import(/* @vite-ignore */ northStarModule)) as typeof import("../../../e2e/north-star");
 
     // | Step | Scene step | Expected S2 | Observed | Evidence |
+    // Rows are searched only inside "## Scene steps" (other sections may hold numbered tables).
+    const stepsStart = lines.findIndex((l) => l.trim() === "## Scene steps");
+    expect(stepsStart, "missing ## Scene steps").toBeGreaterThanOrEqual(0);
+    const stepsEnd = lines.findIndex((l, i) => i > stepsStart && /^## /.test(l));
+    const stepLines = lines.slice(stepsStart + 1, stepsEnd === -1 ? lines.length : stepsEnd);
     function rowCells(step: string): string[] {
-      const row = lines.find((l) => new RegExp(`^\\|\\s*${step}\\s*\\|`).test(l));
+      const row = stepLines.find((l) => new RegExp(`^\\|\\s*${step}\\s*\\|`).test(l));
       expect(row, `no table row for scene step ${step}`).toBeDefined();
       return (row ?? "").split("|").slice(1, -1).map((c) => c.trim());
     }
@@ -552,6 +557,16 @@ describe("W69: whole-picture check after slice 2", () => {
         expect(observed.startsWith("⏳"), `step ${step} is expected in S2: observe ✅ or ❌, never ⏳`).toBe(false);
       }
       expect((cells[4] ?? "").length, `step ${step} needs evidence`).toBeGreaterThan(0);
+      if (expected.startsWith("✅")) {
+        // Concrete evidence: a screenshot name, a frame reference or a measured time, never prose alone.
+        expect(cells[4], `step ${step} evidence must be concrete (s2-stepN shot, frame, or a time)`).toMatch(
+          /s2-step\d|frame|\d+(\.\d+)?\s*(ms|s)\b/,
+        );
+      }
+    }
+    // Steps 3, 4 and 6 are re-form steps: the evidence carries the measured re-form time in ms.
+    for (const step of ["3", "4", "6"]) {
+      expect(rowCells(step)[4], `step ${step} evidence needs a measured re-form time in ms`).toMatch(/\b\d{2,5}\s*ms\b/);
     }
 
     // Steps 3 and 6 quote the re-form budget NORTH-STAR holds after D67-1 (never a stale 1.5 s).
@@ -582,15 +597,25 @@ describe("W69: whole-picture check after slice 2", () => {
       "Material preset tuning",
       "Ring density when the area hint is off",
     ];
+    // Exactly the six D69-5 data rows (header and separator excluded).
+    const carriedData = carried.filter((l) => l.startsWith("|") && !/^\|\s*-/.test(l) && !/^\|\s*Item\s*\|/.test(l));
+    expect(carriedData, "## Carried must hold exactly 6 data rows").toHaveLength(6);
     for (const item of CARRIED_ITEMS) {
       const rows = carried.filter((l) => l.startsWith(`| ${item} |`));
       expect(rows, `## Carried needs exactly one row for "${item}"`).toHaveLength(1);
       const cells = (rows[0] ?? "").split("|").slice(1, -1).map((c) => c.trim());
       expect(cells, `"${item}" row must have 3 cells`).toHaveLength(3);
       expect((cells[1] ?? "").length, `"${item}" needs evidence`).toBeGreaterThan(0);
+      expect(cells[1], `"${item}" evidence must reference a frame, a value or a probe`).toMatch(/\d|frame|playground|probe/i);
       expect((cells[2] ?? "").length, `"${item}" needs a recommendation`).toBeGreaterThan(0);
     }
     expect(report, "unfilled «…» tokens left in the report").not.toContain("«");
+
+    // ## Perf must carry at least one measured number with a unit.
+    const perfStart = lines.findIndex((l) => l.trim() === "## Perf");
+    const perfEnd = lines.findIndex((l, i) => i > perfStart && /^## /.test(l));
+    const perf = lines.slice(perfStart + 1, perfEnd === -1 ? lines.length : perfEnd).join("\n");
+    expect(perf, "## Perf needs at least one number in ms").toMatch(/\d+(\.\d+)?\s*ms\b/);
 
     const gifPath = resolve(ROOT, "docs/superpowers/whole-picture/slice-2-canvas2d.gif");
     expect(existsSync(gifPath), "missing GIF").toBe(true);
