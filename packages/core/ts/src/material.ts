@@ -2,7 +2,7 @@
  * Material (spec §2 "Material parameters"): viscosity and cohesion are
  * normalised [0, 1]; recovery is seconds in [0.2, 3]. W64 created the type and
  * DEFAULT_MATERIAL; W66 adds validation (D66-8) and the full merge (D66-14);
- * W68 adds presets.
+ * W68 adds presets (D68-1).
  */
 export interface Material {
   viscosity: number;
@@ -54,3 +54,16 @@ export function mergeMaterial(base: Readonly<Material>, partial: Partial<Materia
   }
   return out;
 }
+
+// ---- Ward 068: material presets (D68-1) ----
+
+/** Material presets (D68-1; tuned in the W69 playground). Frozen, deeply. */
+export const presets: {
+  readonly water: Readonly<Material>;
+  readonly honey: Readonly<Material>;
+  readonly jelly: Readonly<Material>;
+} = Object.freeze({
+  water: Object.freeze({ viscosity: 0.15, cohesion: 0.3, recovery: 0.5 }),
+  honey: Object.freeze({ viscosity: 0.9, cohesion: 0.7, recovery: 1.6 }),
+  jelly: Object.freeze({ viscosity: 0.6, cohesion: 0.85, recovery: 0.4 }),
+});

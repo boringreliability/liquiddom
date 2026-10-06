@@ -14,12 +14,13 @@ import {
   type LiquidOptions,
   type SplashOptions,
 } from "./options";
-import { validateMaterial, type Material } from "./material";
+import { mergeMaterial, validateMaterial, type Material } from "./material";
 import { LiquidWasmLoadError } from "./wasm-loader";
 import { WebGPUUnavailableError } from "./renderers/webgpu-renderer";
 import { bindRuntime, unbindRuntime } from "./internal";
 
 export { LiquidWasmLoadError, WebGPUUnavailableError, validateMaterial };
+export { presets } from "./material";
 export type { ElementOptions, GravityOptions, LiquidOptions, Material, SplashOptions };
 
 export interface LiquidDOMInstance {
@@ -42,6 +43,10 @@ export interface LiquidDOMInstance {
    * the instance is destroyed. Ignored under reduced motion.
    */
   shake(strength?: number): void;
+  /** Validate, merge and apply a material change atomically (TypeError on invalid input; state unchanged). */
+  setMaterial(partial: Partial<Material>): void;
+  /** A copy of the current material. */
+  getMaterial(): Material;
   pause(): void;
   resume(): void;
   destroy(): void;
@@ -90,6 +95,8 @@ export class LiquidDOM {
     });
 
     let destroyed = false;
+    // W68 (D68-9): current material, the single source of truth for getMaterial().
+    let material: Material = { ...o.material };
     let discovery: MutationObserver | null = null;
     let warnedOverflow = false;
 
@@ -153,6 +160,19 @@ export class LiquidDOM {
       shake(strength?: number): void {
         live("shake");
         runtime.shake(validateShakeStrength(strength));
+      },
+
+      setMaterial(partial: Partial<Material>): void {
+        live("setMaterial");
+        validateMaterial(partial); // W66: TypeError for non-objects, unknown keys (named), bad values
+        const next = mergeMaterial(material, partial);
+        material = next;
+        runtime.setMaterial(next);
+      },
+
+      getMaterial(): Material {
+        live("getMaterial");
+        return { ...material };
       },
 
       pause(): void {
