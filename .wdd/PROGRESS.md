@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-67 of 69 Wards complete · 835 estimated tests · 1 blocked
+68 of 70 Wards complete · 853 estimated tests · 1 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -75,6 +75,7 @@
 | 067 | Splash and shake, end to end | 80 | ✅ Complete | 2026-10-05 |
 | 068 | Pointer, hover and material | 81 | ✅ Complete | 2026-10-06 |
 | 069 | Playground, splash scene, whole-picture check | 26 | ✅ Complete | 2026-10-06 |
+| 070 | Slice 2 fix: sloshing shake, readable bulge, clean cross-fade | 18 | ✅ Complete | 2026-10-06 |
 
 ## Test Summary
-- Estimated total: 835
+- Estimated total: 853

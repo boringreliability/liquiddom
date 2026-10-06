@@ -3,12 +3,12 @@ ward: 70
 revision: null
 name: "Slice 2 fix: sloshing shake, readable bulge, clean cross-fade"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [69]
 layer: "both"
 estimated_tests: 18
 created: "2026-10-06"
-completed: null
+completed: "2026-10-06"
 ---
 # Ward 070: Slice 2 fix: sloshing shake, readable bulge, clean cross-fade
 
@@ -147,7 +147,7 @@ Guards that stay unchanged and must stay green:
 **Steps (canvas2d)**, from the addendum `.wdd/memory/whole-picture/slice-2-addendum.md` and the GIF `docs/superpowers/whole-picture/slice-2-addendum-canvas2d.gif` (1.04 MiB, 29 s):
 
 - **Step 2 ✅** (was ❌). Drag 12. Bulge across the pills 7.40–7.72 px (e2e) and 6.33–6.81 px (Rust), threshold 5. The no-hole worst alpha after D70-4 is 250 against a floor of 128. On the step-2 baseline Merge reaches ~888 px against 874 at rest. Subtle at GIF scale.
-- **Step 6 ✅ provisional** (was ❌). Coherent field with cap 0.2. Procrustes slosh 34.19 / 23.67 / 50.97 / 61.68 px, against a same-metric W67 baseline of 2.06–6.64 / 5.87 px. Re-form 2413 ms of a 3000 ms budget.
+- **Step 6 ✅** (was ❌; Dennis kept the strength as is at gold). Coherent field with cap 0.2. Procrustes slosh 34.19 / 23.67 / 50.97 / 61.68 px, against a same-metric W67 baseline of 2.06–6.64 / 5.87 px. Re-form 2413 ms of a 3000 ms budget.
   - Vision at f20 / peak: Splash forms a V, Split a Λ, Merge stretches into a filament of droplets, the card is torn into a mesh, and some labels are unreadable for about 0.5 s.
   - No test bounds over-violence. **Dennis decides the strength:** amplitude 0.8 → 0.5, or cap 0.2 → 0.3.
 - **Step 8 ✅.** The `?rm=1` segment shows no reaction to click or shake, and its frames are byte-identical.
