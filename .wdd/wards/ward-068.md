@@ -3,7 +3,7 @@ ward: 68
 revision: null
 name: "Pointer, hover and material"
 epic: "fluid-engine"
-status: "red"
+status: "approved"
 dependencies: [67]
 layer: "both"
 estimated_tests: 72
@@ -67,7 +67,7 @@ Decision: APPROVED 2026-10-06 — `presets` exported with the material shape (sa
 ### D68-7: Pointer end events
 Proposal: `pointerleave`, `pointercancel`, `pointerup` with `pointerType === "touch"` and window `blur` make the pointer inactive and reset its velocity; a mouse or pen `pointerup` keeps it active.
 Consequence: a lifted finger leaves no phantom field behind.
-Decision: APPROVED 2026-10-06 — leave/cancel/touch-up/blur deactivate (saga dec_8adfe545)
+Decision: AMENDED 2026-10-06 — document `pointerout` with `relatedTarget === null` (not document `pointerleave`, which browsers do not fire reliably on leaving the window), `pointercancel`, touch `pointerup` and window `blur` deactivate; a non-null `relatedTarget` does not (saga dec_ed96cd8d)
 
 ### D68-8: Swell shape
 Proposal: a step change exactly as in spec B1, with no easing; the radius scales by the same `1 + HOVER_SWELL`; `swell_rect` is a refactor of W64's swell inside `home_rect`, behaviour unchanged.

@@ -173,7 +173,7 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D68-4 | Pointer velocity smoothing: per-frame sampling from the runtime clock | W68 | dec_f9697a6b |
 | D68-5 | Reduced-motion input gating in TS: TS gating with validation first | W68 | dec_2ca25ef8 |
 | D68-6 | presets join the export whitelist: `presets` exported with the material shape | W68 | dec_fce3114b |
-| D68-7 | Pointer end events: leave/cancel/touch-up/blur deactivate | W68 | dec_8adfe545 |
+| D68-7 | Pointer end events: AMENDED 2026-10-06 — document pointerout with relatedTarget null (was pointerleave, dec_8adfe545), cancel, touch-up, blur deactivate | W68 | dec_ed96cd8d |
 | D68-8 | Swell shape: step change per spec B1 | W68 | dec_5bf52509 |
 | D68-9 | setMaterial/getMaterial semantics: atomic set, copying get | W68 | dec_e41cbdee |
 | D68-10 | Invalidate the fused AABB on particle-moving paths: invalidate on every particle-moving path | W68 | dec_b8d7e2bb |
