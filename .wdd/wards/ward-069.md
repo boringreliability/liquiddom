@@ -3,7 +3,7 @@ ward: 69
 revision: null
 name: "Playground, splash scene, whole-picture check"
 epic: "fluid-engine"
-status: "approved"
+status: "gold"
 dependencies: [68]
 layer: "typescript"
 estimated_tests: 26
@@ -147,3 +147,54 @@ Decision: APPROVED 2026-10-06 — blocking dist smoke in CI with a core build st
 
 ## Verification
 `npm run verify` is green, `slice-2.md` and the GIF are committed, and Dennis has read the whole-picture check before any slice-3 planning starts.
+
+## Gold notes
+
+**Whole picture after slice 2.** Report: `.wdd/memory/whole-picture/slice-2.md`. GIF: `docs/superpowers/whole-picture/slice-2-canvas2d.gif` (863 341 B, 23 s, canvas2d only, RAF clock, seed 1).
+- Scene steps:
+  - Step 1 idle ✅.
+  - Step 2 pointer sweep ❌: motion yes (no holes, 2 % swell), experience no; the bulge is not readable.
+  - Step 3 splash ✅: re-form 2451 ms of 3000.
+  - Step 4 keyboard splash ✅: 2496 ms, with the focus ring visible.
+  - Step 5 ⏳ (slice 5).
+  - Step 6 shake ❌: motion yes (re-form 2179 ms), experience no; intact blobs slide instead of sloshing.
+  - Step 7 ⏳ (slice 6).
+  - Step 8 modes ✅, by tests; not in the recording, which is an open point.
+- Per D69-4, a ❌ does not block gold. Dennis decides what comes before slice 3.
+- Carried (D69-5): six rows, each with evidence and a recommendation:
+  - text halo, via a stylesheet rule and not an inline style (D66-3);
+  - furry edges: inside slice 3;
+  - shake impulse shape plus `SHAKE_STIFFNESS_CAP`;
+  - pointer drag: try 12–24;
+  - honey preset retune;
+  - ring density: slice 6.
+- New finding: the Canvas2D restAlpha cross-fade dips to ~151/255 at restAlpha 0.58. The fix is full density weight while restAlpha < 1.
+
+**Delivered:**
+- Playground v2 (D69-1).
+- Splash scene: Thin/Medium/Thick and the pool; per-element options are read back from the runtime (D69-3).
+- Record and GIF tooling (D69-2): the record spec now saves the video to a stable path, fixed in 90ce484.
+- Blocking dist smoke in CI (D69-6): the React example runs against the published core `dist` in a real browser, with wasm served as `application/wasm`.
+
+**Vision (controller):**
+- Splash scene and playground at rest.
+- Water, honey and shake probes.
+- The dist example: two crisp liquid pills.
+- Acceptance frames: splash peak (C-shaped jets with a ring of droplets) and shake peak (blobs displaced, focus ring over the empty Split).
+
+**Reviews:**
+- Every task was reviewed.
+- The green-range review found 7 minors, all fixed.
+- The whole-ward review found:
+  - the halo recommendation broke D66-3;
+  - the cross-fade "max" option would change nothing;
+  - steps 2/6 were marked ✅ against their own observations;
+  - the shake rotation term was rigid;
+  - the CI dist-build order;
+  - two weak scenes tests.
+
+  All are fixed in 1669f8e.
+- Controller fixes: the wdd-docs absolute import path, and the record-path open point.
+- A W69.1 URL test changed by ruling: an all-invalid query is now stripped.
+
+**Verification:** cargo 143 passed + 1 ignored, vitest 420 passed + 4 skipped, clippy clean, canvas2d 26 passed, dist 1 passed. Perf on M4 Pro: tick p95 3.56 ms, RAF p95 3.63 ms.
