@@ -498,6 +498,25 @@ mod w67_tests {
     }
 
     #[test]
+    fn given_non_finite_u_when_evaluating_shake_gain_then_it_is_exactly_1() {
+        use crate::fluid::interaction::shake_gain;
+        // Guard (W70 review): a NaN/Inf u (e.g. a degenerate home rect) must not poison the
+        // impulse. Every phase in [0, τ) and the non-finite phases give the neutral gain 1.
+        for phase in [
+            0.0f32,
+            1.0,
+            std::f32::consts::PI,
+            5.0,
+            f32::NAN,
+            f32::INFINITY,
+        ] {
+            for u in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+                assert_eq!(shake_gain(u, phase), 1.0, "u {u}, φ {phase}");
+            }
+        }
+    }
+
+    #[test]
     fn given_shake_gain_when_evaluated_across_u_then_it_is_1_plus_0_8_sin_pi_u_plus_phase_within_0_2_and_1_8()
      {
         use crate::fluid::interaction::shake_gain;

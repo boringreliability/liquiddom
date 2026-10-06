@@ -45,6 +45,8 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 ## Known Limitations
 - Slice 2 is in progress: splash and shake (W67) and the soft pointer field, hover swell, `setMaterial`/`getMaterial` and material presets (W68) are live; no liquid text yet.
 - Pointer idle decay (D68-4, W68): the ×0.8 velocity decay is per frame, so at 120 Hz the tail decays twice as fast in wall time as at 60 Hz.
+- Pointer drag 12/s (W70): a fast sweep lets a pill's trailing edge recede up to ~8 px; interior holes start at drag ≥ 18 (measured), so the e2e no-hole lattice is 10 px inside the contour.
+- Shake profile (W70, D70-1): the speed profile `1 + 0.8·sin(π·u + φ)` varies along x only (`u = (x − cx)/(w/2)`), so a tall element gets no vertical wave. At cap 0.2 the shake reads as violent (labels left on bare background for ~0.5 s; the card's lace is partly the density renderer's bead chains, a slice-3 carry).
 - Container mode needs a positioned container (one `console.warn` if static; liquiddom never restyles it).
 - Gravity is validated but has no effect until slice 6; scroll is verified only in slice 6.
 - A large scroll can lock particles across elements (W67 slip, slice-6 parking).
@@ -54,6 +56,6 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 - WebGPU smoke fails under amd64 emulation in the pinned image (soft; likely SwiftShader/Rosetta).
 
 ## What Comes Next
-- Slice 2 is complete. The whole-picture report `.wdd/memory/whole-picture/slice-2.md` (GIF in `docs/superpowers/whole-picture/`) recommends a small fix ward before slice 3: DOM-text halo (stylesheet rule, D66-3-safe), shake impulse shape + `SHAKE_STIFFNESS_CAP`, `POINTER_DRAG_PER_S` 12–24, honey preset retune, Canvas2D restAlpha cross-fade dip, step 8 in the recording. Dennis decides.
+- Slice 2 is complete; W70 fixed steps 2 and 6 (coherent shake, cap 0.2, drag 12, full-weight Canvas2D cross-fade) and recorded step 8 (`.wdd/memory/whole-picture/slice-2-addendum.md`). Still open from the slice-2 report: the DOM-text halo and the honey preset (Dennis decides).
 - Then slice 3 (WebGPU liquid: splat-based edges); furry Canvas2D edges are superseded there. Ring density → slice 6.
 - Open: fate of the published `0.2.0-rc.0` (spec §7); publish of `0.3.0-alpha.x` is Dennis' call (`changeset version` + commit before tagging `v*`).
