@@ -425,13 +425,14 @@ test.describe("step 2 – pointer sweep (W68)", () => {
     }
     return out;
   }
-  // The scene's pills use `border-radius: 24px` (= h/2). A rectangular 8 px inset puts the corner
-  // lattice points only ~1.4 px inside the rounded contour, so D68-3's intended few-px drag of the
-  // edge took them outside the liquid (alpha ~7) without any interior hole. "No holes" is about the
-  // interior: keep only points at least HOLE_MARGIN_PX inside the rounded contour (2× the 1.5–3 px
-  // expected drag). A radial push would still punch a hole around the pointer, deep inside.
+  // The scene's pills use `border-radius: 24px` (= h/2). "No holes" is about the interior: keep
+  // only lattice points at least HOLE_MARGIN_PX inside the rounded contour. W70 (D70-3 amended,
+  // A3): at drag 12 the bulge lets the trailing edge recede up to ~8 px at the corners (measured
+  // pre-plan, worst alpha at a 6 / 8 / 10 px margin: 0 / 39 / 142, the 142 being the old
+  // cross-fade floor; no interior hole by vision, 0 empty Rust bins). A radial push would still
+  // punch a hole around the pointer, deep inside.
   const PILL_RADIUS_PX = 24;
-  const HOLE_MARGIN_PX = 6;
+  const HOLE_MARGIN_PX = 10;
   function insideRounded(b: Box, x: number, y: number): number {
     const r = Math.min(PILL_RADIUS_PX, b.height / 2, b.width / 2);
     const cx = Math.min(Math.max(x, b.x + r), b.x + b.width - r);
@@ -552,8 +553,9 @@ test.describe("step 2 – pointer sweep (W68)", () => {
     );
   }
   // Measured 2026-10-06 (macOS Chromium, canvas2d, seed 1, 600 px/s at y = bottom + 30 px):
-  // max +x shift per pill [0.703, 0.821, 0.807] px; pointer path forced off: [0, 0, 0] px.
-  // Half the smallest measured pill shift.
+  // drag 6 → max +x shift per pill [0.703, 0.821, 0.807] px; drag 12 (W70) → [1.088, 0.827, 1.195] px;
+  // pointer path forced off: [0, 0, 0] px. This sweep never enters a pill, so it stays the
+  // "pointer field alone moves the liquid" guard; the readable bulge is the W70 test below (A2).
   const CENTROID_SHIFT_MIN_PX = 0.35;
 
   test("step 2 – given a sweep parallel to the row 30 px below the pills when ticking then no element is hovered, the liquid un-rests and a pill's centroid shifts in the sweep direction (pointer field alone)", async ({ page }, testInfo) => {
@@ -590,6 +592,49 @@ test.describe("step 2 – pointer sweep (W68)", () => {
     expect([...hovered], "no observed element is :hover during the sweep").toEqual([]);
     expect(minAlpha, "the pointer field alone must un-rest the liquid").toBeLessThan(1);
     expect(best, `a pill's liquid follows the pointer (+x); ${report}`).toBeGreaterThanOrEqual(CENTROID_SHIFT_MIN_PX);
+  });
+
+  // W70 (D70-3/D70-5 amended, A2): the readable bulge. The scene step's own sweep through the
+  // pills (600 px/s) must drag each pill's liquid ≥ BULGE_MIN_PX in the sweep direction. The
+  // centroid is taken over the pill box padded by BULGE_PAD_PX, so liquid pushed past the DOM
+  // edge still counts (pills are 24 px apart, the card starts 32 px below). The symmetric 2 %
+  // hover swell cannot shift a centroid. Measured pre-plan: drag 6 → [3.78, 3.26, 3.90] px,
+  // drag 12 → [7.58, 7.40, 7.72] px.
+  const BULGE_PAD_PX = 10;
+  const BULGE_MIN_PX = 5;
+
+  test("step 2 – given a 600 px/s sweep through the pills when ticking then each pill's liquid centroid shifts at least 5 px in the sweep direction (readable bulge)", async ({ page }, testInfo) => {
+    await open(page);
+    const row = await buttons(page);
+    expect((await restAlpha(page)).every((a) => a === 1), "precondition: at rest").toBe(true);
+    const padded: Box[] = row.map((b) => ({
+      x: b.x - BULGE_PAD_PX,
+      y: b.y - BULGE_PAD_PX,
+      width: b.width + 2 * BULGE_PAD_PX,
+      height: b.height + 2 * BULGE_PAD_PX,
+    }));
+    const rest = await centroidX(page, padded);
+    for (const c of rest) expect(Number.isFinite(c), "precondition: each pill has liquid").toBe(true);
+    const maxShift = row.map(() => -Infinity);
+    await sweep(page, row, async (k) => {
+      const now = await centroidX(page, padded);
+      now.forEach((c, i) => {
+        maxShift[i] = Math.max(maxShift[i], c - rest[i]);
+      });
+      if (k === 12) {
+        const s = row[0];
+        await page.screenshot({
+          path: testInfo.outputPath("step2-bulge-splash.png"),
+          clip: { x: s.x - 30, y: s.y - 30, width: s.width + 60, height: s.height + 60 },
+        });
+      }
+    });
+    const report = `max padded centroid shift (+x) per pill [${maxShift.map((v) => v.toFixed(2)).join(", ")}] px`;
+    console.log(`[W70 bulge] ${report}`);
+    testInfo.annotations.push({ type: "bulge", description: report });
+    maxShift.forEach((s, i) => {
+      expect(s, `pill ${i}: ${report}`).toBeGreaterThanOrEqual(BULGE_MIN_PX);
+    });
   });
 
   test("step 2 – given the pointer resting on Split when settled then the rest contour is swelled 2 % and un-swells when the pointer leaves", async ({ page }, testInfo) => {

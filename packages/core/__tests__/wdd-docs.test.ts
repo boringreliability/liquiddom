@@ -625,3 +625,59 @@ describe("W69: whole-picture check after slice 2", () => {
     expect(gif.length).toBeLessThanOrEqual(10 * 1024 * 1024);
   });
 });
+
+describe("W70: slice-2 addendum (D70-6)", () => {
+  it("given_the_slice_2_addendum_when_read_then_steps_2_6_and_8_are_re_rated_with_measured_evidence_and_the_addendum_gif_exists", async () => {
+    const path = resolve(ROOT, ".wdd/memory/whole-picture/slice-2-addendum.md");
+    expect(existsSync(path), "missing .wdd/memory/whole-picture/slice-2-addendum.md").toBe(true);
+    const md = readFileSync(path, "utf8");
+    const lines = md.split("\n");
+    const start = lines.findIndex((l) => l.trim() === "## Re-rated steps");
+    expect(start, "missing ## Re-rated steps").toBeGreaterThanOrEqual(0);
+    const end = lines.findIndex((l, i) => i > start && /^## /.test(l));
+    const table = lines.slice(start + 1, end === -1 ? lines.length : end);
+    // | Step | Scene step | W69 observed | W70 observed | Evidence |
+    function cells(step: string): string[] {
+      const row = table.find((l) => new RegExp(`^\\|\\s*${step}\\s*\\|`).test(l));
+      expect(row, `no row for scene step ${step}`).toBeDefined();
+      return (row ?? "").split("|").slice(1, -1).map((c) => c.trim());
+    }
+    for (const step of ["2", "6", "8"]) {
+      const c = cells(step);
+      expect(c, `step ${step} row must have 5 cells`).toHaveLength(5);
+      expect(["✅", "❌"], `step ${step} W70 status token`).toContain((c[3] ?? "").split(" ")[0]);
+      expect((c[4] ?? "").length, `step ${step} needs evidence`).toBeGreaterThan(0);
+    }
+    expect(cells("2")[2].startsWith("❌"), "W69 rated step 2 ❌").toBe(true);
+    expect(cells("6")[2].startsWith("❌"), "W69 rated step 6 ❌").toBe(true);
+    expect(cells("2")[4], "step 2: a measured bulge in px").toMatch(/\d+(\.\d+)?\s*px/);
+    expect(cells("2")[4], "step 2: a shot or frame").toMatch(/s2-step2|frame/);
+    expect(cells("6")[4], "step 6: the measured re-form in ms").toMatch(/\b\d{3,5}\s*ms\b/);
+    expect(cells("6")[4], "step 6: the measured slosh in px").toMatch(/\d+(\.\d+)?\s*px/);
+    expect(cells("6")[4], "step 6: a shot or frame").toMatch(/s2-step6|frame/);
+    expect(cells("8")[4], "step 8: the ?rm=1 recording").toMatch(/rm=1/);
+    expect(cells("8")[4], "step 8: a shot").toMatch(/s2-step8/);
+
+    const northStarModule = resolve(ROOT, "e2e/north-star.ts");
+    const { reformBudgetMs } = (await import(/* @vite-ignore */ northStarModule)) as typeof import("../../../e2e/north-star");
+    expect(cells("6")[1], "step 6 quotes the NORTH-STAR budget").toContain(
+      `within ${reformBudgetMs(read(NORTH_STAR), 6) / 1000} s`,
+    );
+
+    for (const heading of ["## Re-rated steps", "## Constants", "## Open points"]) {
+      expect(md, `missing heading ${heading}`).toContain(heading);
+    }
+    const cStart = lines.findIndex((l) => l.trim() === "## Constants");
+    const cEnd = lines.findIndex((l, i) => i > cStart && /^## /.test(l));
+    const constants = lines.slice(cStart + 1, cEnd === -1 ? lines.length : cEnd).join("\n");
+    for (const name of ["SHAKE_STIFFNESS_CAP", "SHAKE_PROFILE_AMPLITUDE", "POINTER_DRAG_PER_S"]) {
+      expect(constants, `## Constants names ${name}`).toContain(name);
+    }
+    expect(md, "links the W69 report it amends").toContain("slice-2.md");
+    expect(md).toContain("docs/superpowers/whole-picture/slice-2-addendum-canvas2d.gif");
+    expect(md, "unfilled «…» tokens left in the addendum").not.toContain("«");
+    const gif = readFileSync(resolve(ROOT, "docs/superpowers/whole-picture/slice-2-addendum-canvas2d.gif"));
+    expect(gif.subarray(0, 6).toString("latin1")).toBe("GIF89a");
+    expect(gif.length).toBeLessThanOrEqual(10 * 1024 * 1024);
+  });
+});

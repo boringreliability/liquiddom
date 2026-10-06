@@ -643,3 +643,111 @@ mod w67 {
         }
     }
 }
+
+// ---- W70: slosh metric (D70-5) -------------------------------------------------
+mod w70 {
+    use super::{CARD, acceptance_core};
+    use crate::fluid::api::FluidCore;
+
+    /// D70-5 as amended (A4), set from the W70 pre-plan measurement: W67 white noise peaks
+    /// at 6.70 px (Split) and 6.16 px (card); the coherent field at cap 0.2 gives ≥ 23.71 px
+    /// on every pill and 62.93 px on the card.
+    const SLOSH_CARD_MIN_PX: f32 = 24.0;
+    const SLOSH_PILL_MIN_PX: f32 = 12.0;
+    /// The shake peak lies in frames 10–24 (measured).
+    const SLOSH_FRAMES: u32 = 30;
+
+    fn frame(core: &mut FluidCore) {
+        assert_eq!(
+            core.tick(1.0 / 60.0, -1.0e4, -1.0e4, 0.0, 0.0, false, 0.0, 0.0),
+            1
+        );
+    }
+
+    fn settled() -> FluidCore {
+        let mut core = acceptance_core(1);
+        for _ in 0..60 {
+            frame(&mut core);
+        }
+        assert!(
+            core.rest_alphas().iter().all(|&a| a >= 1.0),
+            "precondition: at rest"
+        );
+        core
+    }
+
+    fn positions(core: &FluidCore) -> Vec<(f32, f32)> {
+        (0..core.particle_capacity() as usize)
+            .map(|i| core.particle_px(i))
+            .collect()
+    }
+
+    /// RMS (px) of the displacement from `rest` that is left after removing the best rigid
+    /// translation, i.e. the mean displacement of the element's particles. ~0 for a slide.
+    fn residual_rms_px(core: &FluidCore, ids: &[usize], rest: &[(f32, f32)]) -> f32 {
+        let n = ids.len().max(1) as f64;
+        let d: Vec<(f64, f64)> = ids
+            .iter()
+            .map(|&i| {
+                let (x, y) = core.particle_px(i);
+                (f64::from(x - rest[i].0), f64::from(y - rest[i].1))
+            })
+            .collect();
+        let (sx, sy) = d
+            .iter()
+            .fold((0.0f64, 0.0f64), |(ax, ay), &(dx, dy)| (ax + dx, ay + dy));
+        let (mx, my) = (sx / n, sy / n);
+        (d.iter()
+            .map(|&(dx, dy)| (dx - mx).powi(2) + (dy - my).powi(2))
+            .sum::<f64>()
+            / n)
+            .sqrt() as f32
+    }
+
+    #[test]
+    fn given_a_rigid_translation_of_every_particle_when_measuring_slosh_then_the_residual_rms_is_below_0_01px()
+     {
+        let mut core = settled();
+        let rest = positions(&core);
+        for (i, &(x, y)) in rest.iter().enumerate() {
+            core.set_particle_px(i, x + 37.0, y - 12.5);
+        }
+        for id in 0..4u32 {
+            let r = residual_rms_px(&core, &core.particle_indices_of(id), &rest);
+            assert!(
+                r < 0.01,
+                "element {id}: a rigid slide must score ~0, got {r} px"
+            );
+        }
+    }
+
+    #[test]
+    fn given_shake_strength_1_when_ticking_30_frames_then_the_rigid_fit_residual_rms_reaches_24px_on_the_card_and_12px_on_each_pill()
+     {
+        let mut core = settled();
+        let rest = positions(&core);
+        let ids: Vec<Vec<usize>> = (0..4u32).map(|id| core.particle_indices_of(id)).collect();
+        core.shake(1.0);
+        let mut peak = [0.0f32; 4];
+        for _ in 0..SLOSH_FRAMES {
+            frame(&mut core);
+            for (id, p) in peak.iter_mut().enumerate() {
+                *p = p.max(residual_rms_px(&core, &ids[id], &rest));
+            }
+        }
+        eprintln!(
+            "W70 D70-5 evidence: peak non-rigid RMS [Splash, Split, Merge, card] = {peak:?} px"
+        );
+        for (id, &p) in peak.iter().enumerate() {
+            let min = if id == CARD {
+                SLOSH_CARD_MIN_PX
+            } else {
+                SLOSH_PILL_MIN_PX
+            };
+            assert!(
+                p >= min,
+                "element {id}: peak non-rigid RMS {p} px < {min} px (sliding intact, not sloshing)"
+            );
+        }
+    }
+}

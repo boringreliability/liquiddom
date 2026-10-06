@@ -618,3 +618,52 @@ fn given_ticked_core_when_redistribute_splash_shake_reduced_motion_tick_or_set_p
         );
     }
 }
+
+// ------------------------------------------------ W70: drag and readable bulge
+
+#[test]
+fn given_d70_3_when_reading_the_pointer_constants_then_drag_is_12_per_s_and_radius_stays_70_px() {
+    assert_eq!(
+        POINTER_DRAG_PER_S, 12.0,
+        "D70-3: lowest of [12, 24] (W70 measurements)"
+    );
+    assert_eq!(POINTER_RADIUS_PX, 70.0);
+}
+
+/// D70-3/D70-5 as amended (A2): a 600 px/s sweep through the pills drags each pill's liquid
+/// ≥ 5 px in the sweep direction (mean particle x shift from rest, max over the sweep).
+/// Measured pre-plan: drag 6 → 2.86 / 3.33 / 3.10 px, drag 12 → 6.33 / 6.81 / 6.56 px.
+const BULGE_MIN_PX: f32 = 5.0;
+
+#[test]
+fn given_600px_s_sweep_through_the_pills_when_ticking_then_each_pills_liquid_shifts_at_least_5px_in_the_sweep_direction()
+ {
+    let mut core = scene(1);
+    idle(&mut core, 60);
+    assert!(all_at_rest(&core), "precondition: at rest");
+    let rest: Vec<(f32, f32)> = (0..count(&core)).map(|i| core.particle_px(i)).collect();
+    let ids: Vec<Vec<usize>> = (0..BUTTONS.len() as u32)
+        .map(|id| core.particle_indices_of(id))
+        .collect();
+    let mut best = [f32::NEG_INFINITY; 3];
+    run_sweep(&mut core, |c, _| {
+        for (b, pill) in ids.iter().enumerate() {
+            let n = pill.len().max(1) as f32;
+            let dx = pill
+                .iter()
+                .map(|&i| c.particle_px(i).0 - rest.get(i).map_or(0.0, |r| r.0))
+                .sum::<f32>()
+                / n;
+            if let Some(slot) = best.get_mut(b) {
+                *slot = slot.max(dx);
+            }
+        }
+    });
+    eprintln!("W70 D70-3 evidence: max mean x shift per pill [Splash, Split, Merge] = {best:?} px");
+    for (b, &dx) in best.iter().enumerate() {
+        assert!(
+            dx >= BULGE_MIN_PX,
+            "pill {b}: mean x shift {dx} px < {BULGE_MIN_PX} px (bulge not readable)"
+        );
+    }
+}

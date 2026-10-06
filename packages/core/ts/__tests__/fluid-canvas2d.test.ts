@@ -186,3 +186,28 @@ describe("W64 FluidCanvas2DRenderer", () => {
     expect(offCtx.canvas.height).toBe(150);
   });
 });
+
+describe("W70 D70-4: full density weight during the Canvas2D cross-fade", () => {
+  it("given_fractional_rest_alpha_when_rendering_then_every_particle_splats_at_full_weight", async () => {
+    const splat = vi.spyOn(DensityGrid.prototype, "splat");
+    const { renderer } = await setup();
+    renderer.render(makeFrame({ restAlpha: 0.58 }));
+    expect(splat).toHaveBeenCalledTimes(CAP);
+    for (const call of splat.mock.calls) expect(call[5]).toBe(1);
+  });
+
+  it("given_rest_alpha_0_58_when_rendering_then_the_interior_density_is_opaque_and_the_roundRect_fades_in_on_top", async () => {
+    // W69: weight 1 − 0.58 = 0.42 put the interior density at the 0.4–0.6 smoothstep's foot
+    // (alpha ≈ 7/255) under a roundRect at 0.58: the pale flash (~151/255 composite).
+    const { renderer, ctx, offCtx } = await setup();
+    renderer.render(makeFrame({ restAlpha: 0.58 }));
+    const img = offCtx.lastImage!;
+    const p = (55 * img.width + 85) * 4; // cell centred at (171, 111): inside the particle block
+    expect(Array.from(img.data.subarray(p, p + 4))).toEqual([47, 111, 222, 255]);
+    const fills = ctx.ops("fill");
+    expect(fills).toHaveLength(1);
+    expect(fills[0].globalAlpha).toBeCloseTo(0.58, 6);
+    const order = ctx.calls.map((c) => c.op).filter((op) => op === "drawImage" || op === "fill");
+    expect(order, "density first, the rest contour on top").toEqual(["drawImage", "fill"]);
+  });
+});

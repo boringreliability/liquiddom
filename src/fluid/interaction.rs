@@ -368,25 +368,67 @@ mod w67_tests {
     }
 
     #[test]
-    fn given_shake_when_applied_then_each_element_gets_seeded_direction_plus_particle_noise() {
+    fn given_shake_when_applied_then_each_element_moves_along_one_seeded_direction_with_a_coherent_sine_profile_across_u_and_no_particle_noise()
+     {
+        // D70-1: v = d · 520 · (1 + 0.8 · sin(π·u + φ)), u = (x − cx) / (w / 2). Fit
+        // s = v·d/520 − 1 = a·sin(πu) + b·cos(πu); amplitude hypot(a, b) = 0.8, and no particle
+        // may deviate from the fit (white noise did, by ±0.45 · 520 px/s).
         let mut core = two_button_core(7);
         core.shake(1.0);
-        for id in [0u32, 1] {
+        for (id, rect) in [(0u32, BUTTON), (1, BUTTON_2)] {
             let (mx, my) = mean_velocity(&core, id);
             let speed = mx.hypot(my);
             assert!(
                 (speed - 520.0).abs() < 52.0,
                 "element {id}: mean speed {speed} ≈ 520 px/s"
             );
+            let (dx, dy) = (mx / speed, my / speed);
+            let (cx, half) = (rect[0] + 0.5 * rect[2], 0.5 * rect[2]);
             let ids = core.particle_indices_of(id);
-            let var = ids.iter().fold(0.0f32, |acc, &i| {
-                let (vx, vy) = core.particle_vel_px_s(i);
-                acc + (vx - mx).powi(2) + (vy - my).powi(2)
-            }) / ids.len().max(1) as f32;
+            assert!(ids.len() > 500);
+            let samples: Vec<(f64, f64)> = ids
+                .iter()
+                .map(|&i| {
+                    let (vx, vy) = core.particle_vel_px_s(i);
+                    let cross = vx * dy - vy * dx;
+                    assert!(
+                        cross.abs() < 0.5,
+                        "element {id} particle {i}: {cross} px/s off the shake direction (noise or rotation)"
+                    );
+                    let (px, _) = core.particle_px(i);
+                    (
+                        f64::from((px - cx) / half),
+                        f64::from((vx * dx + vy * dy) / 520.0) - 1.0,
+                    )
+                })
+                .collect();
+            let (mut ss, mut cc, mut sc, mut ys, mut yc) = (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
+            for &(u, y) in &samples {
+                let (s, c) = (std::f64::consts::PI * u).sin_cos();
+                ss += s * s;
+                cc += c * c;
+                sc += s * c;
+                ys += y * s;
+                yc += y * c;
+            }
+            let det = ss * cc - sc * sc;
+            let a = (ys * cc - yc * sc) / det;
+            let b = (yc * ss - ys * sc) / det;
+            let worst = samples
+                .iter()
+                .map(|&(u, y)| {
+                    let (s, c) = (std::f64::consts::PI * u).sin_cos();
+                    (y - a * s - b * c).abs()
+                })
+                .fold(0.0f64, f64::max);
             assert!(
-                var.sqrt() > 20.0,
-                "element {id}: per-particle noise present ({})",
-                var.sqrt()
+                (a.hypot(b) - 0.8).abs() < 2e-3,
+                "element {id}: profile amplitude {} (D70-1: 0.8)",
+                a.hypot(b)
+            );
+            assert!(
+                worst < 2e-3,
+                "element {id}: a particle deviates {worst} from the coherent profile (no white noise)"
             );
         }
         let mut same = two_button_core(7);
@@ -399,6 +441,77 @@ mod w67_tests {
         assert!(
             (ay.atan2(ax) - by.atan2(bx)).abs() > 1e-3,
             "the direction is seeded"
+        );
+    }
+
+    #[test]
+    fn given_shake_gain_when_evaluated_across_u_then_it_is_1_plus_0_8_sin_pi_u_plus_phase_within_0_2_and_1_8()
+     {
+        use crate::fluid::interaction::shake_gain;
+        use std::f32::consts::{FRAC_PI_2, PI};
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-5;
+        // φ = 0: sin(π·u). The two halves move at different speeds: the element shears.
+        for (u, g) in [
+            (-1.0f32, 1.0f32),
+            (-0.5, 0.2),
+            (0.0, 1.0),
+            (0.5, 1.8),
+            (1.0, 1.0),
+        ] {
+            assert!(
+                close(shake_gain(u, 0.0), g),
+                "u {u}: {}",
+                shake_gain(u, 0.0)
+            );
+        }
+        // φ = π/2: cos(π·u). The centre leads and both ends lag: the element bends.
+        assert!(close(shake_gain(0.0, FRAC_PI_2), 1.8));
+        assert!(close(shake_gain(-1.0, FRAC_PI_2), 0.2));
+        assert!(close(shake_gain(1.0, FRAC_PI_2), 0.2));
+        // Never reverses: every part of the element moves along d.
+        for k in 0..=200 {
+            let u = -1.0 + k as f32 / 100.0;
+            for phase in [0.0f32, 1.0, PI, 5.0] {
+                let g = shake_gain(u, phase);
+                assert!(
+                    (0.2 - 1e-5..=1.8 + 1e-5).contains(&g),
+                    "u {u}, φ {phase}: {g}"
+                );
+            }
+        }
+        // Non-finite input gives the plain W67 direction.
+        assert_eq!(shake_gain(f32::NAN, 0.0), 1.0);
+        assert_eq!(shake_gain(f32::INFINITY, 0.0), 1.0);
+        assert_eq!(shake_gain(0.5, f32::NAN), 1.0);
+    }
+
+    #[test]
+    fn given_shake_field_when_drawn_twice_for_one_stream_and_id_then_bit_identical_with_the_w67_unit_direction_and_a_phase_in_0_to_tau()
+     {
+        use crate::fluid::interaction::shake_field;
+        use crate::fluid::rng::Rng;
+        use std::f32::consts::TAU;
+        for (stream, id) in [(1u32, 0usize), (7, 3), (0xDEAD_BEEF, 31)] {
+            let f = shake_field(stream, id);
+            assert_eq!(f, shake_field(stream, id), "deterministic");
+            assert!(
+                (f.dir_x.hypot(f.dir_y) - 1.0).abs() < 1e-6,
+                "unit direction"
+            );
+            // W67's draw: the first value of the derived stream, so a seed keeps its directions.
+            let angle = Rng::derive(stream, id as u32).next_f32() * TAU;
+            assert_eq!((f.dir_x, f.dir_y), (angle.cos(), angle.sin()));
+            assert!((0.0..TAU).contains(&f.phase), "phase {}", f.phase);
+        }
+        assert_ne!(
+            shake_field(1, 0).phase,
+            shake_field(1, 1).phase,
+            "per element"
+        );
+        assert_ne!(
+            shake_field(1, 0).phase,
+            shake_field(2, 0).phase,
+            "per shake"
         );
     }
 
@@ -441,11 +554,19 @@ mod w67_tests {
     }
 
     #[test]
-    fn given_shake_when_damaged_then_s_at_most_0_4() {
+    fn given_shake_when_damaged_then_s_at_most_0_2() {
         let mut core = two_button_core(7);
         core.shake(1.0);
-        assert!(core.stiffness_of(0) <= 0.4 + 1e-6);
-        assert!(core.stiffness_of(1) <= 0.4 + 1e-6);
+        assert!(
+            core.stiffness_of(0) <= 0.2 + 1e-6,
+            "{}",
+            core.stiffness_of(0)
+        );
+        assert!(
+            core.stiffness_of(1) <= 0.2 + 1e-6,
+            "{}",
+            core.stiffness_of(1)
+        );
     }
 
     #[test]
@@ -462,17 +583,20 @@ mod w67_tests {
     }
 
     #[test]
-    fn given_d67_3_constants_when_read_then_splash_and_shake_values_pinned() {
+    fn given_d67_3_and_d70_constants_when_read_then_splash_and_shake_values_pinned() {
         use crate::fluid::interaction::{
-            SHAKE_NOISE, SHAKE_SPEED_PX_S, SHAKE_STIFFNESS_CAP, SPLASH_RADIUS_MIN_PX,
+            SHAKE_PROFILE_AMPLITUDE, SHAKE_SPEED_PX_S, SHAKE_STIFFNESS_CAP, SPLASH_RADIUS_MIN_PX,
             SPLASH_RADIUS_PER_DIAGONAL, SPLASH_SPEED_PX_S, STRENGTH_MAX,
         };
         assert_eq!(SPLASH_SPEED_PX_S, 950.0, "speed 950 px/s · strength");
         assert_eq!(SPLASH_RADIUS_MIN_PX, 110.0, "radius floor 110 px");
         assert_eq!(SPLASH_RADIUS_PER_DIAGONAL, 0.75);
         assert_eq!(SHAKE_SPEED_PX_S, 520.0);
-        assert_eq!(SHAKE_NOISE, 0.9);
-        assert_eq!(SHAKE_STIFFNESS_CAP, 0.4);
+        assert_eq!(SHAKE_PROFILE_AMPLITUDE, 0.8, "D70-1");
+        assert_eq!(
+            SHAKE_STIFFNESS_CAP, 0.2,
+            "D70-2: highest of [0.1, 0.2] passing the slosh metric"
+        );
         assert_eq!(STRENGTH_MAX, 2.0);
     }
 }

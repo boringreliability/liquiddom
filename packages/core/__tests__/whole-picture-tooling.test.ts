@@ -122,3 +122,25 @@ describe("W69: e2e/north-star.ts (re-form budgets from the canonical scene)", ()
     expect(reformBudgetMs(spec, 6)).toBe(3_000);
   });
 });
+
+describe("W70: e2e/record.spec.ts records step 8 (D70-6)", () => {
+  it("given_the_record_spec_when_read_then_a_reduced_motion_segment_on_rm_1_clicks_and_shakes_after_step_6_and_reports_step_8", () => {
+    const spec = readFileSync(resolve(ROOT, "e2e/record.spec.ts"), "utf8");
+    expect(spec).toContain("const RM_SCENE_URL = `${SCENE_URL}&rm=1`;");
+    expect(spec).toContain('test("whole picture – slice 2 – acceptance steps 1-4, 6 and 8 recorded in canvas2d"');
+    const s6 = spec.indexOf("// Step 6");
+    const s8 = spec.indexOf("// Step 8");
+    const close = spec.indexOf("await page.close();");
+    expect(s6, "the step-6 segment").toBeGreaterThan(0);
+    expect(s8, "the step-8 segment follows step 6").toBeGreaterThan(s6);
+    expect(close, "and is recorded before the page closes").toBeGreaterThan(s8);
+    const seg = spec.slice(s8, close);
+    expect(seg).toContain("page.goto(RM_SCENE_URL)");
+    expect(seg).toMatch(/\.click\(\)/);
+    expect(seg).toMatch(/\.shake\(\)/);
+    expect(seg).toContain('"step8-rm-idle"');
+    expect(seg).toContain('"step8-rm-after-click-and-shake"');
+    expect(seg).toMatch(/step: 8,/);
+    expect(seg, "no motion is asserted, not only reported").toMatch(/expect\(moved8/);
+  });
+});
