@@ -25,6 +25,7 @@
 | W67 | 2 | [W67.md](W67.md) | **Splash and shake, end to end:** MPM dynamics, stiffness, restAlpha, click and keyboard splash | 17 tasks (amended 2026-10-05: W67.3b, W67.6b) |
 | W68 | 2 | [W68.md](W68.md) | Pointer field, hover, material API and presets, reduced-motion gating | 15 tasks |
 | W69 | 2 | [W69.md](W69.md) | Playground on material, splash scene, **whole-picture check**, then STOP before slice 3 is planned | 9 tasks |
+| W70 | 2 (fix) | [W70.md](W70.md) | **Slice 2 fix:** coherent sloshing shake and cap 0.2, pointer drag 12 for a readable bulge, full-weight Canvas2D cross-fade, step 8 in the recording, slice-2 addendum. **Blocker before red** (D70-3/D70-5 thresholds, see the plan header) | 7 tasks |
 
 Order: W63 → W64 → W65 → W66 → W67 → W68 → W69. Each ward leaves `npm run verify` green.
 
