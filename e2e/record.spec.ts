@@ -5,7 +5,7 @@
  *   playwright.config.ts; viewport 1280×800 and DPR 1 from desktopChrome.
  * - RAF clock (no ?clock=manual): a manual clock would record a frozen video (C6).
  * - canvas2d only: no WebGPU fluid renderer exists before slice 3 (C6).
- * - Records steps 1–4 and 6. Step 5 (drag, slice 5) and 7 (scroll, slice 6) are ⏳ in S2.
+ * - Records steps 1–4, 6 and 8 (a ?rm=1 segment, D70-6). Step 5 (drag, slice 5) and 7 (scroll, slice 6) are ⏳ in S2.
  * - Re-form budgets are read from .wdd/NORTH-STAR.md (the D67-1 outcome), never
  *   hard-coded. They are reported, not asserted: acceptance.spec.ts (W67/W68) asserts them.
  * Timings are wall-clock (±50 ms) and go to manifest.json for the status report.
@@ -31,6 +31,8 @@ const SHOTS_DIR = resolve(OUT_DIR, "shots");
  */
 const VIDEO_PATH = resolve(process.cwd(), "tmp/whole-picture/slice-2.webm");
 const SCENE_URL = "/scenes/acceptance.html?seed=1&renderer=canvas2d&test=1";
+/** D70-6: step 8, the same scene in reduced motion (forceReducedMotion via ?rm=1). */
+const RM_SCENE_URL = `${SCENE_URL}&rm=1`;
 
 const NORTH_STAR_MD = readFileSync(resolve(process.cwd(), NORTH_STAR_PATH), "utf8");
 /** Step 3 budget = D67-1 outcome. Step 4 is the same splash at the centre, so it shares it. */
@@ -98,7 +100,7 @@ async function measure(
   return { reactedMs, reformMs: reformed ? Date.now() - t0 : null };
 }
 
-test("whole picture – slice 2 – acceptance steps 1-4 and 6 recorded in canvas2d", async ({ page }, testInfo) => {
+test("whole picture – slice 2 – acceptance steps 1-4, 6 and 8 recorded in canvas2d", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "record", "recording runs only in the record project (npm run whole-picture)");
   test.setTimeout(120_000);
   mkdirSync(SHOTS_DIR, { recursive: true });
@@ -183,6 +185,29 @@ test("whole picture – slice 2 – acceptance steps 1-4 and 6 recorded in canva
   timings.push({ step: 6, name: "shake", budgetMs: SHAKE_BUDGET_MS, ...s6 });
 
   // Hold the final rest frame for the GIF.
+  await page.waitForTimeout(1_500);
+
+  // Step 8 – reduced motion (?rm=1, D70-6): the same scene with forceReducedMotion. A click on
+  // "Splash" and a shake must show no motion: every restAlpha stays 1 and the scene stays crisp.
+  await page.goto(RM_SCENE_URL);
+  await page.evaluate(() => (window as unknown as { __liquidTest: SceneHook }).__liquidTest.ready);
+  await page.mouse.move(4, 4);
+  await page.waitForTimeout(1_000);
+  await shot(page, "step8-rm-idle", shots);
+  const t8 = Date.now();
+  await page.getByRole("button", { name: "Splash", exact: true }).click();
+  await page.evaluate(() => (window as unknown as { __liquidTest: SceneHook }).__liquidTest.instance.shake());
+  await page.mouse.move(1279, 799);
+  const moved8 = await until(page, "anyMoving", 1_000);
+  await shot(page, "step8-rm-after-click-and-shake", shots);
+  timings.push({
+    step: 8,
+    name: "reduced motion (?rm=1): click + shake",
+    budgetMs: null,
+    reactedMs: moved8 ? Date.now() - t8 : null,
+    reformMs: null,
+  });
+  expect(moved8, "step 8: under ?rm=1 a click and a shake must not move the liquid").toBe(false);
   await page.waitForTimeout(1_500);
 
   const video = page.video();
