@@ -682,6 +682,9 @@ mod w70 {
             .collect()
     }
 
+    /// (rest, current) position of one particle, px.
+    type PosPair = ((f64, f64), (f64, f64));
+
     /// RMS (px) of what is left of an element's deformation after the best rigid motion
     /// (2D Procrustes: translation plus rotation, no scale) is removed. Centre the rest and
     /// current point sets, theta = atan2(sum p x q, sum p . q), residual = q - R(theta) p. ~0 for
@@ -698,7 +701,7 @@ mod w70 {
                 )
             })
             .collect();
-        let centre = |sel: fn(&((f64, f64), (f64, f64))) -> (f64, f64)| {
+        let centre = |sel: fn(&PosPair) -> (f64, f64)| {
             let (sx, sy) = pairs.iter().fold((0.0f64, 0.0f64), |(ax, ay), pr| {
                 (ax + sel(pr).0, ay + sel(pr).1)
             });
