@@ -3,7 +3,7 @@ ward: 70
 revision: null
 name: "Slice 2 fix: sloshing shake, readable bulge, clean cross-fade"
 epic: "fluid-engine"
-status: "red"
+status: "approved"
 dependencies: [69]
 layer: "both"
 estimated_tests: 18
