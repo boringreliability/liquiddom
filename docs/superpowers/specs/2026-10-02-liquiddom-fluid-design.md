@@ -242,7 +242,7 @@ The `Renderer` keeps its method shape. The new `RenderFrame` contains:
 1. **Splat.** Each particle is drawn as an instanced quad (instance data read from a storage buffer via `instance_index`) with a smooth kernel. It writes into three render targets, all using additive blending `{src: one, dst: one, op: add}`:
    - `T0 rgba16float`: `Σw·rgb_premul` and `Σw` (density). Render scale 0.5× DPR.
    - `T1 rgba16float`: `Σw·text_rgba_premul`, sampled from an RGBA atlas. 1× DPR. **Only particles from elements with `restAlpha < 1`** are splatted here.
-   - `T2 r16float`: `Σw·restAlpha`, used to cross-fade to the rest contour.
+   - `T2 r16float`: `Σw·restAlpha`, used to cross-fade to the rest contour. **Deferred to slice 4** (amended 2026-10-06, slice-3 design, D71-3): slice 3 cross-fades per element from the element buffer's `restAlpha`, so its passes are splat (T0), composite and a rest SDF overlay.
 
    The targets total 24 B per sample. That is within the default `maxColorAttachmentBytesPerSample = 32`, and rgba16float is blendable in WebGPU core. **No 32-bit float targets.**
 
@@ -273,7 +273,7 @@ The mapping direction is correct: `F = ∂x/∂X`, so a world offset is mapped b
 ### Crisp at rest
 
 When `restAlpha → 1`, the composite cross-fades to:
-1. the element's **analytic rounded-rect SDF contour**: one instanced quad per resting element adds SDF density into T0 and T2, so pills are real pills with no fur, and
+1. the element's **analytic rounded-rect SDF contour**: one instanced quad per resting element, drawn over the composite at alpha `restAlpha` while its particles splat at full weight (the D70-4 rule; at `restAlpha = 1` only the SDF is drawn), so pills are real pills with no fur (amended 2026-10-06, slice-3 design, D71-6; was "adds SDF density into T0 and T2"), and
 2. **the real DOM text.** TS removes the `liquid-text` class (`color: transparent`) per element when `restAlpha = 1`, and puts it back as soon as `restAlpha < 1`. At the same moment the atlas is cross-faded out.
 
 At rest, what you see is therefore pixel-exact the DOM text, with no atlas approximation.
@@ -308,7 +308,8 @@ At rest, what you see is therefore pixel-exact the DOM text, with no atlas appro
 - `auto` treats both `WebGPUUnavailableError` **and** `adapter.info.isFallbackAdapter` (software WebGPU) as "unavailable" and falls back to Canvas2D. Other WebGPU init errors (shader or pipeline errors) are bugs and reject `create()`.
 - `silentFallback` only controls the fallback `console.info`.
 - On fallback the canvas is remounted.
-- **`device.lost`:** rebuild as Canvas2D, and remove `liquid-text` from every element so the text is visible again. This is covered by a Playwright test.
+- An explicit `renderer: 'webgpu'` accepts a fallback adapter; only `auto` treats it as unavailable, so CI can test the WebGPU path on SwiftShader (amended 2026-10-06, slice-3 design, D72-2).
+- **`device.lost`:** rebuild as Canvas2D, and remove `liquid-text` from every element so the text is visible again. This is covered by a Playwright test. A loss with `reason: 'destroyed'` (from our own `destroy()`) never rebuilds (amended 2026-10-06, slice-3 design, D72-3).
 
 ## 4. DOM and a11y model
 
@@ -483,7 +484,7 @@ Slices 1–2 are detailed in the plan. Slices 3–6 are re-planned after each wh
 |---|---|---|
 | 1 | **Liquid at rest** | Single-flight init + loud failure; MPM core in Rust (at rest only: sampling, home spring, reduced-motion path); new FFI; Canvas2D render with roundRect at rest; injected stylesheet + stacking + print; acceptance scene; Playwright harness + WebGPU smoke; multi-instance test; soft-body code, old scenes and site removed or frozen; `examples/react` ported |
 | 2 | **Liquid that reacts** | Full MPM dynamics, pointer field, click/keyboard splash, shake, stiffness/re-form/restAlpha, playground on material, splash scene. Followed by a **whole-picture check** |
-| 3 | **WebGPU liquid** | Splat/composite (T0/T2), blended colour, SDF contour at rest, `device.lost`, overdraw logging |
+| 3 | **WebGPU liquid** | Splat/composite (T0), rest SDF overlay, blended colour, `device.lost`, overdraw logging (amended 2026-10-06: T2 deferred to slice 4; design `2026-10-06-liquiddom-slice-3-webgpu-design.md`) |
 | 4 | **Liquid text** | F with clamp/torn, text atlas + T1, the `liquid-text` toggle, extended MutationObserver, forced-colors. Followed by a **whole-picture check** |
 | 5 | **Drag and merge** | `home_dx/dy`, drag threshold, displacement merge, slip separation |
 | 6 | **The world** | Scroll (incl. the 1-frame risk), resize, container, parking, gravity/tilt scene, adapters, site rebuilt and re-enabled. Followed by a **whole-picture check** |
