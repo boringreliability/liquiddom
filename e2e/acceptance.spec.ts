@@ -511,6 +511,87 @@ test.describe("step 2 – pointer sweep (W68)", () => {
     await page.screenshot({ path: testInfo.outputPath("step2-reformed.png") });
   });
 
+  // Ward review: the sweep above crosses the buttons, so the hover swell alone un-rests them.
+  // This sweep runs parallel to the row BELOW_PX under the pills' bottom edge: inside the 70 px
+  // field, never inside an element. A symmetric swell cannot shift a pill's horizontal centroid;
+  // only the pointer field's drag in the sweep direction can.
+  const BELOW_PX = 30;
+  async function centroidX(page: Page, boxes: Box[]): Promise<number[]> {
+    return page.evaluate((rects) => {
+      const c = document.querySelector<HTMLCanvasElement>("canvas.liquid-canvas");
+      if (!c) throw new Error("liquid canvas missing");
+      const ctx = c.getContext("2d");
+      if (!ctx) throw new Error("liquid canvas has no 2d context");
+      const r = c.getBoundingClientRect();
+      const sx = c.width / r.width;
+      const sy = c.height / r.height;
+      const img = ctx.getImageData(0, 0, c.width, c.height);
+      return rects.map((b) => {
+        const px0 = Math.max(0, Math.floor((b.x - r.left) * sx));
+        const px1 = Math.min(c.width, Math.ceil((b.x + b.width - r.left) * sx));
+        const py0 = Math.max(0, Math.floor((b.y - r.top) * sy));
+        const py1 = Math.min(c.height, Math.ceil((b.y + b.height - r.top) * sy));
+        let m = 0;
+        let mx = 0;
+        for (let y = py0; y < py1; y++) {
+          for (let x = px0; x < px1; x++) {
+            const a = img.data[(y * c.width + x) * 4 + 3];
+            m += a;
+            mx += a * (x + 0.5);
+          }
+        }
+        return m > 0 ? mx / m / sx + r.left : NaN;
+      });
+    }, boxes);
+  }
+  async function hoveredObserved(page: Page): Promise<string[]> {
+    return page.evaluate(() =>
+      Array.from(document.querySelectorAll<HTMLElement>("[data-liquid]"))
+        .filter((e) => e.matches(":hover"))
+        .map((e) => e.id),
+    );
+  }
+  // Measured 2026-10-06 (macOS Chromium, canvas2d, seed 1, 600 px/s at y = bottom + 30 px):
+  // max +x shift per pill [0.703, 0.821, 0.807] px; pointer path forced off: [0, 0, 0] px.
+  // Half the smallest measured pill shift.
+  const CENTROID_SHIFT_MIN_PX = 0.35;
+
+  test("step 2 – given a sweep parallel to the row 30 px below the pills when ticking then no element is hovered, the liquid un-rests and a pill's centroid shifts in the sweep direction (pointer field alone)", async ({ page }, testInfo) => {
+    await open(page);
+    const row = await buttons(page);
+    expect((await restAlpha(page)).every((a) => a === 1), "precondition: at rest").toBe(true);
+    const rest = await centroidX(page, row);
+    for (const c of rest) expect(Number.isFinite(c), "precondition: each pill has liquid").toBe(true);
+
+    const first = row[0];
+    const last = row[row.length - 1];
+    const y = Math.max(...row.map((b) => b.y + b.height)) + BELOW_PX;
+    const x0 = first.x - LEAD_PX;
+    const frames = Math.ceil((last.x + last.width + LEAD_PX - x0) / STEP_PX);
+    let minAlpha = 1;
+    const maxShift = row.map(() => -Infinity);
+    const hovered = new Set<string>();
+    for (let k = 0; k <= frames; k++) {
+      await page.mouse.move(x0 + k * STEP_PX, y);
+      for (const id of await hoveredObserved(page)) hovered.add(id);
+      await advance(page, 1);
+      minAlpha = Math.min(minAlpha, ...(await restAlpha(page)));
+      const now = await centroidX(page, row);
+      now.forEach((c, i) => {
+        maxShift[i] = Math.max(maxShift[i], c - rest[i]);
+      });
+    }
+    const best = Math.max(...maxShift);
+    const report = `sweep y ${y} px; max centroid shift (+x) per pill [${maxShift.map((v) => v.toFixed(3)).join(", ")}] px; min restAlpha ${minAlpha}`;
+    console.log(`[W68 pointer-only] ${report}`);
+    testInfo.annotations.push({ type: "pointer-only sweep", description: report });
+    await page.screenshot({ path: testInfo.outputPath("step2-pointer-only-sweep.png") });
+
+    expect([...hovered], "no observed element is :hover during the sweep").toEqual([]);
+    expect(minAlpha, "the pointer field alone must un-rest the liquid").toBeLessThan(1);
+    expect(best, `a pill's liquid follows the pointer (+x); ${report}`).toBeGreaterThanOrEqual(CENTROID_SHIFT_MIN_PX);
+  });
+
   test("step 2 – given the pointer resting on Split when settled then the rest contour is swelled 2 % and un-swells when the pointer leaves", async ({ page }, testInfo) => {
     await open(page);
     const split = (await buttons(page))[1];

@@ -18,7 +18,7 @@ North star: step 2 (pointer sweep: soft bulge, no holes), plus the hover swell o
 - Rust: the soft pointer field (moved here from W67 by D63-4) and the hover swell of the home rect.
 - TS:
   - the pointer tracker (buffer-space position and smoothed velocity → `tick`);
-  - hover and focus tracking, written into `interaction` (focus beats hover);
+  - hover and focus tracking, written into `interaction` (hover beats focus until slice 5, D68-2 amended);
   - `setMaterial`/`getMaterial` and the material presets;
   - reduced-motion input gating. Detection stays in W64.
 - Playwright: step 2.
@@ -136,7 +136,7 @@ Decision: APPROVED 2026-10-06 — invalidate on every particle-moving path (saga
 | 38 | given_reduced_motion_when_ticking_then_pointer_active_false | D68-4 tracker |
 | 39 | given_runtime_destroyed_when_inspected_then_document_and_window_pointer_listeners_removed | D68-4 tracker |
 | 40 | given_mouseenter_when_synced_then_interaction_slot_1 | D68-2, D68-5 (the test now fires `pointerenter`, mouse) |
-| 41 | given_focus_while_hovered_when_synced_then_interaction_slot_2 | D68-2, D68-5 |
+| 41 | given_focus_while_hovered_when_synced_then_interaction_slot_1_hover_beats_focus | D68-2 amended again (dec_e431420b; was `…_slot_2`, focus beat hover) |
 | 42 | given_focused_when_mouse_leaves_then_interaction_slot_stays_2 | D68-2, D68-5 (leave is `pointerleave`) |
 | 43 | given_blur_and_mouseleave_when_synced_then_interaction_slot_0 | D68-2, D68-5 (the test now fires `pointerleave`) |
 | 44 | given_element_already_focused_when_observed_then_interaction_slot_2_on_first_sync | D68-2, D68-5 |
@@ -177,6 +177,12 @@ Decision: APPROVED 2026-10-06 — invalidate on every particle-moving path (saga
 | 79 | given_unknown_key_beside_a_getter_when_setMaterial_then_TypeError_names_the_key_without_reading_it | D68-9 (snapshot) |
 | 80 | given_successive_samples_when_compared_then_the_same_object_is_reused_with_current_values | D68-4 tracker (no per-frame allocation) |
 | 81 | given_container_in_a_second_document_when_pointer_moves_there_then_tick_receives_it | D68-4 tracker (ownerDocument pointer) |
+| 82 | given_hovered_button_focused_by_click_when_synced_then_hover_and_after_pointerleave_while_focused_then_focused | D68-2 amended again (ward review) |
+| 83 | given_hovered_element_detached_when_synced_then_not_hover_after_reattach | D68-2 (ward review: hover cleared on detach) |
+| 84 | given_hovered_button_disabled_when_synced_then_not_hover | D68-2 (ward review: hover cleared on disable) |
+| 85 | solver.rs: given_pointer_disc_overlapping_the_particle_aabb_edge_by_one_cell_when_stepping_then_bit_identical_to_the_unskipped_path | D68-3, perf guard (7c, ward review) |
+| 86 | solver.rs: given_disc_touching_just_outside_or_just_inside_an_aabb_edge_when_reaches_then_true_false_true | D68-3, perf guard (7c, ward review) |
+| 87 | e2e: step 2 – given a sweep parallel to the row 30 px below the pills when ticking then no element is hovered, the liquid un-rests and a pill's centroid shifts in the sweep direction (pointer field alone) | step 2, D68-3 (ward review: proves the pointer path without hover) |
 
 Totals: 72 rows = 23 Rust (20 `pointer_hover_tests.rs`, 2 `solver.rs`, 1 `elements.rs`) + 45 TS (new and modified-existing) + 4 e2e. Rows marked guard pass at red (or once Rust compiles).
 

@@ -151,22 +151,12 @@ describe("material API (W68, D68-1, D68-9)", () => {
         return reads === 1 ? 0.3 : 5; // 5 is out of range
       },
     };
-    let threw = false;
-    try {
-      inst.setMaterial(partial);
-    } catch (e) {
-      threw = true;
-      expect(e).toBeInstanceOf(TypeError);
-    }
+    // The snapshot reads the getter once (0.3, valid), so validation and merge see the same value.
+    expect(() => inst.setMaterial(partial)).not.toThrow();
     expect(reads, "the getter is read exactly once").toBe(1);
     const got = inst.getMaterial();
-    if (threw) {
-      expect(setMaterial).not.toHaveBeenCalled();
-      expect(got).toEqual({ viscosity: 0.5, cohesion: 0.5, recovery: 0.7 });
-    } else {
-      expect(setMaterial.mock.calls).toEqual([[got.viscosity, got.cohesion, got.recovery]]);
-      expect(got).toEqual({ viscosity: 0.3, cohesion: 0.5, recovery: 0.7 });
-    }
+    expect(got).toEqual({ viscosity: 0.3, cohesion: 0.5, recovery: 0.7 });
+    expect(setMaterial.mock.calls).toEqual([[got.viscosity, got.cohesion, got.recovery]]);
   });
 
   it("given_unknown_key_beside_a_getter_when_setMaterial_then_TypeError_names_the_key_without_reading_it", async () => {

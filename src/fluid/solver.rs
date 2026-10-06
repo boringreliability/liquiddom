@@ -268,6 +268,10 @@ pub struct Scratch {
     /// whether it is still valid for `SubstepOpts::reuse_bounds`.
     bounds: Option<(f32, f32, f32, f32)>,
     bounds_valid: bool,
+    /// Test-only (7c): bypass the AABB disc skip, so a test can compare against the
+    /// unskipped path.
+    #[cfg(test)]
+    pub(crate) force_pointer: bool,
 }
 
 impl Scratch {
@@ -281,6 +285,8 @@ impl Scratch {
             wob_trig: vec![[0.0; 4]; particles],
             bounds: None,
             bounds_valid: false,
+            #[cfg(test)]
+            force_pointer: false,
         }
     }
 
@@ -577,6 +583,8 @@ pub fn substep_with(
     // Perf (7c): the field cannot reach any particle when its disc misses the AABB.
     let pointer = &inp.pointer;
     let pointer_on = pointer.reaches(x0, y0, x1, y1);
+    #[cfg(test)]
+    let pointer_on = pointer_on || s.force_pointer;
 
     // ---- forces + P2G ----
     for i in 0..p.cap {
@@ -1393,5 +1401,130 @@ mod w67_tests {
             assert_eq!(a.p.vy, off.p.vy);
             assert_eq!(a.p.j, off.p.j);
         }
+    }
+
+    #[test]
+    fn given_pointer_disc_overlapping_the_particle_aabb_edge_by_one_cell_when_stepping_then_bit_identical_to_the_unskipped_path()
+     {
+        // Ward review (7c): near the edge the skip must not fire. Each pointer sits so its
+        // disc reaches about one cell into the block's AABB (170..230 px): centre at
+        // 70 px − 1 cell outside an edge. Compared with the forced, unskipped path.
+        let g = Grid::new(400.0, 400.0, CELL, 200.0);
+        let reach = POINTER_RADIUS_PX - CELL;
+        for (px, py) in [
+            (230.0 + reach, 200.0),
+            (170.0 - reach, 200.0),
+            (200.0, 230.0 + reach),
+            (200.0, 170.0 - reach),
+        ] {
+            let pointer =
+                PointerGrid::new(&PointerField::sanitized(px, py, 1500.0, -900.0, true), &g);
+            let mut skip = moving_rig();
+            let mut forced = moving_rig();
+            forced.s.force_pointer = true;
+            let mut off = moving_rig();
+            let mut reached = 0usize;
+            for step in 0..3 {
+                for sub in 0..8 {
+                    let k = step * 8 + sub;
+                    let opts = SubstepOpts {
+                        measure_dev: sub == 7,
+                        reuse_bounds: step > 0 || sub > 0,
+                    };
+                    let inp = StepInput {
+                        dt: DT,
+                        time_s: k as f32 * DT,
+                        pointer,
+                    };
+                    if particle_bounds(&skip.p, &skip.g)
+                        .is_some_and(|(x0, y0, x1, y1)| pointer.reaches(x0, y0, x1, y1))
+                    {
+                        reached += 1;
+                    }
+                    substep_with(
+                        &mut skip.p,
+                        &mut skip.g,
+                        &skip.e,
+                        &skip.m,
+                        &inp,
+                        &mut skip.s,
+                        opts,
+                    );
+                    substep_with(
+                        &mut forced.p,
+                        &mut forced.g,
+                        &forced.e,
+                        &forced.m,
+                        &inp,
+                        &mut forced.s,
+                        opts,
+                    );
+                    let still = w68_input(k, PointerField::default(), &off.g);
+                    substep_with(
+                        &mut off.p, &mut off.g, &off.e, &off.m, &still, &mut off.s, opts,
+                    );
+                }
+            }
+            assert_eq!(
+                reached, 24,
+                "pointer at ({px}, {py}): the disc reaches the AABB every substep"
+            );
+            assert_eq!(skip.p.x, forced.p.x, "pointer at ({px}, {py})");
+            assert_eq!(skip.p.y, forced.p.y);
+            assert_eq!(skip.p.vx, forced.p.vx);
+            assert_eq!(skip.p.vy, forced.p.vy);
+            assert_eq!(skip.p.j, forced.p.j);
+            assert_ne!(
+                skip.p.vx, off.p.vx,
+                "pointer at ({px}, {py}): the field acted on the edge"
+            );
+        }
+    }
+
+    #[test]
+    fn given_disc_touching_just_outside_or_just_inside_an_aabb_edge_when_reaches_then_true_false_true()
+     {
+        // Ward review: `reaches` is `!(gap > r)` per side, so a gap of exactly r still reaches.
+        let r = 10.0_f32;
+        let pg = PointerGrid {
+            active: true,
+            x: 0.0,
+            y: 0.0,
+            r,
+            r2: r * r,
+            vx: 1.0,
+            vy: 0.0,
+        };
+        let eps = 1e-3_f32;
+        // (gap from the pointer to the AABB's near side) → expected
+        for (gap, want, what) in [
+            (r, true, "touching"),
+            (r + eps, false, "just outside"),
+            (r - eps, true, "just inside"),
+        ] {
+            // AABB to the right, left, below and above the pointer.
+            assert_eq!(pg.reaches(gap, -1.0, gap + 5.0, 1.0), want, "{what}: right");
+            assert_eq!(
+                pg.reaches(-gap - 5.0, -1.0, -gap, 1.0),
+                want,
+                "{what}: left"
+            );
+            assert_eq!(pg.reaches(-1.0, gap, 1.0, gap + 5.0), want, "{what}: below");
+            assert_eq!(
+                pg.reaches(-1.0, -gap - 5.0, 1.0, -gap),
+                want,
+                "{what}: above"
+            );
+        }
+        let off = PointerGrid {
+            active: false,
+            ..pg
+        };
+        assert!(
+            !off.reaches(-1.0, -1.0, 1.0, 1.0),
+            "an inactive pointer never reaches"
+        );
+        // NaN keeps the field on (the per-particle checks decide).
+        assert!(pg.reaches(f32::NAN, -1.0, 1.0, 1.0));
     }
 }

@@ -120,11 +120,14 @@ export class ElementRegistry {
     this.interactionListeners.delete(el);
   }
 
-  /** D68-2: focus beats hover; D68-5: IDLE under reduced motion. */
+  /**
+   * D68-2 (amended again 2026-10-06, saga dec_e431420b): hover beats focus until slice 5, so the
+   * click that focuses a hovered button keeps its swell; D68-5: IDLE under reduced motion.
+   */
   private interactionCode(rec: InternalRecord): number {
     if (this.deps.reducedMotion?.() === true) return Interaction.IDLE;
-    if (rec.focused) return Interaction.FOCUSED;
     if (rec.hovered) return Interaction.HOVER;
+    if (rec.focused) return Interaction.FOCUSED;
     return Interaction.IDLE;
   }
 
@@ -232,6 +235,9 @@ export class ElementRegistry {
     const v = this.bridge.elementView();
     const off = this.deps.coordOffset();
     for (const rec of this.byEl.values()) {
+      // Ward review: no pointerleave reaches a detached or disabled element, so hover would
+      // stick. Checked only while hovered (usually one element), so the cost is one test a frame.
+      if (rec.hovered && (!rec.el.isConnected || matchesDisabled(rec.el))) rec.hovered = false;
       this.writeRect(rec, v, off);
       v[rec.id * ELEMENT_STRIDE + El.INTERACTION] = this.interactionCode(rec);
     }
@@ -272,6 +278,14 @@ function canHover(el: HTMLElement): boolean {
 function matchesHover(el: HTMLElement): boolean {
   try {
     return el.matches(":hover");
+  } catch {
+    return false;
+  }
+}
+
+function matchesDisabled(el: HTMLElement): boolean {
+  try {
+    return el.matches(":disabled");
   } catch {
     return false;
   }

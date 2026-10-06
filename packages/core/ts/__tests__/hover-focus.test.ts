@@ -79,14 +79,35 @@ describe("hover and focus → interaction slot (W68, D68-2, D68-5)", () => {
     expect(interaction(id)).toBe(Interaction.HOVER);
   });
 
-  it("given_focus_while_hovered_when_synced_then_interaction_slot_2", () => {
+  // D68-2 amended again 2026-10-06 (saga dec_e431420b): hover beats focus until slice 5.
+  it("given_focus_while_hovered_when_synced_then_interaction_slot_1_hover_beats_focus", () => {
     const { registry, interaction } = setup();
     const b = button();
     const id = registry.observe(b);
     enter(b);
     b.focus();
     registry.sync();
-    expect(interaction(id)).toBe(Interaction.FOCUSED);
+    expect(interaction(id)).toBe(Interaction.HOVER);
+  });
+
+  it("given_hovered_button_focused_by_click_when_synced_then_hover_and_after_pointerleave_while_focused_then_focused", () => {
+    const { registry, interaction } = setup();
+    const b = button();
+    const id = registry.observe(b);
+    enter(b);
+    registry.sync();
+    expect(interaction(id), "hovered").toBe(Interaction.HOVER);
+    // A click focuses a button in Chrome/Firefox; jsdom does not, so focus() stands in for it.
+    b.dispatchEvent(new PointerEvent("pointerdown", { pointerType: "mouse", bubbles: true }));
+    b.focus();
+    b.dispatchEvent(new PointerEvent("pointerup", { pointerType: "mouse", bubbles: true }));
+    b.click();
+    expect(document.activeElement).toBe(b);
+    registry.sync();
+    expect(interaction(id), "hovered and focused by the click").toBe(Interaction.HOVER);
+    leave(b);
+    registry.sync();
+    expect(interaction(id), "pointer gone, focus kept").toBe(Interaction.FOCUSED);
   });
 
   it("given_focused_when_mouse_leaves_then_interaction_slot_stays_2", () => {
@@ -98,6 +119,36 @@ describe("hover and focus → interaction slot (W68, D68-2, D68-5)", () => {
     leave(b);
     registry.sync();
     expect(interaction(id)).toBe(Interaction.FOCUSED);
+  });
+
+  // W68 ward review: no pointerleave reaches a detached or disabled element, so the swell stuck.
+  it("given_hovered_element_detached_when_synced_then_not_hover_after_reattach", () => {
+    const { registry, interaction } = setup();
+    const b = button();
+    const id = registry.observe(b);
+    enter(b);
+    registry.sync();
+    expect(interaction(id), "precondition").toBe(Interaction.HOVER);
+    b.remove();
+    registry.sync();
+    document.body.appendChild(b);
+    registry.sync();
+    expect(interaction(id)).not.toBe(Interaction.HOVER);
+  });
+
+  it("given_hovered_button_disabled_when_synced_then_not_hover", () => {
+    const { registry, interaction } = setup();
+    const b = button();
+    const id = registry.observe(b);
+    enter(b);
+    registry.sync();
+    expect(interaction(id), "precondition").toBe(Interaction.HOVER);
+    b.disabled = true;
+    registry.sync();
+    expect(interaction(id)).not.toBe(Interaction.HOVER);
+    b.disabled = false;
+    registry.sync();
+    expect(interaction(id), "re-enabling alone does not bring hover back").toBe(Interaction.IDLE);
   });
 
   it("given_blur_and_mouseleave_when_synced_then_interaction_slot_0", () => {

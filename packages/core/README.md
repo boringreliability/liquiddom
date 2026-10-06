@@ -83,7 +83,7 @@ liquid.getMaterial();                  // { viscosity: 0.9, cohesion: 0.8, recov
 
 ### Pointer and hover
 
-The liquid follows the pointer's motion within 70 px; a resting pointer only damps moving liquid and never digs a hole. Hovering an observed element (mouse or pen; touch is ignored) swells its contour by 2 %; focus has no swell. Known limitation: the pointer's idle velocity decay (×0.8) is per frame, so at 120 Hz the tail fades twice as fast in wall time as at 60 Hz.
+The liquid follows the pointer's motion within 70 px; a resting pointer only damps moving liquid and never digs a hole. Hovering an observed element swells its contour by 2 %. Hover comes from `pointerenter`/`pointerleave` on the element itself, mouse or pen only: touch is ignored, so a tap never leaves a stuck swell. Focus has no swell, and hover beats focus, so the click that focuses a hovered button keeps the swell. A detached or disabled element loses its hover at the next frame. Under reduced motion (`prefers-reduced-motion` or `forceReducedMotion`) the pointer field and hover are ignored. Known limitation: the pointer's idle velocity decay (×0.8) is per frame, so at 120 Hz the tail fades twice as fast in wall time as at 60 Hz.
 
 ## Accessibility
 

@@ -34,6 +34,22 @@ export function App() {
 
 StrictMode-safe (single-flight WASM init plus idempotent `observe`). SSR-safe (the provider effect only runs in the browser).
 
+## Material
+
+`config` is read once on mount, so changing `config.material` later does nothing. Change the material live through the instance, for example with one of the core's `presets` (`water`, `honey`, `jelly`):
+
+```tsx
+import { presets } from "liquiddom";
+import { useLiquid } from "@liquiddom/react";
+
+function HoneyButton() {
+  const liquid = useLiquid();
+  return <button onClick={() => liquid?.setMaterial(presets.honey)}>Honey</button>;
+}
+```
+
+`getMaterial()` returns the resolved material. A preset also works at create time: `<LiquidProvider config={{ material: presets.jelly }}>`.
+
 ## Migrating from 0.2
 
 `useLiquidRef({ liquidType })` and `<LiquidElement liquidType>` are gone; use `{ viscosity?, recovery? }`. See the core package's changelog for the full old → new table.
