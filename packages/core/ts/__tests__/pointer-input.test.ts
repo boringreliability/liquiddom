@@ -51,10 +51,9 @@ describe("PointerTracker (W68, D68-4, D68-7)", () => {
   });
 
   it("given_velocity_built_up_when_blur_cancel_or_touch_up_then_next_move_first_sample_has_zero_velocity", () => {
-    const t = new PointerTracker();
-    const detach = t.attach(document, window);
+    // A fresh tracker per end event, so each case starts from the same state (the re-entry sample of
+    // one case would otherwise be the smoothing baseline of the next, giving 450 instead of 300).
     let now = 1000;
-    const next = () => t.sample((now += FRAME_MS), ORIGIN);
     const fire: Array<[string, () => void]> = [
       ["blur", () => window.dispatchEvent(new Event("blur"))],
       ["pointercancel", () => document.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true }))],
@@ -62,6 +61,9 @@ describe("PointerTracker (W68, D68-4, D68-7)", () => {
     ];
     let x = 100;
     for (const [name, end] of fire) {
+      const t = new PointerTracker();
+      const detach = t.attach(document, window);
+      const next = () => t.sample((now += FRAME_MS), ORIGIN);
       move(document, (x += 10), 0, "touch");
       next();
       move(document, (x += 10), 0, "touch");
@@ -70,8 +72,8 @@ describe("PointerTracker (W68, D68-4, D68-7)", () => {
       expect(next().active, `${name}: inactive`).toBe(false);
       move(document, (x += 10), 0, "touch");
       expect(next(), `${name}: re-entry`).toMatchObject({ vx: 0, vy: 0, active: true });
+      detach();
     }
-    detach();
   });
 
   it("given_no_pointer_events_when_sampled_then_inactive_and_zero_velocity", () => {
