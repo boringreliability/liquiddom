@@ -177,3 +177,9 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D68-8 | Swell shape: step change per spec B1 | W68 | dec_5bf52509 |
 | D68-9 | setMaterial/getMaterial semantics: atomic set, copying get | W68 | dec_e41cbdee |
 | D68-10 | Invalidate the fused AABB on particle-moving paths: invalidate on every particle-moving path | W68 | dec_b8d7e2bb |
+| D69-1 | Playground storage v2: playground v2: schema 2, v1 discarded, URL params validated and stripped, revert on TypeError | W69 | dec_4ef6c25e |
+| D69-2 | Recording pipeline: local record project (video on, RAF clock, canvas2d only), budgets read from NORTH-STAR, webm-to-gif via local ffmpeg | W69 | dec_1858b12e |
+| D69-3 | Splash scene layout: splash scene: Thin/Medium/Thick drops with per-element viscosity/recovery, pointer-only pool, strength/Splash all/Shake controls | W69 | dec_d116cb2e |
+| D69-4 | Whole-picture gate semantics: whole-picture gate checks structure and honesty; a ❌ step does not block gold | W69 | dec_ea35ba46 |
+| D69-5 | Carried observations go into the report: report + recommendation per carried item, no engine change in W69 | W69 | dec_035bc206 |
+| D69-6 | Published-dist browser smoke in CI: blocking dist smoke in CI with a core build step | W69 | dec_6de03f81 |
