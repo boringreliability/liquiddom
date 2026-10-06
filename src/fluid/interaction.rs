@@ -26,7 +26,7 @@ pub const SHAKE_SPEED_PX_S: f32 = 520.0;
 /// D70-1: amplitude `A` of the coherent speed profile `1 + A · sin(π · u + φ)` across an element.
 pub const SHAKE_PROFILE_AMPLITUDE: f32 = 0.8;
 /// D70-2 (amends spec §2's 0.4): shake sets s ← min(s, 0.2). The highest value in [0.1, 0.2]
-/// that passes the W70 slosh metric (pre-plan: re-form 146 frames, budget 180).
+/// that passes the W70 slosh metric (pre-plan: re-form 136 frames, budget 180).
 pub const SHAKE_STIFFNESS_CAP: f32 = 0.2;
 pub const STRENGTH_MAX: f32 = 2.0;
 

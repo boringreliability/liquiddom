@@ -650,8 +650,8 @@ mod w70 {
     use crate::fluid::api::FluidCore;
 
     /// D70-5 as amended (A4), set from the W70 pre-plan measurement: W67 white noise peaks
-    /// at 6.70 px (Split) and 6.16 px (card); the coherent field at cap 0.2 gives ≥ 23.71 px
-    /// on every pill and 62.93 px on the card.
+    /// at 6.64 px (max pill) and 5.87 px (card); the coherent field at cap 0.2 gives ≥ 23.67 px
+    /// on every pill (min) and 61.68 px on the card.
     const SLOSH_CARD_MIN_PX: f32 = 24.0;
     const SLOSH_PILL_MIN_PX: f32 = 12.0;
     /// The shake peak lies in frames 10–24 (measured).

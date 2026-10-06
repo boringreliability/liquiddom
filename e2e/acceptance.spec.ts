@@ -495,6 +495,8 @@ test.describe("step 2 – pointer sweep (W68)", () => {
         worstFrame = k;
       }
     });
+    console.log(`[W70 no-hole] worst interior alpha ${worst} (sweep frame ${worstFrame}), margin over ${FILL_ALPHA_MIN}: ${worst - FILL_ALPHA_MIN}`);
+    testInfo.annotations.push({ type: "worst-alpha", description: String(worst) });
     expect(worst, `worst interior alpha (sweep frame ${worstFrame})`).toBeGreaterThanOrEqual(FILL_ALPHA_MIN);
   });
 
