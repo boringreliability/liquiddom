@@ -206,11 +206,11 @@ describe("W66 T4: retirement and release notes", () => {
   });
 
   it("given_retired_demo_scenes_when_checked_then_deleted_and_acceptance_scene_kept", () => {
-    for (const name of ["dragable-cards", "fusion", "refraction", "scroll-hero", "splash-buttons", "tilt-bowl", "playground"]) {
+    // W69 recreates playground.{html,ts} + playground-state.ts on the material API (spec §5).
+    for (const name of ["dragable-cards", "fusion", "refraction", "scroll-hero", "splash-buttons", "tilt-bowl"]) {
       expect(existsSync(resolve(ROOT, `demo/scenes/${name}.html`)), name).toBe(false);
       expect(existsSync(resolve(ROOT, `demo/scenes/${name}.ts`)), name).toBe(false);
     }
-    expect(existsSync(resolve(ROOT, "demo/scenes/playground-state.ts"))).toBe(false);
     expect(existsSync(resolve(ROOT, "demo/main.ts"))).toBe(false);
     expect(existsSync(resolve(ROOT, "demo/scenes/acceptance.html"))).toBe(true);
     expect(existsSync(resolve(ROOT, "demo/scenes/stress.html"))).toBe(true);

@@ -1,0 +1,204 @@
+/**
+ * W69: whole-picture recording of the acceptance scene after slice 2 (D69-2).
+ * - Runs only in the local `record` project (`npm run whole-picture`); never in CI.
+ *   Video comes from PROJECT_USE.record (e2e/projects.ts) via useFor() in
+ *   playwright.config.ts; viewport 1280×800 and DPR 1 from desktopChrome.
+ * - RAF clock (no ?clock=manual): a manual clock would record a frozen video (C6).
+ * - canvas2d only: no WebGPU fluid renderer exists before slice 3 (C6).
+ * - Records steps 1–4 and 6. Step 5 (drag, slice 5) and 7 (scroll, slice 6) are ⏳ in S2.
+ * - Re-form budgets are read from .wdd/NORTH-STAR.md (the D67-1 outcome), never
+ *   hard-coded. They are reported, not asserted: acceptance.spec.ts (W67/W68) asserts them.
+ * Timings are wall-clock (±50 ms) and go to manifest.json for the status report.
+ */
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { errors, type Page } from "@playwright/test";
+import { test, expect } from "./fixtures";
+import { NORTH_STAR_PATH, reformBudgetMs } from "./north-star";
+
+type SceneHook = {
+  ready: Promise<void>;
+  restAlpha(): number[];
+  instance: { activeRenderer: string; shake(strength?: number): void };
+};
+
+const OUT_DIR = resolve(process.cwd(), "test-results/whole-picture");
+const SHOTS_DIR = resolve(OUT_DIR, "shots");
+const SCENE_URL = "/scenes/acceptance.html?seed=1&renderer=canvas2d&test=1";
+
+const NORTH_STAR_MD = readFileSync(resolve(process.cwd(), NORTH_STAR_PATH), "utf8");
+/** Step 3 budget = D67-1 outcome. Step 4 is the same splash at the centre, so it shares it. */
+const SPLASH_BUDGET_MS = reformBudgetMs(NORTH_STAR_MD, 3);
+const SHAKE_BUDGET_MS = reformBudgetMs(NORTH_STAR_MD, 6);
+/** Wait long enough to measure an over-budget re-form instead of reporting null. */
+const reformTimeout = (budgetMs: number): number => 2 * budgetMs + 1_000;
+
+interface StepTiming {
+  step: number;
+  name: string;
+  budgetMs: number | null;
+  reactedMs: number | null;
+  reformMs: number | null;
+}
+
+async function until(page: Page, kind: "allRest" | "anyMoving", timeoutMs: number): Promise<boolean> {
+  try {
+    await page.waitForFunction(
+      (k) => {
+        const a = (window as unknown as { __liquidTest: SceneHook }).__liquidTest.restAlpha();
+        return k === "allRest" ? a.every((v) => v === 1) : a.some((v) => v < 1);
+      },
+      kind,
+      { timeout: timeoutMs, polling: 16 },
+    );
+    return true;
+  } catch (err) {
+    if (err instanceof errors.TimeoutError) return false;
+    throw err;
+  }
+}
+
+async function shot(page: Page, name: string, shots: string[]): Promise<void> {
+  const path = resolve(SHOTS_DIR, `s2-${name}.png`);
+  await page.screenshot({ path });
+  shots.push(path);
+}
+
+/** A visible sweep: one pointermove per ~16 ms frame. */
+async function sweep(page: Page, x0: number, x1: number, y: number, durationMs: number): Promise<void> {
+  const n = Math.max(2, Math.round(durationMs / 16));
+  for (let i = 0; i <= n; i++) {
+    await page.mouse.move(x0 + ((x1 - x0) * i) / n, y);
+    await page.waitForTimeout(16);
+  }
+}
+
+/** Runs `act`, then measures reaction (any restAlpha < 1) and re-form (all = 1) from the act. */
+async function measure(
+  page: Page,
+  act: () => Promise<void>,
+  midShot: { name: string; afterMs: number },
+  shots: string[],
+  reformTimeoutMs: number,
+): Promise<{ reactedMs: number | null; reformMs: number | null }> {
+  const t0 = Date.now();
+  await act();
+  const reacted = await until(page, "anyMoving", 500);
+  const reactedMs = reacted ? Date.now() - t0 : null;
+  const wait = midShot.afterMs - (Date.now() - t0);
+  if (wait > 0) await page.waitForTimeout(wait);
+  await shot(page, midShot.name, shots);
+  const reformed = await until(page, "allRest", reformTimeoutMs);
+  return { reactedMs, reformMs: reformed ? Date.now() - t0 : null };
+}
+
+test("whole picture – slice 2 – acceptance steps 1-4 and 6 recorded in canvas2d", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "record", "recording runs only in the record project (npm run whole-picture)");
+  test.setTimeout(120_000);
+  mkdirSync(SHOTS_DIR, { recursive: true });
+  const timings: StepTiming[] = [];
+  const shots: string[] = [];
+
+  await page.goto(SCENE_URL);
+  await page.evaluate(() => (window as unknown as { __liquidTest: SceneHook }).__liquidTest.ready);
+  const activeRenderer = await page.evaluate(
+    () => (window as unknown as { __liquidTest: SceneHook }).__liquidTest.instance.activeRenderer,
+  );
+  expect(activeRenderer).toBe("canvas2d");
+  await page.mouse.move(4, 4);
+
+  // Step 1 – idle 2 s at rest.
+  const t1 = Date.now();
+  const rest1 = await until(page, "allRest", 3_000);
+  timings.push({ step: 1, name: "idle", budgetMs: null, reactedMs: null, reformMs: rest1 ? Date.now() - t1 : null });
+  await page.waitForTimeout(2_000);
+  await shot(page, "step1-idle", shots);
+
+  // Step 2 – pointer sweep across the three buttons and back.
+  const splash = page.getByRole("button", { name: "Splash", exact: true });
+  const merge = page.getByRole("button", { name: "Merge", exact: true });
+  const a = await splash.boundingBox();
+  const c = await merge.boundingBox();
+  if (a === null || c === null) throw new Error("acceptance scene buttons are not laid out");
+  const y = a.y + a.height / 2;
+  await page.mouse.move(a.x - 60, y);
+  await sweep(page, a.x - 60, c.x + c.width + 60, y, 1_200);
+  await shot(page, "step2-sweep", shots);
+  await sweep(page, c.x + c.width + 60, a.x - 60, y, 1_200);
+  await page.mouse.move(4, 4, { steps: 10 });
+  const t2 = Date.now();
+  const rest2 = await until(page, "allRest", 5_000);
+  timings.push({ step: 2, name: "pointer sweep", budgetMs: null, reactedMs: null, reformMs: rest2 ? Date.now() - t2 : null });
+
+  // Step 3 – click "Splash" (splash at the pointer), then park the pointer far from any
+  // liquid, as acceptance.spec does (W68: pointer field and hover swell on the clicked pill).
+  const s3 = await measure(
+    page,
+    async () => {
+      await splash.click();
+      await page.mouse.move(1279, 799);
+    },
+    { name: "step3-splash-150ms", afterMs: 150 },
+    shots,
+    reformTimeout(SPLASH_BUDGET_MS),
+  );
+  await shot(page, "step3-reformed", shots);
+  timings.push({ step: 3, name: 'click "Splash"', budgetMs: SPLASH_BUDGET_MS, ...s3 });
+
+  // Step 4 – Tab to "Split", Enter (click detail 0 → centre). Focus ring visible throughout.
+  await page.mouse.click(4, 4);
+  let focused = false;
+  for (let i = 0; i < 12 && !focused; i++) {
+    await page.keyboard.press("Tab");
+    focused = await page.evaluate(() => (document.activeElement?.textContent ?? "").trim() === "Split");
+  }
+  expect(focused, "Tab never reached the Split button").toBe(true);
+  await page.waitForTimeout(400);
+  await shot(page, "step4-focus", shots);
+  const s4 = await measure(
+    page,
+    () => page.keyboard.press("Enter"),
+    { name: "step4-splash-150ms", afterMs: 150 },
+    shots,
+    reformTimeout(SPLASH_BUDGET_MS),
+  );
+  await shot(page, "step4-reformed", shots);
+  timings.push({ step: 4, name: 'Tab + Enter on "Split"', budgetMs: SPLASH_BUDGET_MS, ...s4 });
+
+  // Step 6 – shake everything.
+  const s6 = await measure(
+    page,
+    () => page.evaluate(() => (window as unknown as { __liquidTest: SceneHook }).__liquidTest.instance.shake()),
+    { name: "step6-shake-200ms", afterMs: 200 },
+    shots,
+    reformTimeout(SHAKE_BUDGET_MS),
+  );
+  await shot(page, "step6-reformed", shots);
+  timings.push({ step: 6, name: "shake", budgetMs: SHAKE_BUDGET_MS, ...s6 });
+
+  // Hold the final rest frame for the GIF.
+  await page.waitForTimeout(1_500);
+
+  const video = page.video();
+  const videoPath = video === null ? null : await video.path();
+  expect(videoPath, "video recording is not enabled (PROJECT_USE.record)").not.toBeNull();
+  writeFileSync(
+    resolve(OUT_DIR, "manifest.json"),
+    JSON.stringify(
+      {
+        scene: SCENE_URL,
+        renderer: activeRenderer,
+        clock: "raf",
+        viewport: "1280x800",
+        budgetsFrom: NORTH_STAR_PATH,
+        budgetsMs: { splash: SPLASH_BUDGET_MS, shake: SHAKE_BUDGET_MS },
+        recordedAt: new Date().toISOString(),
+        video: videoPath,
+        timings,
+        shots,
+      },
+      null,
+      2,
+    ),
+  );
+});

@@ -3,10 +3,10 @@ ward: 69
 revision: null
 name: "Playground, splash scene, whole-picture check"
 epic: "fluid-engine"
-status: "planned"
+status: "red"
 dependencies: [68]
 layer: "typescript"
-estimated_tests: 7
+estimated_tests: 26
 created: "2026-10-03"
 completed: null
 ---
@@ -37,7 +37,8 @@ The next slice is planned only after Dennis has read this check.
 
 ## Outputs
 - `demo/scenes/playground.{html,ts}` and `demo/scenes/playground-state.ts` (material, schema 2); `demo/scenes/splash.{html,ts}`; `demo/index.html` links.
-- `packages/core/ts/__tests__/playground.test.ts`, `e2e/scenes.spec.ts`, `e2e/record.spec.ts` (project `record`, not in CI).
+- `packages/core/ts/__tests__/playground.test.ts`, `packages/core/__tests__/whole-picture-tooling.test.ts`, `e2e/scenes.spec.ts`, `e2e/record.spec.ts` (project `record`, not in CI), `e2e/dist.spec.ts` (project `dist`, blocking), `e2e/north-star.ts`.
+- D69-6: the `examples/react/src/App.tsx` ready signal (`data-liquid-ready`), the root scripts `e2e:dist:build` and `e2e:dist`, the `dist` project in `e2e/projects.ts`, and the dist build and smoke steps in the CI `e2e` job.
 - `scripts/webm-to-gif.mjs` (local ffmpeg).
 - `.wdd/memory/whole-picture/slice-2.md` and `docs/superpowers/whole-picture/slice-2-canvas2d.gif`.
 - One added test in `packages/core/__tests__/wdd-docs.test.ts`.
@@ -89,13 +90,32 @@ Decision: APPROVED 2026-10-06 — blocking dist smoke in CI with a core build st
 ## Tests
 | # | Test Name | Verifies |
 |---|-----------|----------|
-| 1 | given_saved_v1_state_when_loading_then_discarded_and_null | D69-1 |
+| 1 | given_saved_v1_state_when_loading_then_discarded_and_null | D69-1 (playground.test.ts) |
 | 2 | given_valid_v2_state_when_loading_then_material_restored | D69-1 |
-| 3 | given_url_params_particles_seed_renderer_when_parsed_then_validated_and_stripped | URL params |
-| 4 | given_material_binding_change_when_applied_then_setMaterial_called_with_partial | binding |
-| 5 | given the splash scene when buttons are clicked and keyboard-activated then no console error and every element re-forms to restAlpha 1 | splash scene |
-| 6 | record – scene steps 1–4 and 6 recorded in canvas2d with the RAF clock | recording (project `record`) |
-| 7 | given_whole_picture_slice_2_when_read_then_it_has_status_per_scene_step_against_north_star_and_links_the_gif | whole-picture doc (in `wdd-docs.test.ts`) |
+| 3 | given_corrupt_json_when_loading_then_null_and_entry_cleared | D69-1 |
+| 4 | given_v2_payload_with_out_of_range_material_or_init_when_loading_then_null_and_entry_cleared | D69-1 |
+| 5 | given_material_bounds_when_checked_then_isValidMaterial_agrees_with_core_validateMaterial_and_defaults_match | D69-1 bounds = core |
+| 6 | given_url_params_particles_seed_renderer_when_parsed_then_validated_and_stripped | URL params |
+| 7 | given_material_binding_change_when_applied_then_setMaterial_called_with_partial | binding |
+| 8 | given_rejected_material_change_when_applied_then_state_reverted_to_instance_material | D69-1 revert |
+| 9 | given_material_equal_to_a_preset_within_slider_rounding_when_detected_then_preset_name_else_custom | presets |
+| 10 | given_input_and_output_when_building_ffmpeg_args_then_single_pass_palette_filter_with_width_fps_and_infinite_loop | D69-2 GIF (whole-picture-tooling.test.ts) |
+| 11 | given_manifest_json_when_resolving_input_then_video_path_is_read_from_manifest | D69-2 GIF |
+| 12 | given_cli_args_when_parsed_then_defaults_640px_12fps_and_bad_flags_throw | D69-2 GIF |
+| 13 | given_ci_workflow_when_read_then_record_project_is_never_run_in_ci | D69-2 not in CI |
+| 14 | given_root_package_when_read_then_whole_picture_script_records_in_the_record_project_then_converts_to_gif | npm script |
+| 15 | given_a_scene_step_line_when_parsed_then_the_first_bold_seconds_value_is_the_budget_and_missing_budgets_throw | budgets parser |
+| 16 | given_north_star_scene_steps_when_parsed_then_reform_budgets_follow_the_d67_1_outcome | D67-1 option 1: splash and shake 3 s |
+| 17 | given_e2e_spec_files_when_routed_then_canvas2d_runs_every_spec_except_smoke_perf_record_and_dist | routing (e2e-harness.test.ts, renamed W65 test) |
+| 18 | given_project_table_when_read_then_canvas2d_and_dist_are_blocking_and_perf_runs_only_perf_spec | D69-6 blocking (renamed W65 test) |
+| 19 | given_e2e_spec_files_when_routed_then_record_project_runs_only_the_record_spec_and_is_not_blocking | D69-2 routing |
+| 20 | given_e2e_spec_files_when_routed_then_dist_project_runs_only_the_dist_spec_on_its_own_port_and_is_blocking | D69-6 routing + npm scripts |
+| 21 | given_ci_yml_when_parsed_then_dist_smoke_is_blocking_and_runs_after_the_pkg_download_and_the_dist_build | D69-6 CI (ci-workflow.test.ts) |
+| 22 | given the splash scene when buttons are clicked and keyboard-activated then no console error and every element re-forms to restAlpha 1 | D69-3 (scenes.spec.ts) |
+| 23 | given the playground when the honey preset is applied and the page reloaded then no console error and the material is restored from liquiddom-playground-v2 | playground (scenes.spec.ts) |
+| 24 | given the React example built against the published core dist when served by vite preview then create() resolves, canvas.liquid-canvas exists, the wasm is fetched and no console error occurs | D69-6 (dist.spec.ts, project `dist`) |
+| 25 | whole picture – slice 2 – acceptance steps 1-4 and 6 recorded in canvas2d | recording (record.spec.ts, project `record`) |
+| 26 | given_whole_picture_slice_2_when_read_then_it_has_status_per_scene_step_against_north_star_and_links_the_gif | D69-4 + D69-5 Carried (wdd-docs.test.ts) |
 
 ## Must NOT
 - Record with `?clock=manual`.

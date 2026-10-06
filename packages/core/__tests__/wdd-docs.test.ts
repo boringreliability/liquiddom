@@ -513,3 +513,89 @@ describe("W63 direction gate discovery", () => {
     expect(gateViolations(fixture, 100)).toEqual([]);
   });
 });
+
+describe("W69: whole-picture check after slice 2", () => {
+  it("given_whole_picture_slice_2_when_read_then_it_has_status_per_scene_step_against_north_star_and_links_the_gif", async () => {
+    const reportPath = resolve(ROOT, ".wdd/memory/whole-picture/slice-2.md");
+    expect(existsSync(reportPath), "missing .wdd/memory/whole-picture/slice-2.md").toBe(true);
+    const report = readFileSync(reportPath, "utf8");
+    const lines = report.split("\n");
+    // Variable specifier: a literal path would fail vite import analysis for the whole file while e2e/north-star.ts is missing.
+    const northStarModule = "../../../e2e/north-star";
+    const { reformBudgetMs } = (await import(/* @vite-ignore */ northStarModule)) as typeof import("../../../e2e/north-star");
+
+    // | Step | Scene step | Expected S2 | Observed | Evidence |
+    function rowCells(step: string): string[] {
+      const row = lines.find((l) => new RegExp(`^\\|\\s*${step}\\s*\\|`).test(l));
+      expect(row, `no table row for scene step ${step}`).toBeDefined();
+      return (row ?? "").split("|").slice(1, -1).map((c) => c.trim());
+    }
+
+    // The S2 column of the slice matrix, verbatim from spec §6 (= NORTH-STAR.md, W63 asserts equality).
+    const expectedS2: Record<string, string> = {
+      "1": "✅ C",
+      "2": "✅ C",
+      "3": "✅ C (no text)",
+      "4": "✅",
+      "5": "⏳",
+      "6": "✅",
+      "7": "⏳",
+      "8": "✅",
+    };
+    for (const [step, expected] of Object.entries(expectedS2)) {
+      const cells = rowCells(step);
+      expect(cells, `step ${step} row must have 5 cells`).toHaveLength(5);
+      expect(cells[2], `step ${step} expected-S2 cell`).toBe(expected);
+      const observed = cells[3] ?? "";
+      expect(["✅", "❌", "⏳"], `step ${step} observed status token`).toContain(observed.split(" ")[0]);
+      if (expected.startsWith("✅")) {
+        expect(observed.startsWith("⏳"), `step ${step} is expected in S2: observe ✅ or ❌, never ⏳`).toBe(false);
+      }
+      expect((cells[4] ?? "").length, `step ${step} needs evidence`).toBeGreaterThan(0);
+    }
+
+    // Steps 3 and 6 quote the re-form budget NORTH-STAR holds after D67-1 (never a stale 1.5 s).
+    const northStar = read(NORTH_STAR);
+    for (const step of [3, 6]) {
+      const seconds = String(reformBudgetMs(northStar, step) / 1000);
+      expect(rowCells(String(step))[1], `step ${step} scene-step cell quotes the NORTH-STAR budget`).toContain(
+        `within ${seconds} s`,
+      );
+    }
+
+    expect(report).toContain("NORTH-STAR.md");
+    expect(report).toContain("docs/superpowers/whole-picture/slice-2-canvas2d.gif");
+    expect(report).toMatch(/canvas2d only/i);
+    for (const heading of ["## Renderers", "## Scene steps", "## Carried", "## Perf", "## Drift check", "## Open points for slice 3"]) {
+      expect(report, `missing heading ${heading}`).toContain(heading);
+    }
+
+    // D69-5: one row per carried item, | Item | Evidence | Recommendation |, inside ## Carried.
+    const carriedStart = lines.findIndex((l) => l.trim() === "## Carried");
+    const carriedEnd = lines.findIndex((l, i) => i > carriedStart && /^## /.test(l));
+    const carried = lines.slice(carriedStart + 1, carriedEnd === -1 ? lines.length : carriedEnd);
+    const CARRIED_ITEMS = [
+      "DOM text contrast while the liquid is away",
+      "Furry in-motion edges (density renderer)",
+      "Shake reads as sliding blobs",
+      "Pointer-bulge strength (drag 6.0)",
+      "Material preset tuning",
+      "Ring density when the area hint is off",
+    ];
+    for (const item of CARRIED_ITEMS) {
+      const rows = carried.filter((l) => l.startsWith(`| ${item} |`));
+      expect(rows, `## Carried needs exactly one row for "${item}"`).toHaveLength(1);
+      const cells = (rows[0] ?? "").split("|").slice(1, -1).map((c) => c.trim());
+      expect(cells, `"${item}" row must have 3 cells`).toHaveLength(3);
+      expect((cells[1] ?? "").length, `"${item}" needs evidence`).toBeGreaterThan(0);
+      expect((cells[2] ?? "").length, `"${item}" needs a recommendation`).toBeGreaterThan(0);
+    }
+    expect(report, "unfilled «…» tokens left in the report").not.toContain("«");
+
+    const gifPath = resolve(ROOT, "docs/superpowers/whole-picture/slice-2-canvas2d.gif");
+    expect(existsSync(gifPath), "missing GIF").toBe(true);
+    const gif = readFileSync(gifPath);
+    expect(gif.subarray(0, 6).toString("latin1")).toBe("GIF89a");
+    expect(gif.length).toBeLessThanOrEqual(10 * 1024 * 1024);
+  });
+});
