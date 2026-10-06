@@ -595,7 +595,7 @@ mod w67_tests {
         assert_eq!(SHAKE_PROFILE_AMPLITUDE, 0.8, "D70-1");
         assert_eq!(
             SHAKE_STIFFNESS_CAP, 0.2,
-            "D70-2: highest of [0.1, 0.2] passing the slosh metric"
+            "D70-2: held by the re-form budget (<= 180 frames) and D70-2, not by the slosh metric"
         );
         assert_eq!(STRENGTH_MAX, 2.0);
     }

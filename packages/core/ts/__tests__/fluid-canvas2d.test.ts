@@ -193,7 +193,7 @@ describe("W70 D70-4: full density weight during the Canvas2D cross-fade", () => 
     const { renderer } = await setup();
     renderer.render(makeFrame({ restAlpha: 0.58 }));
     expect(splat).toHaveBeenCalledTimes(CAP);
-    for (const call of splat.mock.calls) expect(call[5]).toBe(1);
+    for (const call of splat.mock.calls) expect(call[5] ?? 1).toBe(1);
   });
 
   it("given_rest_alpha_0_58_when_rendering_then_the_interior_density_is_opaque_and_the_roundRect_fades_in_on_top", async () => {

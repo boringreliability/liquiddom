@@ -6,7 +6,7 @@ epic: "fluid-engine"
 status: "red"
 dependencies: [69]
 layer: "both"
-estimated_tests: 17
+estimated_tests: 18
 created: "2026-10-06"
 completed: null
 ---
@@ -60,7 +60,7 @@ Decision: APPROVED 2026-10-06 — full density weight while restAlpha < 1, round
 
 ### D70-5: Make "experience" measurable for steps 2 and 6
 Proposal:
-- **Slosh (Rust scenario test).** At the shake peak, fit the best rigid translation to each element's particle displacements. The RMS of the residual, non-rigid displacement must be ≥ 6 px for the card and ≥ 3 px for each pill, against ~0 for a rigid slide. The thresholds are set from the measured W69 baseline (red) and the D70-1/2 result.
+- **Slosh (Rust scenario test).** At the shake peak, fit the best rigid motion (2D Procrustes: translation plus rotation) to each element's particles. The RMS of the residual, non-rigid displacement must be ≥ 6 px for the card and ≥ 3 px for each pill, against ~0 for a rigid slide. The thresholds are set from the measured W69 baseline (red) and the D70-1/2 result.
 - **Bulge (e2e).** Raise the pointer-only centroid threshold from 0.35 px to 3 px.
 Consequence: the ❌ in the slice-2 report becomes a test that fails today and passes when the experience is met. The thresholds are numbers, not taste, so they get vision-checked at gold.
 Decision: AMENDED 2026-10-06 — bulge ≥ 5 px per pill on an across-the-pills sweep (Rust and e2e), pointer-only e2e stays a 0.35 px guard, W68 e2e no-hole margin 6 → 10 px; slosh ≥ 24 px card and ≥ 12 px pills (the old 6/3 px already passed today); cap 0.2 (saga dec_7db9a25c)
@@ -77,7 +77,7 @@ Decision: APPROVED 2026-10-06 — ?rm=1 segment in the recording, re-record, sli
 Plan: `docs/superpowers/plans/2026-10-03-fluid-slices-1-2/W70.md`. Its pre-plan measurements set every threshold below. **Blocker before red:** as approved, D70-3 and D70-5 cannot both be met. The bulge e2e reaches at most 1.87 px at drag 24, and the W68 e2e no-hole test fails at every drag ≥ 8. The values below are the plan's Option A (A1–A4); Dennis confirms or amends them in W70.0.
 - **Shake (D70-1):** each active element gets `ShakeField { dir, phase }` from `Rng::derive(stream, id)`. The direction is W67's first draw; the phase is the second draw. Each particle gets `Δv = dir · 520 · strength · (1 + 0.8 · sin(π·u + φ))` in grid units, with `u = (x − cx)/(w/2)` from the home rect. There is no per-particle noise (`SHAKE_NOISE` is deleted) and no rotation. `shake_gain(u, φ)` lies in [0.2, 1.8], and non-finite input gives 1. The field is deterministic per seed.
 - **Cap (D70-2):** `SHAKE_STIFFNESS_CAP = 0.2`, the highest value in [0.1, 0.2] that passes the slosh metric. Measured shake re-form: 146 frames (budget 180).
-- **Slosh (D70-5, A4):** for 30 frames after `shake(1)`, the peak RMS of each element's displacement from rest after removing its mean (rigid) translation must be ≥ 24 px on the card and ≥ 12 px on each pill. W67 white noise gives 2.38–6.70 px; the coherent field at cap 0.2 gives ≥ 23.71 px.
+- **Slosh (D70-5, A4):** for 30 frames after `shake(1)`, the peak RMS of each element's displacement from rest after removing its best rigid motion (translation plus rotation, Procrustes) must be ≥ 24 px on the card and ≥ 12 px on each pill. W67 white noise gives 2.06–6.64 px; the coherent field at cap 0.2 gives ≥ 23.67 px (Procrustes measurement, fix round 1).
 - **Pointer (D70-3, A1):** `POINTER_DRAG_PER_S = 12`; `POINTER_RADIUS_PX` stays 70. The doc comment's stability bound becomes `12/480 = 0.025 ≪ 1`.
 - **Bulge (A2):** a 600 px/s sweep through the pills must shift each pill's liquid ≥ 5 px in the sweep direction. In Rust this is the mean particle x shift (6.33–6.81 px at drag 12); in e2e, the alpha centroid over the box padded by 10 px (7.40–7.72 px). The pointer-only sweep below the row keeps 0.35 px as a guard.
 - **No holes (A3):** the Rust empty-bin test is unchanged (0 bins at drag 12). The W68 e2e lattice moves to ≥ 10 px inside the contour, because at drag 12 the trailing edge recedes ≈ 8 px.
@@ -106,6 +106,7 @@ Plan: `docs/superpowers/plans/2026-10-03-fluid-slices-1-2/W70.md`. Its pre-plan 
 | 15 | `acceptance.spec.ts` `step 2 – given a pointer sweep across the buttons when sampled then canvas alpha inside each button never drops below the fill threshold (no holes)` (modified: `HOLE_MARGIN_PX` 6 → 10) | D70-3 guard (A3), step 2 |
 | 16 | `acceptance.spec.ts` `step 2 – given a sweep parallel to the row 30 px below the pills …` (modified: the measured comment only; threshold stays 0.35 px) | step 2 guard |
 | 17 | `record.spec.ts` `whole picture – slice 2 – acceptance steps 1-4, 6 and 8 recorded in canvas2d` (modified: `?rm=1` segment, asserts no motion) | D70-6, step 8 |
+| 18 | `scenario_tests::w70::given_a_rigid_rotation_of_every_particle_about_its_element_centroid_when_measuring_slosh_then_the_residual_rms_is_below_0_01px` | D70-5 metric control (rotation) |
 
 Guards that stay unchanged and must stay green:
 - W67: `given_shake_strength_1_when_ticking_then_all_rest_alpha_1_within_3_s`, the stress tests (no NaN, mean J, bit-identical) and `given_reduced_motion_when_splash_or_shake_then_ignored`;

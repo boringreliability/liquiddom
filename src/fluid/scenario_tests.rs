@@ -682,26 +682,71 @@ mod w70 {
             .collect()
     }
 
-    /// RMS (px) of the displacement from `rest` that is left after removing the best rigid
-    /// translation, i.e. the mean displacement of the element's particles. ~0 for a slide.
+    /// RMS (px) of what is left of an element's deformation after the best rigid motion
+    /// (2D Procrustes: translation plus rotation, no scale) is removed. Centre the rest and
+    /// current point sets, theta = atan2(sum p x q, sum p . q), residual = q - R(theta) p. ~0 for
+    /// a slide and for a rotation; only a change of shape (slosh, shear, bend) scores.
     fn residual_rms_px(core: &FluidCore, ids: &[usize], rest: &[(f32, f32)]) -> f32 {
         let n = ids.len().max(1) as f64;
-        let d: Vec<(f64, f64)> = ids
+        let pairs: Vec<((f64, f64), (f64, f64))> = ids
             .iter()
             .map(|&i| {
                 let (x, y) = core.particle_px(i);
-                (f64::from(x - rest[i].0), f64::from(y - rest[i].1))
+                (
+                    (f64::from(rest[i].0), f64::from(rest[i].1)),
+                    (f64::from(x), f64::from(y)),
+                )
             })
             .collect();
-        let (sx, sy) = d
+        let centre = |sel: fn(&((f64, f64), (f64, f64))) -> (f64, f64)| {
+            let (sx, sy) = pairs.iter().fold((0.0f64, 0.0f64), |(ax, ay), pr| {
+                (ax + sel(pr).0, ay + sel(pr).1)
+            });
+            (sx / n, sy / n)
+        };
+        let (pc, qc) = (centre(|pr| pr.0), centre(|pr| pr.1));
+        let (mut cross, mut dot) = (0.0f64, 0.0f64);
+        for &(p, q) in &pairs {
+            let (px, py) = (p.0 - pc.0, p.1 - pc.1);
+            let (qx, qy) = (q.0 - qc.0, q.1 - qc.1);
+            cross += px * qy - py * qx;
+            dot += px * qx + py * qy;
+        }
+        let (sin, cos) = cross.atan2(dot).sin_cos();
+        let sum_sq: f64 = pairs
             .iter()
-            .fold((0.0f64, 0.0f64), |(ax, ay), &(dx, dy)| (ax + dx, ay + dy));
-        let (mx, my) = (sx / n, sy / n);
-        (d.iter()
-            .map(|&(dx, dy)| (dx - mx).powi(2) + (dy - my).powi(2))
-            .sum::<f64>()
-            / n)
-            .sqrt() as f32
+            .map(|&(p, q)| {
+                let (px, py) = (p.0 - pc.0, p.1 - pc.1);
+                let (qx, qy) = (q.0 - qc.0, q.1 - qc.1);
+                (qx - (cos * px - sin * py)).powi(2) + (qy - (sin * px + cos * py)).powi(2)
+            })
+            .sum();
+        (sum_sq / n).sqrt() as f32
+    }
+
+    #[test]
+    fn given_a_rigid_rotation_of_every_particle_about_its_element_centroid_when_measuring_slosh_then_the_residual_rms_is_below_0_01px()
+     {
+        let mut core = settled();
+        let rest = positions(&core);
+        let (sin, cos) = 10.0f32.to_radians().sin_cos();
+        for id in 0..4u32 {
+            let ids = core.particle_indices_of(id);
+            let n = ids.len().max(1) as f32;
+            let cx = ids.iter().map(|&i| rest[i].0).sum::<f32>() / n;
+            let cy = ids.iter().map(|&i| rest[i].1).sum::<f32>() / n;
+            for &i in &ids {
+                let (dx, dy) = (rest[i].0 - cx, rest[i].1 - cy);
+                core.set_particle_px(i, cx + cos * dx - sin * dy, cy + sin * dx + cos * dy);
+            }
+        }
+        for id in 0..4u32 {
+            let r = residual_rms_px(&core, &core.particle_indices_of(id), &rest);
+            assert!(
+                r < 0.01,
+                "element {id}: a rigid rotation must score ~0, got {r} px"
+            );
+        }
     }
 
     #[test]
