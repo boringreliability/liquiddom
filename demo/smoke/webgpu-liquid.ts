@@ -75,6 +75,8 @@ const hook: WebGpuLiquidHook = {
   pipelineCheck,
   advance(frames) {
     clock.advance(frames);
+    // advance(0) renders no frame in this task; keep the previous snapshot (W71.5 review, Minor 1).
+    if (frames === 0) return;
     capture();
   },
   pixels() {

@@ -171,6 +171,9 @@ const hook: LiquidTestHook = {
   advance: (frames) => {
     if (!manual) throw new Error("[acceptance] __liquidTest.advance() needs ?clock=manual");
     manual.advance(frames);
+    // advance(0) renders no frame in this task: a WebGPU canvas would read back cleared,
+    // so keep the previous snapshot (W71.5 review, Minor 1).
+    if (frames === 0) return;
     captureLiquidCanvas();
   },
   pixels: () => {
