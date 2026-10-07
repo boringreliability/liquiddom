@@ -16,7 +16,7 @@ import {
 } from "./options";
 import { mergeMaterial, snapshotMaterial, validateMaterial, type Material } from "./material";
 import { LiquidWasmLoadError } from "./wasm-loader";
-import { WebGPUUnavailableError } from "./renderers/webgpu-renderer";
+import { WebGPUUnavailableError } from "./renderers/webgpu/errors";
 import { bindRuntime, unbindRuntime } from "./internal";
 
 export { LiquidWasmLoadError, WebGPUUnavailableError, validateMaterial };
