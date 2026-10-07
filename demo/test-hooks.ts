@@ -7,8 +7,10 @@ export type SceneClock = "raf" | "manual";
 export interface SceneParams {
   readonly seed: number;
   readonly clock: SceneClock;
-  /** Only "canvas2d" before W66 (the facade adds "auto" | "webgpu"). */
-  readonly renderer: "canvas2d";
+  /** W71 (D71-2): the scene renders with exactly this renderer (never "auto"). */
+  readonly renderer: "canvas2d" | "webgpu";
+  /** W71 (D71-4): ?t0, WebGPU T0 render scale; absent = the renderer's default (0.5). */
+  readonly t0Scale?: number;
   readonly reducedMotion: boolean;
   readonly test: boolean;
   readonly perf: boolean;
@@ -39,6 +41,12 @@ export interface LiquidTestHook {
   restAlpha(): number[];
   /** Runs `frames` manual-clock frames of 1000/60 ms. Throws unless ?clock=manual. */
   advance(frames: number): void;
+  /**
+   * W71: RGBA8 (non-premultiplied) copy of the liquid canvas taken at the end of the last
+   * advance(), in the task that rendered it (a WebGPU canvas is not readable later). Throws
+   * before the first advance(). Same width and height as the liquid canvas.
+   */
+  pixels(): ImageData;
   /** FluidRuntime in W65; LiquidDOMInstance from W66. */
   instance: unknown;
   readonly params: SceneParams;
@@ -89,4 +97,28 @@ export interface WebGpuSmokeResult {
   /** RGBA8 of 3 texels after a WGSL full-screen triangle in that colour over black. */
   drawPixels: number[][] | null;
   error: string | null;
+}
+
+/** W71 (D71-3): demo/smoke/webgpu-liquid.ts builds the liquid pipelines on its own device. */
+export interface PipelineCheckResult {
+  ok: boolean;
+  /** popErrorScope("validation") message, or null. */
+  error: string | null;
+  /** getCompilationInfo() messages of the three modules: "<type> <line>:<col> <message>". */
+  messages: string[];
+}
+
+/** W71: `window.__webgpuLiquid` on demo/smoke/webgpu-liquid.html (?renderer=webgpu|canvas2d, manual clock). */
+export interface WebGpuLiquidHook {
+  readonly ready: Promise<void>;
+  readonly renderer: "canvas2d" | "webgpu";
+  readonly activeRenderer: "canvas2d" | "webgpu" | null;
+  pipelineCheck(): Promise<PipelineCheckResult>;
+  /** Manual-clock frames of 1000/60 ms; snapshots the liquid canvas afterwards (see LiquidTestHook.pixels). */
+  advance(frames: number): void;
+  pixels(): ImageData;
+  /** restAlpha of #solid, #glass, #clear (NaN if unknown). */
+  restAlpha(): number[];
+  /** instance.splash() on the element with this id, at its centre. */
+  splash(id: string): void;
 }

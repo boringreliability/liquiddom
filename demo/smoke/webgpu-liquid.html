@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>liquiddom · WebGPU liquid check</title>
+    <style>
+      body { margin: 0; background: #ffffff; color: #1d1d1f; font: 16px/1.4 system-ui, sans-serif; }
+      .row { display: flex; gap: 40px; padding: 120px 80px; }
+      .el { box-sizing: border-box; width: 200px; height: 80px; border-radius: 24px; display: flex; align-items: center; justify-content: center; }
+      #solid { background: #2f6fde; color: #ffffff; }
+      #glass { background: rgba(0, 128, 255, 0.5); }
+      #clear { background: transparent; }
+    </style>
+  </head>
+  <body>
+    <div class="row">
+      <div id="solid" class="el" data-liquid>Solid</div>
+      <div id="glass" class="el" data-liquid>Glass</div>
+      <div id="clear" class="el" data-liquid>Clear</div>
+    </div>
+    <script type="module" src="./webgpu-liquid.ts"></script>
+  </body>
+</html>

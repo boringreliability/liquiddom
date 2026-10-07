@@ -31,7 +31,7 @@ export interface LiquidOptions {
   maxElements?: number;
   /** Container mode: canvas inside this element, coordinates relative to it. */
   container?: HTMLElement;
-  /** Default 'auto' (Canvas2D until slice 3). */
+  /** Default 'auto' (Canvas2D without probing until W72; 'webgpu' draws the liquid since W71). */
   renderer?: RendererChoice;
   /** Partial material, merged over the defaults (viscosity 0.5, cohesion 0.5, recovery 0.7). */
   material?: Partial<Material>;
@@ -50,6 +50,8 @@ export interface LiquidOptions {
   loader?: () => Promise<FluidBackend>;
   /** @internal frame clock (W65 manual or counting clock). */
   clock?: FrameClock;
+  /** @internal W71 (D71-4): WebGPU T0 render scale in (0, 1] for the demo's ?t0 comparison. Default 0.5. */
+  webgpuT0Scale?: number;
 }
 
 export interface ResolvedGravity {
@@ -72,6 +74,7 @@ export interface ResolvedOptions {
   testBackend: FluidBackend | undefined;
   loader: (() => Promise<FluidBackend>) | undefined;
   clock: FrameClock | undefined;
+  webgpuT0Scale: number | undefined;
 }
 
 export const DEFAULT_PARTICLES = 8000;
@@ -84,7 +87,7 @@ export const DEFAULT_GRAVITY_STRENGTH = 980;
 
 export const OPTION_KEYS = [
   "particles", "maxElements", "container", "renderer", "material", "gravity", "seed",
-  "autoObserve", "forceReducedMotion", "silentFallback", "testBackend", "loader", "clock",
+  "autoObserve", "forceReducedMotion", "silentFallback", "testBackend", "loader", "clock", "webgpuT0Scale",
 ] as const satisfies readonly (keyof LiquidOptions)[];
 
 const COLOUR_HINT = "the liquid colour is each element's computed background-color (call refresh(el) after a theme change)";
@@ -202,6 +205,14 @@ function resolveClock(v: unknown): FrameClock | undefined {
   return v as unknown as FrameClock;
 }
 
+function resolveWebgpuT0Scale(v: unknown): number | undefined {
+  if (v === undefined) return undefined;
+  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0 || v > 1) {
+    fail(`webgpuT0Scale (@internal) must be a finite number in (0, 1], got ${show(v)}`);
+  }
+  return v;
+}
+
 export function resolveOptions(input?: LiquidOptions): ResolvedOptions {
   const given: unknown = input === undefined ? {} : input;
   if (!isPlainObject(given)) fail(`LiquidDOM.create(options): options must be an object, got ${show(given)}`);
@@ -233,6 +244,7 @@ export function resolveOptions(input?: LiquidOptions): ResolvedOptions {
     testBackend: resolveTestBackend(given.testBackend),
     loader: resolveLoader(given.loader),
     clock: resolveClock(given.clock),
+    webgpuT0Scale: resolveWebgpuT0Scale(given.webgpuT0Scale),
   };
 }
 

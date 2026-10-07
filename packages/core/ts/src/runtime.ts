@@ -46,6 +46,8 @@ export interface FluidRuntimeOptions {
   clock?: FrameClock;
   /** W66: renderer choice; the facade passes the resolved option. Default "canvas2d". */
   renderer?: RendererChoice;
+  /** @internal W71 (D71-4): WebGPU T0 render scale; the facade passes the resolved option. */
+  webgpuT0Scale?: number;
 }
 
 export interface FluidElementState {
@@ -155,7 +157,7 @@ export async function createFluidRuntime(opts: FluidRuntimeOptions): Promise<Flu
     canvas = mountLiquidCanvas(opts.container);
     // D66-2. selectRenderer destroys a renderer whose init failed; the catch below
     // (W64) then removes the canvas and frees the core exactly once.
-    const selected = await selectRenderer(opts.renderer ?? "canvas2d", canvas);
+    const selected = await selectRenderer(opts.renderer ?? "canvas2d", canvas, { t0Scale: opts.webgpuT0Scale });
     return startRuntime(opts, core, bridge, canvas, selected.renderer, selected.active);
   } catch (err) {
     canvas?.remove();

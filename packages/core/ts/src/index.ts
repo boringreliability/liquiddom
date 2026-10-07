@@ -92,6 +92,7 @@ export class LiquidDOM {
       testBackend: o.testBackend,
       loader: o.loader,
       clock: o.clock,
+      webgpuT0Scale: o.webgpuT0Scale,
     });
 
     let destroyed = false;
