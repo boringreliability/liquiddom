@@ -7,6 +7,7 @@
  */
 import { LiquidDOM, type LiquidDOMInstance } from "liquiddom";
 import { createManualClock } from "../../packages/core/ts/src/clock";
+import { createRenderCountingClock } from "../render-counting-clock";
 import { runtimeOf } from "../../packages/core/ts/src/internal";
 import { buildPipelines } from "../../packages/core/ts/src/renderers/webgpu/webgpu-renderer";
 import type { PipelineCheckResult, WebGpuLiquidHook } from "../test-hooks";
@@ -16,7 +17,7 @@ if (rendererRaw !== "webgpu" && rendererRaw !== "canvas2d") {
   throw new TypeError(`[webgpu-liquid] ?renderer must be "webgpu" or "canvas2d", got "${rendererRaw}"`);
 }
 const renderer: "webgpu" | "canvas2d" = rendererRaw;
-const clock = createManualClock(0);
+const clock = createRenderCountingClock(createManualClock(0));
 const elements = Array.from(document.querySelectorAll<HTMLElement>("[data-liquid]"));
 let instance: LiquidDOMInstance | null = null;
 
@@ -74,9 +75,9 @@ const hook: WebGpuLiquidHook = {
   },
   pipelineCheck,
   advance(frames) {
-    clock.advance(frames);
-    // advance(0) renders no frame in this task; keep the previous snapshot (W71.5 review, Minor 1).
-    if (frames === 0) return;
+    // No frame rendered in this task (advance(0), paused, hidden tab, failed frame): keep the
+    // previous snapshot (W71.5 review Minor 1, W71 ward-review M3).
+    if (clock.advance(frames) === 0) return;
     capture();
   },
   pixels() {

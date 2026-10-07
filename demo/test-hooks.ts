@@ -44,8 +44,10 @@ export interface LiquidTestHook {
   /**
    * W71: RGBA8 (non-premultiplied) copy of the liquid canvas taken at the end of the last
    * advance() that rendered a frame, in the task that rendered it (a WebGPU canvas is not
-   * readable later); advance(0) keeps the previous copy. Throws before the first such
-   * advance(). Same width and height as the liquid canvas.
+   * readable later). An advance() that rendered no frame keeps the previous copy: advance(0),
+   * a paused instance, a hidden tab or a failed frame (W71 ward-review M3; counted by
+   * demo/render-counting-clock.ts). Throws before the first such advance(). Same width and
+   * height as the liquid canvas.
    */
   pixels(): ImageData;
   /** FluidRuntime in W65; LiquidDOMInstance from W66. */

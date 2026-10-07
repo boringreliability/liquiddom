@@ -12,7 +12,8 @@
 import { LiquidDOM, type LiquidDOMInstance } from "liquiddom";
 import { runtimeOf } from "../../packages/core/ts/src/internal";
 import type { FluidRuntime, FluidRuntimeOptions } from "../../packages/core/ts/src/runtime";
-import { createManualClock, rafClock, type FrameClock, type ManualClock } from "../../packages/core/ts/src/clock";
+import { createManualClock, rafClock, type FrameClock } from "../../packages/core/ts/src/clock";
+import { createRenderCountingClock, type RenderCountingClock } from "../render-counting-clock";
 import type { LiquidTestHook, ScenePerfProbe, ScenePerfSnapshot } from "../test-hooks";
 import { parseSceneParams } from "./scene-params";
 
@@ -26,7 +27,7 @@ const params = {
   reducedMotion: parsed.reducedMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches,
 };
 const elements = Array.from(document.querySelectorAll<HTMLElement>("[data-liquid]"));
-const manual: ManualClock | null = params.clock === "manual" ? createManualClock(0) : null;
+const manual: RenderCountingClock | null = params.clock === "manual" ? createRenderCountingClock(createManualClock(0)) : null;
 
 // ---- perf probe state (D65-8) ----
 let recording = false;
@@ -170,10 +171,10 @@ const hook: LiquidTestHook = {
   restAlpha: () => elements.map((el) => runtime?.elementState(el)?.restAlpha ?? Number.NaN),
   advance: (frames) => {
     if (!manual) throw new Error("[acceptance] __liquidTest.advance() needs ?clock=manual");
-    manual.advance(frames);
-    // advance(0) renders no frame in this task: a WebGPU canvas would read back cleared,
-    // so keep the previous snapshot (W71.5 review, Minor 1).
-    if (frames === 0) return;
+    // No frame rendered in this task (advance(0), paused, hidden tab, failed frame): a WebGPU
+    // canvas would read back cleared, so keep the previous snapshot (W71.5 review Minor 1,
+    // W71 ward-review M3).
+    if (manual.advance(frames) === 0) return;
     captureLiquidCanvas();
   },
   pixels: () => {
