@@ -66,6 +66,45 @@ async function stats(page: Page): Promise<ElementStats[]> {
   }, EXPECTED);
 }
 
+interface SdfProbes {
+  /** Computed border-top-left-radius of #solid (CSS px). */
+  radiusCss: number;
+  /** RGBA at the bounding-box corner, inset 1 CSS px: outside a rounded corner, so transparent. */
+  corner: number[];
+  /** RGBA on the 45° diagonal of the top-left arc, 2 CSS px inside it: opaque liquid. */
+  arc: number[];
+}
+
+/**
+ * Review of W71.1 (Important 4): two probes of the rest SDF's top-left corner of #solid. Ignoring
+ * the corner radius makes the corner opaque; using the diameter (clamped to half the height)
+ * moves the arc inward past the arc probe, which then reads transparent.
+ */
+async function sdfProbes(page: Page): Promise<SdfProbes> {
+  return page.evaluate(() => {
+    const img = window.__webgpuLiquid!.pixels();
+    const canvas = document.querySelector<HTMLCanvasElement>("canvas.liquid-canvas")!;
+    const cr = canvas.getBoundingClientRect();
+    const sx = canvas.width / cr.width;
+    const sy = canvas.height / cr.height;
+    const el = document.getElementById("solid")!;
+    const r = el.getBoundingClientRect();
+    const radiusCss = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0;
+    const at = (xCss: number, yCss: number): number[] => {
+      const px = Math.floor((xCss - cr.left) * sx);
+      const py = Math.floor((yCss - cr.top) * sy);
+      const o = (py * img.width + px) * 4;
+      return Array.from(img.data.subarray(o, o + 4));
+    };
+    const d = (radiusCss - 2) / Math.SQRT2;
+    return {
+      radiusCss,
+      corner: at(r.left + 1, r.top + 1),
+      arc: at(r.left + radiusCss - d, r.top + radiusCss - d),
+    };
+  });
+}
+
 /**
  * Liquid pixels (alpha ≥ 32) outside all three element rects (inflated by 2 px): the flying
  * #glass liquid. Inside #glass the rest overlay (restAlpha × 0.5) is drawn over the liquid during
@@ -134,11 +173,14 @@ test.describe("webgpu liquid (W71)", () => {
 
   test("Review Focus 4 – given a translucent and a transparent element when at rest and mid-splash then the translucent liquid keeps its colour at half alpha with no dark fringe, the transparent one uses the default liquid colour, and webgpu matches canvas2d", async ({ page }) => {
     const rest: Record<"canvas2d" | "webgpu", ElementStats[]> = { canvas2d: [], webgpu: [] };
+    const probes: Partial<Record<"canvas2d" | "webgpu", SdfProbes>> = {};
     for (const renderer of ["canvas2d", "webgpu"] as const) {
       await open(page, renderer);
       expect(await page.evaluate(() => window.__webgpuLiquid!.activeRenderer)).toBe(renderer);
       expect(await page.evaluate(() => window.__webgpuLiquid!.restAlpha())).toEqual([1, 1, 1]);
       rest[renderer] = await stats(page);
+      probes[renderer] = await sdfProbes(page);
+      console.log(`[w71 RF4 sdf ${renderer}] ${JSON.stringify(probes[renderer])}`);
       console.log(`[w71 RF4 ${renderer}] ${JSON.stringify(rest[renderer])}`);
     }
     for (const renderer of ["canvas2d", "webgpu"] as const) {
@@ -154,6 +196,18 @@ test.describe("webgpu liquid (W71)", () => {
     for (let i = 0; i < 3; i++) {
       for (let c = 0; c < 4; c++) {
         expect(Math.abs(rest.webgpu[i]!.centre[c]! - rest.canvas2d[i]!.centre[c]!), `${rest.webgpu[i]!.id} channel ${c}`).toBeLessThanOrEqual(3);
+      }
+    }
+    // The rest SDF's corner radius: the same rounded corner in both renderers (same seed, same element, at rest).
+    for (const renderer of ["canvas2d", "webgpu"] as const) {
+      const pr = probes[renderer]!;
+      expect(pr.radiusCss, "#solid needs a corner radius large enough for the probes").toBeGreaterThanOrEqual(8);
+      expect(pr.corner[3], `${renderer} bounding-box corner outside the rounded corner`).toBeLessThanOrEqual(3);
+      expect(pr.arc[3], `${renderer} 45° point just inside the arc`).toBeGreaterThanOrEqual(250);
+    }
+    for (const key of ["corner", "arc"] as const) {
+      for (let c = 0; c < 4; c++) {
+        expect(Math.abs(probes.webgpu![key][c]! - probes.canvas2d![key][c]!), `sdf ${key} channel ${c}`).toBeLessThanOrEqual(3);
       }
     }
     // Mid-splash under webgpu: the flying translucent liquid keeps its colour and never exceeds half alpha.

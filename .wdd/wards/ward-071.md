@@ -6,7 +6,7 @@ epic: "fluid-engine"
 status: planned
 dependencies: [70]
 layer: "typescript"
-estimated_tests: 40
+estimated_tests: 41
 created: "2026-10-07"
 completed: null
 ---
@@ -111,29 +111,30 @@ Plan: `docs/superpowers/plans/2026-10-06-fluid-slice-3/W71.md` (task by task, co
 | 29 | `webgpu-renderer.test.ts` `given_a_zero_or_sub_pixel_canvas_when_resized_then_T0_is_clamped_to_1x1_and_no_validation_error_review_focus_1` | RF1 |
 | 30 | `webgpu-renderer.test.ts` `given_an_empty_scene_when_rendering_then_no_zero_size_buffer_no_splat_or_rest_draw_one_composite_draw_and_no_validation_error_review_focus_2` | RF2 |
 | 31 | `webgpu-renderer.test.ts` `given_a_scene_when_rendering_frames_then_particles_and_elements_upload_every_frame_and_homes_only_on_a_generation_or_paints_change` | upload policy |
-| 32 | `webgpu-renderer.test.ts` `given_a_moving_scene_when_rendering_then_the_splat_pass_clears_T0_and_T0a_and_draws_6_vertices_per_particle_and_the_screen_pass_composites_then_draws_the_rest_quads` | D71-3, D71-6 |
-| 33 | `webgpu-renderer.test.ts` `given_device_lost_with_reason_unknown_when_rendering_then_one_console_warn_and_render_is_a_noop_and_our_own_destroy_is_silent_but_an_external_destroyed_loss_warns` | device.lost, identity rule (W71.0 finding; W72 rebuilds) |
-| 34 | `webgpu-renderer.test.ts` `given_uncaptured_gpu_errors_when_they_fire_then_exactly_one_console_error_names_the_first` | D71-3 runtime errors |
-| 35 | `webgpu-renderer.test.ts` `given_destroy_when_called_before_init_after_failure_and_twice_then_no_throw_and_every_gpu_object_is_released_once` | lifecycle |
-| 36 | `renderer-abstraction.test.ts` `given_selectRenderer_webgpu_with_a_t0Scale_when_called_then_WebGPURenderer_active_webgpu_scale_applied_and_no_infra_only_warning_W71` | D71-2, D71-4 |
-| 37 | `renderer-abstraction.test.ts` `given_soft_body_renderer_modules_when_checked_then_deleted` (modified: old webgpu-renderer.ts path) | module move |
-| 38 | `auto-renderer.test.ts` `given_renderer_webgpu_available_when_create_then_activeRenderer_webgpu_the_liquid_pipelines_exist_and_no_warning_D71_2` (modified) | D71-2 |
-| 39 | `auto-renderer.test.ts` `given_two_webgpu_instances_when_frames_run_then_each_owns_a_device_draws_two_passes_per_frame_and_nothing_is_warned` (modified) | D71-2 |
-| 40 | `auto-renderer.test.ts` `given_webgpuT0Scale_0_75_when_create_with_renderer_webgpu_then_T0_is_allocated_at_three_quarters_of_the_backing_size_D71_4` | D71-4 wiring |
-| 41 | `options.test.ts` `given_option_whitelist_when_read_then_equals_spec_section_5_plus_internal_hooks` (modified) | D71-4 |
-| 42 | `options.test.ts` `given_webgpuT0Scale_internal_option_when_resolved_then_undefined_by_default_0_5_0_75_and_1_accepted_and_others_TypeError_D71_4` | D71-4 |
-| 43 | `scene-params.test.ts` `given_invalid_query_%s_when_parsed_then_TypeError` (modified: 14 cases) | D71-2, D71-4 |
-| 44 | `scene-params.test.ts` `given_renderer_webgpu_with_and_without_t0_when_parsed_then_webgpu_and_t0Scale_only_when_given_W71` | D71-2, D71-4 |
-| 45 | `e2e-harness.test.ts` `given_playwright_config_when_loaded_then_webgpu_project_matches_the_acceptance_the_liquid_and_the_smoke_specs_W71` (modified) | D71-2 |
-| 46 | `e2e-harness.test.ts` `given_e2e_spec_files_when_routed_then_canvas2d_runs_every_spec_except_smoke_webgpu_liquid_perf_record_and_dist` (modified) | routing |
-| 47 | `e2e-harness.test.ts` `given_project_renderer_map_when_read_then_only_the_webgpu_project_renders_webgpu_and_an_unknown_project_throws_W71` | D71-2 |
-| 48 | `e2e-harness.test.ts` `given_the_webgpu_hw_project_when_read_then_it_runs_the_webgpu_specs_on_the_hardware_adapter_locally_and_the_spike_constant_matches_ci_W71` | D71-1 (local Metal, spike constant) |
-| 49 | `ci-workflow.test.ts` `given_ci_yml_when_parsed_then_canvas2d_step_is_blocking_and_webgpu_step_continue_on_error` (modified per spike; [yes] also the e2e-job and baselines tests) | D71-1 |
-| 50 | `acceptance.spec.ts` steps 1–3 in the `webgpu` project: `step 1 – …`, `D65-11 – …`, `step 3 – given a click on Splash …`, the five `step 2 – …` behaviour tests and the step 1/2/3 Linux baselines (modified: renderer-aware URLs, `__liquidTest.pixels()`, steps 4/6 skip under webgpu) | D71-2, steps 1–3 |
-| 51 | `acceptance.spec.ts` `W71 gold – capture steps 1, 2 and 3 in this project's renderer (and T0 0.5 vs 0.75 under webgpu)` (VISION=1 only) | gold, D71-4 |
-| 52 | `webgpu-liquid.spec.ts` `D71-3 – given the three liquid shaders when every pipeline is built under a validation error scope then there is no validation error and no compilation error` | D71-3 |
-| 53 | `webgpu-liquid.spec.ts` `D71-2 – given renderer webgpu when the page idles, splashes and re-forms then activeRenderer is webgpu, the liquid is drawn and no GPU error is reported` | D71-2 |
-| 54 | `webgpu-liquid.spec.ts` `Review Focus 4 – given a translucent and a transparent element when at rest and mid-splash then the translucent liquid keeps its colour at half alpha with no dark fringe, the transparent one uses the default liquid colour, and webgpu matches canvas2d` | RF4 |
+| 32 | `webgpu-renderer.test.ts` `given_the_particle_count_changes_without_a_generation_or_paints_change_when_rendering_then_the_homes_are_uploaded_again` | upload policy (homes follow the particle count) |
+| 33 | `webgpu-renderer.test.ts` `given_a_moving_scene_when_rendering_then_the_splat_pass_clears_T0_and_T0a_and_draws_6_vertices_per_particle_and_the_screen_pass_composites_then_draws_the_rest_quads` | D71-3, D71-6 |
+| 34 | `webgpu-renderer.test.ts` `given_device_lost_with_reason_unknown_when_rendering_then_one_console_warn_and_render_is_a_noop_and_our_own_destroy_is_silent_but_an_external_destroyed_loss_warns` | device.lost, identity rule (W71.0 finding; W72 rebuilds) |
+| 35 | `webgpu-renderer.test.ts` `given_uncaptured_gpu_errors_when_they_fire_then_exactly_one_console_error_names_the_first` | D71-3 runtime errors |
+| 36 | `webgpu-renderer.test.ts` `given_destroy_when_called_before_init_after_failure_and_twice_then_no_throw_and_every_gpu_object_is_released_once` | lifecycle |
+| 37 | `renderer-abstraction.test.ts` `given_selectRenderer_webgpu_with_a_t0Scale_when_called_then_WebGPURenderer_active_webgpu_scale_applied_and_no_infra_only_warning_W71` | D71-2, D71-4 |
+| 38 | `renderer-abstraction.test.ts` `given_soft_body_renderer_modules_when_checked_then_deleted` (modified: old webgpu-renderer.ts path) | module move |
+| 39 | `auto-renderer.test.ts` `given_renderer_webgpu_available_when_create_then_activeRenderer_webgpu_the_liquid_pipelines_exist_and_no_warning_D71_2` (modified) | D71-2 |
+| 40 | `auto-renderer.test.ts` `given_two_webgpu_instances_when_frames_run_then_each_owns_a_device_draws_two_passes_per_frame_and_nothing_is_warned` (modified) | D71-2 |
+| 41 | `auto-renderer.test.ts` `given_webgpuT0Scale_0_75_when_create_with_renderer_webgpu_then_T0_is_allocated_at_three_quarters_of_the_backing_size_D71_4` | D71-4 wiring |
+| 42 | `options.test.ts` `given_option_whitelist_when_read_then_equals_spec_section_5_plus_internal_hooks` (modified) | D71-4 |
+| 43 | `options.test.ts` `given_webgpuT0Scale_internal_option_when_resolved_then_undefined_by_default_0_5_0_75_and_1_accepted_and_others_TypeError_D71_4` | D71-4 |
+| 44 | `scene-params.test.ts` `given_invalid_query_%s_when_parsed_then_TypeError` (modified: 14 cases) | D71-2, D71-4 |
+| 45 | `scene-params.test.ts` `given_renderer_webgpu_with_and_without_t0_when_parsed_then_webgpu_and_t0Scale_only_when_given_W71` | D71-2, D71-4 |
+| 46 | `e2e-harness.test.ts` `given_playwright_config_when_loaded_then_webgpu_project_matches_the_acceptance_the_liquid_and_the_smoke_specs_W71` (modified) | D71-2 |
+| 47 | `e2e-harness.test.ts` `given_e2e_spec_files_when_routed_then_canvas2d_runs_every_spec_except_smoke_webgpu_liquid_perf_record_and_dist` (modified) | routing |
+| 48 | `e2e-harness.test.ts` `given_project_renderer_map_when_read_then_only_the_webgpu_project_renders_webgpu_and_an_unknown_project_throws_W71` | D71-2 |
+| 49 | `e2e-harness.test.ts` `given_the_webgpu_hw_project_when_read_then_it_runs_the_webgpu_specs_on_the_hardware_adapter_locally_and_the_spike_constant_matches_ci_W71` | D71-1 (local Metal, spike constant) |
+| 50 | `ci-workflow.test.ts` `given_ci_yml_when_parsed_then_canvas2d_step_is_blocking_and_webgpu_step_continue_on_error` (modified per spike; [yes] also the e2e-job and baselines tests) | D71-1 |
+| 51 | `acceptance.spec.ts` steps 1–3 in the `webgpu` project: `step 1 – …`, `D65-11 – …`, `step 3 – given a click on Splash …`, the five `step 2 – …` behaviour tests (modified: renderer-aware URLs, `__liquidTest.pixels()`, steps 4/6 skip under webgpu; the step 1/2/3 Linux baselines skip under webgpu while `SWIFTSHADER_RUNS_LIQUID` is false) | D71-2, steps 1–3 |
+| 52 | `acceptance.spec.ts` `W71 gold – capture steps 1, 2 and 3 in this project's renderer (and T0 0.5 vs 0.75 under webgpu)` (VISION=1 only) | gold, D71-4 |
+| 53 | `webgpu-liquid.spec.ts` `D71-3 – given the three liquid shaders when every pipeline is built under a validation error scope then there is no validation error and no compilation error` | D71-3 |
+| 54 | `webgpu-liquid.spec.ts` `D71-2 – given renderer webgpu when the page idles, splashes and re-forms then activeRenderer is webgpu, the liquid is drawn and no GPU error is reported` | D71-2 |
+| 55 | `webgpu-liquid.spec.ts` `Review Focus 4 – given a translucent and a transparent element when at rest and mid-splash then the translucent liquid keeps its colour at half alpha with no dark fringe, the transparent one uses the default liquid colour, and webgpu matches canvas2d` | RF4, rest SDF corner radius (corner and 45° arc probes vs canvas2d) |
 
 Guards that stay unchanged and must stay green: every Canvas2D test (`density-grid.test.ts`, `fluid-canvas2d.test.ts` incl. D70-4), the `canvas2d` e2e project and its Linux baselines (no canvas2d frame may change), `runtime-lifecycle.test.ts`, `dist.spec.ts`, the webgpu smoke.
 

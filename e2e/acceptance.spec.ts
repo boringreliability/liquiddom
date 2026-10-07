@@ -1,6 +1,10 @@
 import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
+import { SWIFTSHADER_RUNS_LIQUID } from "./projects";
 import { IDLE_2S_FRAMES, VISUAL_ENABLED, VISUAL_SKIP_REASON, advance, cssAlpha, gotoScene, projectRenderer, restAlpha } from "./scene";
+
+/** W71.0 fallback B: SwiftShader cannot carry the liquid, so there are no webgpu Linux baselines. */
+const WEBGPU_NO_BASELINES = "W71.0 fallback B: no webgpu Linux baselines (SWIFTSHADER_RUNS_LIQUID = false)";
 
 interface TextProbe {
   host: string;
@@ -72,6 +76,7 @@ test.describe("acceptance scene – step 1 (canvas2d and webgpu)", () => {
   });
 
   test("step 1 – given rest when screenshotted then it matches the baseline (maxDiffPixelRatio 0.01)", async ({ page }) => {
+    test.skip(projectRenderer() === "webgpu" && !SWIFTSHADER_RUNS_LIQUID, WEBGPU_NO_BASELINES);
     test.skip(!VISUAL_ENABLED, VISUAL_SKIP_REASON);
     await gotoScene(page, { seed: 1, clock: "manual" });
     await advance(page, IDLE_2S_FRAMES);
@@ -264,6 +269,7 @@ test.describe("slice 2 – splash and shake (W67)", () => {
   });
 
   test("step 3 – given the splash 12 frames after a click when screenshotted then it matches the baseline", async ({ page }) => {
+    test.skip(projectRenderer() === "webgpu" && !SWIFTSHADER_RUNS_LIQUID, WEBGPU_NO_BASELINES);
     test.skip(!VISUAL_ENABLED, "Linux baselines only (D65-2)");
     await w67Open(page);
     await w67ClickSplash(page);
@@ -665,6 +671,7 @@ test.describe("step 2 – pointer sweep (W68)", () => {
   });
 
   test("step 2 – given the end of the pointer sweep when screenshotted then it matches the baseline (maxDiffPixelRatio 0.01)", async ({ page }) => {
+    test.skip(projectRenderer() === "webgpu" && !SWIFTSHADER_RUNS_LIQUID, WEBGPU_NO_BASELINES);
     test.skip(!VISUAL_ENABLED, VISUAL_SKIP_REASON); // W65 D65-2: Linux-only baselines
     await open(page);
     await sweep(page, await buttons(page));

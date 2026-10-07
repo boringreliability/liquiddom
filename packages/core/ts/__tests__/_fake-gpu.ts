@@ -7,8 +7,10 @@
  *
  * The real API reports validation errors asynchronously. The fake records the mistakes this
  * repo must never make in `calls.errors` instead: zero-size buffers, textures smaller than
- * 1×1 or with non-integer sizes, writes past a buffer's end or not a multiple of 4 bytes, and
- * bind groups over destroyed buffers. A test then asserts that `calls.errors` is empty.
+ * 1×1 or with non-integer sizes, writes past a buffer's end, at an offset or of a size that is
+ * not a multiple of 4 bytes, bind groups over destroyed buffers or textures (when created and
+ * when set on a pass), and render passes into destroyed textures. A test then asserts that
+ * `calls.errors` is empty.
  */
 
 export interface FakeGpuOptions {
@@ -141,6 +143,20 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
     return texture;
   };
 
+  /** Destroyed buffers (`{ buffer }`) and texture views (`{ texture }`) in a bind group are validation errors. */
+  const checkBindGroup = (where: string, d: GPUBindGroupDescriptor): void => {
+    for (const entry of d.entries as Iterable<GPUBindGroupEntry>) {
+      const resource = entry.resource as { buffer?: FakeBuffer; texture?: FakeTexture } | null;
+      if (!resource || typeof resource !== "object") continue;
+      if ("buffer" in resource && resource.buffer?.destroyed) {
+        calls.errors.push(`${where}(${d.label ?? ""}): binding ${entry.binding} uses a destroyed buffer`);
+      }
+      if ("texture" in resource && resource.texture?.destroyed) {
+        calls.errors.push(`${where}(${d.label ?? ""}): binding ${entry.binding} uses a destroyed texture`);
+      }
+    }
+  };
+
   const makeDevice = () => {
     let lose: (info: GPUDeviceLostInfo) => void = () => {};
     const lost = new Promise<GPUDeviceLostInfo>((resolve) => {
@@ -160,6 +176,7 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
           const name = buffer.label ?? "";
           if (buffer.destroyed) calls.errors.push(`writeBuffer(${name}): destroyed buffer`);
           if (bytes % 4 !== 0) calls.errors.push(`writeBuffer(${name}): ${bytes} bytes is not a multiple of 4`);
+          if (offset % 4 !== 0) calls.errors.push(`writeBuffer(${name}): offset ${offset} is not a multiple of 4`);
           if (offset + bytes > buffer.size) calls.errors.push(`writeBuffer(${name}): ${offset} + ${bytes} > ${buffer.size}`);
           calls.writes.push({ buffer, offset, bytes, values: Array.from(data.subarray(dataOffset, dataOffset + elements)) });
         },
@@ -204,12 +221,7 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
         return makeTexture(d.label, w, h, d.format, d.usage, true);
       },
       createBindGroup: (d: GPUBindGroupDescriptor) => {
-        for (const entry of d.entries as Iterable<GPUBindGroupEntry>) {
-          const resource = entry.resource as { buffer?: FakeBuffer };
-          if (resource && typeof resource === "object" && "buffer" in resource && resource.buffer?.destroyed) {
-            calls.errors.push(`createBindGroup(${d.label ?? ""}): binding ${entry.binding} uses a destroyed buffer`);
-          }
-        }
+        checkBindGroup("createBindGroup", d);
         calls.bindGroups.push(d);
         return { descriptor: d };
       },
@@ -230,6 +242,9 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
       createCommandEncoder: () => ({
         beginRenderPass: (d: GPURenderPassDescriptor) => {
           const pass: FakePass = { attachments: Array.from(d.colorAttachments as Iterable<FakeAttachment>), draws: [], ended: false };
+          for (const a of pass.attachments) {
+            if (a.view.texture.destroyed) calls.errors.push(`beginRenderPass: attachment ${a.view.texture.label ?? ""} is a destroyed texture`);
+          }
           calls.passes.push(pass);
           let pipeline: unknown = null;
           let bindGroup: unknown = null;
@@ -238,6 +253,8 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
               pipeline = p;
             },
             setBindGroup: (_index: number, g: unknown) => {
+              const desc = (g as { descriptor?: GPUBindGroupDescriptor } | null)?.descriptor;
+              if (desc) checkBindGroup("setBindGroup", desc);
               bindGroup = g;
             },
             draw: (vertexCount: number, instanceCount = 1) => {

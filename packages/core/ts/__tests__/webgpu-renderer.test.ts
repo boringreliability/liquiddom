@@ -137,6 +137,7 @@ describe("W71: WebGPURenderer", () => {
     expect(f.calls.configure).toEqual([expect.objectContaining({ format: "bgra8unorm", alphaMode: "premultiplied" })]);
     const log = f.calls.log;
     expect(log[0]).toBe("pushErrorScope:validation");
+    expect(log.filter((l) => l.startsWith("pushErrorScope")), "one scope, pushed once and popped once").toHaveLength(1);
     expect(log.lastIndexOf("createRenderPipeline")).toBeLessThan(log.indexOf("popErrorScope"));
     expect(log.filter((l) => l === "popErrorScope")).toHaveLength(1);
     expect(f.calls.shaderModules).toEqual([SPLAT_WGSL, COMPOSITE_WGSL, REST_WGSL]);
@@ -199,16 +200,24 @@ describe("W71: WebGPURenderer", () => {
     r.resize(640, 480, 1); // before init: remembered
     await r.init(document.createElement("canvas"));
     expect(textureSizes(f)).toEqual(["rgba16float 320x240", "r16float 320x240"]);
+    r.render(sceneFrame());
     r.resize(1281, 801, 1);
     expect(textureSizes(f).slice(2)).toEqual(["rgba16float 641x401", "r16float 641x401"]);
     expect(f.calls.textures.slice(0, 2).every((t) => t.destroyed)).toBe(true);
+    r.render(sceneFrame()); // the fake flags a pass or bind group that still uses the destroyed pair
     r.resize(1281, 801, 1); // same size: no reallocation
     expect(f.calls.textures).toHaveLength(4);
+    // Backing px, not CSS px: 1600×1200 backing at dpr 2 (800×600 CSS) gives T0 800×600 at scale 0.5.
+    r.resize(1600, 1200, 2);
+    expect(textureSizes(f).slice(4)).toEqual(["rgba16float 800x600", "r16float 800x600"]);
+    expect(f.calls.textures.slice(2, 4).every((t) => t.destroyed)).toBe(true);
+    r.render(sceneFrame());
     const big = new WebGPURenderer({ t0Scale: 0.75 });
     await big.init(document.createElement("canvas"));
     big.resize(1280, 800, 1);
     expect(t0Textures(f).at(-1)).toMatchObject({ width: 960, height: 600 });
-    expect(f.calls.bindGroups.filter((b) => b.label === "liquiddom composite")).toHaveLength(4);
+    big.render(sceneFrame());
+    expect(f.calls.bindGroups.filter((b) => b.label === "liquiddom composite")).toHaveLength(5);
     expect(f.calls.errors).toEqual([]);
   });
 
@@ -229,6 +238,9 @@ describe("W71: WebGPURenderer", () => {
     r.render(emptyFrame());
     expect(f.calls.errors).toEqual([]);
     expect(f.calls.buffers.every((b) => b.size >= 16)).toBe(true);
+    // One Element record (64 B) and one particle (8 B) at least: a smaller binding than one array stride is invalid.
+    expect(f.calls.buffers.find((b) => b.label === "liquiddom elements")!.size).toBeGreaterThanOrEqual(64);
+    expect(f.calls.buffers.find((b) => b.label === "liquiddom particles")!.size).toBeGreaterThanOrEqual(8);
     expect(f.calls.buffers.map((b) => b.label).sort()).toEqual([
       "liquiddom elements", "liquiddom homes", "liquiddom particles", "liquiddom view",
     ]);
@@ -258,6 +270,24 @@ describe("W71: WebGPURenderer", () => {
     expect(p!.values.slice(0, 4)).toEqual([110, 120, 114, 120]);
     expect(writesTo("liquiddom homes", f.calls.writes)[0]!.values).toEqual([0, 0, 0, 0, 0, 0]);
     expect(writesTo("liquiddom elements", f.calls.writes)[0]!.bytes).toBe(64); // one drawable slot
+    expect(f.calls.errors).toEqual([]);
+  });
+
+  it("given_the_particle_count_changes_without_a_generation_or_paints_change_when_rendering_then_the_homes_are_uploaded_again", async () => {
+    const f = gpu();
+    const r = await ready();
+    const homes = () => writesTo("liquiddom homes", f.calls.writes);
+    r.render(sceneFrame({ generation: 2, paints: PAINTS }));
+    r.render(sceneFrame({ generation: 2, paints: PAINTS }));
+    expect(homes()).toHaveLength(1);
+    r.render(sceneFrame({ generation: 2, paints: PAINTS, active: 4 }));
+    expect(homes()).toHaveLength(2);
+    expect(homes()[1]!.values).toEqual([0, 0, 0, 0]);
+    r.render(sceneFrame({ generation: 2, paints: PAINTS, active: 4 }));
+    expect(homes()).toHaveLength(2);
+    r.render(sceneFrame({ generation: 2, paints: PAINTS }));
+    expect(homes()).toHaveLength(3);
+    expect(homes()[2]!.values).toHaveLength(CAP);
     expect(f.calls.errors).toEqual([]);
   });
 
@@ -295,15 +325,14 @@ describe("W71: WebGPURenderer", () => {
     expect(f.calls.passes).toHaveLength(0);
     const other = await ready();
     other.destroy(); // resolves that device's `lost` with reason "destroyed"
-    await Promise.resolve();
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(warn).toHaveBeenCalledTimes(1);
     // W71.0 finding: on the CI runner Chromium itself lost devices with reason "destroyed". Only our own
     // destroy() is silent (device identity, not the reason); an external "destroyed" loss is a real loss.
     const ext = await ready();
-    f.loseDevice("Device was destroyed.", "destroyed");
+    f.loseDevice("external: Device was destroyed.", "destroyed");
     await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(2));
-    expect(String(warn.mock.calls[1]![0])).toMatch(/device lost.*Device was destroyed\./);
+    expect(String(warn.mock.calls[1]![0])).toMatch(/device lost.*external: Device was destroyed\./);
     const passes = f.calls.passes.length;
     ext.render(sceneFrame());
     expect(f.calls.passes).toHaveLength(passes);
