@@ -189,3 +189,9 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D70-4 | Full density weight during the Canvas2D cross-fade: full density weight while restAlpha < 1, roundRect at restAlpha on top | W70 | dec_b98514b2 |
 | D70-5 | Make experience measurable: AMENDED — bulge ≥ 5 px across the pills, no-hole margin 10 px, slosh ≥ 24 px card / 12 px pills (was 3 px / 6 px / 3 px, dec_ec207f57) | W70 | dec_7db9a25c |
 | D70-6 | Step 8 in the recording plus a slice-2 addendum: ?rm=1 segment in the recording, re-record, slice-2 addendum for steps 2, 6, 8 | W70 | dec_40e9ea63 |
+| D71-1 | CI verification route for WebGPU: SwiftShader spike, yes only with 80/80 on a GitHub runner, fallback B local Metal + soft CI | W71 | dec_b4a57848 |
+| D71-2 | WebGPU acceptance steps: 1–3 in W71, 4, 6, 8 + device.lost in W72 (wider than the slice table's 1–3 in W) | W71 | dec_3a566bf5 |
+| D71-3 | WebGPU passes: splat into T0 + T0a (Σw·a), composite, rest SDF overlay; T2 deferred to slice 4 | W71 | dec_956b5aa9 |
+| D71-4 | T0 render scale: default 0.5×, Dennis picks 0.5× vs 0.75× at W71 gold | W71 | dec_abea49e1 |
+| D71-5 | Shared kernel params: 2.3 per spacing, cap 8 px, one module for both renderers | W71 | dec_0beb7f91 |
+| D71-6 | WebGPU cross-fade: the D70-4 rule (full splat weight while restAlpha < 1, SDF overlay at restAlpha) | W71 | dec_ca46b6f0 |

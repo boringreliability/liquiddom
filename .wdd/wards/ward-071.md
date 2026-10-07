@@ -38,32 +38,32 @@ Out of scope: `auto` probing and the Canvas2D fallback, explicit `'webgpu'` reje
 ### D71-1: CI verification route for WebGPU
 Proposal: task 0 is a time-boxed spike (½ day, throwaway branch, never merged): can WebGPU run on SwiftShader in the pinned image on a GitHub runner, 20 consecutive runs of the smoke plus a minimal splat page (8000 splats into rgba16float + r16float, 120 frames), without `device lost`? Flag variants: `--enable-unsafe-swiftshader`, `--use-angle=swiftshader`, Vulkan variants, `--disable-dev-shm-usage`, a larger shm; one worker. Yes → the `webgpu` project runs acceptance steps 1–3 with Linux baselines, soft until 10 green runs in a row (spec §6). No (fallback B) → WebGPU acceptance runs locally on macOS only (SwiftShader and Metal), CI keeps the soft smoke, and the limitation goes into CONTEXT.
 Consequence: half a day before any production code. The deciding run needs one push of the throwaway branch (Dennis is asked first); without it the answer is "no". Under "no", a WebGPU regression is caught only by local runs and gold screenshots until the CI question is reopened.
-Decision: PENDING
+Decision: APPROVED 2026-10-07 — SwiftShader spike first (½ day, throwaway branch); yes only with 80/80 on a GitHub runner, else fallback B (local Metal, soft CI smoke) (saga dec_b4a57848)
 
 ### D71-2: Which acceptance steps pass in WebGPU in this ward
 Proposal: steps 1, 2 and 3 in W71; steps 4, 6 and 8 plus `device.lost` in W72. The acceptance spec is parametrised by the Playwright project's renderer and reuses the Canvas2D asserts unchanged (no hole, bulge ≥ 5 px, swell probe, re-form within 3 s); under `webgpu` the step-4 and step-6 tests skip with a W72 reason. The demo scene accepts `?renderer=webgpu` but never `auto`.
 Consequence: W71 ends with a visible WebGPU liquid for the first three scene steps; `auto` stays Canvas2D and nobody gets WebGPU by default until W72. If a Canvas2D threshold fails only under WebGPU, the ward stops and asks instead of loosening it.
-Decision: PENDING
+Decision: APPROVED 2026-10-07 — steps 1–3 in W71, steps 4, 6, 8 + device.lost in W72; acceptance spec parametrised, canvas2d asserts unchanged (saga dec_3a566bf5)
 
 ### D71-3: Pass architecture (splat with an alpha target, composite, rest SDF overlay)
 Proposal: two render passes per frame. (1) Splat: one instanced quad per particle (instance data from storage buffers via `instance_index`) into **T0 `rgba16float` = (Σw·rgb, Σw)** and **T0a `r16float` = Σw·a**, both additive `{one, one, add}`. (2) Screen: a full-screen triangle composites T0 (threshold 0.5, edge widened by `fwidth`, colour Σw·rgb/Σw, premultiplied by coverage·Σw·a/Σw, `alphaMode: 'premultiplied'`), then one rounded-rect SDF quad per element with analytic anti-aliasing is drawn over it at `restAlpha` × colour alpha. T2 is deferred to slice 4; no 32-bit float targets (10 B per sample). Pipelines use explicit bind group layouts and are built inside one `pushErrorScope('validation')`; a validation error rejects `create()` as a bug, and a runtime GPU error logs one `console.error`.
 Consequence: the T0a attachment corrects the plan index, which had T0 = (Σw·rgb_premul, Σw) (README, slice-3 design §2/§5/§6 and spec §3 now say T0 + T0a, cross-ward verification 2026-10-07): four channels cannot carry the blended alpha next to the density, so a translucent element would come out opaque. With T0a the composite reproduces Canvas2D's `Σw·rgb/Σw` and `Σw·a/Σw` exactly (verified on SwiftShader and Metal: a 0.5-alpha element reads 127–128 with its own colour). Costs one more attachment (2 B per sample) and nothing else.
-Decision: PENDING
+Decision: APPROVED 2026-10-07 — splat into T0 (Σw·rgb, Σw) + T0a r16float (Σw·a), composite, rest SDF overlay; T2 deferred to slice 4 (saga dec_956b5aa9)
 
 ### D71-4: T0 render scale
 Proposal: T0 is allocated at `ceil(backing px × t0Scale)` (at least 1×1), default **0.5**, configurable through the `@internal` option `webgpuT0Scale` (validated in (0, 1]) and the demo's `?t0=0.5|0.75`. At gold Dennis compares 0.5× and 0.75× side by side on Metal (Splash pill at rest, mid-sweep bulge, card after the splash) and picks the default.
 Consequence: one more internal option in the whitelist. At DPR 1 and 0.5× a T0 texel is 2 CSS px, the Canvas2D grid size. 0.75× costs 2.25× the splat fill; if chosen, the default, three test literals and the webgpu baselines change at gold.
-Decision: PENDING
+Decision: APPROVED 2026-10-07 — T0 scale default 0.5× (@internal webgpuT0Scale, ?t0=); Dennis picks 0.5× vs 0.75× at gold (saga dec_abea49e1)
 
 ### D71-5: Kernel radius per spacing, shared by both renderers
 Proposal: `KERNEL_RADIUS_PER_SPACING = 2.3`, `KERNEL_RADIUS_CAP_PX = 8`, `DENSITY_THRESHOLD = 0.5` and `EDGE_SOFTNESS = 0.1` move to `renderers/kernel-params.ts` with `kernelRadiusPx(spacing)` and `kernelWeight(r, R, mass)`; `density-grid.ts` re-exports them and the WGSL interpolates them. The WebGPU radius is clamped to at least one T0 texel, as DensityGrid clamps to one cell. If vision at gold still shows bead chains in motion, the proposal is 2.8 in both renderers, in a later fix ward.
 Consequence: Canvas2D pixels do not change. Both renderers can only drift apart through code that a parity test pins (grid cell = kernelWeight at the cell centre).
-Decision: PENDING
+Decision: APPROVED 2026-10-07 — kernel 2.3 per spacing, cap 8 px, shared kernel-params.ts with a parity test; 2.8 in a later fix ward only if bead chains remain (saga dec_0beb7f91)
 
 ### D71-6: Cross-fade between the moving liquid and the rest contour
 Proposal: the D70-4 rule in WebGPU form: an element's particles splat at full weight while its `restAlpha < 1` and are skipped (degenerate quads) at `restAlpha = 1`; the rest SDF overlay is drawn at `restAlpha` on top.
 Consequence: no translucent dip and no fur at rest, the same transition Canvas2D shows since W70. During the fade the soft moving edge shows under the crisp contour until rest.
-Decision: PENDING
+Decision: APPROVED 2026-10-07 — D70-4 rule in WebGPU: full splat weight while restAlpha < 1, skipped at 1, SDF overlay at restAlpha (saga dec_ca46b6f0)
 
 ## Specification
 Plan: `docs/superpowers/plans/2026-10-06-fluid-slice-3/W71.md` (task by task, complete code). Slice design: `docs/superpowers/specs/2026-10-06-liquiddom-slice-3-webgpu-design.md` §2, §4, §5.
