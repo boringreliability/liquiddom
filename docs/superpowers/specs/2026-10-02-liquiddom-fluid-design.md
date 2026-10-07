@@ -309,7 +309,7 @@ At rest, what you see is therefore pixel-exact the DOM text, with no atlas appro
 - `silentFallback` only controls the fallback `console.info`.
 - On fallback the canvas is remounted.
 - An explicit `renderer: 'webgpu'` accepts a fallback adapter; only `auto` treats it as unavailable, so CI can test the WebGPU path on SwiftShader (amended 2026-10-06, slice-3 design, D72-2).
-- **`device.lost`:** rebuild as Canvas2D, and remove `liquid-text` from every element so the text is visible again. This is covered by a Playwright test. A loss with `reason: 'destroyed'` (from our own `destroy()`) never rebuilds (amended 2026-10-06, slice-3 design, D72-3).
+- **`device.lost`:** rebuild as Canvas2D, and remove `liquid-text` from every element so the text is visible again. This is covered by a Playwright test. A loss caused by our own `destroy()` never rebuilds; it is detected by device identity, not by the reason, because a crashed GPU process also reports `'destroyed'` (amended 2026-10-06/07, slice-3 design and W71.0 spike, D72-3).
 
 ## 4. DOM and a11y model
 

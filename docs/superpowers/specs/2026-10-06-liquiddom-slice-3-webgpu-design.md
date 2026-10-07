@@ -82,8 +82,9 @@ W71 uses WebGPU only for an explicit `renderer: 'webgpu'` and drops `WEBGPU_INFR
   A fallback adapter (SwiftShader) is **accepted**, so CI can test the WebGPU path.
 - **`device.lost` at runtime** (D72-3): the runtime's renderer slot becomes mutable; destroy the
   WebGPU renderer, remount the canvas, init Canvas2D, continue on the next frame with the same
-  particle state, one `console.warn`. `activeRenderer` then reports `'canvas2d'`. A loss with
-  `reason: 'destroyed'` (our own `destroy()`) never rebuilds. A loss during init counts as
+  particle state, one `console.warn`. `activeRenderer` then reports `'canvas2d'`. A loss caused by
+  our own `destroy()` never rebuilds; it is detected by device identity, not by the reason, because
+  a crashed GPU process also reports `'destroyed'` (W71.0 spike). A loss during init counts as
   `WebGPUUnavailableError`. There is no `liquid-text` to remove until slice 4.
 - **Overdraw** (D72-4): the splat pass counts fragments per frame (instances × quad area at the
   T0 scale), exposed on `window.__liquidTest` and logged by the perf spec. Logging only, no gate.
@@ -101,7 +102,7 @@ W71 uses WebGPU only for an explicit `renderer: 'webgpu'` and drops `WEBGPU_INFR
     smoke; the limitation goes into CONTEXT.
 - **Unit tests (jsdom)**: buffer packing, `kernel-params` parity between both renderers, and the
   selection logic against a small fake `navigator.gpu` (`_fake-gpu.ts`, next to
-  `_fake-canvas.ts`): unavailable, fallback adapter, init bug, `device.lost` with `'destroyed'`
+  `_fake-canvas.ts`): unavailable, fallback adapter, init bug, an external `device.lost` (reason `'destroyed'` and `'unknown'`), our own `destroy()`
   and `'unknown'`, runtime rebuild and canvas remount.
 - **Browser tests**: `scene-params` accepts `?renderer=webgpu` and `test-hooks` types
   `'canvas2d' | 'webgpu'`; the acceptance spec is parametrised by renderer and reuses the
@@ -131,7 +132,7 @@ gate as a formal decision.
 | D71-6 | Cross-fade | the D70-4 rule: full density while `restAlpha < 1`, SDF at `restAlpha` on top |
 | D72-1 | `auto` | probes WebGPU and becomes the effective default; fallback on unavailable or fallback adapter |
 | D72-2 | Explicit `'webgpu'` | accepts a fallback adapter |
-| D72-3 | `device.lost` | rebuild as Canvas2D in place, one `console.warn`; ignore `'destroyed'` |
+| D72-3 | `device.lost` | rebuild as Canvas2D in place, one `console.warn`; only our own `destroy()` is ignored (identity, not reason) |
 | D72-4 | Overdraw | logged via the test hook and the perf spec, no gate |
 | D72-5 | DOM-text halo | stays in slice 4; under WebGPU the text sits on the bare page while its liquid is away, as in Canvas2D today |
 
@@ -145,6 +146,6 @@ gate as a formal decision.
 - §3 "Crisp at rest": the SDF contour is an overlay drawn at `restAlpha`, not density added into
   T0/T2.
 - §3 "Infrastructure and errors": explicit `'webgpu'` accepts a fallback adapter; only `auto`
-  treats it as unavailable. A loss with `reason: 'destroyed'` does not rebuild.
+  treats it as unavailable. A loss caused by our own `destroy()` does not rebuild (identity, not reason).
 - §6 "Slices": slice 3 row reads "Splat/composite (T0), rest SDF overlay, blended colour,
   `device.lost`, overdraw logging".

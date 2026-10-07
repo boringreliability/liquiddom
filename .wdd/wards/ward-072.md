@@ -32,7 +32,7 @@ Out of scope: liquid text, T1/T2, the DOM-text halo (D72-5, slice 4), drag/merge
 ## Outputs
 - `selectRenderer(choice, canvas, { silentFallback, remountCanvas, onDeviceLost, t0Scale? })` returning `{ renderer, active, canvas }`; `fallbackInfo(reason)`; `initCanvas2D(canvas)`.
 - `remountLiquidCanvas(old, container?)` in `stylesheet.ts`.
-- `WebGPURenderer`: `acceptFallbackAdapter` (the fallback-adapter gate), `onDeviceLost` (never for `'destroyed'`, never after `destroy()`; the renderer no longer warns), loss during init → `WebGPUUnavailableError`, `@internal loseDeviceForTest()`, live `lastFragmentEstimate`, exported `adapterIsFallback`; `renderers/webgpu/overdraw.ts` `estimateSplatFragments(frame, t0Scale)`.
+- `WebGPURenderer`: `acceptFallbackAdapter` (the fallback-adapter gate), `onDeviceLost` (for any loss we did not cause, whatever its reason — a crashed GPU process also reports `'destroyed'` (W71.0 spike); never after our own `destroy()`; the renderer no longer warns), loss during init → `WebGPUUnavailableError`, `@internal loseDeviceForTest()`, live `lastFragmentEstimate`, exported `adapterIsFallback`; `renderers/webgpu/overdraw.ts` `estimateSplatFragments(frame, t0Scale)`.
 - `runtime.ts`: mutable renderer slot and canvas, the Canvas2D rebuild, `canvas` and `activeRenderer` as live getters, `@internal simulateDeviceLoss()` and `fragmentEstimate`, `DEVICE_LOST_WARNING`.
 - Test hook: `params.renderer` accepts `auto`; `loseDevice()`, `overdraw`.
 - Test infra: `installFakeGpu` gains `holdInit`, per-device handles, `releaseInit()` and the no-2d-after-webgpu rule; `installFakeGpuLifecycle` is a thin view over it (one fake for both wards).
@@ -51,7 +51,7 @@ Consequence: the `webgpu` Playwright project (SwiftShader) exercises the real We
 Decision: PENDING
 
 ### D72-3: `device.lost` rebuilds the instance as Canvas2D in place
-Proposal: the runtime's renderer slot and canvas become mutable. A loss with any reason but our own `'destroyed'` after init: one `console.warn` (`[liquiddom] WebGPU device lost (<reason>: <message>); continuing with the Canvas2D renderer.`), `activeRenderer` becomes `'canvas2d'` at once, the WebGPU renderer is destroyed, the canvas is remounted, Canvas2D is initialised, the backing store is resized, and the next frame renders through Canvas2D with the same core and particle state. A loss during init counts as `WebGPUUnavailableError` (so `auto` falls back and `'webgpu'` rejects); a loss that resolves after `destroy()`, or between init and the runtime being built, is handled (ignored, or replayed once). A failing Canvas2D rebuild takes the failed-frame path (one `console.error`, the instance stops). Test seam: `@internal WebGPURenderer.loseDeviceForTest()` (calls `device.destroy()` and reports the loss as reason `'unknown'`), reached only through `@internal FluidRuntime.simulateDeviceLoss()` and the scene hook `loseDevice()`.
+Proposal: the runtime's renderer slot and canvas become mutable. Any loss after init that our own `destroy()` did not cause — detected by device identity, not by the reason string, because a crashed GPU process also reports `'destroyed'` (W71.0 spike): one `console.warn` (`[liquiddom] WebGPU device lost (<reason>: <message>); continuing with the Canvas2D renderer.`), `activeRenderer` becomes `'canvas2d'` at once, the WebGPU renderer is destroyed, the canvas is remounted, Canvas2D is initialised, the backing store is resized, and the next frame renders through Canvas2D with the same core and particle state. A loss during init counts as `WebGPUUnavailableError` (so `auto` falls back and `'webgpu'` rejects); a loss that resolves after `destroy()`, or between init and the runtime being built, is handled (ignored, or replayed once). A failing Canvas2D rebuild takes the failed-frame path (one `console.error`, the instance stops). Test seam: `@internal WebGPURenderer.loseDeviceForTest()` (calls `device.destroy()` and reports the loss as reason `'unknown'`), reached only through `@internal FluidRuntime.simulateDeviceLoss()` and the scene hook `loseDevice()`.
 Consequence: `activeRenderer` and `runtime.canvas` can change during an instance's life (documented). Frames during the asynchronous rebuild tick the core but draw nothing (at most a frame or two). There is no `liquid-text` to remove until slice 4. Browsers give no way to lose a device with reason `'unknown'` on demand, so the e2e covers the rebuild through the seam, and the jsdom tests cover the real promise path with the fake.
 Decision: PENDING
 
@@ -96,7 +96,7 @@ Plan: `docs/superpowers/plans/2026-10-06-fluid-slice-3/W72.md` (complete code fo
 | 16 | webgpu-lifecycle: given_acceptFallbackAdapter_false_and_a_fallback_adapter_when_init_then_WebGPUUnavailableError_before_requestDevice | D72-1 gate in the renderer |
 | 17 | webgpu-lifecycle: given_the_default_options_and_a_fallback_adapter_when_init_then_it_succeeds_and_isFallbackAdapter_is_true | D72-2 |
 | 18 | webgpu-lifecycle: given_an_initialised_renderer_when_the_device_is_lost_with_reason_unknown_then_onDeviceLost_once_no_warn_and_render_is_a_noop | D72-3 |
-| 19 | webgpu-lifecycle: given_an_initialised_renderer_when_the_device_reports_reason_destroyed_then_onDeviceLost_is_not_called | D72-3 'destroyed' ignored |
+| 19 | webgpu-lifecycle: given_an_initialised_renderer_when_the_device_is_lost_externally_with_reason_destroyed_then_onDeviceLost_is_called_once | D72-3 external 'destroyed' rebuilds (W71.0 spike) |
 | 20 | webgpu-lifecycle: given_destroy_when_the_loss_resolves_afterwards_then_onDeviceLost_is_not_called_and_destroy_is_idempotent | RF5 lost after destroy |
 | 21 | webgpu-lifecycle: given_a_device_lost_while_init_is_pending_when_init_resumes_then_WebGPUUnavailableError_and_no_callback | D72-3 loss during init |
 | 22 | webgpu-lifecycle: given_loseDeviceForTest_when_called_then_onDeviceLost_receives_reason_unknown_with_the_simulated_message | D72-3 test seam |
@@ -139,7 +139,7 @@ Plan: `docs/superpowers/plans/2026-10-06-fluid-slice-3/W72.md` (complete code fo
 
 ## Must NOT
 - Change Rust, the FFI, `RenderFrame` or the `Renderer` method shape.
-- Let the WebGPU renderer warn on a lost device (the runtime owns the single `console.warn`), or rebuild on reason `'destroyed'` or after `destroy()`.
+- Let the WebGPU renderer warn on a lost device (the runtime owns the single `console.warn`), or rebuild after our own `destroy()`; never decide on the reason string.
 - Log a fallback with `console.warn` or `console.error` (e2e fixtures fail on `console.error`); the fallback is one `console.info`, none with `silentFallback`.
 - Gate anything on the overdraw estimate or on WebGPU timing.
 - Add a DOM-text halo or touch the stylesheet's paint/text rules (D72-5).

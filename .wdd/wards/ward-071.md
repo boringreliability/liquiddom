@@ -174,3 +174,21 @@ Guards that stay unchanged and must stay green: every Canvas2D test (`density-gr
 
 ## Verification
 Gold requires: `npm run verify` (cargo 151 + 1 ignored unchanged, vitest 460 passed | 4 skipped, clippy clean); `npm run e2e:canvas2d` unchanged and green; `npm run e2e:webgpu` (SwiftShader) and `npm run e2e:webgpu-hw` (Metal) 14 passed / 9 skipped locally; [yes] the CI webgpu step green with three vision-approved Linux webgpu baselines; the W71 gold captures read with vision for both renderers; a `code-review` pass at level high; Dennis' D71-4 choice recorded.
+
+## Spike W71.0 result
+Answer: **no (fallback B)** — on the GitHub runner every flag variant loses the device within 2–5 frames of any rendering test (only the adapter-exists smoke test passes), so WebGPU acceptance runs locally on macOS (SwiftShader and Metal) and CI keeps the soft smoke. Time used: ≈ 1.5 h of the ½-day box.
+
+| Variant | arm64 local (native) | amd64 emulated | GitHub runner (run 37679595019) | device lost |
+|---|---|---|---|---|
+| V0 (today's flags) | 20/80 | not run | 20/80 | 20/20 splat runs (arm64) |
+| V0 + `--shm-size=2g` instead of `--ipc=host` | 20/80 | not run | not run | 20/20 |
+| V1 (+ `--enable-unsafe-swiftshader`) | 20/80 | not run | 20/80 | 20/20 |
+| V2 (`--use-angle=swiftshader`) | 20/80 | not run | 20/80 | 20/20 |
+| V3 (`--use-vulkan=swiftshader`, `VulkanFromANGLE`) | 20/80 | not run | 20/80 | 20/20 |
+| V4 (V1 + `--disable-dev-shm-usage`) | 20/80 | not run | 20/80 | 20/20 |
+
+The 20 passes per variant are all `webgpu-smoke.spec.ts:31` (an adapter exists); every test that renders fails. Runner logs: 89 × `lost: "destroyed: Device was destroyed."` (the rest `"unknown: A valid external Instance reference no longer exists."`), after 2–5 frames, with no uncaptured errors and no validation errors. amd64 emulation was skipped: native arm64 already fails identically, so the CONTEXT note blaming emulation is wrong (the failure is SwiftShader/Vulkan inside the container). On macOS (outside Docker) the same splat page ran 120 frames clean with centre pixel `(51, 102, 204, 255)`, readback via `drawImage` in the rendering task.
+
+Untested routes (outside the D71-1 box, for a later ward): the runner without the container (Playwright's own Chromium + Mesa lavapipe), and GPU-enabled runners.
+
+Consequence for W72 (D72-3): a loss we did not cause can arrive with `reason: "destroyed"`. Rebuild must key on "did our own `destroy()` run", not on the reason string.

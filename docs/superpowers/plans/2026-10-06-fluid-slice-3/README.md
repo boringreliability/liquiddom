@@ -47,7 +47,7 @@ Every task implicitly includes these.
 - `renderer: 'auto' | 'webgpu' | 'canvas2d'`, option default `'auto'` (`options.ts`).
 - W71: `'auto'` stays Canvas2D without probing; `'webgpu'` draws the liquid; `WEBGPU_INFRA_ONLY_WARNING` is removed.
 - W72: `'auto'` → WebGPU, falling back to Canvas2D on `WebGPUUnavailableError` or `adapter.info.isFallbackAdapter` (checked right after `requestAdapter`, via `acceptFallbackAdapter: false`), one `console.info` unless `silentFallback`, canvas remounted. Explicit `'webgpu'` accepts a fallback adapter and rejects `create()` with `WebGPUUnavailableError` when unavailable. Any other init error (shader/pipeline validation via `pushErrorScope`) rejects `create()`.
-- W72: `device.lost` with `reason !== 'destroyed'` after init → rebuild as Canvas2D on a remounted canvas, one `console.warn` (from the runtime; the renderer itself never warns from W72 on), `activeRenderer === 'canvas2d'`. `'destroyed'` never rebuilds. A loss during init counts as `WebGPUUnavailableError` (W71's `init` awaits `popErrorScope()` after `requestDevice`, which is the window). The only `console.error` paths are a runtime GPU validation error (W71, a bug) and a failed Canvas2D rebuild (W72); a loss never produces one, because a lost device generates no validation errors and the renderer stops drawing (`lost`) before the runtime reacts.
+- W72: `device.lost` after init that our own `destroy()` did not cause (device identity, not the reason: a crashed GPU process also reports `'destroyed'`, W71.0 spike) → rebuild as Canvas2D on a remounted canvas, one `console.warn` (from the runtime; the renderer itself never warns from W72 on), `activeRenderer === 'canvas2d'`. Our own `destroy()` never rebuilds. A loss during init counts as `WebGPUUnavailableError` (W71's `init` awaits `popErrorScope()` after `requestDevice`, which is the window). The only `console.error` paths are a runtime GPU validation error (W71, a bug) and a failed Canvas2D rebuild (W72); a loss never produces one, because a lost device generates no validation errors and the renderer stops drawing (`lost`) before the runtime reacts.
 
 **Verification**
 - Every e2e spec imports `test` from `e2e/fixtures.ts` (fails on `console.error`, `pageerror`, panics). Visual specs skip on macOS; canvas2d Linux baselines via `npm run e2e:update`, webgpu Linux baselines via the CI `e2e-update-baselines` job (spike "yes" only).
@@ -104,7 +104,7 @@ export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat
 export interface WebGPURendererOptions {
   readonly t0Scale?: number;                 // W71 (D71-4), validated in (0, 1], RangeError otherwise
   readonly acceptFallbackAdapter?: boolean;  // W72 (D72-1/2); default true (explicit 'webgpu' behaviour)
-  readonly onDeviceLost?: (info: GPUDeviceLostInfo) => void; // W72 (D72-3); never for 'destroyed', never after destroy()
+  readonly onDeviceLost?: (info: GPUDeviceLostInfo) => void; // W72 (D72-3); any loss we did not cause, never after our own destroy()
 }
 export class WebGPURenderer implements Renderer {
   constructor(opts?: WebGPURendererOptions);
@@ -115,7 +115,7 @@ export class WebGPURenderer implements Renderer {
 }
 // W71: `init` awaits device.popErrorScope() after requestDevice (the loss-during-init window W72 uses);
 //      a pipeline validation error rejects with a plain Error; the first uncaptured GPU error logs one console.error.
-// W71: a device.lost (not 'destroyed') logs one console.warn and stops drawing; W72 replaces that with onDeviceLost (no warn).
+// W71: a device.lost we did not cause logs one console.warn and stops drawing; W72 replaces that with onDeviceLost (no warn).
 export const SIMULATED_LOSS_MESSAGE: string;                   // W72
 export function adapterIsFallback(adapter: GPUAdapter): boolean; // W71 module-private; W72 exports it (same body)
 
