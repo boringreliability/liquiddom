@@ -174,7 +174,7 @@ Guards that stay unchanged and must stay green: every Canvas2D test (`density-gr
 - [ ] `npm run verify`, `npm run e2e:canvas2d`, `npm run e2e:dist` and `npm run e2e:webgpu` are green (webgpu per the spike answer).
 
 ## Verification
-Gold requires: `npm run verify` (cargo 151 + 1 ignored unchanged, vitest 460 passed | 4 skipped, clippy clean); `npm run e2e:canvas2d` unchanged and green; `npm run e2e:webgpu` (SwiftShader) and `npm run e2e:webgpu-hw` (Metal) 14 passed / 9 skipped locally; [yes] the CI webgpu step green with three vision-approved Linux webgpu baselines; the W71 gold captures read with vision for both renderers; a `code-review` pass at level high; Dennis' D71-4 choice recorded.
+Gold requires: `npm run verify` (cargo 151 + 1 ignored unchanged, vitest 461 passed | 4 skipped, clippy clean); `npm run e2e:canvas2d` unchanged and green; `npm run e2e:webgpu` (SwiftShader) and `npm run e2e:webgpu-hw` (Metal) 14 passed / 9 skipped locally; [yes] the CI webgpu step green with three vision-approved Linux webgpu baselines; the W71 gold captures read with vision for both renderers; a `code-review` pass at level high; Dennis' D71-4 choice recorded.
 
 ## Spike W71.0 result
 Answer: **no (fallback B)** — on the GitHub runner every flag variant loses the device within 2–5 frames of any rendering test (only the adapter-exists smoke test passes), so WebGPU acceptance runs locally on macOS (SwiftShader and Metal) and CI keeps the soft smoke. Time used: ≈ 1.5 h of the ½-day box.

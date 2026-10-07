@@ -57,7 +57,7 @@ Every task implicitly includes these.
 - **Pixel readback (one mechanism):** a WebGPU canvas is readable only in the task that rendered it. W71's acceptance scene snapshots the liquid canvas at the end of every `__liquidTest.advance()`; every e2e pixel read (W71 and W72) goes through `__liquidTest.pixels()`. W72's `e2e/frame-readback.ts` is a thin wrapper over it (no own `drawImage`).
 - **Gold artefacts:** raw gold screenshots go to `test-results/vision-w71/` and `test-results/whole-picture/shots/` and are copied to the scratchpad, never committed. Committed gold GIFs live in `docs/superpowers/whole-picture/` next to the slice-2 GIFs (W70 precedent `slice-2-addendum-canvas2d.gif`): W72 writes `slice-3-w72-canvas2d.gif` and `slice-3-w72-webgpu.gif`. Slice 3 has no whole-picture report.
 - Gold: screenshots from a real GPU (Metal, `webgpu-hw`) inspected with vision, Canvas2D vs WebGPU side by side, same seed and step.
-- **Counts:** vitest `424 passed | 4 skipped` at `9cc85fd` → W71 `460 | 4` (50 files) → W72 `501 | 4` (54 files); cargo `151 passed, 1 ignored` throughout. Playwright `--list`: `canvas2d` 35 → 36 → 36; `webgpu` 3 → 23 → 31 [yes] / 23 [no]; `webgpu-hw` – → 23 → 33; `perf` 1 → 1 → 2; `record` 1 → 1 → 2; `record-webgpu` – → – → 2; `dist` 1.
+- **Counts:** vitest `424 passed | 4 skipped` at `9cc85fd` → W71 `461 | 4` (50 files) → W72 `502 | 4` (54 files); cargo `151 passed, 1 ignored` throughout. Playwright `--list`: `canvas2d` 35 → 36 → 36; `webgpu` 3 → 23 → 31 [yes] / 23 [no]; `webgpu-hw` – → 23 → 33; `perf` 1 → 1 → 2; `record` 1 → 1 → 2; `record-webgpu` – → – → 2; `dist` 1.
 - Test files are not type-checked; helpers start with `_`.
 
 **Process**

@@ -178,6 +178,6 @@ npm run dev
 
 ## Verification
 - `npx vitest run`: every test in the table above green; `npm run verify` green.
-- `npx vitest run`: 501 passed | 4 skipped (W72 plan, "Targets after W72").
+- `npx vitest run`: 502 passed | 4 skipped (W72 plan, "Targets after W72").
 - `npm run e2e:canvas2d` and `npm run e2e:dist` green; `npm run e2e:webgpu-hw` green on the Mac; when the W71.0 spike answered yes, the soft CI `webgpu` step green including the robust spec (soft until 10 green runs).
 - Gold: Canvas2D vs WebGPU screenshots of steps 4, 6 and 8 and the two GIFs inspected with vision; ward review (code-review skill, level high); `wdd ward status 72 gold`; STOP for Dennis.
