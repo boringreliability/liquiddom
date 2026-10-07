@@ -23,6 +23,8 @@ export const EG = {
 export const OFFSCREEN_PX = -1e6;
 
 const clamp01 = (v: number): number => (v > 0 ? (v < 1 ? v : 1) : 0);
+/** An 8-bit colour channel as a finite 0–1 float (NaN → 0, out of range clamped). */
+const channel01 = (v: number): number => clamp01(v / 255);
 const rect: HomeRect = { x: 0, y: 0, w: 0, h: 0, r: 0 };
 
 function particleCount(frame: RenderFrame): number {
@@ -99,9 +101,9 @@ export function packElements(frame: RenderFrame, out: Float32Array): number {
     out[o + EG.REST_ALPHA] = clamp01(frame.stateView[id * STATE_STRIDE + St.REST_ALPHA] as number);
     out[o + EG.MASS] = Number.isFinite(mass) && mass > 0 ? mass : 0;
     out[o + EG.KERNEL_R] = kernelRadiusPx(paint.spacingPx);
-    out[o + EG.R] = bg[0] / 255;
-    out[o + EG.G] = bg[1] / 255;
-    out[o + EG.B] = bg[2] / 255;
+    out[o + EG.R] = channel01(bg[0]);
+    out[o + EG.G] = channel01(bg[1]);
+    out[o + EG.B] = channel01(bg[2]);
     out[o + EG.A] = clamp01(bg[3]);
     out[o + EG.FLAGS] = 1;
     out[o + 13] = 0;
