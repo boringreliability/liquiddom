@@ -240,11 +240,11 @@ The `Renderer` keeps its method shape. The new `RenderFrame` contains:
 ### WebGPU: two passes
 
 1. **Splat.** Each particle is drawn as an instanced quad (instance data read from a storage buffer via `instance_index`) with a smooth kernel. It writes into three render targets, all using additive blending `{src: one, dst: one, op: add}`:
-   - `T0 rgba16float`: `Σw·rgb_premul` and `Σw` (density). Render scale 0.5× DPR.
+   - `T0 rgba16float`: `Σw·rgb` and `Σw` (density). Render scale 0.5× DPR. *(Amended 2026-10-07, slice-3 plan, D71-3: rgb is straight, not premultiplied, and a second target `T0a r16float` holds `Σw·a` at the same scale, so the composite gets the blended alpha `Σw·a/Σw` and translucent elements match Canvas2D. Slice 3 splats into T0 and T0a only: 10 B per sample.)*
    - `T1 rgba16float`: `Σw·text_rgba_premul`, sampled from an RGBA atlas. 1× DPR. **Only particles from elements with `restAlpha < 1`** are splatted here.
    - `T2 r16float`: `Σw·restAlpha`, used to cross-fade to the rest contour. **Deferred to slice 4** (amended 2026-10-06, slice-3 design, D71-3): slice 3 cross-fades per element from the element buffer's `restAlpha`, so its passes are splat (T0), composite and a rest SDF overlay.
 
-   The targets total 24 B per sample. That is within the default `maxColorAttachmentBytesPerSample = 32`, and rgba16float is blendable in WebGPU core. **No 32-bit float targets.**
+   The targets total 24 B per sample (26 B with T0a, amended 2026-10-07). That is within the default `maxColorAttachmentBytesPerSample = 32`, and rgba16float is blendable in WebGPU core. **No 32-bit float targets.**
 
    **Per-element density normalisation:**
    - Each particle's splat mass is its element's area per particle.

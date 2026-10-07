@@ -21,6 +21,8 @@ Make observed web elements genuinely liquid, which is the project's declared goa
 | 68 | Pointer, hover and material | planned |
 | 69 | Playground, splash scene, whole-picture check | planned |
 | 70 | Slice 2 fix: sloshing shake, readable bulge, clean cross-fade (after the slice-2 whole-picture check) | planned |
+| 71 | Liquid in WebGPU (slice 3) | planned |
+| 72 | WebGPU by default, robust (slice 3) | planned |
 
 Slices 1–2 = W63–W69. Slices 3–6 (WebGPU liquid, liquid text, drag and merge, the world) are outlines in the spec. Their wards are planned only after the whole-picture check that precedes them. This table is maintained by hand; `wdd progress` / PROGRESS.md is the source of truth for status.
 

@@ -49,11 +49,15 @@ Per-frame data:
 
 Three passes per frame:
 
-1. **Splat**: one instanced quad per particle into `T0 rgba16float` (`Σw·rgb_premul`, `Σw`) with
-   additive blending `{src: one, dst: one, op: add}`, at the T0 render scale (D71-4, default
-   0.5× DPR).
+1. **Splat**: one instanced quad per particle into two targets, both with additive blending
+   `{src: one, dst: one, op: add}`, at the T0 render scale (D71-4, default 0.5× DPR):
+   `T0 rgba16float` = (`Σw·rgb`, `Σw`) with straight (not premultiplied) rgb, and
+   `T0a r16float` = `Σw·a`. Four channels cannot carry the blended alpha next to the density,
+   so a translucent element needs T0a (W71 plan, Corrections 1; amended 2026-10-07). That is
+   8 B + 2 B = 10 B per sample; no 32-bit float targets, still no T1 or T2 in slice 3.
 2. **Composite**: a full-screen triangle into the swapchain (`alphaMode: 'premultiplied'`):
-   threshold at 0.5 with an `fwidth` anti-aliased edge; colour `Σw·rgb / Σw`.
+   threshold at 0.5 with an `fwidth` anti-aliased edge; colour `Σw·rgb / Σw`, alpha
+   `coverage · Σw·a / Σw`, premultiplied once here (as Canvas2D's `density-grid.ts`).
 3. **Rest overlay**: one instanced quad per element with `restAlpha > 0`, an analytic
    rounded-rect SDF with analytic anti-aliasing, drawn over the composite at alpha `restAlpha`.
 
@@ -101,7 +105,8 @@ W71 uses WebGPU only for an explicit `renderer: 'webgpu'` and drops `WEBGPU_INFR
   and `'unknown'`, runtime rebuild and canvas remount.
 - **Browser tests**: `scene-params` accepts `?renderer=webgpu` and `test-hooks` types
   `'canvas2d' | 'webgpu'`; the acceptance spec is parametrised by renderer and reuses the
-  canvas2d pixel asserts (no hole, bulge ≥ 5 px, `restAlpha = 1` within 3 s); a shader test
+  canvas2d pixel asserts, read through `__liquidTest.pixels()` (a WebGPU canvas is readable
+  only in the task that rendered it, so `advance()` snapshots it) (no hole, bulge ≥ 5 px, `restAlpha = 1` within 3 s); a shader test
   builds every pipeline under `pushErrorScope('validation')` and expects no error; the
   `device.lost` test destroys the device through the test hook and checks Canvas2D continues,
   `activeRenderer === 'canvas2d'` and no `console.error`.
@@ -120,7 +125,7 @@ gate as a formal decision.
 |---|---|---|
 | D71-1 | CI verification route | ✔ SwiftShader spike (½ day), fallback B: local Metal + soft CI |
 | D71-2 | Steps in WebGPU | ✔ 1–3 in W71; 4, 6, 8 + `device.lost` in W72 |
-| D71-3 | Pass architecture | ✔ splat, composite, SDF rest overlay; T2 deferred to slice 4 |
+| D71-3 | Pass architecture | ✔ splat (T0 `rgba16float` + T0a `r16float` = Σw·a, 10 B per sample), composite, SDF rest overlay; T2 deferred to slice 4 |
 | D71-4 | T0 render scale | configurable, default 0.5×; at W71 gold Dennis compares 0.5× and 0.75× side by side |
 | D71-5 | Kernel radius per spacing | 2.3, shared by both renderers via `kernel-params.ts`; if vision still shows bead chains, try 2.8 in both |
 | D71-6 | Cross-fade | the D70-4 rule: full density while `restAlpha < 1`, SDF at `restAlpha` on top |
@@ -134,6 +139,9 @@ gate as a formal decision.
 
 - §3 "WebGPU: two passes": T2 deferred to slice 4; the slice-3 pass list is splat, composite,
   rest overlay.
+- §3 "WebGPU: two passes" (added 2026-10-07 with the slice-3 plan, D71-3): T0 holds straight
+  `Σw·rgb` and `Σw`; a second splat target `T0a r16float` holds `Σw·a`, so translucent colours
+  composite like Canvas2D (2 B more per sample, no 32-bit targets).
 - §3 "Crisp at rest": the SDF contour is an overlay drawn at `restAlpha`, not density added into
   T0/T2.
 - §3 "Infrastructure and errors": explicit `'webgpu'` accepts a fallback adapter; only `auto`
