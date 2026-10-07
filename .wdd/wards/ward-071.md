@@ -3,7 +3,7 @@ ward: 71
 revision: null
 name: "Liquid in WebGPU"
 epic: "fluid-engine"
-status: "red"
+status: "approved"
 dependencies: [70]
 layer: "typescript"
 estimated_tests: 41
