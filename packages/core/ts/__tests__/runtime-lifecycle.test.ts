@@ -8,7 +8,7 @@ import { ElementRegistry } from "../src/element-registry";
 import { FluidCanvas2DRenderer } from "../src/renderers/fluid-canvas2d";
 import { createFluidRuntime } from "../src/runtime";
 import { createManualClock } from "../src/clock";
-import { WebGPUUnavailableError } from "../src/renderers/webgpu-renderer";
+import { WebGPUUnavailableError } from "../src/renderers/webgpu/errors";
 import { STYLE_ELEMENT_ID } from "../src/stylesheet";
 import { freedOf, resetDom, setupFacadeTestEnv, spyBackend, ticksOf } from "./_facade-helpers";
 

@@ -154,8 +154,16 @@ describe("W66 T1: resolveOptions", () => {
   it("given_option_whitelist_when_read_then_equals_spec_section_5_plus_internal_hooks", () => {
     expect([...OPTION_KEYS].sort()).toEqual(
       ["particles", "maxElements", "container", "renderer", "material", "gravity", "seed", "autoObserve",
-        "forceReducedMotion", "silentFallback", "testBackend", "loader", "clock"].sort(),
+        "forceReducedMotion", "silentFallback", "testBackend", "loader", "clock", "webgpuT0Scale"].sort(),
     );
+  });
+
+  it("given_webgpuT0Scale_internal_option_when_resolved_then_undefined_by_default_0_5_0_75_and_1_accepted_and_others_TypeError_D71_4", () => {
+    expect(resolveOptions({}).webgpuT0Scale).toBeUndefined();
+    for (const s of [0.5, 0.75, 1]) expect(resolveOptions({ webgpuT0Scale: s }).webgpuT0Scale).toBe(s);
+    for (const bad of [0, -0.5, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "0.5"]) {
+      expect(typeErrorOf(() => resolveOptions({ webgpuT0Scale: bad as number })).message).toMatch(/webgpuT0Scale/);
+    }
   });
 });
 

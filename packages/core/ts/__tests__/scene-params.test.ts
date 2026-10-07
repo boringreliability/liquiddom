@@ -43,8 +43,12 @@ describe("W65 acceptance scene params", () => {
     "?seed=",
     "?seed=4294967296",
     "?clock=fast",
-    "?renderer=webgpu",
     "?renderer=auto",
+    "?renderer=webgl",
+    "?t0=0.5",
+    "?renderer=canvas2d&t0=0.5",
+    "?renderer=webgpu&t0=1",
+    "?renderer=webgpu&t0=abc",
     "?rm=yes",
     "?test=2",
   ])("given_invalid_query_%s_when_parsed_then_TypeError", (query) => {
@@ -53,5 +57,19 @@ describe("W65 acceptance scene params", () => {
 
   it("given_perf_with_manual_clock_when_parsed_then_TypeError", () => {
     expect(() => parseSceneParams("?perf=1&clock=manual")).toThrow(TypeError);
+  });
+
+  it("given_renderer_webgpu_with_and_without_t0_when_parsed_then_webgpu_and_t0Scale_only_when_given_W71", () => {
+    expect(parseSceneParams("?renderer=webgpu&clock=manual&test=1")).toEqual({
+      seed: 1,
+      clock: "manual",
+      renderer: "webgpu",
+      reducedMotion: false,
+      test: true,
+      perf: false,
+    });
+    expect("t0Scale" in parseSceneParams("?renderer=webgpu")).toBe(false);
+    expect(parseSceneParams("?renderer=webgpu&t0=0.5").t0Scale).toBe(0.5);
+    expect(parseSceneParams("?renderer=webgpu&t0=0.75").t0Scale).toBe(0.75);
   });
 });

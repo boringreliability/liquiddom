@@ -16,10 +16,14 @@ import {
   DIST_PORT,
   PORT,
   PROJECT_FILES,
+  PROJECT_RENDERER,
   PROJECT_USE,
+  SWIFTSHADER_RUNS_LIQUID,
+  WEBGPU_HW_LAUNCH_ARGS,
   WEBGPU_LAUNCH_ARGS,
   WEB_SERVER_COMMAND,
   projectsForSpec,
+  rendererForProject,
   webServerEnv,
 } from "../../../e2e/projects";
 import { summarize } from "../../../e2e/stats";
@@ -67,16 +71,17 @@ function isIgnored(path: string): boolean {
 }
 
 describe("W65 e2e harness", () => {
-  it("given_playwright_config_when_loaded_then_webgpu_project_matches_only_the_smoke_spec", () => {
-    expect(SPECS).toContain("webgpu-smoke.spec.ts");
-    expect(routedTo("webgpu")).toEqual(["webgpu-smoke.spec.ts"]);
+  it("given_playwright_config_when_loaded_then_webgpu_project_matches_the_acceptance_the_liquid_and_the_smoke_specs_W71", () => {
+    // W71 (D71-2): steps 1–3 run under renderer=webgpu; webgpu-liquid.spec.ts holds the shader and colour checks.
+    expect(SPECS).toEqual(expect.arrayContaining(["acceptance.spec.ts", "webgpu-liquid.spec.ts", "webgpu-smoke.spec.ts"]));
+    expect(routedTo("webgpu")).toEqual(["acceptance.spec.ts", "webgpu-liquid.spec.ts", "webgpu-smoke.spec.ts"]);
     // Proven on the REAL config object, not only the helper.
-    expect(configRoutedTo("webgpu")).toEqual(["webgpu-smoke.spec.ts"]);
+    expect(configRoutedTo("webgpu")).toEqual(["acceptance.spec.ts", "webgpu-liquid.spec.ts", "webgpu-smoke.spec.ts"]);
   });
 
-  it("given_e2e_spec_files_when_routed_then_canvas2d_runs_every_spec_except_smoke_perf_record_and_dist", () => {
+  it("given_e2e_spec_files_when_routed_then_canvas2d_runs_every_spec_except_smoke_webgpu_liquid_perf_record_and_dist", () => {
     const expected = SPECS.filter(
-      (f) => !["webgpu-smoke.spec.ts", "perf.spec.ts", "record.spec.ts", "dist.spec.ts"].includes(f),
+      (f) => !["webgpu-smoke.spec.ts", "webgpu-liquid.spec.ts", "perf.spec.ts", "record.spec.ts", "dist.spec.ts"].includes(f),
     );
     expect(routedTo("canvas2d")).toEqual(expected);
     expect(expected).toEqual(
@@ -192,5 +197,29 @@ describe("W65 e2e harness", () => {
     expect(sh).toContain("mcr.microsoft.com/playwright:v${PW_VERSION}-noble");
     expect(sh).toMatch(/devDependencies\[['"]@playwright\/test['"]\]/);
     expect(sh).toContain("--exclude=node_modules");
+  });
+
+  it("given_project_renderer_map_when_read_then_only_the_webgpu_project_renders_webgpu_and_an_unknown_project_throws_W71", () => {
+    expect(PROJECT_RENDERER).toEqual({ canvas2d: "canvas2d", webgpu: "webgpu", "webgpu-hw": "webgpu", perf: "canvas2d", record: "canvas2d", dist: "canvas2d" });
+    for (const p of PROJECT_FILES) expect(rendererForProject(p.name)).toBe(PROJECT_RENDERER[p.name]);
+    expect(() => rendererForProject("chromium")).toThrow(/unknown Playwright project/);
+  });
+
+  it("given_the_webgpu_hw_project_when_read_then_it_runs_the_webgpu_specs_on_the_hardware_adapter_locally_and_the_spike_constant_matches_ci_W71", () => {
+    // W71 (D71-1): local Metal runs use the webgpu-hw project; SWIFTSHADER_RUNS_LIQUID is the W71.0 answer, defined once.
+    expect([...WEBGPU_HW_LAUNCH_ARGS]).toEqual(["--enable-unsafe-webgpu"]);
+    expect(PROJECT_USE["webgpu-hw"]).toEqual({ channel: "chromium", launchArgs: WEBGPU_HW_LAUNCH_ARGS });
+    expect(PROJECT_FILES.find((p) => p.name === "webgpu-hw")?.blocking).toBe(false);
+    expect(routedTo("webgpu-hw")).toEqual(routedTo("webgpu"));
+    expect(configRoutedTo("webgpu-hw")).toEqual(routedTo("webgpu-hw"));
+    const pkg = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
+    expect(pkg.scripts["e2e:webgpu-hw"]).toBe("playwright test --project=webgpu-hw");
+    const ci = readFileSync(resolve(ROOT, ".github/workflows/ci.yml"), "utf8");
+    expect(ci).not.toMatch(/webgpu-hw/);
+    expect(typeof SWIFTSHADER_RUNS_LIQUID).toBe("boolean");
+    const webgpuRun = SWIFTSHADER_RUNS_LIQUID
+      ? "run: npx playwright test --project=webgpu\n"
+      : "run: npx playwright test --project=webgpu e2e/webgpu-smoke.spec.ts\n";
+    expect(ci, "the CI webgpu step follows the W71.0 answer").toContain(webgpuRun);
   });
 });

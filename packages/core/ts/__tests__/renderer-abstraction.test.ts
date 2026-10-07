@@ -9,9 +9,10 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Renderer } from "../src/renderers/frame";
 import { FluidCanvas2DRenderer } from "../src/renderers/fluid-canvas2d";
-import { WebGPURenderer } from "../src/renderers/webgpu-renderer";
+import { WebGPURenderer } from "../src/renderers/webgpu/webgpu-renderer";
 import { selectRenderer } from "../src/renderers/select";
 import { setupFacadeTestEnv } from "./_facade-helpers";
+import { installFakeGpu } from "./_fake-gpu";
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
 beforeEach(setupFacadeTestEnv);
@@ -25,7 +26,7 @@ describe("W66: renderer abstraction", () => {
   });
 
   it("given_soft_body_renderer_modules_when_checked_then_deleted", () => {
-    for (const rel of ["renderers/renderer.ts", "renderers/canvas2d-renderer.ts", "renderers/shaders", "phantom-observer.ts", "wasm-bridge.ts", "box-shadow.ts"]) {
+    for (const rel of ["renderers/renderer.ts", "renderers/canvas2d-renderer.ts", "renderers/shaders", "phantom-observer.ts", "wasm-bridge.ts", "box-shadow.ts", "renderers/webgpu-renderer.ts"]) {
       expect(existsSync(resolve(SRC, rel)), rel).toBe(false);
     }
   });
@@ -48,6 +49,23 @@ describe("W66: renderer abstraction", () => {
       expect(destroy).toHaveBeenCalledTimes(1);
     } finally {
       destroy.mockRestore();
+    }
+  });
+
+  it("given_selectRenderer_webgpu_with_a_t0Scale_when_called_then_WebGPURenderer_active_webgpu_scale_applied_and_no_infra_only_warning_W71", async () => {
+    const fake = installFakeGpu();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const sel = await selectRenderer("webgpu", document.createElement("canvas"), { t0Scale: 0.75 });
+      expect(sel.active).toBe("webgpu");
+      expect(sel.renderer).toBeInstanceOf(WebGPURenderer);
+      expect((sel.renderer as WebGPURenderer).t0Scale).toBe(0.75);
+      expect(warn).not.toHaveBeenCalled();
+      sel.renderer.destroy();
+      expect(fake.calls.deviceDestroyed).toBe(1);
+    } finally {
+      warn.mockRestore();
+      fake.restore();
     }
   });
 });

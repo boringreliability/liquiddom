@@ -94,6 +94,8 @@ describe("W65 CI e2e workflow", () => {
     expect(gpu).toHaveLength(1);
     expect(gpu[0]["continue-on-error"]).toBe(true);
     expect(gpu[0]["timeout-minutes"]).toBe(5);
+    // W71.0 fallback B: SwiftShader could not carry the liquid in CI; WebGPU acceptance runs locally on Metal.
+    expect(gpu[0].run).toBe("npx playwright test --project=webgpu e2e/webgpu-smoke.spec.ts");
     expect(gpu[0].if ?? "").toMatch(RUNS_UNLESS_CANCELLED);
   });
 

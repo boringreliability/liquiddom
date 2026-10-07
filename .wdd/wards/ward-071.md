@@ -112,7 +112,7 @@ Plan: `docs/superpowers/plans/2026-10-06-fluid-slice-3/W71.md` (task by task, co
 | 30 | `webgpu-renderer.test.ts` `given_an_empty_scene_when_rendering_then_no_zero_size_buffer_no_splat_or_rest_draw_one_composite_draw_and_no_validation_error_review_focus_2` | RF2 |
 | 31 | `webgpu-renderer.test.ts` `given_a_scene_when_rendering_frames_then_particles_and_elements_upload_every_frame_and_homes_only_on_a_generation_or_paints_change` | upload policy |
 | 32 | `webgpu-renderer.test.ts` `given_a_moving_scene_when_rendering_then_the_splat_pass_clears_T0_and_T0a_and_draws_6_vertices_per_particle_and_the_screen_pass_composites_then_draws_the_rest_quads` | D71-3, D71-6 |
-| 33 | `webgpu-renderer.test.ts` `given_device_lost_with_reason_unknown_when_rendering_then_one_console_warn_and_render_is_a_noop_and_our_own_destroy_is_silent` | device.lost (W72 rebuilds) |
+| 33 | `webgpu-renderer.test.ts` `given_device_lost_with_reason_unknown_when_rendering_then_one_console_warn_and_render_is_a_noop_and_our_own_destroy_is_silent_but_an_external_destroyed_loss_warns` | device.lost, identity rule (W71.0 finding; W72 rebuilds) |
 | 34 | `webgpu-renderer.test.ts` `given_uncaptured_gpu_errors_when_they_fire_then_exactly_one_console_error_names_the_first` | D71-3 runtime errors |
 | 35 | `webgpu-renderer.test.ts` `given_destroy_when_called_before_init_after_failure_and_twice_then_no_throw_and_every_gpu_object_is_released_once` | lifecycle |
 | 36 | `renderer-abstraction.test.ts` `given_selectRenderer_webgpu_with_a_t0Scale_when_called_then_WebGPURenderer_active_webgpu_scale_applied_and_no_infra_only_warning_W71` | D71-2, D71-4 |
