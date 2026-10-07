@@ -1,7 +1,7 @@
 # Context — liquiddom
 
 ## Last Updated
-Ward 70 — 2026-10-06 (slice-2 fix: coherent shake, drag 12, clean cross-fade, step 8 recorded; steps 2 and 6 now ✅)
+Ward 71 — 2026-10-08 (slice 3: the liquid in WebGPU, steps 1–3 in both renderers)
 
 ## Current State
 Epic 15 (Fluid Engine), slice 1 complete: W63 north star + WDD rules, W64 liquid at rest, W65 verification harness, W66 public API swap. `LiquidDOM.create()` now runs on a 2D MLS-MPM fluid in Rust/WASM (`src/fluid/`, `FluidCore`), drawn by `FluidCanvas2DRenderer` (density grid + exact `roundRect` at rest). The soft-body engine (W6–W62) is deleted; its last state is the tag `softbody-final`.
@@ -22,7 +22,7 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 | Injected `@layer liquiddom` stylesheet with `!important`, paint/stacking scoped to `@media screen and (forced-colors: none)`; print/forced-colors hide the canvas | `revert-layer` fell back to the UA default in print | W66 (D66-15 amended) |
 | Shared refcounts: one stylesheet per document, one decoration per element across instances; colour snapshot lifts the class with `transition: none` | Multi-instance correctness | W66 |
 | `LoopController`: user pause and hidden tab are separate sources; dt reset on resume; first throwing frame stops the instance for good | 0.2 regression fixes; no silent re-arm | W66 (D66-12) |
-| `'auto'` renderer = Canvas2D; WebGPU is a clear pass until slice 3 | Slice order | W66 (D66-2) |
+| WebGPU liquid: splat into T0 rgba16float + T0a r16float, composite with an fwidth edge, rest SDF overlay at restAlpha; T2 deferred; 'auto' = Canvas2D until W72 | No 32-bit targets; Canvas2D parity through kernel-params.ts and Σw·a | W71 (D71-3…6) |
 | Playwright is the visual/behaviour guard; Linux baselines from the pinned image, committed only after a vision check | jsdom cannot see cascade or transitions | W65 (D65-7) |
 
 ## Active Constraints
@@ -53,9 +53,10 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 - Edge ring (D67-13, W67): the in-motion edge envelope sd is 0.120 px at 120 px/s (W67 metric; W64's R2 layout scored ≈ 0.6–0.7 px with it). The ring spacing is cell/2, from the area hint, so when the hint is far off the ring is a little denser or sparser than the interior.
 - The first frame that throws stops the instance (unchanged in W67); adapters do not yet react to a stopped instance.
 - No browser loads the published `dist` yet (carry to W69 whole-picture check).
-- WebGPU smoke fails under amd64 emulation in the pinned image (soft; likely SwiftShader/Rosetta).
+- WebGPU acceptance (steps 1–3, shader validation, translucent colour) runs only locally (`npm run e2e:webgpu` / `e2e:webgpu-hw` on Metal); CI runs the soft smoke only (W71.0 spike: every rendering test loses the device within 2–5 frames on SwiftShader inside the pinned container, on native arm64 and on the GitHub runner; reason 'destroyed' or 'unknown', no validation errors). There are no webgpu Linux baselines.
+- A WebGPU canvas is readable only in the task that rendered it; the e2e helpers read `__liquidTest.pixels()` (a snapshot taken in advance()).
 
 ## What Comes Next
 - Slice 2 is closed: whole-picture `.wdd/memory/whole-picture/slice-2.md` plus the W70 addendum `slice-2-addendum.md` (steps 1–4, 6, 8 ✅; 5/7 ⏳). Shake strength kept as is by Dennis (amplitude 0.8, cap 0.2).
-- Next: plan slice 3 (WebGPU liquid: splat-based edges; furry Canvas2D edges superseded there). DOM-text halo goes with slice 4 liquid text; honey preset after Dennis' playground session; ring density → slice 6.
+- Next: W72 (slice 3): 'auto' probes WebGPU with the Canvas2D fallback, explicit 'webgpu' accepts fallback adapters, device.lost rebuilds as Canvas2D, steps 4, 6 and 8 in WebGPU. DOM-text halo stays with slice 4.
 - Open: fate of the published `0.2.0-rc.0` (spec §7); publish of `0.3.0-alpha.x` is Dennis' call (`changeset version` + commit before tagging `v*`).
