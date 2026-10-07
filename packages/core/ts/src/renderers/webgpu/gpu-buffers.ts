@@ -3,13 +3,14 @@
  * (slice-3 design §2 "Per-frame data"). No GPU, no DOM.
  * - particles: `x, y` interleaved for `[0, activeParticles)`; a non-finite position goes far
  *   off-screen;
- * - homes: the element id per particle, −1 when unassigned, fractional, out of range,
- *   unpainted or inactive (Review Focus 3); the renderer uploads it only when `generation`,
- *   `paints` or the particle count changes;
+ * - homes: the element id per particle, −1 when unassigned, fractional, out of range or
+ *   unpainted (Review Focus 3); the renderer uploads it only when `generation`, `paints` or the
+ *   particle count changes. An inactive slot (w == 0) keeps its id: it is not drawn because its
+ *   element record has flags 0 (W71 ward-review I1), so the homes stay right when it reappears;
  * - elements: one 16-float record per slot (WGSL `struct Element`), written every frame.
  *   Colour stays straight (rgb 0–1, a 0–1); the shaders premultiply.
  */
-import { Dyn, El, ELEMENT_STRIDE, homeRectInto, type HomeRect, St, STATE_STRIDE, Stat } from "../../fluid-layout";
+import { Dyn, ELEMENT_STRIDE, homeRectInto, type HomeRect, St, STATE_STRIDE, Stat } from "../../fluid-layout";
 import type { RenderFrame } from "../frame";
 import { kernelRadiusPx } from "../kernel-params";
 
@@ -35,12 +36,6 @@ function slotCount(frame: RenderFrame): number {
   return Math.min(frame.paints.length, Math.floor(frame.elementView.length / ELEMENT_STRIDE));
 }
 
-function slotActive(elementView: Float32Array, id: number): boolean {
-  const w = elementView[id * ELEMENT_STRIDE + El.W];
-  const h = elementView[id * ELEMENT_STRIDE + El.H];
-  return w !== undefined && h !== undefined && Number.isFinite(w) && w > 0 && Number.isFinite(h) && h > 0;
-}
-
 /** `x, y` of particle i at `out[2i], out[2i + 1]`; returns the instance count. */
 export function packParticles(frame: RenderFrame, out: Float32Array): number {
   const n = particleCount(frame);
@@ -59,7 +54,10 @@ export function packParticles(frame: RenderFrame, out: Float32Array): number {
   return n;
 }
 
-/** Home slot id per particle, −1 when the particle must not be drawn (Review Focus 3). */
+/**
+ * Home slot id per particle, −1 when it has no painted home (Review Focus 3). Visibility per frame
+ * (w == 0) is the element record's job, not this cached upload's (W71 ward-review I1).
+ */
 export function packHomes(frame: RenderFrame, out: Int32Array): void {
   const n = particleCount(frame);
   if (out.length < n) throw new RangeError(`[liquiddom] packHomes: out holds ${out.length} ids, needs ${n}`);
@@ -67,8 +65,7 @@ export function packHomes(frame: RenderFrame, out: Int32Array): void {
   const slots = slotCount(frame);
   for (let i = 0; i < n; i++) {
     const h = frame.staticView[base + i] as number;
-    const drawable =
-      Number.isInteger(h) && h >= 0 && h < slots && frame.paints[h] !== undefined && slotActive(frame.elementView, h);
+    const drawable = Number.isInteger(h) && h >= 0 && h < slots && frame.paints[h] !== undefined;
     out[i] = drawable ? h : -1;
   }
 }

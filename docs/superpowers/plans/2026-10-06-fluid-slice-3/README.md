@@ -88,7 +88,7 @@ export const ELEMENT_GPU_FLOATS: number;   // 16 floats = 64 B per slot
 export const EG: { /* field offsets of the element record */ };
 export const OFFSCREEN_PX: number;         // non-finite positions go here
 export function packParticles(frame: RenderFrame, out: Float32Array): number;  // x,y interleaved; returns instance count
-export function packHomes(frame: RenderFrame, out: Int32Array): void;          // home id per particle, −1 when none, unpainted or inactive
+export function packHomes(frame: RenderFrame, out: Int32Array): void;          // home id per particle, −1 when none, unpainted or out of range (w == 0 keeps its id; flags 0 hide it)
 export function packElements(frame: RenderFrame, out: Float32Array): number;   // returns 1 + the last drawable slot
 
 // ---- packages/core/ts/src/renderers/webgpu/shaders.ts (W71) ----
@@ -183,7 +183,7 @@ Failure modes the spec implies but no acceptance step exercises; each is pinned 
 
 1. **Resize and DPR change under WebGPU** (W71): T0 is reallocated to the new size; a 0×0 or sub-pixel canvas never creates a zero-size texture (clamped to ≥ 1×1) and raises no validation error.
 2. **Empty scene** (W71): `activeParticles = 0` or no observed element renders a cleared canvas without zero-size buffers or validation errors (buffers have a minimum size).
-3. **Unobserve between generations** (W71): a particle whose `home` points at a slot with `paints[id] === undefined` or `w == 0` is not drawn (packHomes writes −1), and the rest overlay skips that slot.
+3. **Unobserve between generations** (W71): a particle whose `home` points at a slot with `w == 0` is not drawn (flags 0 in the element record; packHomes keeps its id so the liquid returns when the slot reappears, W71 ward-review I1); unpainted or out-of-range homes are −1. The rest overlay skips both.
 4. **Transparent or translucent element colour** (W71): `Σw = 0` never divides by zero; a translucent background composites premultiplied (no dark fringe), matching Canvas2D within the visual tolerance.
 5. **Lifecycle races** (W72): `destroy()` while WebGPU init is pending leaves no canvas, no device and no warning; a `device.lost` that resolves after `destroy()` does not rebuild; two instances each own a device and losing one does not affect the other.
 

@@ -407,6 +407,42 @@ describe("W71: WebGPURenderer", () => {
     expect(f.calls.errors).toEqual([]);
   });
 
+  // W71 ward-review I1: a homes upload while a slot is hidden (w = 0) must keep that slot's home, so the
+  // liquid splats again when it reappears mid re-form; the hidden slot is kept out of the draw by flags 0.
+  it("given_a_homes_upload_while_slot_1_is_hidden_when_it_reappears_with_rest_alpha_below_1_then_its_particles_carry_home_1_and_its_record_is_drawable", async () => {
+    const f = gpu();
+    const r = await ready();
+    const withSlot1 = (o: { w: number; paints: ReadonlyArray<ElementPaint | undefined> }): RenderFrame => {
+      const fr = sceneFrame({ generation: 3, paints: o.paints, restAlpha: 0.4 });
+      fr.elementView.set([300, 100, 60, 40, 8, 0, 0, 0, Number.NaN, Number.NaN], ELEMENT_STRIDE);
+      fr.elementView[ELEMENT_STRIDE + 2] = o.w;
+      fr.stateView[STATE_STRIDE + St.REST_ALPHA] = 0.4;
+      for (let i = 3; i < CAP; i++) fr.staticView[i] = 1; // particles 3.. live in slot 1
+      return fr;
+    };
+    const homes = () => writesTo("liquiddom homes", f.calls.writes);
+    const lastElements = () => writesTo("liquiddom elements", f.calls.writes).at(-1)!;
+    const flagsOf = (w: FakeWrite, slot: number) => w.values[slot * 16 + 12];
+    const before: ReadonlyArray<ElementPaint | undefined> = [paint(0), paint(1)];
+    const refreshed: ReadonlyArray<ElementPaint | undefined> = [paint(0), paint(1)]; // refresh(A): new identity
+    r.render(withSlot1({ w: 60, paints: before }));
+    expect(homes()).toHaveLength(1);
+    expect(homes().at(-1)!.values).toEqual([0, 0, 0, 1, 1, 1]);
+    // Slot 1 hidden (display:none), then a refresh() elsewhere: the new paints identity forces a homes upload.
+    r.render(withSlot1({ w: 0, paints: refreshed }));
+    expect(homes()).toHaveLength(2);
+    expect(homes().at(-1)!.values).toEqual([0, 0, 0, 1, 1, 1]);
+    // While hidden, its record has flags 0, so the splat VS drops its particles.
+    expect(lastElements().values.slice(16)).toEqual(new Array(16).fill(0));
+    // Shown again: same generation, paints identity and count, so no new homes upload; the GPU homes name slot 1.
+    r.render(withSlot1({ w: 60, paints: refreshed }));
+    expect(homes()).toHaveLength(2);
+    expect(homes().at(-1)!.values).toEqual([0, 0, 0, 1, 1, 1]);
+    expect(flagsOf(lastElements(), 1)).toBe(1);
+    expect(lastElements().values[16 + 5]).toBeCloseTo(0.4, 5); // restAlpha < 1: the splat carries the liquid
+    expect(f.calls.errors).toEqual([]);
+  });
+
   // W71.4 review fix (Minor 4): the device gets the adapter's texture limit and T0 never exceeds it.
   it("given_an_adapter_texture_limit_of_4096_when_resized_beyond_it_then_the_device_requests_the_limit_and_T0_is_clamped_without_error", async () => {
     const f = gpu({ maxTextureDimension2D: 4096 });
