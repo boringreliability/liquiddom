@@ -23,6 +23,8 @@ export interface FakeGpuOptions {
   configureError?: Error;
   /** `popErrorScope()` resolves with `{ message }` instead of null. */
   validationError?: string;
+  /** W71.4 review fix: `adapter.limits.maxTextureDimension2D` (default 8192, the WebGPU default limit). */
+  maxTextureDimension2D?: number;
 }
 
 export interface FakeBuffer {
@@ -79,6 +81,8 @@ export interface FakePipeline {
 export interface FakeGpuCalls {
   requestAdapter: number;
   requestDevice: number;
+  /** W71.4 review fix: the descriptor of each `requestDevice()` call (undefined when called without one). */
+  deviceDescriptors: Array<GPUDeviceDescriptor | undefined>;
   configure: GPUCanvasConfiguration[];
   shaderModules: string[];
   bindGroupLayouts: GPUBindGroupLayoutDescriptor[];
@@ -119,18 +123,22 @@ const PREFERRED_FORMAT = "bgra8unorm";
 
 export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
   const calls: FakeGpuCalls = {
-    requestAdapter: 0, requestDevice: 0, configure: [], shaderModules: [], bindGroupLayouts: [], pipelines: [],
+    requestAdapter: 0, requestDevice: 0, deviceDescriptors: [], configure: [], shaderModules: [], bindGroupLayouts: [], pipelines: [],
     buffers: [], textures: [], bindGroups: [], writes: [], passes: [], submits: 0, deviceDestroyed: 0, log: [], errors: [],
   };
   const adapterError = new Error("adapter exploded");
   const deviceError = new Error("device exploded");
   const devices: Array<{ lose: (info: GPUDeviceLostInfo) => void; listeners: Array<(ev: unknown) => void> }> = [];
 
+  const adapterTextureLimit = opts.maxTextureDimension2D ?? 8192;
   const makeTexture = (
-    label: string | undefined, width: number, height: number, format: string, usage: number, record: boolean,
+    label: string | undefined, width: number, height: number, format: string, usage: number, record: boolean, limit = Infinity,
   ): FakeTexture => {
     if (record && !(Number.isInteger(width) && Number.isInteger(height) && width >= 1 && height >= 1)) {
       calls.errors.push(`createTexture(${label ?? ""}): size ${width}x${height}`);
+    }
+    if (record && (width > limit || height > limit)) {
+      calls.errors.push(`createTexture(${label ?? ""}): size ${width}x${height} exceeds maxTextureDimension2D ${limit}`);
     }
     const texture: FakeTexture = {
       label, width, height, format, usage, destroyed: false,
@@ -157,7 +165,9 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
     }
   };
 
-  const makeDevice = () => {
+  const makeDevice = (desc?: GPUDeviceDescriptor) => {
+    const requested = (desc?.requiredLimits as { maxTextureDimension2D?: number } | undefined)?.maxTextureDimension2D;
+    const textureLimit = requested ?? 8192;
     let lose: (info: GPUDeviceLostInfo) => void = () => {};
     const lost = new Promise<GPUDeviceLostInfo>((resolve) => {
       lose = resolve;
@@ -166,6 +176,7 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
     let destroyed = false;
     const device = {
       lost,
+      limits: { maxTextureDimension2D: textureLimit },
       queue: {
         submit: () => {
           calls.submits += 1;
@@ -218,7 +229,7 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
       createTexture: (d: GPUTextureDescriptor) => {
         const size = d.size as number[] | GPUExtent3DDict;
         const [w, h] = Array.isArray(size) ? [size[0] ?? 0, size[1] ?? 1] : [size.width, size.height ?? 1];
-        return makeTexture(d.label, w, h, d.format, d.usage, true);
+        return makeTexture(d.label, w, h, d.format, d.usage, true, textureLimit);
       },
       createBindGroup: (d: GPUBindGroupDescriptor) => {
         checkBindGroup("createBindGroup", d);
@@ -275,11 +286,14 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
   const adapter = {
     info: { vendor: "fake", architecture: "", device: "", description: "", isFallbackAdapter: opts.isFallbackAdapter === true },
     features: new Set<string>(),
-    limits: {},
-    requestDevice: async () => {
+    limits: { maxTextureDimension2D: adapterTextureLimit },
+    requestDevice: async (desc?: GPUDeviceDescriptor) => {
       calls.requestDevice += 1;
+      calls.deviceDescriptors.push(desc);
       if (opts.device === "rejects") throw deviceError;
-      return makeDevice();
+      const requested = (desc?.requiredLimits as { maxTextureDimension2D?: number } | undefined)?.maxTextureDimension2D;
+      if (requested !== undefined && requested > adapterTextureLimit) throw new Error("requiredLimits exceed the adapter");
+      return makeDevice(desc);
     },
   };
   const gpu = {

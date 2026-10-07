@@ -188,4 +188,13 @@ describe("W71 gpu-buffers", () => {
     packElements(frame({ reducedMotion: true }), out);
     expectRecord(record(out, 1), [305, 97, 100, 40, 8]);
   });
+
+  // W71.4 review fix (Minor 6): a non-finite or out-of-range 8-bit channel is packed finite in [0, 1].
+  it("given_nan_negative_and_over_255_background_channels_when_packElements_then_rgb_is_finite_and_clamped_to_0_1", () => {
+    const out = new Float32Array(SLOTS * ELEMENT_GPU_FLOATS);
+    const odd = [paint(0, [Number.NaN, -1, 300, 1], 4), paint(1, BLUE, 9), undefined, undefined];
+    packElements(frame({ paints: odd }), out);
+    const r0 = record(out, 0);
+    expect([r0[EG.R], r0[EG.G], r0[EG.B]]).toEqual([0, 0, 1]);
+  });
 });

@@ -26,6 +26,10 @@ export const VIEW_UNIFORM_FLOATS = 8;
 export const MIN_BUFFER_BYTES = 16;
 const ELEMENT_GPU_BYTES = ELEMENT_GPU_FLOATS * 4;
 const CLEAR: GPUColorDict = { r: 0, g: 0, b: 0, a: 0 };
+/** The WebGPU default `maxTextureDimension2D`, used when the device does not report one. */
+const DEFAULT_MAX_TEXTURE_DIMENSION_2D = 8192;
+/** Stands in for a view in the reused pass descriptors until the first allocateTargets()/render() sets it. */
+const PLACEHOLDER_VIEW = null as unknown as GPUTextureView;
 
 export const ADDITIVE_BLEND: GPUBlendState = {
   color: { srcFactor: "one", dstFactor: "one", operation: "add" },
@@ -168,6 +172,17 @@ export class WebGPURenderer implements Renderer {
   private uploadedGeneration = Number.NaN;
   private uploadedPaints: RenderFrame["paints"] | null = null;
   private uploadedHomeCount = -1;
+  /** Rest records `[0, n)` uploaded last frame; a record that stops being drawable is zeroed once (W71.4 review, Minor 1). */
+  private uploadedSlots = 0;
+  private maxTextureDim = DEFAULT_MAX_TEXTURE_DIMENSION_2D;
+  /** Render-pass descriptors are reused; render() and allocateTargets() set only the views (W71.4 review, Minor 3). */
+  private readonly t0Attachment: GPURenderPassColorAttachment = { view: PLACEHOLDER_VIEW, clearValue: CLEAR, loadOp: "clear", storeOp: "store" };
+  private readonly t0AlphaAttachment: GPURenderPassColorAttachment = { view: PLACEHOLDER_VIEW, clearValue: CLEAR, loadOp: "clear", storeOp: "store" };
+  private readonly screenAttachment: GPURenderPassColorAttachment = { view: PLACEHOLDER_VIEW, clearValue: CLEAR, loadOp: "clear", storeOp: "store" };
+  private readonly splatPass: GPURenderPassDescriptor = { label: "liquiddom splat", colorAttachments: [this.t0Attachment, this.t0AlphaAttachment] };
+  private readonly screenPass: GPURenderPassDescriptor = { label: "liquiddom screen", colorAttachments: [this.screenAttachment] };
+  private readonly encoderDescriptor: GPUCommandEncoderDescriptor = { label: "liquiddom frame" };
+  private readonly submitList: GPUCommandBuffer[] = [];
   private lost = false;
   private warnedLost = false;
   private reportedGpuError = false;
@@ -204,7 +219,12 @@ export class WebGPURenderer implements Renderer {
     this.fallbackAdapter = adapterIsFallback(adapter);
     let device: GPUDevice;
     try {
-      device = await adapter.requestDevice();
+      // W71.4 review (Minor 4): the default limit is 8192 px; a wide backing at dpr 2 exceeds it.
+      const adapterLimit = adapter.limits?.maxTextureDimension2D;
+      device =
+        typeof adapterLimit === "number" && Number.isFinite(adapterLimit) && adapterLimit > 0
+          ? await adapter.requestDevice({ requiredLimits: { maxTextureDimension2D: adapterLimit } })
+          : await adapter.requestDevice();
     } catch (cause) {
       throw new WebGPUUnavailableError("requestDevice rejected", { cause });
     }
@@ -235,6 +255,11 @@ export class WebGPURenderer implements Renderer {
       this.pipelines = pipelines;
       this.sampler = sampler;
       this.viewBuffer = viewBuffer;
+      const deviceLimit = device.limits?.maxTextureDimension2D;
+      this.maxTextureDim =
+        typeof deviceLimit === "number" && Number.isFinite(deviceLimit) && deviceLimit >= 1
+          ? Math.floor(deviceLimit)
+          : DEFAULT_MAX_TEXTURE_DIMENSION_2D;
       this.lost = false;
       const owned = device;
       void device.lost.then((info) => this.onDeviceLost(owned, info));
@@ -278,7 +303,13 @@ export class WebGPURenderer implements Renderer {
       this.uploadedHomeCount = count;
     }
     const slots = packElements(frame, this.elementScratch);
-    if (slots > 0) queue.writeBuffer(elementBuffer, 0, this.elementScratch, 0, slots * ELEMENT_GPU_FLOATS);
+    // Records past `slots` are not drawable. Upload through last frame's count too, zeroed, so a
+    // record that just stopped being drawable (unpainted or w = 0 before the redistribute bump,
+    // while the homes on the GPU may still name it) gets flags 0 instead of staying stale.
+    const upload = Math.min(Math.max(slots, this.uploadedSlots), this.bufferSlots);
+    if (upload > slots) this.elementScratch.fill(0, slots * ELEMENT_GPU_FLOATS, upload * ELEMENT_GPU_FLOATS);
+    if (upload > 0) queue.writeBuffer(elementBuffer, 0, this.elementScratch, 0, upload * ELEMENT_GPU_FLOATS);
+    this.uploadedSlots = slots;
     const v = this.viewScratch;
     const dpr = frame.viewport.dpr;
     v[0] = frame.viewport.widthCss;
@@ -291,24 +322,16 @@ export class WebGPURenderer implements Renderer {
     v[7] = 0;
     queue.writeBuffer(viewBuffer, 0, v);
 
-    const encoder = device.createCommandEncoder({ label: "liquiddom frame" });
-    const splat = encoder.beginRenderPass({
-      label: "liquiddom splat",
-      colorAttachments: [
-        { view: t0View, clearValue: CLEAR, loadOp: "clear", storeOp: "store" },
-        { view: t0AlphaView, clearValue: CLEAR, loadOp: "clear", storeOp: "store" },
-      ],
-    });
+    const encoder = device.createCommandEncoder(this.encoderDescriptor);
+    const splat = encoder.beginRenderPass(this.splatPass);
     if (count > 0) {
       splat.setPipeline(pipelines.splat);
       splat.setBindGroup(0, splatGroup);
       splat.draw(6, count);
     }
     splat.end();
-    const screen = encoder.beginRenderPass({
-      label: "liquiddom screen",
-      colorAttachments: [{ view: ctx.getCurrentTexture().createView(), clearValue: CLEAR, loadOp: "clear", storeOp: "store" }],
-    });
+    this.screenAttachment.view = ctx.getCurrentTexture().createView();
+    const screen = encoder.beginRenderPass(this.screenPass);
     screen.setPipeline(pipelines.composite);
     screen.setBindGroup(0, compositeGroup);
     screen.draw(3);
@@ -318,7 +341,8 @@ export class WebGPURenderer implements Renderer {
       screen.draw(6, slots);
     }
     screen.end();
-    queue.submit([encoder.finish()]);
+    this.submitList[0] = encoder.finish();
+    queue.submit(this.submitList);
   }
 
   destroy(): void {
@@ -328,12 +352,19 @@ export class WebGPURenderer implements Renderer {
     device?.destroy();
   }
 
-  /** T0 and T0a at ceil(backing px · t0Scale), at least 1×1; the composite bind group follows them. */
+  /**
+   * T0 and T0a at ceil(backing px · t0Scale), at least 1×1 and at most the device's
+   * maxTextureDimension2D (the composite samples T0 in normalised coordinates, so a clamped T0
+   * still covers the canvas, at a lower resolution). The swapchain is sized by the runtime
+   * (canvas.width/height); init requests the adapter's limit so a wide backing at dpr 2 fits.
+   * The composite bind group and the splat pass views follow them.
+   */
   private allocateTargets(): void {
     const { device, pipelines, sampler, viewBuffer } = this;
     if (!device || !pipelines || !sampler || !viewBuffer) return;
-    const w = Math.max(1, Math.ceil(this.widthPx * this.t0Scale));
-    const h = Math.max(1, Math.ceil(this.heightPx * this.t0Scale));
+    const max = this.maxTextureDim;
+    const w = Math.min(max, Math.max(1, Math.ceil(this.widthPx * this.t0Scale)));
+    const h = Math.min(max, Math.max(1, Math.ceil(this.heightPx * this.t0Scale)));
     if (this.t0 && w === this.t0Width && h === this.t0Height) return;
     this.t0?.destroy();
     this.t0Alpha?.destroy();
@@ -342,6 +373,8 @@ export class WebGPURenderer implements Renderer {
     this.t0Alpha = device.createTexture({ label: "liquiddom T0a", size: [w, h], format: T0_ALPHA_FORMAT, usage });
     this.t0View = this.t0.createView();
     this.t0AlphaView = this.t0Alpha.createView();
+    this.t0Attachment.view = this.t0View;
+    this.t0AlphaAttachment.view = this.t0AlphaView;
     this.t0Width = w;
     this.t0Height = h;
     this.compositeGroup = device.createBindGroup({
@@ -385,6 +418,7 @@ export class WebGPURenderer implements Renderer {
     this.uploadedGeneration = Number.NaN;
     this.uploadedPaints = null;
     this.uploadedHomeCount = -1;
+    this.uploadedSlots = 0;
     this.splatGroup = device.createBindGroup({
       label: "liquiddom splat",
       layout: pipelines.splatLayout,
@@ -434,6 +468,12 @@ export class WebGPURenderer implements Renderer {
     this.uploadedGeneration = Number.NaN;
     this.uploadedPaints = null;
     this.uploadedHomeCount = -1;
+    this.uploadedSlots = 0;
+    this.maxTextureDim = DEFAULT_MAX_TEXTURE_DIMENSION_2D;
+    this.t0Attachment.view = PLACEHOLDER_VIEW;
+    this.t0AlphaAttachment.view = PLACEHOLDER_VIEW;
+    this.screenAttachment.view = PLACEHOLDER_VIEW;
+    this.submitList.length = 0;
   }
 
   /** W72 (D72-3) turns this into the Canvas2D rebuild; W71 warns once and stops drawing. Our own destroy() is silent. */
@@ -447,9 +487,9 @@ export class WebGPURenderer implements Renderer {
     console.warn(`[liquiddom] WebGPU device lost (${info.message}); the liquid is no longer drawn.`);
   }
 
-  /** A GPU validation error at runtime is a bug: one console.error (the first), never a flood. */
+  /** A GPU validation error at runtime is a bug: one console.error (the first), never a flood; none after a loss. */
   private onGpuError(owned: GPUDevice, ev: GPUUncapturedErrorEvent): void {
-    if (this.device !== owned || this.reportedGpuError) return;
+    if (this.device !== owned || this.lost || this.reportedGpuError) return;
     this.reportedGpuError = true;
     console.error(`[liquiddom] WebGPU error: ${ev.error.message}`);
   }

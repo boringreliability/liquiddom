@@ -371,4 +371,67 @@ describe("W71: WebGPURenderer", () => {
     r.render(sceneFrame());
     expect(f.calls.passes).toHaveLength(passes);
   });
+
+  // W71.4 review fix (Minor 1): a record that stops being drawable is cleared on the GPU, whatever its slot.
+  it("given_the_highest_drawable_slot_becomes_inactive_or_unpainted_without_a_generation_bump_when_rendering_then_its_record_is_uploaded_with_flags_0", async () => {
+    const f = gpu();
+    const r = await ready();
+    const two: ReadonlyArray<ElementPaint | undefined> = [paint(0), paint(1)];
+    const withSlot1 = (o: { w?: number; paints?: ReadonlyArray<ElementPaint | undefined> } = {}): RenderFrame => {
+      const fr = sceneFrame({ generation: 3, paints: o.paints ?? two });
+      fr.elementView.set([300, 100, 60, 40, 8, 0, 0, 0, Number.NaN, Number.NaN], ELEMENT_STRIDE);
+      fr.elementView[ELEMENT_STRIDE + 2] = o.w ?? 60;
+      for (let i = 3; i < CAP; i++) fr.staticView[i] = 1; // particles 3.. live in slot 1
+      return fr;
+    };
+    const lastElements = () => writesTo("liquiddom elements", f.calls.writes).at(-1)!;
+    const flagsOf = (w: FakeWrite, slot: number) => w.values[slot * 16 + 12];
+    r.render(withSlot1());
+    expect(lastElements().bytes).toBe(128);
+    expect(flagsOf(lastElements(), 1)).toBe(1);
+    // display:none: w = 0, same generation and paints, so the homes on the GPU still point at slot 1.
+    r.render(withSlot1({ w: 0 }));
+    expect(writesTo("liquiddom homes", f.calls.writes)).toHaveLength(1);
+    expect(lastElements().bytes).toBe(128);
+    expect(lastElements().values.slice(16)).toEqual(new Array(16).fill(0));
+    // Drawn again, then its paint removed (a shorter paints array) without a generation bump.
+    r.render(withSlot1());
+    expect(flagsOf(lastElements(), 1)).toBe(1);
+    r.render(withSlot1({ paints: [paint(0)] }));
+    expect(lastElements().bytes).toBe(128);
+    expect(lastElements().values.slice(16)).toEqual(new Array(16).fill(0));
+    expect(f.calls.passes.at(-1)!.draws.map((d) => [d.vertexCount, d.instanceCount])).toEqual([[3, 1], [6, 1]]);
+    // Once cleared, the record is not uploaded again.
+    r.render(withSlot1({ paints: [paint(0)] }));
+    expect(lastElements().bytes).toBe(64);
+    expect(f.calls.errors).toEqual([]);
+  });
+
+  // W71.4 review fix (Minor 4): the device gets the adapter's texture limit and T0 never exceeds it.
+  it("given_an_adapter_texture_limit_of_4096_when_resized_beyond_it_then_the_device_requests_the_limit_and_T0_is_clamped_without_error", async () => {
+    const f = gpu({ maxTextureDimension2D: 4096 });
+    const r = new WebGPURenderer({ t0Scale: 1 });
+    await r.init(document.createElement("canvas"));
+    r.resize(10000, 3000, 1);
+    expect(f.calls.deviceDescriptors.at(-1)?.requiredLimits).toEqual({ maxTextureDimension2D: 4096 });
+    for (const t of f.calls.textures) {
+      expect(t.width).toBeLessThanOrEqual(4096);
+      expect(t.height).toBeLessThanOrEqual(4096);
+    }
+    expect(t0Textures(f).at(-1)!.width).toBe(4096);
+    expect(t0Textures(f).at(-1)!.height).toBe(3000);
+    expect(f.calls.errors).toEqual([]);
+  });
+
+  // W71.4 review fix (Minor 5): after a loss, uncaptured errors are not reported.
+  it("given_an_external_device_loss_when_an_uncaptured_error_fires_afterwards_then_no_console_error", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const f = gpu();
+    await ready();
+    f.loseDevice("gpu reset");
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1));
+    f.fireUncapturedError("after the loss");
+    expect(error).not.toHaveBeenCalled();
+  });
 });

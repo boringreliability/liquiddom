@@ -7,6 +7,13 @@
  */
 import { DENSITY_THRESHOLD, EDGE_SOFTNESS, KERNEL_RADIUS_CAP_PX } from "../kernel-params";
 
+/**
+ * Upper bound of the composite's fwidth-widened edge half-width (density units). It stays below
+ * DENSITY_THRESHOLD, so `threshold − soft > 0` and a near-zero Σw never gets coverage (no halo
+ * around steep, dense blobs at a low dpr or t0Scale; W71.4 review, Minor 2).
+ */
+export const EDGE_SOFTNESS_MAX = 0.45;
+
 /** A JS number as a WGSL f32 literal (`8` → `8.0`). */
 function f32(v: number): string {
   return Number.isInteger(v) ? `${v}.0` : String(v);
@@ -133,6 +140,7 @@ export const COMPOSITE_WGSL = /* wgsl */ `
 ${VIEW_WGSL}
 const DENSITY_THRESHOLD: f32 = ${f32(DENSITY_THRESHOLD)};
 const EDGE_SOFTNESS: f32 = ${f32(EDGE_SOFTNESS)};
+const EDGE_SOFTNESS_MAX: f32 = ${f32(EDGE_SOFTNESS_MAX)};
 const SUM_W_EPS: f32 = 1e-4;
 
 @group(0) @binding(0) var<uniform> view: View;
@@ -152,7 +160,7 @@ fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let acc = textureSample(t0, t0_sampler, uv);
   let acc_alpha = textureSample(t0_alpha, t0_sampler, uv).r;
   let sum_w = acc.a;
-  let soft = max(EDGE_SOFTNESS, 0.75 * fwidth(sum_w));
+  let soft = clamp(0.75 * fwidth(sum_w), EDGE_SOFTNESS, EDGE_SOFTNESS_MAX);
   let coverage = smoothstep(DENSITY_THRESHOLD - soft, DENSITY_THRESHOLD + soft, sum_w);
   let inv = 1.0 / max(sum_w, SUM_W_EPS);
   let rgb = clamp(acc.rgb * inv, vec3f(0.0), vec3f(1.0));

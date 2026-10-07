@@ -36,4 +36,10 @@ describe("W71 WGSL sources", () => {
     expect(REST_WGSL).toContain("coverage * in.shape.w * clamp(in.color.a, 0.0, 1.0)");
     expect(REST_WGSL).toContain("return vec4f(in.color.rgb * alpha, alpha);");
   });
+
+  // W71.4 review fix (Minor 2): the fwidth-widened edge never reaches Σw = 0 (no halo around steep blobs).
+  it("given_COMPOSITE_WGSL_when_read_then_the_edge_softness_is_clamped_below_the_threshold", () => {
+    expect(COMPOSITE_WGSL).toContain("const EDGE_SOFTNESS_MAX: f32 = 0.45;");
+    expect(COMPOSITE_WGSL).toContain("clamp(0.75 * fwidth(sum_w), EDGE_SOFTNESS, EDGE_SOFTNESS_MAX)");
+  });
 });
