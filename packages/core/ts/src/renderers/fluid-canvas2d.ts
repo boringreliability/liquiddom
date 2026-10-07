@@ -10,12 +10,8 @@
  * from `ctx.createImageData`.
  */
 import { Dyn, type HomeRect, homeRectInto, St, STATE_STRIDE, Stat } from "../fluid-layout";
-import {
-  DEFAULT_SCALE_PX,
-  DensityGrid,
-  KERNEL_RADIUS_CAP_PX,
-  KERNEL_RADIUS_PER_SPACING,
-} from "./density-grid";
+import { DEFAULT_SCALE_PX, DensityGrid } from "./density-grid";
+import { kernelRadiusPx } from "./kernel-params";
 import type { ElementPaint, RenderFrame, Renderer } from "./frame";
 
 const clamp01 = (v: number): number => (v > 0 ? (v < 1 ? v : 1) : 0);
@@ -97,7 +93,7 @@ export class FluidCanvas2DRenderer implements Renderer {
       // in on top at restAlpha, so there is no translucent dip mid-transition (W69: ~151/255 at
       // restAlpha 0.58, the pale flash on hover and at the end of a re-form).
       if (!(clamp01(state[id * STATE_STRIDE + St.REST_ALPHA]) < 1)) continue;
-      const radius = Math.min(KERNEL_RADIUS_PER_SPACING * paint.spacingPx, KERNEL_RADIUS_CAP_PX);
+      const radius = kernelRadiusPx(paint.spacingPx);
       grid.splat(
         dyn[Dyn.X * cap + i],
         dyn[Dyn.Y * cap + i],

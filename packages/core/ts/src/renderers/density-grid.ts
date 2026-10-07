@@ -5,12 +5,10 @@
  * at the rect edge. Pure: no DOM, no canvas.
  */
 import type { RGBA } from "../color";
+import { DENSITY_THRESHOLD, EDGE_SOFTNESS, KERNEL_RADIUS_CAP_PX } from "./kernel-params";
 
-export const KERNEL_RADIUS_CAP_PX = 8;
-export const KERNEL_RADIUS_PER_SPACING = 2.3;
-export const DENSITY_THRESHOLD = 0.5;
-/** Half-width of the smoothstep that anti-aliases the silhouette edge. */
-export const EDGE_SOFTNESS = 0.1;
+// W71 (D71-5): the kernel constants live in kernel-params.ts, shared with the WebGPU splat pass.
+export { DENSITY_THRESHOLD, EDGE_SOFTNESS, KERNEL_RADIUS_CAP_PX, KERNEL_RADIUS_PER_SPACING } from "./kernel-params";
 /** CSS px per density cell. */
 export const DEFAULT_SCALE_PX = 2;
 
