@@ -195,3 +195,9 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D71-4 | T0 render scale: default 0.5×, Dennis picks 0.5× vs 0.75× at W71 gold | W71 | dec_abea49e1 |
 | D71-5 | Shared kernel params: 2.3 per spacing, cap 8 px, one module for both renderers | W71 | dec_0beb7f91 |
 | D71-6 | WebGPU cross-fade: the D70-4 rule (full splat weight while restAlpha < 1, SDF overlay at restAlpha) | W71 | dec_ca46b6f0 |
+| D72-1 | auto probes WebGPU, Canvas2D fallback on unavailable / fallback adapter / unusable surface | W72 | dec_bf2c2cd7 |
+| D72-2 | Explicit 'webgpu' accepts a fallback adapter; unavailable (incl. unusable surface) rejects | W72 | dec_3d5229fc |
+| D72-3 | device.lost → Canvas2D rebuild in place; own destroy() detected by identity, not reason | W72 | dec_a401fee4 |
+| D72-4 | Overdraw estimated (quads × area) and logged, never gated | W72 | dec_ff66ee6c |
+| D72-5 | DOM-text halo stays in slice 4 | W72 | dec_cdf33632 |
+| D72-6 | WebGPU e2e for container mode, multi-instance and DPR 2 (W71 ward review M4) | W72 | dec_2350df52 |
