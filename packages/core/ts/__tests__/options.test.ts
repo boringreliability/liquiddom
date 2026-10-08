@@ -129,11 +129,12 @@ describe("W66 T1: resolveOptions", () => {
     expect(typeErrorOf(() => resolveOptions({ renderer: "webgl" as "auto" })).message).toMatch(/renderer/);
   });
 
-  it("given_boolean_options_when_non_boolean_then_TypeError_and_silentFallback_is_validated_only", () => {
+  // W72 red: approved-test change (Dennis approves at W72 red)
+  it("given_boolean_options_when_non_boolean_then_TypeError_and_silentFallback_is_resolved", () => {
     expect(typeErrorOf(() => resolveOptions({ autoObserve: "yes" as unknown as boolean })).message).toMatch(/autoObserve/);
     expect(typeErrorOf(() => resolveOptions({ forceReducedMotion: 1 as unknown as boolean })).message).toMatch(/forceReducedMotion/);
     expect(typeErrorOf(() => resolveOptions({ silentFallback: "true" as unknown as boolean })).message).toMatch(/silentFallback/);
-    // B13: in slices 1–2 nothing reads silentFallback (no fallback log exists); it is only validated.
+    // W72 (D72-1): silentFallback hides the one console.info of an 'auto' fallback (B13 ended).
     expect(resolveOptions({ silentFallback: true }).silentFallback).toBe(true);
     expect(resolveOptions({ autoObserve: false, forceReducedMotion: true }).forceReducedMotion).toBe(true);
   });
@@ -164,6 +165,12 @@ describe("W66 T1: resolveOptions", () => {
     for (const bad of [0, -0.5, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "0.5"]) {
       expect(typeErrorOf(() => resolveOptions({ webgpuT0Scale: bad as number })).message).toMatch(/webgpuT0Scale/);
     }
+  });
+
+  it("given_webgpuT0Scale_0_24_or_0_25_when_resolved_then_0_24_is_a_TypeError_naming_the_range_and_0_25_is_accepted_M2", () => {
+    // W71 ward-review M2: the @internal T0 scale has a floor; [0.25, 1] in the options and in the renderer.
+    expect(typeErrorOf(() => resolveOptions({ webgpuT0Scale: 0.24 })).message).toMatch(/webgpuT0Scale.*\[0\.25, 1\]/);
+    expect(resolveOptions({ webgpuT0Scale: 0.25 }).webgpuT0Scale).toBe(0.25);
   });
 });
 

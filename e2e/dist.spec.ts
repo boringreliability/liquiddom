@@ -9,6 +9,7 @@
  *   adapter, then the example with --ignore-scripts; pkg/ must exist).
  * - The spec owns its server (Vite preview API on DIST_PORT), so the canvas2d,
  *   webgpu and perf runs never need the example build.
+ * - W72: 'auto' probes WebGPU; in the headless shell it falls back to Canvas2D (one console.info).
  * The W65 guard fixture fails the test on any console.error, pageerror or panic.
  */
 import { existsSync } from "node:fs";
@@ -20,6 +21,7 @@ import { DIST_EXAMPLE_ROOT, DIST_PORT } from "./projects";
 const ROOT = process.cwd();
 const EXAMPLE = resolve(ROOT, DIST_EXAMPLE_ROOT);
 const DIST_URL = `http://localhost:${DIST_PORT}/`;
+const FALLBACK_INFO_PREFIX = "[liquiddom] WebGPU is not available";
 const BUILT = [
   "packages/core/dist/index.js",
   "packages/core/dist/wasm-loader.js",
@@ -51,6 +53,14 @@ test.afterAll(async () => {
 
 test("given the React example built against the published core dist when served by vite preview then create() resolves, canvas.liquid-canvas exists, the wasm is fetched and no console error occurs", async ({ page }, testInfo) => {
   const wasm: Array<{ url: string; status: number; type: string }> = [];
+  // W72 red: approved-test change (Dennis approves at W72 red): fallback-info assertions added
+  // W72 (D72-1): the example uses the default renderer 'auto'. The dist project runs the
+  // headless shell (no hardware WebGPU), so the instance falls back to Canvas2D with one
+  // console.info, and the fallback remount still leaves exactly one canvas.liquid-canvas.
+  const fallbackInfos: string[] = [];
+  page.on("console", (m) => {
+    if (m.type() === "info" && m.text().startsWith(FALLBACK_INFO_PREFIX)) fallbackInfos.push(m.text());
+  });
   page.on("response", (r) => {
     if (new URL(r.url()).pathname.endsWith(".wasm")) {
       wasm.push({ url: r.url(), status: r.status(), type: r.headers()["content-type"] ?? "" });
@@ -61,6 +71,8 @@ test("given the React example built against the published core dist when served 
   // App.tsx sets data-liquid-ready once useLiquid() returns the instance, i.e. after create() resolved.
   await expect(page.locator("main[data-liquid-ready='true']")).toHaveCount(1, { timeout: 15_000 });
   await expect(page.locator("canvas.liquid-canvas")).toHaveCount(1);
+  expect(fallbackInfos.length, `fallback infos: ${fallbackInfos.join(" | ")}`).toBeLessThanOrEqual(1);
+  testInfo.annotations.push({ type: "renderer", description: fallbackInfos.length === 1 ? "canvas2d (auto fallback)" : "webgpu (hardware adapter)" });
   await expect(page.locator(".liquid-element")).toHaveCount(2); // useLiquidRef pill + LiquidElement pill
 
   expect(wasm.length, "the published dist fetched its .wasm at runtime").toBeGreaterThan(0);

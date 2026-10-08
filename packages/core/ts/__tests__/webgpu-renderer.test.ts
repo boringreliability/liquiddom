@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { T0_SCALE_DEFAULT, WebGPURenderer } from "../src/renderers/webgpu/webgpu-renderer";
+import { T0_SCALE_DEFAULT, WebGPURenderer, type WebGPURendererOptions } from "../src/renderers/webgpu/webgpu-renderer";
 import { WebGPUUnavailableError } from "../src/renderers/webgpu/errors";
 import { WebGPUUnavailableError as BarrelError } from "../src/index";
 import { COMPOSITE_WGSL, REST_WGSL, SPLAT_WGSL } from "../src/renderers/webgpu/shaders";
@@ -71,7 +71,7 @@ function sceneFrame(
 }
 const emptyFrame = (): RenderFrame => sceneFrame({ active: 0, paints: [undefined, undefined] });
 
-async function ready(opts: { t0Scale?: number } = {}): Promise<WebGPURenderer> {
+async function ready(opts: WebGPURendererOptions = {}): Promise<WebGPURenderer> {
   const r = new WebGPURenderer(opts);
   await r.init(document.createElement("canvas"));
   r.resize(800, 600, 2);
@@ -137,9 +137,11 @@ describe("W71: WebGPURenderer", () => {
     expect(f.calls.configure).toEqual([expect.objectContaining({ format: "bgra8unorm", alphaMode: "premultiplied" })]);
     const log = f.calls.log;
     expect(log[0]).toBe("pushErrorScope:validation");
-    expect(log.filter((l) => l.startsWith("pushErrorScope")), "one scope, pushed once and popped once").toHaveLength(1);
-    expect(log.lastIndexOf("createRenderPipeline")).toBeLessThan(log.indexOf("popErrorScope"));
-    expect(log.filter((l) => l === "popErrorScope")).toHaveLength(1);
+    // W72 red: approved-test change (Dennis approves at W72 red)
+    // W72 (D72-1/D72-2, approved-test change): the surface scope comes first, then the pipeline scope.
+    expect(log.filter((l) => l.startsWith("pushErrorScope")), "two scopes: surface, then pipelines").toHaveLength(2);
+    expect(log.lastIndexOf("createRenderPipeline")).toBeLessThan(log.lastIndexOf("popErrorScope"));
+    expect(log.filter((l) => l === "popErrorScope")).toHaveLength(2);
     expect(f.calls.shaderModules).toEqual([SPLAT_WGSL, COMPOSITE_WGSL, REST_WGSL]);
     expect(f.calls.pipelines).toHaveLength(3);
     const descs = f.calls.pipelines.map((p) => p.descriptor);
@@ -313,29 +315,36 @@ describe("W71: WebGPURenderer", () => {
     expect(f.calls.submits).toBe(1);
   });
 
-  it("given_device_lost_with_reason_unknown_when_rendering_then_one_console_warn_and_render_is_a_noop_and_our_own_destroy_is_silent_but_an_external_destroyed_loss_warns", async () => {
+  // W72 red: approved-test change (Dennis approves at W72 red)
+  it("given_device_lost_with_reason_unknown_when_rendering_then_onDeviceLost_once_render_is_a_noop_our_own_destroy_is_silent_an_external_destroyed_loss_is_reported_and_nothing_is_warned_W72", async () => {
+    // W72 (D72-3, approved-test change): the renderer reports a loss through onDeviceLost; the runtime owns the one console.warn.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const f = gpu();
-    const r = await ready();
+    const lost = vi.fn();
+    const r = await ready({ onDeviceLost: lost });
     f.loseDevice("gpu reset");
-    await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1));
-    expect(String(warn.mock.calls[0]![0])).toMatch(/device lost.*gpu reset/);
+    await vi.waitFor(() => expect(lost).toHaveBeenCalledTimes(1));
+    expect(lost.mock.calls[0]![0]).toMatchObject({ reason: "unknown", message: "gpu reset" });
     r.render(sceneFrame());
     r.render(sceneFrame());
     expect(f.calls.passes).toHaveLength(0);
-    const other = await ready();
-    other.destroy(); // resolves that device's `lost` with reason "destroyed"
+    const otherLost = vi.fn();
+    const other = await ready({ onDeviceLost: otherLost });
+    other.destroy(); // resolves that device's `lost` with reason "destroyed": our own, never reported
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(warn).toHaveBeenCalledTimes(1);
+    expect(otherLost).not.toHaveBeenCalled();
     // W71.0 finding: on the CI runner Chromium itself lost devices with reason "destroyed". Only our own
     // destroy() is silent (device identity, not the reason); an external "destroyed" loss is a real loss.
-    const ext = await ready();
+    const extLost = vi.fn();
+    const ext = await ready({ onDeviceLost: extLost });
     f.loseDevice("external: Device was destroyed.", "destroyed");
-    await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(2));
-    expect(String(warn.mock.calls[1]![0])).toMatch(/device lost.*external: Device was destroyed\./);
+    await vi.waitFor(() => expect(extLost).toHaveBeenCalledTimes(1));
+    expect(extLost.mock.calls[0]![0]).toMatchObject({ reason: "destroyed", message: "external: Device was destroyed." });
     const passes = f.calls.passes.length;
     ext.render(sceneFrame());
     expect(f.calls.passes).toHaveLength(passes);
+    expect(lost).toHaveBeenCalledTimes(1);
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it("given_uncaptured_gpu_errors_when_they_fire_then_exactly_one_console_error_names_the_first", async () => {
@@ -461,12 +470,14 @@ describe("W71: WebGPURenderer", () => {
 
   // W71.4 review fix (Minor 5): after a loss, uncaptured errors are not reported.
   it("given_an_external_device_loss_when_an_uncaptured_error_fires_afterwards_then_no_console_error", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // W72 red: approved-test change (Dennis approves at W72 red)
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const f = gpu();
-    await ready();
+    const lost = vi.fn();
+    await ready({ onDeviceLost: lost });
     f.loseDevice("gpu reset");
-    await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1));
+    // W72 (D72-3, approved-test change): the loss is reported through onDeviceLost, not warned.
+    await vi.waitFor(() => expect(lost).toHaveBeenCalledTimes(1));
     f.fireUncapturedError("after the loss");
     expect(error).not.toHaveBeenCalled();
   });

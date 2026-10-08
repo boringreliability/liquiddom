@@ -36,6 +36,11 @@ describe("W65 acceptance scene params", () => {
     expect(p.seed).toBe(4294967295);
   });
 
+  it("given_renderer_auto_when_parsed_then_renderer_is_auto", () => {
+    // W72 (D72-1): the scene can run the 'auto' probe (webgpu on a hardware adapter, else canvas2d).
+    expect(parseSceneParams("?renderer=auto&test=1").renderer).toBe("auto");
+  });
+
   it.each([
     "?seed=-1",
     "?seed=1.5",
@@ -43,7 +48,7 @@ describe("W65 acceptance scene params", () => {
     "?seed=",
     "?seed=4294967296",
     "?clock=fast",
-    "?renderer=auto",
+    // W72 red: approved-test change (Dennis approves at W72 red): "?renderer=auto" is valid since W72 (D72-1)
     "?renderer=webgl",
     "?t0=0.5",
     "?renderer=canvas2d&t0=0.5",

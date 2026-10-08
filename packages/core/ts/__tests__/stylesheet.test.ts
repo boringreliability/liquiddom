@@ -11,7 +11,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { LiquidDOM } from "../src/index";
 import {
   CANVAS_CLASS, ELEMENT_CLASS, LIQUID_CSS, STACK_ATTR, STYLE_ELEMENT_ID,
-  acquireLiquidStyles, stackingFor,
+  acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas, stackingFor,
 } from "../src/stylesheet";
 import { ElementRegistry } from "../src/element-registry";
 import { FluidBridge } from "../src/fluid-bridge";
@@ -267,5 +267,48 @@ describe("W66 T2: colour snapshot and refresh", () => {
     document.body.appendChild(el);
     registry.observe(el);
     expect(recordOf(registry, el).background).toEqual(DEFAULT_LIQUID_COLOR);
+  });
+});
+
+describe("W72: canvas remount (D72-1, D72-3)", () => {
+  it("given_a_mounted_canvas_in_body_when_remounted_then_a_new_canvas_takes_its_place_with_identical_markup", () => {
+    const before = document.body.appendChild(document.createElement("p"));
+    const old = mountLiquidCanvas();
+    const after = document.body.appendChild(document.createElement("p"));
+    old.width = 640;
+    const fresh = remountLiquidCanvas(old);
+    expect(fresh).not.toBe(old);
+    expect(old.isConnected).toBe(false);
+    expect(fresh.previousSibling).toBe(before);
+    expect(fresh.nextSibling).toBe(after);
+    const reference = mountLiquidCanvas();
+    expect(fresh.outerHTML).toBe(reference.outerHTML);
+    expect(fresh.className).toBe(CANVAS_CLASS);
+    expect(fresh.getAttribute("aria-hidden")).toBe("true");
+    expect(fresh.style.position).toBe("fixed");
+    expect(fresh.style.pointerEvents).toBe("none");
+    expect(fresh.style.zIndex).toBe("0");
+    expect(fresh.width).toBe(300); // backing-store size is the runtime's job (resize), not the remount's
+  });
+
+  it("given_container_mode_when_remounted_then_the_new_canvas_is_in_the_container_with_absolute_style", () => {
+    const container = document.body.appendChild(document.createElement("div"));
+    const old = mountLiquidCanvas(container);
+    const fresh = remountLiquidCanvas(old, container);
+    expect(fresh.parentElement).toBe(container);
+    expect(container.querySelectorAll("canvas")).toHaveLength(1);
+    expect(fresh.style.position).toBe("absolute");
+    expect(fresh.style.width).toBe("100%");
+    expect(fresh.style.height).toBe("100%");
+  });
+
+  it("given_a_detached_old_canvas_when_remounted_then_the_new_canvas_is_mounted_like_mountLiquidCanvas", () => {
+    const old = mountLiquidCanvas();
+    old.remove();
+    const tail = document.body.appendChild(document.createElement("p"));
+    const fresh = remountLiquidCanvas(old);
+    expect(fresh.isConnected).toBe(true);
+    expect(fresh.previousSibling).toBe(tail); // appended last in body, as a fresh mount
+    expect(document.querySelectorAll("canvas")).toHaveLength(1);
   });
 });

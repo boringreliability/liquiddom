@@ -12,6 +12,7 @@ import * as adapter from "../src/index";
 import { LiquidProvider, LiquidElement, useLiquid, useLiquidRef } from "../src/index";
 import { elementSlots, freedOf, mockRect, setupFacadeTestEnv, spyBackend, type SpyBackend } from "../../core/ts/__tests__/_facade-helpers";
 import { El } from "../../core/ts/src/fluid-layout";
+import { installFakeGpuLifecycle } from "../../core/ts/__tests__/_fake-gpu";
 
 interface ObserveCall { el: HTMLElement; opts: unknown; id: number }
 let createSpy: MockInstance | null = null;
@@ -188,5 +189,31 @@ describe("W66 T5: @liquiddom/react", () => {
 
   it("ssr_renderToString_does_not_throw", () => {
     expect(() => renderToString(<LiquidProvider><div>content</div></LiquidProvider>)).not.toThrow();
+  });
+
+  it("W72_given_provider_unmounted_while_webgpu_init_is_pending_when_init_completes_then_no_canvas_the_device_is_destroyed_and_no_warning", async () => {
+    // README Review Focus 5: the adapter's cancel path (destroy as soon as create resolves).
+    const gpu = installFakeGpuLifecycle({ holdInit: true });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { unmount } = render(
+        <LiquidProvider config={{ ...config, renderer: "webgpu" }}>
+          <span />
+        </LiquidProvider>,
+      );
+      await waitFor(() => expect(gpu.devices).toHaveLength(1)); // init parked after requestDevice
+      unmount();
+      gpu.releaseInit();
+      await waitFor(() => expect(gpu.devices[0]!.destroyed).toBe(1));
+      await new Promise<void>((r) => setTimeout(r, 0));
+      expect(document.querySelector("canvas")).toBeNull();
+      expect(warn).not.toHaveBeenCalled();
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      error.mockRestore();
+      gpu.restore();
+    }
   });
 });

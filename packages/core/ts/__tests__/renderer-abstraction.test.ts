@@ -11,6 +11,7 @@ import type { Renderer } from "../src/renderers/frame";
 import { FluidCanvas2DRenderer } from "../src/renderers/fluid-canvas2d";
 import { WebGPURenderer } from "../src/renderers/webgpu/webgpu-renderer";
 import { selectRenderer } from "../src/renderers/select";
+import { mountLiquidCanvas, remountLiquidCanvas } from "../src/stylesheet";
 import { setupFacadeTestEnv } from "./_facade-helpers";
 import { installFakeGpu } from "./_fake-gpu";
 
@@ -31,21 +32,33 @@ describe("W66: renderer abstraction", () => {
     }
   });
 
-  it("given_selectRenderer_auto_or_canvas2d_when_called_then_FluidCanvas2DRenderer_active_canvas2d", async () => {
+  // W72 red: approved-test change (Dennis approves at W72 red)
+  it("given_selectRenderer_auto_or_canvas2d_with_options_in_jsdom_when_called_then_FluidCanvas2DRenderer_active_canvas2d", async () => {
     for (const choice of ["auto", "canvas2d"] as const) {
-      const sel = await selectRenderer(choice, document.createElement("canvas"));
+      let canvas = mountLiquidCanvas();
+      const first = canvas;
+      const sel = await selectRenderer(choice, canvas, {
+        silentFallback: true,
+        remountCanvas: () => (canvas = remountLiquidCanvas(canvas)),
+        onDeviceLost: () => {},
+      });
       expect(sel.active).toBe("canvas2d");
       expect(sel.renderer).toBeInstanceOf(FluidCanvas2DRenderer);
+      // W72 (D72-1): jsdom has no navigator.gpu, so 'auto' falls back on a remounted canvas.
+      expect(sel.canvas === first).toBe(choice === "canvas2d");
       sel.renderer.destroy();
+      sel.canvas.remove();
     }
   });
 
+  // W72 red: approved-test change (Dennis approves at W72 red)
   it("given_selectRenderer_canvas2d_with_null_2d_context_when_called_then_rejects_D64_5", async () => {
     const canvas = document.createElement("canvas");
     canvas.getContext = (() => null) as HTMLCanvasElement["getContext"];
     const destroy = vi.spyOn(FluidCanvas2DRenderer.prototype, "destroy");
     try {
-      await expect(selectRenderer("canvas2d", canvas)).rejects.toBeInstanceOf(Error);
+      const opts = { silentFallback: true, remountCanvas: () => canvas, onDeviceLost: () => {} };
+      await expect(selectRenderer("canvas2d", canvas, opts)).rejects.toBeInstanceOf(Error);
       expect(destroy).toHaveBeenCalledTimes(1);
     } finally {
       destroy.mockRestore();

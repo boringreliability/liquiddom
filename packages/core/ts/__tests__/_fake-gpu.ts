@@ -17,12 +17,19 @@ export interface FakeGpuOptions {
   adapter?: "ok" | "null" | "throws";
   isFallbackAdapter?: boolean;
   device?: "ok" | "rejects";
-  /** "null": `getContext("webgpu")` returns null. */
-  context?: "ok" | "null";
+  /**
+   * "null": `getContext("webgpu")` returns null. W72 "invalid-texture": the context configures,
+   * but `getCurrentTexture().createView()` raises a validation error into the innermost open
+   * error scope of the configured device (an `uncapturederror` without one), as Chromium's
+   * headless shell does with a dead presentation surface (W71.5 review, Part B).
+   */
+  context?: "ok" | "null" | "invalid-texture";
   /** Thrown by `context.configure()`. */
   configureError?: Error;
-  /** `popErrorScope()` resolves with `{ message }` instead of null. */
+  /** W72: raised by `createRenderPipeline()` into the innermost open error scope, so that scope's `popErrorScope()` resolves with `{ message }` (W71: every pop did). */
   validationError?: string;
+  /** W72: park every popErrorScope() (i.e. renderer init, after requestDevice) until releaseInit(). */
+  holdInit?: boolean;
   /** W71.4 review fix: `adapter.limits.maxTextureDimension2D` (default 8192, the WebGPU default limit). */
   maxTextureDimension2D?: number;
 }
@@ -78,6 +85,20 @@ export interface FakePipeline {
   readonly descriptor: GPURenderPipelineDescriptor;
 }
 
+/** W72: one handle per requestDevice(), in creation order. */
+export interface FakeDeviceHandle {
+  readonly index: number;
+  /** device.destroy() calls on this device. */
+  readonly destroyed: number;
+  /** queue.submit() calls on this device. */
+  readonly submits: number;
+  /** Resolves this device's `lost` (the first resolution wins, as in browsers). */
+  lose(reason?: GPUDeviceLostReason, message?: string): void;
+}
+
+/** W72: the message the "invalid-texture" knob raises (Chromium reports "Invalid Texture" / "Invalid TextureView"). */
+export const FAKE_INVALID_TEXTURE_MESSAGE = "Invalid Texture: the presentation surface is unusable (fake)";
+
 export interface FakeGpuCalls {
   requestAdapter: number;
   requestDevice: number;
@@ -94,7 +115,9 @@ export interface FakeGpuCalls {
   passes: FakePass[];
   submits: number;
   deviceDestroyed: number;
-  /** In call order: "pushErrorScope:validation", "createShaderModule", "createRenderPipeline", "popErrorScope". */
+  /** W72: getContext("webgpu") calls (also when it returns null). */
+  getContextWebgpu: number;
+  /** In call order: "pushErrorScope:validation", "createShaderModule", "createRenderPipeline", "popErrorScope" (W72: two scope pairs per init, the surface one first). */
   log: string[];
   errors: string[];
 }
@@ -107,6 +130,10 @@ export interface FakeGpu {
   loseDevice(message: string, reason?: GPUDeviceLostReason): void;
   /** Dispatches `uncapturederror` on the newest device. */
   fireUncapturedError(message: string): void;
+  /** W72: per-device handles (two instances own two devices). */
+  readonly devices: readonly FakeDeviceHandle[];
+  /** W72: un-parks every init held by `holdInit` (and every later one). */
+  releaseInit(): void;
   restore(): void;
 }
 
@@ -124,11 +151,17 @@ const PREFERRED_FORMAT = "bgra8unorm";
 export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
   const calls: FakeGpuCalls = {
     requestAdapter: 0, requestDevice: 0, deviceDescriptors: [], configure: [], shaderModules: [], bindGroupLayouts: [], pipelines: [],
-    buffers: [], textures: [], bindGroups: [], writes: [], passes: [], submits: 0, deviceDestroyed: 0, log: [], errors: [],
+    buffers: [], textures: [], bindGroups: [], writes: [], passes: [], submits: 0, deviceDestroyed: 0, getContextWebgpu: 0, log: [], errors: [],
   };
   const adapterError = new Error("adapter exploded");
   const deviceError = new Error("device exploded");
   const devices: Array<{ lose: (info: GPUDeviceLostInfo) => void; listeners: Array<(ev: unknown) => void> }> = [];
+  const handles: FakeDeviceHandle[] = [];
+  /** W72: per device, raises a validation error into its innermost open scope (or as uncapturederror). */
+  const raisers = new WeakMap<object, (message: string) => void>();
+  let released = opts.holdInit !== true;
+  const parked: Array<() => void> = [];
+  const gate = (): Promise<void> => (released ? Promise.resolve() : new Promise<void>((resume) => parked.push(resume)));
 
   const adapterTextureLimit = opts.maxTextureDimension2D ?? 8192;
   const makeTexture = (
@@ -174,12 +207,24 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
     });
     const listeners: Array<(ev: unknown) => void> = [];
     let destroyed = false;
+    const state = { destroyed: 0, submits: 0 };
+    /** W72: the error-scope stack; null = no error captured in that scope yet. */
+    const scopes: Array<string | null> = [];
+    const raise = (message: string): void => {
+      const top = scopes.length - 1;
+      if (top >= 0) {
+        if (scopes[top] === null) scopes[top] = message; // the first error of a scope wins
+        return;
+      }
+      for (const fn of listeners) fn({ type: "uncapturederror", error: { message } });
+    };
     const device = {
       lost,
       limits: { maxTextureDimension2D: textureLimit },
       queue: {
         submit: () => {
           calls.submits += 1;
+          state.submits += 1;
         },
         writeBuffer: (buffer: FakeBuffer, offset: number, data: Float32Array | Int32Array, dataOffset = 0, size?: number) => {
           const elements = size ?? data.length - dataOffset;
@@ -194,6 +239,7 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
       },
       destroy: () => {
         calls.deviceDestroyed += 1;
+        state.destroyed += 1;
         if (destroyed) return;
         destroyed = true;
         lose({ reason: "destroyed", message: "Device was destroyed." } as GPUDeviceLostInfo);
@@ -210,6 +256,7 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
       createPipelineLayout: (d: GPUPipelineLayoutDescriptor) => ({ descriptor: d }),
       createRenderPipeline: (d: GPURenderPipelineDescriptor) => {
         calls.log.push("createRenderPipeline");
+        if (opts.validationError) raise(opts.validationError);
         const pipeline: FakePipeline = { descriptor: d };
         calls.pipelines.push(pipeline);
         return pipeline;
@@ -238,10 +285,15 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
       },
       pushErrorScope: (filter: GPUErrorFilter) => {
         calls.log.push(`pushErrorScope:${filter}`);
+        scopes.push(null);
       },
       popErrorScope: async () => {
         calls.log.push("popErrorScope");
-        return opts.validationError ? { message: opts.validationError } : null;
+        // The browser pops synchronously at the call and resolves later; holdInit parks the resolution.
+        const captured = scopes.length > 0 ? scopes.pop() ?? null : undefined;
+        if (captured === undefined) calls.errors.push("popErrorScope: the error scope stack is empty");
+        await gate();
+        return captured ? { message: captured } : null;
       },
       addEventListener: (type: string, fn: (ev: unknown) => void) => {
         if (type === "uncapturederror") listeners.push(fn);
@@ -280,6 +332,17 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
       }),
     };
     devices.push({ lose, listeners });
+    raisers.set(device, raise);
+    handles.push({
+      index: handles.length,
+      get destroyed() {
+        return state.destroyed;
+      },
+      get submits() {
+        return state.submits;
+      },
+      lose: (reason = "unknown", message = "fake device loss") => lose({ reason, message } as GPUDeviceLostInfo),
+    });
     return device;
   };
 
@@ -311,15 +374,28 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
   const contextFor = (canvas: HTMLCanvasElement): object => {
     let ctx = contexts.get(canvas);
     if (!ctx) {
+      let configured: object | null = null;
       ctx = {
         canvas,
         configure: (cfg: GPUCanvasConfiguration) => {
           calls.configure.push(cfg);
           if (opts.configureError) throw opts.configureError;
+          configured = cfg.device as unknown as object;
         },
         unconfigure: () => {},
-        getCurrentTexture: () =>
-          makeTexture("swapchain", Math.max(1, canvas.width), Math.max(1, canvas.height), PREFERRED_FORMAT, 0x10, false),
+        getCurrentTexture: () => {
+          const texture = makeTexture("swapchain", Math.max(1, canvas.width), Math.max(1, canvas.height), PREFERRED_FORMAT, 0x10, false);
+          if (opts.context !== "invalid-texture") return texture;
+          // W72: a dead presentation surface: configure() and getCurrentTexture() succeed, createView() raises.
+          return {
+            ...texture,
+            createView: () => {
+              const raise = configured ? raisers.get(configured) : undefined;
+              raise?.(FAKE_INVALID_TEXTURE_MESSAGE);
+              return { texture };
+            },
+          };
+        },
       };
       contexts.set(canvas, ctx);
     }
@@ -334,7 +410,13 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
   const proto = HTMLCanvasElement.prototype;
   const previous = proto.getContext;
   proto.getContext = function getContext(this: HTMLCanvasElement, type: string, ...rest: unknown[]) {
-    if (type === "webgpu") return opts.context === "null" ? null : contextFor(this);
+    if (type === "webgpu") {
+      calls.getContextWebgpu += 1;
+      return opts.context === "null" ? null : contextFor(this);
+    }
+    // W72: a canvas that handed out a webgpu context never gives a 2d one (HTML canvas rule), so a
+    // missing remount fails in jsdom exactly as in a browser. No W71 test asks such a canvas for "2d".
+    if (type === "2d" && contexts.has(this)) return null;
     return (previous as (this: HTMLCanvasElement, ...a: unknown[]) => unknown).call(this, type, ...rest);
   } as HTMLCanvasElement["getContext"];
 
@@ -342,6 +424,11 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
     calls,
     adapterError,
     deviceError,
+    devices: handles,
+    releaseInit: () => {
+      released = true;
+      for (const resume of parked.splice(0)) resume();
+    },
     loseDevice: (message, reason = "unknown") => {
       devices.at(-1)?.lose({ reason, message } as GPUDeviceLostInfo);
     },
@@ -357,5 +444,50 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
         else delete g[key];
       }
     },
+  };
+}
+
+// =============================================================================
+// W72 (D72-1 … D72-3, README Review Focus 5): the lifecycle view of installFakeGpu. Same fake
+// (W71's globals, recorded validation mistakes and passes), with the reason-first lose(), the
+// per-device handles, holdInit and the "invalid-texture" surface knob that the W72 selection,
+// lifecycle and rebuild tests use.
+// =============================================================================
+
+export type FakeLostReason = "unknown" | "destroyed";
+
+export type LifecycleGpuOptions = Pick<
+  FakeGpuOptions,
+  "adapter" | "isFallbackAdapter" | "device" | "context" | "holdInit" | "configureError" | "validationError"
+>;
+
+export interface LifecycleGpu {
+  readonly calls: FakeGpuCalls;
+  readonly devices: readonly FakeDeviceHandle[];
+  readonly adapterError: Error;
+  readonly deviceError: Error;
+  /** Un-parks every init held by `holdInit` (and every later one). */
+  releaseInit(): void;
+  /** Loses the most recently created device. */
+  lose(reason?: FakeLostReason, message?: string): void;
+  /** Restores navigator.gpu, the GPU globals and HTMLCanvasElement.prototype.getContext. */
+  restore(): void;
+}
+
+/** W72: installs the fake. Call restore() in afterEach (before restoring a fake 2d canvas). */
+export function installFakeGpuLifecycle(opts: LifecycleGpuOptions = {}): LifecycleGpu {
+  const fake = installFakeGpu(opts);
+  return {
+    calls: fake.calls,
+    devices: fake.devices,
+    adapterError: fake.adapterError,
+    deviceError: fake.deviceError,
+    releaseInit: () => fake.releaseInit(),
+    lose: (reason = "unknown", message = "fake device loss") => {
+      const d = fake.devices.at(-1);
+      if (!d) throw new Error("installFakeGpuLifecycle: no device to lose");
+      d.lose(reason, message);
+    },
+    restore: () => fake.restore(),
   };
 }
