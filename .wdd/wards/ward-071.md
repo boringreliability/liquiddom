@@ -194,3 +194,24 @@ The 20 passes per variant are all `webgpu-smoke.spec.ts:31` (an adapter exists);
 Untested routes (outside the D71-1 box, for a later ward): the runner without the container (Playwright's own Chromium + Mesa lavapipe), and GPU-enabled runners.
 
 Consequence for W72 (D72-3): a loss we did not cause can arrive with `reason: "destroyed"`. Rebuild must key on "did our own `destroy()` run", not on the reason string.
+
+## Gold notes
+
+**Totals (2026-10-08, after the ward-review fixes d603842 + 204659b):** cargo 151 passed + 1 ignored (Rust untouched); vitest 471 passed | 4 skipped (51 files) — 461 planned + 10 added by review fix rounds; clippy clean; `e2e:canvas2d` 27 passed / 9 skipped; `e2e:dist` 1 passed; `e2e:webgpu` (SwiftShader, local) ×10 repeats: 139 passed / 90 skipped / 1 failed (harness: Vite dependency-optimiser reload on a cold server at test 4 of 230, "Execution context was destroyed" in `w67Open` before any render; the other 9 repeats passed); `e2e:webgpu-hw` (Metal, apple / metal-3, new headless) ×5: 70 passed / 45 skipped / 0 failed; pack lists `dist/renderers/webgpu/*` and `kernel-params`.
+
+**Spike:** NO (fallback B). CI runs only the soft WebGPU smoke; WebGPU acceptance runs locally (`e2e:webgpu`, `e2e:webgpu-hw`). No webgpu Linux baselines.
+
+**Measured in WebGPU (Metal):** step 2 bulge 7.62 / 7.32 / 7.69 px per pill (canvas2d 7.58 / 7.40 / 7.72; bar ≥ 5); no-hole interior alpha stays 255 (canvas2d dips to 250 from its 2 px grid); rest SDF corner/arc probes within ±3 of canvas2d; max RGB error 2–3.
+
+**Vision (Metal, seed 1, same frames):**
+- Step 1 at rest: WebGPU and Canvas2D are visually identical — crisp pills and card, exact rounded corners, no fur.
+- Step 2 mid sweep: the same bulge shape in both; Canvas2D edges are ragged/pixelated (2 px grid), WebGPU edges are smooth and anti-aliased, no bead chains.
+- Step 3 splash f006/f012: the same ring with a hollow centre in both; WebGPU's ring edge is smooth where Canvas2D's is frizzy; a few beads remain where the ring is thinnest in both renderers (kernel 2.3 — D71-5's 2.8 escape stays a proposal, not applied). A pale "ghost pill" (rest overlay at falling restAlpha) shows inside the hole in BOTH renderers — pre-existing Canvas2D behaviour faithfully reproduced, not a W71 regression; flagged for Dennis.
+- Step 3 f030 card crop: identical in both renderers.
+- D71-4 crops 0.5× vs 0.75× (splash, bulge, f030 card, f006 ring): indistinguishable; 0.75× at most a hair smoother on the bulge's lower edge. Recommendation 0.5× (0.75× costs 2.25× fill for no visible gain).
+
+**Reviews:** per-task reviews W71.1–W71.6 all APPROVED (fix rounds: W71.1 ×1, W71.4 ×1). Ward review (high): 0 Critical, 1 Important (I1: a hidden slot's homes stayed −1 after a paints-driven upload → missing WebGPU liquid on reappearance; fixed in d603842), 4 Minor (M3 fixed in 204659b; M1 Canvas2D still splats w==0 particles, M2 t0Scale lower bound ~1/(8·dpr), M4 WebGPU e2e gaps for refresh()/container/RM/multi-instance/a11y/dpr≠1 — carried to W72 / slice 6).
+
+**Approved-test change for Dennis to confirm:** I1 changed ONE approved expectation, `gpu-buffers.test.ts:146-147`: a slot with `w == 0` now keeps its home (`2`) instead of `-1`; it stays invisible through flags 0 in its element record (splat and rest pass). Review Focus 3 wording updated accordingly.
+
+**Carried:** W72 — headless-shell unusable surface (see ward-072 "Carried from W71"), M1, M2, M4, warm Vite deps for the first e2e test. Open: Dennis' D71-4 choice.
