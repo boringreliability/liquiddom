@@ -212,8 +212,7 @@ describe("W65 e2e harness", () => {
   it("given_the_webgpu_hw_project_when_read_then_it_runs_the_webgpu_specs_on_the_hardware_adapter_locally_and_the_spike_constant_matches_ci_W71", () => {
     // W71 (D71-1): local Metal runs use the webgpu-hw project; SWIFTSHADER_RUNS_LIQUID is the W71.0 answer, defined once.
     expect([...WEBGPU_HW_LAUNCH_ARGS]).toEqual(["--enable-unsafe-webgpu"]);
-    // W72 red: approved-test change (Dennis approves at W72 red): toEqual → toMatchObject (W72.5 may add headless: false)
-    expect(PROJECT_USE["webgpu-hw"]).toMatchObject({ channel: "chromium", launchArgs: WEBGPU_HW_LAUNCH_ARGS });
+    expect(PROJECT_USE["webgpu-hw"]).toEqual({ channel: "chromium", launchArgs: WEBGPU_HW_LAUNCH_ARGS });
     expect(PROJECT_FILES.find((p) => p.name === "webgpu-hw")?.blocking).toBe(false);
     // W72 red: approved-test change (Dennis approves at W72 red)
     expect(routedTo("webgpu-hw")).toEqual(expect.arrayContaining(routedTo("webgpu"))); // W72 adds the robust spec and the webgpu perf test

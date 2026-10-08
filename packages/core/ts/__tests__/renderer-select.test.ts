@@ -156,10 +156,10 @@ describe("W72: selectRenderer (D72-1, D72-2)", () => {
     const sel = await pending;
     expect(sel.active).toBe("canvas2d");
     expect(sel.canvas).not.toBe(h.first);
-    if (g.calls.getContextWebgpu > 0) {
-      // The old canvas handed out a webgpu context: Canvas2D works only because of the remount.
-      expect(h.first.getContext("2d")).toBeNull();
-    }
+    // The old canvas handed out a webgpu context (init parks at the surface pop, after configure()):
+    // Canvas2D works only because of the remount.
+    expect(g.calls.getContextWebgpu).toBeGreaterThan(0);
+    expect(h.first.getContext("2d")).toBeNull();
     expect(h.lost).toHaveLength(0); // a loss during init is "unavailable", never a rebuild
     expect(info).toHaveBeenCalledTimes(1);
     expect(String(info.mock.calls[0]![0])).toMatch(/lost during init/);

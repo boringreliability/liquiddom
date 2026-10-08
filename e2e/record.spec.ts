@@ -77,6 +77,7 @@ async function sweep(page: Page, x0: number, x1: number, y: number, durationMs: 
 }
 
 for (const r of RECORDINGS) {
+  // W72 red: approved-test change (Dennis approves at W72 red): W69/W70's canvas2d recording becomes one test per renderer (canvas2d assertions and paths kept)
   test(`whole picture – acceptance steps 1-4, 6 and 8 recorded in ${r.renderer}`, async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== r.project, `the ${r.renderer} recording runs only in the ${r.project} project`);
     test.setTimeout(120_000);

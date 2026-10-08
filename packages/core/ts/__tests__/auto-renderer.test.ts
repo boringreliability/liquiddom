@@ -84,6 +84,26 @@ describe("W72: renderer selection through the facade (D72-1, D72-2)", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it("given_a_positioned_container_and_renderer_auto_without_navigator_gpu_when_create_then_the_remounted_canvas_stays_in_the_container_with_absolute_position", async () => {
+    // W72 red review I2: the fallback remount keeps container mode (remountLiquidCanvas(old, container)).
+    const container = document.body.appendChild(document.createElement("div"));
+    container.style.position = "relative";
+    const tail = document.body.appendChild(document.createElement("p"));
+    const inst = tracker.track(await LiquidDOM.create({ ...base, testBackend: spyBackend().backend, container }));
+    expect(inst.activeRenderer).toBe("canvas2d");
+    expect(info, "the auto fallback (and so the remount) happened").toHaveBeenCalledTimes(1);
+    const canvases = document.querySelectorAll("canvas");
+    expect(canvases).toHaveLength(1);
+    const canvas = canvases[0]!;
+    expect(canvas.parentElement).toBe(container);
+    expect(canvas.classList.contains("liquid-canvas")).toBe(true);
+    expect(canvas.style.position).toBe("absolute");
+    expect(canvas.style.width).toBe("100%");
+    expect(canvas.style.height).toBe("100%");
+    expect(tail.nextSibling, "nothing was appended to body").toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it("given_a_fallback_adapter_when_create_with_auto_then_canvas2d_and_with_explicit_webgpu_then_webgpu_D72_2", async () => {
     const g = withGpu({ isFallbackAdapter: true });
     const auto = tracker.track(await LiquidDOM.create({ ...base, testBackend: spyBackend().backend }));

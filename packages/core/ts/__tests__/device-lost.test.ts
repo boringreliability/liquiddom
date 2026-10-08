@@ -128,11 +128,40 @@ describe("W72: device.lost → Canvas2D rebuild (D72-3)", () => {
     const destroyC2d = vi.spyOn(FluidCanvas2DRenderer.prototype, "destroy");
     gpu.lose("unknown", "gpu reset");
     await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1));
+    expect(rt.activeRenderer, "D72-3: canvas2d at once, while the Canvas2D init is still pending").toBe("canvas2d");
     rt.destroy();
     release();
     await flush();
     expect(destroyC2d).toHaveBeenCalledTimes(1);
     expect(document.querySelector("canvas")).toBeNull();
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("given_webgpu_in_a_positioned_container_when_the_device_is_lost_then_the_remounted_canvas_stays_in_the_container_with_absolute_position", async () => {
+    // W72 red review I2: the rebuild remounts in container mode (remountLiquidCanvas(old, container)), never as a fixed body canvas.
+    const container = document.body.appendChild(document.createElement("div"));
+    container.style.position = "relative";
+    const sb = spyBackend();
+    const clock = createManualClock();
+    const rt = await createFluidRuntime({ particles: 1024, maxElements: 4, seed: 1, testBackend: sb.backend, clock, renderer: "webgpu", container });
+    live.push(rt);
+    const old = rt.canvas;
+    expect(old.parentElement).toBe(container);
+    gpu.lose("unknown", "gpu reset");
+    await vi.waitFor(() => expect(rt.activeRenderer).toBe("canvas2d"));
+    await flush();
+    const fresh = rt.canvas;
+    expect(fresh).not.toBe(old);
+    expect(old.isConnected).toBe(false);
+    expect(fresh.parentElement).toBe(container);
+    expect(container.querySelectorAll("canvas")).toHaveLength(1);
+    expect(document.querySelectorAll("canvas")).toHaveLength(1);
+    expect(fresh.style.position).toBe("absolute");
+    expect(fresh.style.width).toBe("100%");
+    expect(fresh.style.height).toBe("100%");
+    clock.advance(1);
+    expect(fake2d.ctxFor(fresh)?.ops("clearRect").length ?? 0, "Canvas2D draws on the container canvas").toBeGreaterThan(0);
+    expect(warn).toHaveBeenCalledTimes(1);
     expect(error).not.toHaveBeenCalled();
   });
 
