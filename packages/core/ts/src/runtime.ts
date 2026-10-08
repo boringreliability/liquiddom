@@ -18,6 +18,7 @@ import { LoopController } from "./loop-control";
 import { PointerTracker } from "./pointer-tracker";
 import { acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas } from "./stylesheet";
 import { initCanvas2D, selectRenderer, type ActiveRenderer, type RendererChoice, type SelectedRenderer } from "./renderers/select";
+import type { FluidCanvas2DRenderer } from "./renderers/fluid-canvas2d";
 import { WebGPURenderer } from "./renderers/webgpu/webgpu-renderer";
 import { loadFluidWasm, type FluidBackend, type FluidCoreLike } from "./wasm-loader";
 
@@ -457,19 +458,47 @@ function buildRuntime(
   // W72 (D72-3): a lost WebGPU device (any reason but our own 'destroyed'; the renderer
   // filters that) rebuilds this instance as Canvas2D on a remounted canvas, with the same core
   // and particle state and one console.warn. A failing rebuild takes the failed-frame path.
+  // W72 review fix (M1, M2): every rebuild failure, synchronous or async, takes this path.
+  const rebuildFailed = (err: unknown): void => {
+    rebuilding = false;
+    if (renderer !== null) {
+      renderer.destroy();
+      renderer = null;
+    }
+    settleRebuild(false);
+    if (destroyed || failed) return;
+    failed = true;
+    loop.destroy();
+    console.error(
+      "[liquiddom] the Canvas2D rebuild after a lost WebGPU device failed; the instance stopped. Call destroy() and create a new instance.",
+      err,
+    );
+  };
   const rebuildAsCanvas2D = (info: GPUDeviceLostInfo): void => {
-    if (destroyed || failed || rebuilding || activeRenderer !== "webgpu") return;
+    if (destroyed || failed) {
+      settleRebuild(false); // W72 review fix (M3): a waiting simulateDeviceLoss() never hangs
+      return;
+    }
+    if (rebuilding || activeRenderer !== "webgpu") return;
     rebuilding = true;
     activeRenderer = "canvas2d";
     console.warn(`${DEVICE_LOST_WARNING} (${info.reason}: ${info.message}); continuing with the Canvas2D renderer.`);
-    const lostRenderer = renderer;
-    renderer = null;
-    lostRenderer?.destroy();
-    canvas = remountLiquidCanvas(canvas, container);
-    void initCanvas2D(canvas).then(
-      (c2d) => {
+    let pending: Promise<FluidCanvas2DRenderer>;
+    try {
+      const lostRenderer = renderer;
+      renderer = null;
+      lostRenderer?.destroy();
+      canvas = remountLiquidCanvas(canvas, container);
+      pending = initCanvas2D(canvas);
+    } catch (err) {
+      rebuildFailed(err);
+      return;
+    }
+    pending
+      .then((c2d) => {
         rebuilding = false;
-        if (destroyed) {
+        if (destroyed || failed) {
+          // W72 review fix (M3): the instance stopped meanwhile; the new renderer is not used.
           c2d.destroy();
           settleRebuild(false);
           return;
@@ -477,19 +506,8 @@ function buildRuntime(
         renderer = c2d;
         resizeCanvas(); // the new canvas gets the backing store and the renderer its grid
         settleRebuild(true);
-      },
-      (err: unknown) => {
-        rebuilding = false;
-        settleRebuild(false);
-        if (destroyed) return;
-        failed = true;
-        loop.destroy();
-        console.error(
-          "[liquiddom] the Canvas2D rebuild after a lost WebGPU device failed; the instance stopped. Call destroy() and create a new instance.",
-          err,
-        );
-      },
-    );
+      })
+      .catch(rebuildFailed); // W72 review fix (M1): also a throw in the success handler
   };
   relay.handler = rebuildAsCanvas2D;
   if (relay.early !== null) rebuildAsCanvas2D(relay.early);

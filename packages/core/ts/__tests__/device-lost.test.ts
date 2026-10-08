@@ -242,3 +242,98 @@ describe("W72: device.lost → Canvas2D rebuild (D72-3)", () => {
     expect(String(warn.mock.calls[0]![0])).toContain("simulated device loss");
   });
 });
+
+// W72 review fix (task-W72.2-4-review M1–M3): every failure of the Canvas2D rebuild takes the
+// failed-frame path (one console.error, the instance stops), never an unhandled rejection, and
+// simulateDeviceLoss() always settles.
+describe("W72 review fix: rebuild failures take the failed-frame path (M1–M3)", () => {
+  const REBUILD_FAILED = /Canvas2D rebuild after a lost WebGPU device failed/;
+  let unhandled: unknown[];
+  const onUnhandled = (reason: unknown): void => {
+    unhandled.push(reason);
+  };
+  beforeEach(() => {
+    unhandled = [];
+    process.on("unhandledRejection", onUnhandled);
+  });
+  afterEach(() => {
+    process.off("unhandledRejection", onUnhandled);
+  });
+
+  // W72 review fix (M1)
+  it("given_a_rebuild_whose_canvas2d_resize_throws_when_the_device_is_lost_then_one_console_error_no_unhandled_rejection_and_simulateDeviceLoss_resolves_false", async () => {
+    const { rt, sb, clock } = await runtime();
+    vi.spyOn(FluidCanvas2DRenderer.prototype, "resize").mockImplementation(() => {
+      throw new Error("grid too large");
+    });
+    const destroy2d = vi.spyOn(FluidCanvas2DRenderer.prototype, "destroy");
+    await expect(rt.simulateDeviceLoss()).resolves.toBe(false);
+    await flush();
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(String(error.mock.calls[0]![0])).toMatch(REBUILD_FAILED);
+    expect(destroy2d).toHaveBeenCalledTimes(1); // the half-built renderer is released
+    expect(unhandled).toEqual([]);
+    const ticks = ticksOf(sb).length;
+    clock.advance(3);
+    expect(ticksOf(sb)).toHaveLength(ticks); // stopped for good
+    expect(() => rt.destroy()).not.toThrow();
+    expect(document.querySelector("canvas")).toBeNull();
+  });
+
+  // W72 review fix (M2)
+  it("given_a_remount_that_throws_when_the_device_is_lost_then_one_console_error_the_instance_stops_and_simulateDeviceLoss_resolves_false", async () => {
+    const { rt, sb, clock } = await runtime();
+    rt.canvas.replaceWith = () => {
+      throw new Error("remount failed");
+    };
+    await expect(rt.simulateDeviceLoss()).resolves.toBe(false);
+    await flush();
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(String(error.mock.calls[0]![0])).toMatch(REBUILD_FAILED);
+    expect(unhandled).toEqual([]);
+    expect(rt.activeRenderer).toBe("canvas2d");
+    const ticks = ticksOf(sb).length;
+    clock.advance(3);
+    expect(ticksOf(sb)).toHaveLength(ticks); // stopped for good
+    await expect(rt.simulateDeviceLoss()).resolves.toBe(false);
+    expect(() => rt.destroy()).not.toThrow();
+    expect(document.querySelector("canvas")).toBeNull();
+  });
+
+  // W72 review fix (M3)
+  it("given_a_frame_that_fails_before_the_loss_is_delivered_when_simulateDeviceLoss_was_called_then_it_resolves_false", async () => {
+    const { rt, sb, clock } = await runtime();
+    const pending = rt.simulateDeviceLoss();
+    (sb.cores[0] as unknown as { tick: () => void }).tick = () => {
+      throw new Error("boom");
+    };
+    clock.advance(1); // the frame fails synchronously, before the loss microtask runs
+    expect(error).toHaveBeenCalledTimes(1);
+    await expect(pending).resolves.toBe(false);
+    await expect(rt.simulateDeviceLoss()).resolves.toBe(false); // a failed instance answers at once
+    expect(unhandled).toEqual([]);
+  });
+
+  // W72 review fix (M3)
+  it("given_a_frame_that_fails_while_the_canvas2d_rebuild_is_in_flight_when_it_completes_then_the_new_renderer_is_destroyed_and_simulateDeviceLoss_resolves_false", async () => {
+    const { rt, sb, clock } = await runtime();
+    let release: (() => void) | undefined;
+    vi.spyOn(FluidCanvas2DRenderer.prototype, "init").mockImplementation(
+      () => new Promise<void>((resolve) => (release = resolve)),
+    );
+    const destroy2d = vi.spyOn(FluidCanvas2DRenderer.prototype, "destroy");
+    const pending = rt.simulateDeviceLoss();
+    await vi.waitFor(() => expect(release).toBeDefined());
+    (sb.cores[0] as unknown as { tick: () => void }).tick = () => {
+      throw new Error("boom");
+    };
+    clock.advance(1); // fails while the rebuild waits for init
+    expect(error).toHaveBeenCalledTimes(1);
+    release!();
+    await expect(pending).resolves.toBe(false);
+    expect(destroy2d).toHaveBeenCalledTimes(1);
+    expect(unhandled).toEqual([]);
+    expect(() => rt.destroy()).not.toThrow();
+    expect(document.querySelector("canvas")).toBeNull();
+  });
+});
