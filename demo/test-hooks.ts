@@ -7,8 +7,8 @@ export type SceneClock = "raf" | "manual";
 export interface SceneParams {
   readonly seed: number;
   readonly clock: SceneClock;
-  /** W71 (D71-2): the scene renders with exactly this renderer (never "auto"). */
-  readonly renderer: "canvas2d" | "webgpu";
+  /** W71: canvas2d | webgpu; W72: auto (webgpu on a hardware adapter, else canvas2d). */
+  readonly renderer: "canvas2d" | "webgpu" | "auto";
   /** W71 (D71-4): ?t0, WebGPU T0 render scale; absent = the renderer's default (0.5). */
   readonly t0Scale?: number;
   readonly reducedMotion: boolean;
@@ -55,6 +55,15 @@ export interface LiquidTestHook {
   readonly params: SceneParams;
   /** Non-null only with ?perf=1. */
   readonly perf: ScenePerfProbe | null;
+  /**
+   * W72 (D72-3): loses the WebGPU device (reported as reason 'unknown') and resolves after the
+   * Canvas2D rebuild. Rejects unless the active renderer is webgpu.
+   */
+  loseDevice(): Promise<void>;
+  /** W72 (D72-4): estimated splat fragments of the last frame (0 under canvas2d). Logged, never gated. */
+  readonly overdraw: number;
+  /** W72 (D72-6): T0 size in px `[width, height]` under webgpu (0.5 × the backing px by default); null under canvas2d. */
+  readonly t0Size: readonly [number, number] | null;
 }
 
 export interface StressElementState {
@@ -124,4 +133,40 @@ export interface WebGpuLiquidHook {
   restAlpha(): number[];
   /** instance.splash() on the element with this id, at its centre. */
   splash(id: string): void;
+}
+
+/** W72 (D72-6): one instance's current liquid canvas on demo/smoke/webgpu-modes.html. */
+export interface WebGpuModesCanvas {
+  /** Parent element id, or its lower-case tag name ("body") when it has no id; null when detached. */
+  parent: string | null;
+  /** Index among the parent's element children; -1 when detached. */
+  index: number;
+  width: number;
+  height: number;
+  connected: boolean;
+  className: string;
+}
+
+/**
+ * W72 (D72-6): `window.__webgpuModes` on demo/smoke/webgpu-modes.html (manual clock).
+ * ?mode=container: one instance, renderer 'auto', container #box-a (position: relative), observing #a1 and #a2.
+ * ?mode=multi: two instances, renderer 'webgpu', body mode; instance 0 observes #a1 and #a2, instance 1 #b1.
+ */
+export interface WebGpuModesHook {
+  readonly ready: Promise<void>;
+  readonly mode: "container" | "multi";
+  /** activeRenderer per instance, in creation order. */
+  activeRenderers(): string[];
+  /** Each instance's current canvas (FluidRuntime.canvas, live after a remount). */
+  canvases(): WebGpuModesCanvas[];
+  /** canvas.liquid-canvas elements in the document. */
+  liquidCanvasCount(): number;
+  /** FluidRuntime.simulateDeviceLoss() of instance `i`: true once its Canvas2D rebuild finished. */
+  loseDevice(i: number): Promise<boolean>;
+  /** Manual-clock frames of 1000/60 ms; snapshots every instance's canvas when a frame rendered (W71 pixels() rule). */
+  advance(frames: number): void;
+  /** restAlpha of instance `i`'s observed elements (NaN if unknown). */
+  restAlpha(i: number): number[];
+  /** Pixels with alpha > 128 inside element `id`'s rect, read from instance `i`'s last snapshot. */
+  opaqueIn(i: number, id: string): number;
 }

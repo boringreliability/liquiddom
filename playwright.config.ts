@@ -27,6 +27,8 @@ function useFor(name: ProjectName): NonNullable<PlaywrightTestConfig["use"]> {
     ...(o.launchArgs ? { launchOptions: { args: [...o.launchArgs] } } : {}),
     // W69 (D69-2): record project only; the video has the viewport size.
     ...(o.video ? { video: { mode: o.video, size: { ...VIEWPORT } } } : {}),
+    // W72: a local hardware-adapter project may run headed (e2e/projects.ts ProjectUse.headless).
+    ...(o.headless === false ? { headless: false } : {}),
   };
 }
 
@@ -46,6 +48,8 @@ export default defineConfig({
   },
   reporter: [["list"], ["html", { open: "never", outputFolder: `playwright-report/${SUITE}` }]],
   use: { baseURL: BASE_URL, trace: "retain-on-failure", colorScheme: "light" },
+  // W72 (harness): load the scene once so Vite's dependency optimiser never reloads a test's page.
+  globalSetup: "./e2e/global-setup.ts",
   webServer: {
     // D65-2: --strictPort and BROWSER=none (demo/vite.config.ts has `open: true`).
     command: WEB_SERVER_COMMAND,

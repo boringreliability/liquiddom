@@ -30,10 +30,10 @@ export function parseSceneParams(search: string): SceneParams {
   }
   const clock: SceneClock = clockRaw;
 
-  // The scene never uses "auto": a test must know which renderer it is looking at.
+  // W72: "auto" is allowed (the D72-1 e2e); the default stays canvas2d so a test knows its renderer.
   const renderer = q.get("renderer") ?? "canvas2d";
-  if (renderer !== "canvas2d" && renderer !== "webgpu") {
-    throw new TypeError(`[acceptance] ?renderer must be "canvas2d" or "webgpu", got "${renderer}"`);
+  if (renderer !== "canvas2d" && renderer !== "webgpu" && renderer !== "auto") {
+    throw new TypeError(`[acceptance] ?renderer must be "canvas2d", "webgpu" or "auto", got "${renderer}"`);
   }
   const t0Raw = q.get("t0");
   let t0Scale: number | undefined;

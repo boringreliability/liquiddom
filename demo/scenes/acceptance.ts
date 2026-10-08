@@ -3,7 +3,7 @@
  * W64 created it; W65 adds the query parameters and window.__liquidTest:
  *   ?seed=<u32>         RNG seed (default 1)
  *   ?clock=manual       frames run only via __liquidTest.advance(n) (D65-1)
- *   ?renderer=canvas2d|webgpu  the renderer (W71; default canvas2d, never "auto")
+ *   ?renderer=canvas2d|webgpu|auto  default canvas2d (W71: webgpu, W72: auto)
  *   ?t0=0.5|0.75        WebGPU T0 render scale (W71, D71-4; needs ?renderer=webgpu)
  *   ?rm=1               forceReducedMotion
  *   ?test=1             install window.__liquidTest
@@ -187,6 +187,21 @@ const hook: LiquidTestHook = {
   },
   params,
   perf: perfProbe,
+  // W72 (D72-3): the device-lost e2e. Resolves after the Canvas2D rebuild.
+  loseDevice: async () => {
+    if (!runtime) throw new Error("[acceptance] loseDevice() called before the scene was ready");
+    if (!(await runtime.simulateDeviceLoss())) {
+      throw new Error(`[acceptance] loseDevice() needs the webgpu renderer; active: ${runtime.activeRenderer}`);
+    }
+  },
+  // W72 (D72-4): logged by webgpu-robust.spec.ts and perf.spec.ts, never gated.
+  get overdraw(): number {
+    return runtime?.fragmentEstimate ?? 0;
+  },
+  // W72 (D72-6): the DPR-2 e2e checks T0 = 0.5 × the backing px.
+  get t0Size(): readonly [number, number] | null {
+    return runtime?.t0Size ?? null;
+  },
 };
 
 started.catch((err: unknown) => {

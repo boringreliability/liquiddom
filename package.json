@@ -27,6 +27,7 @@
     "e2e:dist:build": "npm run build -w liquiddom && npm run build -w @liquiddom/react && npm run build -w liquiddom-react-example --ignore-scripts",
     "e2e:dist": "npm run e2e:dist:build && playwright test --project=dist",
     "whole-picture": "playwright test e2e/record.spec.ts --project=record && node scripts/webm-to-gif.mjs test-results/whole-picture/manifest.json docs/superpowers/whole-picture/slice-2-canvas2d.gif",
+    "record:w72": "playwright test e2e/record.spec.ts --project=record --project=record-webgpu && node scripts/webm-to-gif.mjs test-results/whole-picture/manifest.json docs/superpowers/whole-picture/slice-3-w72-canvas2d.gif && node scripts/webm-to-gif.mjs test-results/whole-picture/manifest-webgpu.json docs/superpowers/whole-picture/slice-3-w72-webgpu.gif",
     "bench:opt-level": "node scripts/bench-opt-level.mjs",
     "changeset": "changeset",
     "version": "changeset version",

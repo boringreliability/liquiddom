@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>liquiddom · WebGPU modes check</title>
+    <style>
+      body { margin: 0; background: #ffffff; color: #1d1d1f; font: 16px/1.4 system-ui, sans-serif; }
+      /* D72-6 (a): a positioned container (liquiddom never restyles it). */
+      .box { position: relative; box-sizing: border-box; width: 560px; height: 220px; margin: 40px 80px; display: flex; gap: 40px; align-items: center; justify-content: center; background: #f3efe6; }
+      .el { box-sizing: border-box; width: 200px; height: 80px; border-radius: 24px; display: flex; align-items: center; justify-content: center; color: #ffffff; }
+      #a1, #a2 { background: #2f6fde; }
+      #b1 { background: #1a8361; }
+    </style>
+  </head>
+  <body>
+    <div id="box-a" class="box">
+      <div id="a1" class="el">A1</div>
+      <div id="a2" class="el">A2</div>
+    </div>
+    <div id="box-b" class="box">
+      <div id="b1" class="el">B1</div>
+    </div>
+    <script type="module" src="./webgpu-modes.ts"></script>
+  </body>
+</html>
