@@ -56,6 +56,7 @@ export interface LiquidDOMInstance {
   autoDiscover(root?: Element): void;
   stopAutoDiscover(): void;
   readonly isPaused: boolean;
+  /** The renderer in use. W72: `'auto'` gives `'webgpu'` on a hardware adapter; a lost WebGPU device switches it to `'canvas2d'` (D72-3). */
   readonly activeRenderer: "canvas2d" | "webgpu";
   readonly particleCapacity: number;
   readonly elementCapacity: number;
@@ -79,7 +80,7 @@ export class LiquidDOM {
     // D66-13: the autoObserve candidates are the runtime's initialElements (area_hint).
     const initial = o.autoObserve ? candidatesIn(root) : [];
     // Gravity is resolved and validated but has no effect until slice 6 (spec §6 interim state).
-    // silentFallback is validated only: no fallback log exists before slice 3 (B13).
+    // W72 (D72-1): silentFallback hides the one console.info of an 'auto' fallback to Canvas2D.
     const runtime = await createFluidRuntime({
       particles: o.particles,
       maxElements: o.maxElements,
@@ -89,6 +90,7 @@ export class LiquidDOM {
       forceReducedMotion: o.forceReducedMotion,
       material: o.material,
       renderer: o.renderer,
+      silentFallback: o.silentFallback,
       testBackend: o.testBackend,
       loader: o.loader,
       clock: o.clock,

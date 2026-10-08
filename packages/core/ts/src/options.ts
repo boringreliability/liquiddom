@@ -31,7 +31,7 @@ export interface LiquidOptions {
   maxElements?: number;
   /** Container mode: canvas inside this element, coordinates relative to it. */
   container?: HTMLElement;
-  /** Default 'auto' (Canvas2D without probing until W72; 'webgpu' draws the liquid since W71). */
+  /** Default 'auto': WebGPU on a hardware adapter, else Canvas2D (W72, D72-1). 'webgpu' also accepts a software adapter and rejects create() with WebGPUUnavailableError when WebGPU is missing. */
   renderer?: RendererChoice;
   /** Partial material, merged over the defaults (viscosity 0.5, cohesion 0.5, recovery 0.7). */
   material?: Partial<Material>;
@@ -42,7 +42,7 @@ export interface LiquidOptions {
   autoObserve?: boolean;
   /** Force reduced motion regardless of the OS setting. Default false. */
   forceReducedMotion?: boolean;
-  /** Suppresses the auto-fallback console.info (none exists before slice 3). Default false. */
+  /** Hides the one console.info logged when 'auto' falls back to Canvas2D. Default false. */
   silentFallback?: boolean;
   /** @internal jsdom/test backend instead of the WASM loader. */
   testBackend?: FluidBackend;
@@ -50,7 +50,7 @@ export interface LiquidOptions {
   loader?: () => Promise<FluidBackend>;
   /** @internal frame clock (W65 manual or counting clock). */
   clock?: FrameClock;
-  /** @internal W71 (D71-4): WebGPU T0 render scale in (0, 1] for the demo's ?t0 comparison. Default 0.5. */
+  /** @internal W71 (D71-4): WebGPU T0 render scale in [0.25, 1] (W72, M2) for the demo's ?t0 comparison. Default 0.5. */
   webgpuT0Scale?: number;
 }
 
@@ -207,8 +207,9 @@ function resolveClock(v: unknown): FrameClock | undefined {
 
 function resolveWebgpuT0Scale(v: unknown): number | undefined {
   if (v === undefined) return undefined;
-  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0 || v > 1) {
-    fail(`webgpuT0Scale (@internal) must be a finite number in (0, 1], got ${show(v)}`);
+  // W72 (W71 ward-review M2): the floor matches the renderer's T0_SCALE_MIN (0.25).
+  if (typeof v !== "number" || !Number.isFinite(v) || v < 0.25 || v > 1) {
+    fail(`webgpuT0Scale (@internal) must be a finite number in [0.25, 1], got ${show(v)}`);
   }
   return v;
 }
