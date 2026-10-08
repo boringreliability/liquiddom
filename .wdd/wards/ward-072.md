@@ -209,10 +209,28 @@ npm run dev
 
 ## Verification
 - `npx vitest run`: every test in the table above green; `npm run verify` green.
-- `npx vitest run`: 523 passed | 4 skipped (527) in 55 files (W72 plan, "Targets after W72"; baseline 471 | 4 after W71 gold).
+- `npx vitest run`: 529 passed | 4 skipped (533) in 55 files at gold (planned 523 | 4; +4 W72.4 review-fix tests, +2 ward-review tests; baseline 471 | 4 after W71 gold).
 - `npm run e2e:canvas2d` and `npm run e2e:dist` green; `npm run e2e:webgpu-hw` green on the Mac (`--list` 36, including the three D72-6 tests); no `[e2e warm-up]` warning on a cold server; the spike answered "no", so CI's `webgpu` step stays the soft smoke (with "yes" it would run the robust spec, soft until 10 green runs).
 - Gold: Canvas2D vs WebGPU screenshots of steps 4, 6 and 8 and the two GIFs inspected with vision; ward review (code-review skill, level high); `wdd ward status 72 gold`; STOP for Dennis.
 
 ## Carried from W71 (2026-10-07, for the W72 gate)
 - **Unusable presentation surface** (W71.5 review, Part B): in Chromium's headless shell with `--enable-unsafe-webgpu`, `requestAdapter` returns SwiftShader (`isFallbackAdapter: true`, identical to a working SwiftShader), `configure()` and `getCurrentTexture()` do not throw, and only `getCurrentTexture().createView()` raises a validation error; every frame then floods Chromium's console with Invalid Texture/TextureView/CommandBuffer warnings and no liquid is drawn (our code logs one `console.error`). Minimal fix for W72 (D72-1/D72-2 scope): a separate `pushErrorScope('validation')` around `configure()` + `getCurrentTexture().createView()` in `WebGPURenderer.init`; an error → `WebGPUUnavailableError` (so `auto` falls back, explicit `'webgpu'` rejects). Verified to raise no error on new headless with Metal or SwiftShader. Needs a fake-GPU knob (e.g. `context: "invalid-texture"`) and a red test. Probes: scratchpad `probe.mjs`, `probe2.mjs`.
 - **Device loss keys on identity** (W71.0 spike): already folded into D72-3.
+
+## Gold notes
+
+**Totals (2026-10-08, after the ward-review fixes 9600065):** cargo 151 passed + 1 ignored (Rust untouched); vitest 529 passed | 4 skipped (55 files, ×3 under full parallel load); clippy clean; `e2e:canvas2d` 27 passed / 9 skipped (cold server, no warm-up warning); `e2e:dist` 1 passed; `e2e:webgpu` (SwiftShader) 14 passed / 9 skipped; `e2e:webgpu-hw` (Metal, apple / metal-3) 24 passed / 12 skipped (the 12 skips are Linux baselines and canvas2d-only specs); `e2e:typecheck` clean; pack includes `renderers/webgpu/overdraw`.
+
+**Measured:** perf webgpu RAF mean 3.52 ms, p95 3.82 ms; overdraw mean 192 911, p95/max 402 341 fragments/frame (spec §7 feared ≈ 1.6 M). Re-form (ms, GIF manifests): canvas2d step 3 2531, step 4 2520, step 6 2384; webgpu step 3 2416, step 4 2512, step 6 2410 — all inside the 3 s budget. Browser checks: `auto` on this Mac → WebGPU (Metal); Chromium headless shell → Canvas2D with exactly one info line; explicit `'webgpu'` there → `WebGPUUnavailableError` ("presentation surface is unusable"), no canvas left.
+
+**Vision (Metal, GIFs `docs/superpowers/whole-picture/slice-3-w72-{canvas2d,webgpu}.gif`, stills in test-results/vision-w72):**
+- Step 4 keyboard splash on Split: focus ring visible above the liquid in WebGPU; where the orange liquid touches the blue Splash pill the colours blend softly (Σw·rgb/Σw).
+- Step 6 shake peak: the same V / Λ / filament shapes in both renderers; WebGPU edges smooth where Canvas2D's green filament breaks into beads. WebGPU shows a few thin light tears inside the card that Canvas2D's 2 px grid fills — the card's known "lace" (slice 2) made more visible by the finer resolution; flagged for Dennis.
+- Step 8 reduced motion: calm, crisp scene in WebGPU.
+- device.lost (WebGPU → Canvas2D): the scene keeps drawing after the rebuild (Splash pill mid re-form shows the Canvas2D edge), and a new splash draws the Canvas2D ring — the liquid survives the loss.
+
+**Reviews:** task reviews W72.0+1 (fix round: ward wording, container-remount tests), W72.2–4 (fix round: rebuild failures take the failed-frame path, M1–M3, +4 tests), W72.5 — all APPROVED. Ward review (high): 0 Critical, 0 Important, 6 Minor; fixed in 9600065: identity-rule comments + CLAUDE.md (m1), paused rebuild renders one frame (m2, +2 tests), stress scene pinned to canvas2d (m3), changeset wording (m6), count (m5); m4 (Canvas2D splats w==0 particles) recorded in CONTEXT known limitations.
+
+**Open for Dennis:** the changeset bump for the default-renderer change (`patch` per plan; `auto` now picks WebGPU on hardware adapters); the card "lace" visibility in WebGPU (slice 4/6 or a fix ward).
+
+**Carried:** `runtime-truth.test.ts` failed once under `npm run verify` load (0/33 reruns; likely its synchronous `npm pack` vs vitest's 5 s timeout; unchanged since W66) — harden with an explicit timeout in a later ward. W71 M2 floor done (0.25); W71 M4 coverage partly done (container, multi-instance, DPR 2); `refresh()`/a11y under WebGPU → slice 4.
