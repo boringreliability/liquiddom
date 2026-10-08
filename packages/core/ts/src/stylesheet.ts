@@ -61,8 +61,8 @@ export function acquireLiquidStyles(doc: Document = document): () => void {
   };
 }
 
-/** The liquid canvas: aria-hidden, no pointer events, z-index 0, last in body (or inside the container). */
-export function mountLiquidCanvas(container?: HTMLElement): HTMLCanvasElement {
+/** The liquid canvas element, not yet inserted: aria-hidden, no pointer events, z-index 0. */
+function createLiquidCanvas(container?: HTMLElement): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.className = CANVAS_CLASS;
   canvas.setAttribute("aria-hidden", "true");
@@ -75,14 +75,32 @@ export function mountLiquidCanvas(container?: HTMLElement): HTMLCanvasElement {
     s.position = "absolute";
     s.width = "100%";
     s.height = "100%";
-    container.appendChild(canvas);
   } else {
     s.position = "fixed";
     s.width = "100vw";
     s.height = "100vh";
-    document.body.appendChild(canvas);
   }
   return canvas;
+}
+
+/** The liquid canvas: aria-hidden, no pointer events, z-index 0, last in body (or inside the container). */
+export function mountLiquidCanvas(container?: HTMLElement): HTMLCanvasElement {
+  const canvas = createLiquidCanvas(container);
+  (container ?? document.body).appendChild(canvas);
+  return canvas;
+}
+
+/**
+ * W72 (D72-1, D72-3): a canvas that handed out a 'webgpu' context can never give a '2d' one,
+ * so an 'auto' fallback and a device-lost rebuild replace it. The new canvas takes the old
+ * one's place (same parent, same position, same markup as a fresh mount); a detached old
+ * canvas is mounted like a new one. The backing-store size is the runtime's job (resize).
+ */
+export function remountLiquidCanvas(old: HTMLCanvasElement, container?: HTMLElement): HTMLCanvasElement {
+  const fresh = createLiquidCanvas(container);
+  if (old.parentNode) old.replaceWith(fresh);
+  else (container ?? document.body).appendChild(fresh);
+  return fresh;
 }
 
 /** Spec §4: static → relative + z 1; positioned with z auto → z 1; explicit z → untouched. */
