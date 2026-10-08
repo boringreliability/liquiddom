@@ -21,7 +21,7 @@ Order: W71 → W72. Each ward leaves `npm run verify` and `npm run e2e:canvas2d`
 
 **Human prerequisites:**
 - Before W71 red: direction gate for D71-1 … D71-6 (ward-071.md).
-- Before W72 red: direction gate for D72-1 … D72-5 (ward-072.md).
+- Before W72 red: direction gate for D72-1 … D72-6 (ward-072.md). Done 2026-10-08 (`a6f626c`): all six APPROVED; D72-1/D72-2 amended with the presentation-surface check, D72-6 added (WebGPU e2e for container mode, multi-instance and DPR 2). W72.md was amended the same day against W71's committed code (summary: `.superpowers/sdd/W72-plan-amendment.md`).
 - W71 gold: Dennis chooses the T0 scale (0.5× vs 0.75×) from side-by-side crops (D71-4).
 - Linux baselines for the `webgpu` project are committed only after Dennis' vision approval (D65-7), and only if the W71.0 spike answered "yes". They come from the CI `e2e-update-baselines` job (local Docker runs amd64 under emulation, where SwiftShader fails; CONTEXT), so each ward asks Dennis before pushing the branch to dispatch it.
 
@@ -39,14 +39,14 @@ Every task implicitly includes these.
 **Rendering values (spec §3, slice-3 design §2)**
 - Kernel: `R = min(KERNEL_RADIUS_CAP_PX, KERNEL_RADIUS_PER_SPACING · spacingPx)` with `KERNEL_RADIUS_CAP_PX = 8`, `KERNEL_RADIUS_PER_SPACING = 2.3` (D71-5); weight `w(r) = mass · (1 − r²/R²)² / (π·R²/3)` for `r < R`, `mass = areaPerParticle`, so a filled interior reads density 1 and the threshold `DENSITY_THRESHOLD = 0.5` lands on the rect edge. `EDGE_SOFTNESS = 0.1`.
 - Splat targets (D71-3, amended by the W71 plan, Corrections 1): `T0 rgba16float` holds straight `Σw·rgb` (rgb) and `Σw` (a); `T0a r16float` holds `Σw·a` (the blended alpha needs its own channel, otherwise a translucent element comes out opaque). Both use the additive blend `{srcFactor: 'one', dstFactor: 'one', operation: 'add'}` for colour and alpha. 8 B + 2 B = 10 B per sample. **No 32-bit float targets. No T1, no T2 in slice 3.**
-- T0/T0a render scale default **0.5 × DPR** (`T0_SCALE_DEFAULT = 0.5`), configurable for the D71-4 comparison (`@internal webgpuT0Scale`, demo `?t0=0.5|0.75`).
+- T0/T0a render scale default **0.5 × DPR** (`T0_SCALE_DEFAULT = 0.5`; D71-4 chose 0.5× at W71 gold), configurable for the D71-4 comparison (`@internal webgpuT0Scale`, demo `?t0=0.5|0.75`). W71 validated `(0, 1]`; W72 raises the floor to `T0_SCALE_MIN = 0.25` in the options and the renderer (W71 ward-review M2).
 - Composite: context `alphaMode: 'premultiplied'`, format `navigator.gpu.getPreferredCanvasFormat()`; coverage = `smoothstep(0.5 − soft, 0.5 + soft, Σw)` with `soft = max(EDGE_SOFTNESS, 0.75·fwidth(Σw))`; colour = `T0.rgb / max(Σw, ε)`; alpha = coverage × `T0a / max(Σw, ε)`; the output is premultiplied once, here.
 - Cross-fade (D71-6 = D70-4): particles of an element splat at full weight while its `restAlpha < 1` and are skipped at `restAlpha = 1`; the rest pass draws the element's rounded-rect SDF at alpha `restAlpha` over the composite.
 
 **Selection and errors (spec §3 as amended)**
 - `renderer: 'auto' | 'webgpu' | 'canvas2d'`, option default `'auto'` (`options.ts`).
 - W71: `'auto'` stays Canvas2D without probing; `'webgpu'` draws the liquid; `WEBGPU_INFRA_ONLY_WARNING` is removed.
-- W72: `'auto'` → WebGPU, falling back to Canvas2D on `WebGPUUnavailableError` or `adapter.info.isFallbackAdapter` (checked right after `requestAdapter`, via `acceptFallbackAdapter: false`), one `console.info` unless `silentFallback`, canvas remounted. Explicit `'webgpu'` accepts a fallback adapter and rejects `create()` with `WebGPUUnavailableError` when unavailable. Any other init error (shader/pipeline validation via `pushErrorScope`) rejects `create()`.
+- W72: `'auto'` → WebGPU, falling back to Canvas2D on `WebGPUUnavailableError` or `adapter.info.isFallbackAdapter` (checked right after `requestAdapter`, via `acceptFallbackAdapter: false`), one `console.info` unless `silentFallback`, canvas remounted. Explicit `'webgpu'` accepts a fallback adapter and rejects `create()` with `WebGPUUnavailableError` when unavailable. **Presentation surface (D72-1/D72-2, amended at the gate):** `init` checks the surface in its own `pushErrorScope('validation')` around `configure()` + `getCurrentTexture().createView()`, before the pipeline scope; an error there is `WebGPUUnavailableError` (Chromium's headless shell reports a working-looking SwiftShader adapter whose surface is dead). Any other init error (shader/pipeline validation in the second scope, a throwing `configure`) rejects `create()`.
 - W72: `device.lost` after init that our own `destroy()` did not cause (device identity, not the reason: a crashed GPU process also reports `'destroyed'`, W71.0 spike) → rebuild as Canvas2D on a remounted canvas, one `console.warn` (from the runtime; the renderer itself never warns from W72 on), `activeRenderer === 'canvas2d'`. Our own `destroy()` never rebuilds. A loss during init counts as `WebGPUUnavailableError` (W71's `init` awaits `popErrorScope()` after `requestDevice`, which is the window). The only `console.error` paths are a runtime GPU validation error (W71, a bug) and a failed Canvas2D rebuild (W72); a loss never produces one, because a lost device generates no validation errors and the renderer stops drawing (`lost`) before the runtime reacts.
 
 **Verification**
@@ -55,9 +55,10 @@ Every task implicitly includes these.
 - **Local hardware WebGPU (one mechanism):** W71 adds the local-only project `webgpu-hw` (channel `chromium`, `WEBGPU_HW_LAUNCH_ARGS = ["--enable-unsafe-webgpu"]`, no SwiftShader flag; `npm run e2e:webgpu-hw`), routed to the same specs as `webgpu`. W72 extends its routing (robust spec, webgpu perf) and adds `record-webgpu` with the same launch args. CI never names either project.
 - **Spike routing (one constant):** `SWIFTSHADER_RUNS_LIQUID` in `e2e/projects.ts` is written once in W71.6 from the W71.0 answer; W71's `e2e-harness` test `given_the_webgpu_hw_project_…_W71` ties it to the CI webgpu step, and W72 routes `webgpu-robust.spec.ts` to `webgpu` only when it is `true`.
 - **Pixel readback (one mechanism):** a WebGPU canvas is readable only in the task that rendered it. W71's acceptance scene snapshots the liquid canvas at the end of every `__liquidTest.advance()`; every e2e pixel read (W71 and W72) goes through `__liquidTest.pixels()`. W72's `e2e/frame-readback.ts` is a thin wrapper over it (no own `drawImage`).
+- **Cold-server warm-up (W72, harness fix, no decision):** `e2e/global-setup.ts` (`globalSetup` in `playwright.config.ts`) loads `WARMUP_PATH` once before any test, retries only a navigation race (`isNavigationRace`) and only warns on failure, so Vite's dependency optimiser never reloads a test's page (W71 gold: "Execution context was destroyed" on a cold server).
 - **Gold artefacts:** raw gold screenshots go to `test-results/vision-w71/` and `test-results/whole-picture/shots/` and are copied to the scratchpad, never committed. Committed gold GIFs live in `docs/superpowers/whole-picture/` next to the slice-2 GIFs (W70 precedent `slice-2-addendum-canvas2d.gif`): W72 writes `slice-3-w72-canvas2d.gif` and `slice-3-w72-webgpu.gif`. Slice 3 has no whole-picture report.
 - Gold: screenshots from a real GPU (Metal, `webgpu-hw`) inspected with vision, Canvas2D vs WebGPU side by side, same seed and step.
-- **Counts:** vitest `424 passed | 4 skipped` at `9cc85fd` → W71 `461 | 4` (50 files) → W72 `502 | 4` (54 files); cargo `151 passed, 1 ignored` throughout. Playwright `--list`: `canvas2d` 35 → 36 → 36; `webgpu` 3 → 23 → 31 [yes] / 23 [no]; `webgpu-hw` – → 23 → 33; `perf` 1 → 1 → 2; `record` 1 → 1 → 2; `record-webgpu` – → – → 2; `dist` 1.
+- **Counts:** vitest `424 passed | 4 skipped` at `9cc85fd` → W71 `471 | 4` (51 files; 461 planned + 10 from its review fixes) → W72 `522 | 4` (55 files; 51 new, amended 2026-10-08); cargo `151 passed, 1 ignored` throughout. Playwright `--list`: `canvas2d` 35 → 36 → 36; `webgpu` 3 → 23 → 34 [yes] / 23 [no, the W71.0 answer]; `webgpu-hw` – → 23 → 36; `perf` 1 → 1 → 2; `record` 1 → 1 → 2; `record-webgpu` – → – → 2; `dist` 1.
 - Test files are not type-checked; helpers start with `_`.
 
 **Process**
@@ -102,7 +103,7 @@ export const T0_FORMAT = "rgba16float";
 export const T0_ALPHA_FORMAT = "r16float";
 export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat): LiquidPipelines; // no error scope of its own
 export interface WebGPURendererOptions {
-  readonly t0Scale?: number;                 // W71 (D71-4), validated in (0, 1], RangeError otherwise
+  readonly t0Scale?: number;                 // W71 (D71-4), validated in (0, 1]; W72 (M2): [T0_SCALE_MIN, 1] = [0.25, 1]; RangeError otherwise
   readonly acceptFallbackAdapter?: boolean;  // W72 (D72-1/2); default true (explicit 'webgpu' behaviour)
   readonly onDeviceLost?: (info: GPUDeviceLostInfo) => void; // W72 (D72-3); any loss we did not cause, never after our own destroy()
 }
@@ -112,7 +113,11 @@ export class WebGPURenderer implements Renderer {
   get isFallbackAdapter(): boolean;          // W71 getter (set after requestAdapter); W72 reads it and gates on it
   get lastFragmentEstimate(): number;        // W71 getter, always 0; W72 (D72-4) fills it every frame
   loseDeviceForTest(): void;                 // W72 @internal (D72-3)
+  get t0Size(): readonly [number, number] | null; // W72 @internal (D72-6): T0 px [w, h]; null before init / after destroy
 }
+export const T0_SCALE_MIN = 0.25;            // W72 (W71 ward-review M2)
+// W72 (D72-1/D72-2 amended): `init` pushes a validation scope around configure() + getCurrentTexture().createView()
+//      before the pipeline scope; an error there → WebGPUUnavailableError ("…presentation surface is unusable…").
 // W71: `init` awaits device.popErrorScope() after requestDevice (the loss-during-init window W72 uses);
 //      a pipeline validation error rejects with a plain Error; the first uncaptured GPU error logs one console.error.
 // W71: a device.lost we did not cause logs one console.warn and stops drawing; W72 replaces that with onDeviceLost (no warn).
@@ -147,8 +152,9 @@ export function remountLiquidCanvas(old: HTMLCanvasElement, container?: HTMLElem
 // ---- packages/core/ts/src/options.ts / runtime.ts / index.ts ----
 // W71: LiquidOptions.webgpuT0Scale (@internal, in OPTION_KEYS), FluidRuntimeOptions.webgpuT0Scale.
 // W72: FluidRuntimeOptions.silentFallback; FluidRuntime.simulateDeviceLoss(): Promise<boolean> (@internal),
-//      FluidRuntime.fragmentEstimate (@internal); `canvas` and `activeRenderer` become live getters;
-//      export const DEVICE_LOST_WARNING = "[liquiddom] WebGPU device lost"; internal `LossRelay`.
+//      FluidRuntime.fragmentEstimate (@internal), FluidRuntime.t0Size (@internal, D72-6); `canvas` and
+//      `activeRenderer` become live getters; export const DEVICE_LOST_WARNING = "[liquiddom] WebGPU device lost";
+//      internal `LossRelay`. options.ts: webgpuT0Scale validated in [0.25, 1] (M2).
 
 // ---- Test helpers: packages/core/ts/__tests__/_fake-gpu.ts ----
 // W71 creates it:
@@ -156,23 +162,28 @@ export function installFakeGpu(opts?: {
   adapter?: "ok" | "null" | "throws"; isFallbackAdapter?: boolean; device?: "ok" | "rejects";
   context?: "ok" | "null"; configureError?: Error; validationError?: string;
 }): FakeGpu;  // installs navigator.gpu, the GPU*Usage/GPUShaderStage globals and getContext("webgpu"); calls.errors
+// W71.4 review added the option maxTextureDimension2D and calls.deviceDescriptors.
 // W72 extends the same function (no second fake): option holdInit, calls.getContextWebgpu, FakeGpu.devices
 // (per-device handles: index, destroyed, submits, lose(reason?, message?)), FakeGpu.releaseInit(), and the HTML rule
-// "a canvas that handed out a webgpu context returns null for 2d". installFakeGpuLifecycle(opts) is a thin view over it.
+// "a canvas that handed out a webgpu context returns null for 2d"; a real error-scope stack per device
+// (validationError is raised by createRenderPipeline into the open scope) and context: "invalid-texture"
+// (createView() on the swapchain texture raises FAKE_INVALID_TEXTURE_MESSAGE). installFakeGpuLifecycle(opts) is a thin view over it.
 
 // ---- demo ----
 // demo/scenes/scene-params.ts: ?renderer=canvas2d|webgpu (W71; default canvas2d), ?t0=0.5|0.75 (W71, needs webgpu);
 //                              W72 adds ?renderer=auto (the default stays canvas2d).
 // demo/test-hooks.ts: SceneParams.renderer "canvas2d" | "webgpu" and t0Scale? (W71) → + "auto" (W72);
 //   LiquidTestHook.pixels(): ImageData (W71); WebGpuLiquidHook, PipelineCheckResult (W71);
-//   LiquidTestHook.loseDevice(): Promise<void> and readonly overdraw: number (W72).
+//   LiquidTestHook.loseDevice(): Promise<void>, readonly overdraw: number and readonly t0Size (W72);
+//   WebGpuModesHook / WebGpuModesCanvas, window.__webgpuModes on demo/smoke/webgpu-modes.html (W72, D72-6).
 
 // ---- e2e ----
 // e2e/scene.ts: projectRenderer() (W71).
 // e2e/projects.ts (W71): SceneRenderer, PROJECT_RENDERER, rendererForProject, WEBGPU_LIQUID_SPEC, WEBGPU_PROJECT_SPEC,
 //   WEBGPU_HW_LAUNCH_ARGS, SWIFTSHADER_RUNS_LIQUID, project "webgpu-hw"; package.json "e2e:webgpu-hw".
 // e2e/projects.ts (W72): WEBGPU_ROBUST_SPEC, anyOf, project "record-webgpu" (+ PROJECT_RENDERER entry), ProjectUse.headless;
-//   package.json "record:w72".
+//   WARMUP_PATH, WARMUP_ATTEMPTS, WARMUP_SETTLE_MS, isNavigationRace (warm-up); package.json "record:w72".
+// e2e/global-setup.ts (W72): the cold-server warm-up; playwright.config.ts globalSetup: "./e2e/global-setup.ts".
 // e2e/frame-readback.ts (W72): advanceFrames, advanceAndHash, advanceAndCountOpaque, advanceAndCountOutside —
 //   thin wrappers over __liquidTest.advance() + __liquidTest.pixels().
 ```
@@ -185,7 +196,7 @@ Failure modes the spec implies but no acceptance step exercises; each is pinned 
 2. **Empty scene** (W71): `activeParticles = 0` or no observed element renders a cleared canvas without zero-size buffers or validation errors (buffers have a minimum size).
 3. **Unobserve between generations** (W71): a particle whose `home` points at a slot with `w == 0` is not drawn (flags 0 in the element record; packHomes keeps its id so the liquid returns when the slot reappears, W71 ward-review I1); unpainted or out-of-range homes are −1. The rest overlay skips both.
 4. **Transparent or translucent element colour** (W71): `Σw = 0` never divides by zero; a translucent background composites premultiplied (no dark fringe), matching Canvas2D within the visual tolerance.
-5. **Lifecycle races** (W72): `destroy()` while WebGPU init is pending leaves no canvas, no device and no warning; a `device.lost` that resolves after `destroy()` does not rebuild; two instances each own a device and losing one does not affect the other.
+5. **Lifecycle races** (W72): `destroy()` while WebGPU init is pending leaves no canvas, no device and no warning; a `device.lost` that resolves after `destroy()` does not rebuild; two instances each own a device and losing one does not affect the other (jsdom, and on Metal through D72-6's browser test).
 
 ## Cross-ward verification
 

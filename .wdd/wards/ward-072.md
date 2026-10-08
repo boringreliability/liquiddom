@@ -6,7 +6,7 @@ epic: "fluid-engine"
 status: planned
 dependencies: [71]
 layer: "typescript"
-estimated_tests: 58
+estimated_tests: 69
 created: "2026-10-07"
 completed: null
 ---
@@ -77,7 +77,14 @@ Plan: `docs/superpowers/plans/2026-10-06-fluid-slice-3/W72.md` (complete code fo
 - **WebGPURenderer**: after `requestAdapter`, W71's `isFallbackAdapter = adapterIsFallback(adapter)` (`adapter.info.isFallbackAdapter` or the deprecated `adapter.isFallbackAdapter`); refused when `!acceptFallbackAdapter`, before `requestDevice`. `device.lost` is watched from `requestDevice` on; before init settles a loss is remembered and init throws `WebGPUUnavailableError('…lost during init…')`; after init `onDeviceLost` fires once unless `reason === 'destroyed'` (our `destroy()` nulls the device first) — except for `loseDeviceForTest()`, which is reported as `'unknown'`. The renderer itself never warns.
 - **Runtime**: `LossRelay { handler, early }` bridges a loss that resolves before `buildRuntime`. `rebuildAsCanvas2D(info)` as in D72-3; `simulateDeviceLoss(): Promise<boolean>` resolves after the rebuild (false when not on WebGPU); `fragmentEstimate`. `destroy()` settles pending rebuild waiters with `false` and removes the current canvas.
 - **Facade**: passes `silentFallback`; `activeRenderer` stays a getter over the runtime (now changes after a loss).
-- **e2e**: `webgpu-robust.spec.ts` (auto probe, steps 4/6/8, print/forced colours, device.lost, two Linux baselines when the spike said yes) is routed to W71's local `webgpu-hw` project (channel `chromium`, `WEBGPU_HW_LAUNCH_ARGS`, no SwiftShader flag) and, when W71's `SWIFTSHADER_RUNS_LIQUID`, to `webgpu` (CI, soft; its baselines come from the CI `e2e-update-baselines` job). `record-webgpu` records the scene in WebGPU locally. Pixel reads advance ≥ 1 manual-clock frame and read W71's `__liquidTest.pixels()` snapshot (`frame-readback.ts` wraps it), because a WebGPU canvas only holds its pixels in the task that presented them.
+- **e2e**: `webgpu-robust.spec.ts` (auto probe, steps 4/6/8, print/forced colours, device.lost, the three D72-6 tests, two Linux baselines when the spike said yes) is routed to W71's local `webgpu-hw` project (channel `chromium`, `WEBGPU_HW_LAUNCH_ARGS`, no SwiftShader flag) and, when W71's `SWIFTSHADER_RUNS_LIQUID`, to `webgpu` (CI, soft; its baselines come from the CI `e2e-update-baselines` job). The W71.0 spike answered "no", so it runs only in `webgpu-hw`. `record-webgpu` records the scene in WebGPU locally. Pixel reads advance ≥ 1 manual-clock frame and read W71's `__liquidTest.pixels()` snapshot (`frame-readback.ts` wraps it), because a WebGPU canvas only holds its pixels in the task that presented them.
+
+Amended 2026-10-08, after the gate (`a6f626c`) and W71's completion (plan: W72.md "Amendment 2026-10-08"; summary `.superpowers/sdd/W72-plan-amendment.md`):
+- **Presentation surface (D72-1/D72-2 as amended at the gate):** `WebGPURenderer.init` pushes its own `pushErrorScope('validation')` around `configure()` + `getCurrentTexture().createView()` and pops it before W71's pipeline scope; an error is `WebGPUUnavailableError("the canvas presentation surface is unusable (…)")`, so `auto` falls back (remount, one info) and explicit `'webgpu'` rejects. A working surface adds exactly one push/pop pair. Test infra: `_fake-gpu.ts` gets a real error-scope stack per device (W71's `validationError` is now raised by `createRenderPipeline` into the open scope instead of answering every pop) and `context: "invalid-texture"`. Tests 59–63.
+- **M2 (W71 ward review):** the `@internal` `webgpuT0Scale` / renderer `t0Scale` range becomes `[0.25, 1]` (`T0_SCALE_MIN`), in `options.ts` and the renderer constructor. No approved W71 test accepts a value below 0.25. Tests 64–65.
+- **D72-6:** three local-only tests in `webgpu-robust.spec.ts`, skipped outside `webgpu-hw`: container mode with a positioned container and `renderer: 'auto'` keeps the remounted canvas in the container after a simulated loss (67); two `'webgpu'` instances, losing one rebuilds only that one (68); `deviceScaleFactor: 2`, step 1 at rest within ±3 per channel of Canvas2D at the SDF corner/arc/centre probes of Split, and T0 = 0.5 × the backing px (69). New: the check page `demo/smoke/webgpu-modes.html` (`window.__webgpuModes`), the `@internal` seams `WebGPURenderer.t0Size` / `FluidRuntime.t0Size` and the scene hook `t0Size`.
+- **Cold-server warm-up (harness fix, no decision):** `e2e/global-setup.ts` (`globalSetup` in `playwright.config.ts`) loads the acceptance scene once before any test, retries only a navigation race, and only warns on failure (W71 gold: "Execution context was destroyed" on a cold Vite server). Test 66.
+- **W71 differences found:** `onGpuError` already has the `this.lost` guard (the planned W72 edit is dropped); `init` requests `requiredLimits.maxTextureDimension2D` and configures outside any scope (the surface scope wraps that `configure`); W71's device-lost renderer test now also covers an external `'destroyed'` loss; vitest baseline 471 | 4 (51 files), not 461. **Approved-test changes (Dennis approves at W72 red):** in `webgpu-renderer.test.ts`, `…inside_one_validation_error_scope_D71_3` (one scope → two), `given_device_lost_with_reason_unknown_…_but_an_external_destroyed_loss_warns` (replaced: `onDeviceLost` instead of `console.warn`, same three cases) and `given_an_external_device_loss_when_an_uncaptured_error_fires_afterwards_then_no_console_error` (waits for `onDeviceLost` instead of the warning). `auto-renderer.test.ts` keeps W71's `…D71_2`, two-instance and `…D71_4` tests; its other five W71 tests are superseded (three by D72-1, two by tests 41/42).
 
 ## Tests
 
@@ -141,6 +148,17 @@ Plan: `docs/superpowers/plans/2026-10-06-fluid-slice-3/W72.md` (complete code fo
 | 56 | e2e webgpu-robust: step 6 (webgpu) baseline at frame 20 (Linux, only when SWIFTSHADER_RUNS_LIQUID) | step 6 visual |
 | 57 | e2e perf: perf – webgpu (local hardware adapter): RAF p95 and splat overdraw are logged, not gated | D72-4 |
 | 58 | e2e record: whole picture – acceptance steps 1-4, 6 and 8 recorded in webgpu | gold GIF |
+| 59 | renderer-select: given_auto_and_an_unusable_presentation_surface_when_selected_then_canvas2d_on_a_remounted_canvas_and_one_info_naming_the_surface | D72-1 amended: surface check → fallback, remount, info |
+| 60 | renderer-select: given_webgpu_and_an_unusable_presentation_surface_when_selected_then_WebGPUUnavailableError_without_remount_or_info | D72-2 amended: surface check rejects explicit webgpu |
+| 61 | webgpu-lifecycle: given_a_working_surface_when_init_then_exactly_two_balanced_validation_scopes_the_surface_scope_first_and_no_error | D72-1/2: one extra push/pop pair, no error |
+| 62 | webgpu-lifecycle: given_an_unusable_presentation_surface_when_init_then_WebGPUUnavailableError_naming_it_before_any_pipeline_and_the_device_is_destroyed | D72-1/2 in the renderer |
+| 63 | auto-renderer: given_an_unusable_presentation_surface_when_create_with_auto_then_canvas2d_one_liquid_canvas_and_one_info_and_with_webgpu_then_WebGPUUnavailableError_and_nothing_left_behind | D72-1/2 through the facade |
+| 64 | webgpu-lifecycle: given_t0Scale_0_24_when_constructed_then_RangeError_naming_the_range_and_0_25_is_the_smallest_accepted_scale_M2 | M2 renderer floor |
+| 65 | options: given_webgpuT0Scale_0_24_or_0_25_when_resolved_then_0_24_is_a_TypeError_naming_the_range_and_0_25_is_accepted_M2 | M2 options floor |
+| 66 | e2e-harness: given_a_cold_vite_server_when_the_suite_starts_then_global_setup_warms_the_acceptance_scene_and_retries_only_a_navigation_race | harness warm-up |
+| 67 | e2e webgpu-robust: D72-6a – given a positioned container and renderer auto when the device is lost then the remounted canvas stays inside the container at the same place and the liquid keeps drawing there | D72-6 container mode (webgpu-hw) |
+| 68 | e2e webgpu-robust: D72-6b – given two webgpu instances on one page when the first device is lost then only that instance rebuilds as canvas2d and the second keeps its canvas and its WebGPU liquid | D72-6 multi-instance, RF5 in a browser (webgpu-hw) |
+| 69 | e2e webgpu-robust: D72-6c – given deviceScaleFactor 2 when step 1 is at rest then webgpu matches canvas2d within ±3 per channel at the SDF corner, arc and centre probes of Split and T0 is 0.5 × the backing px | D72-6 DPR 2 (webgpu-hw) |
 
 ## Must NOT
 - Change Rust, the FFI, `RenderFrame` or the `Renderer` method shape.
@@ -149,10 +167,16 @@ Plan: `docs/superpowers/plans/2026-10-06-fluid-slice-3/W72.md` (complete code fo
 - Gate anything on the overdraw estimate or on WebGPU timing.
 - Add a DOM-text halo or touch the stylesheet's paint/text rules (D72-5).
 - Run `webgpu-hw` or `record-webgpu` in CI, or commit a `webgpu` baseline without Dennis' vision approval (D65-7).
-- Use the `@internal` seams (`loseDeviceForTest`, `simulateDeviceLoss`, `fragmentEstimate`) outside tests and the demo scenes.
+- Use the `@internal` seams (`loseDeviceForTest`, `simulateDeviceLoss`, `fragmentEstimate`, `t0Size`) outside tests and the demo scenes.
+- Treat a pipeline validation error or a throwing `configure()` as "unavailable": only the surface scope's error is `WebGPUUnavailableError`.
+- Change an approved W71 test beyond the three approved-test changes listed in Specification (Dennis approves them at red).
+- Let the e2e warm-up fail a run: it only warns.
 
 ## Must DO
 - Remount the canvas on every `auto` fallback and on every device-lost rebuild, in place.
+- Check the presentation surface in its own validation scope, before the pipeline scope (D72-1/D72-2 as amended).
+- Present the three approved-test changes in `webgpu-renderer.test.ts` to Dennis at the red STOP.
+- Run the three D72-6 tests on the Mac (Metal, `webgpu-hw`) and report them at gold.
 - Keep `npm run verify`, `npm run e2e:canvas2d` and `npm run e2e:dist` green; the dist smoke keeps exactly one `canvas.liquid-canvas` with `auto`.
 - Pin Review Focus 5 (destroy during pending init, loss after destroy, two instances) with tests.
 - Inspect Canvas2D and WebGPU screenshots side by side (same seed, same step) and both GIFs with vision at gold.
@@ -183,8 +207,8 @@ npm run dev
 
 ## Verification
 - `npx vitest run`: every test in the table above green; `npm run verify` green.
-- `npx vitest run`: 502 passed | 4 skipped (W72 plan, "Targets after W72").
-- `npm run e2e:canvas2d` and `npm run e2e:dist` green; `npm run e2e:webgpu-hw` green on the Mac; when the W71.0 spike answered yes, the soft CI `webgpu` step green including the robust spec (soft until 10 green runs).
+- `npx vitest run`: 522 passed | 4 skipped (526) in 55 files (W72 plan, "Targets after W72"; baseline 471 | 4 after W71 gold).
+- `npm run e2e:canvas2d` and `npm run e2e:dist` green; `npm run e2e:webgpu-hw` green on the Mac (`--list` 36, including the three D72-6 tests); no `[e2e warm-up]` warning on a cold server; the spike answered "no", so CI's `webgpu` step stays the soft smoke (with "yes" it would run the robust spec, soft until 10 green runs).
 - Gold: Canvas2D vs WebGPU screenshots of steps 4, 6 and 8 and the two GIFs inspected with vision; ward review (code-review skill, level high); `wdd ward status 72 gold`; STOP for Dennis.
 
 ## Carried from W71 (2026-10-07, for the W72 gate)
