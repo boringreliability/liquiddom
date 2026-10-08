@@ -3,7 +3,7 @@ ward: 72
 revision: null
 name: "WebGPU by default, robust"
 epic: "fluid-engine"
-status: "approved"
+status: "gold"
 dependencies: [71]
 layer: "typescript"
 estimated_tests: 71
