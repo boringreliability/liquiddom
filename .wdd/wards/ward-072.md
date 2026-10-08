@@ -3,12 +3,12 @@ ward: 72
 revision: null
 name: "WebGPU by default, robust"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [71]
 layer: "typescript"
 estimated_tests: 71
 created: "2026-10-07"
-completed: null
+completed: "2026-10-08"
 ---
 # Ward 072: WebGPU by default, robust
 
