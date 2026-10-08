@@ -337,3 +337,34 @@ describe("W72 review fix: rebuild failures take the failed-frame path (M1–M3)"
     expect(document.querySelector("canvas")).toBeNull();
   });
 });
+
+// W72 ward-review (m2): a paused instance has no next frame, so the rebuild draws one
+// render-only frame (no core.tick) instead of leaving a blank canvas until resume().
+describe("W72 ward-review (m2): device loss while paused", () => {
+  it("given_a_user_paused_webgpu_instance_when_the_device_is_lost_and_the_rebuild_completes_then_canvas2d_renders_once_without_a_tick", async () => {
+    // W72 ward-review
+    const { rt, sb, clock } = await runtime();
+    clock.advance(1);
+    rt.pause();
+    const render2d = vi.spyOn(FluidCanvas2DRenderer.prototype, "render");
+    const ticks = ticksOf(sb).length;
+
+    await expect(rt.simulateDeviceLoss()).resolves.toBe(true);
+
+    expect(rt.activeRenderer).toBe("canvas2d");
+    expect(render2d).toHaveBeenCalledTimes(1);
+    expect(ticksOf(sb)).toHaveLength(ticks);
+    clock.advance(1); // still paused: no frame
+    expect(render2d).toHaveBeenCalledTimes(1);
+    expect(ticksOf(sb)).toHaveLength(ticks);
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("given_a_running_webgpu_instance_when_the_device_is_lost_then_the_rebuild_draws_no_extra_frame", async () => {
+    // W72 ward-review: the render-only frame is for a paused loop only.
+    const { rt } = await runtime();
+    const render2d = vi.spyOn(FluidCanvas2DRenderer.prototype, "render");
+    await expect(rt.simulateDeviceLoss()).resolves.toBe(true);
+    expect(render2d).not.toHaveBeenCalled();
+  });
+});

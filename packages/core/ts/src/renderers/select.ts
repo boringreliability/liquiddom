@@ -21,7 +21,7 @@ export interface SelectRendererOptions {
   readonly silentFallback: boolean;
   /** Replaces the runtime's canvas in place and returns the new one (used only on an 'auto' fallback). */
   readonly remountCanvas: () => HTMLCanvasElement;
-  /** D72-3: a WebGPU device lost after init (never for reason 'destroyed'). */
+  /** D72-3: a WebGPU device lost after init; any loss not caused by our own destroy() (device identity, not the reason string; a crashed GPU process also reports 'destroyed'). */
   readonly onDeviceLost: (info: GPUDeviceLostInfo) => void;
   /** D71-4: T0 render scale for the WebGPU renderer. */
   readonly t0Scale?: number;

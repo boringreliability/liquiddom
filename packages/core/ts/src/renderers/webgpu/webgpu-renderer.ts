@@ -60,7 +60,7 @@ export interface WebGPURendererOptions {
   readonly t0Scale?: number;
   /** W72 (D72-1, D72-2): false makes a fallback (software) adapter a WebGPUUnavailableError ('auto'). Default true ('webgpu'). */
   readonly acceptFallbackAdapter?: boolean;
-  /** W72 (D72-3): a device lost after init; never for reason 'destroyed' (our destroy()), never after destroy(). */
+  /** W72 (D72-3): a device lost after init: any loss not caused by our own destroy() (device identity, not the reason string; a crashed GPU process also reports 'destroyed'); never after destroy(). */
   readonly onDeviceLost?: (info: GPUDeviceLostInfo) => void;
 }
 

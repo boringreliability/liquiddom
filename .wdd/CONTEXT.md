@@ -60,6 +60,7 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 - A WebGPU canvas is readable only in the task that rendered it; the e2e helpers read `__liquidTest.pixels()` (a snapshot taken in advance()).
 - DOM-text contrast while the liquid is away (D72-5): under both renderers an element's DOM text sits on the bare page during a splash or shake; the halo / liquid text is slice 4.
 - `activeRenderer` can change during an instance's life (W72): a lost WebGPU device switches it to `'canvas2d'`; a frame or two during the rebuild draw nothing.
+- Canvas2D still splats the moving particles of an element whose rect is w == 0 (hidden); WebGPU hides them through element flags. Since W72 a device loss can switch renderers mid-session, so the difference can become visible; parking (slice 6) resolves it.
 - The overdraw number is an estimate (quads × area at the T0 scale), not a GPU counter (D72-4).
 
 ## What Comes Next

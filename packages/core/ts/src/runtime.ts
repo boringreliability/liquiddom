@@ -455,8 +455,9 @@ function buildRuntime(
   });
   loop.start();
 
-  // W72 (D72-3): a lost WebGPU device (any reason but our own 'destroyed'; the renderer
-  // filters that) rebuilds this instance as Canvas2D on a remounted canvas, with the same core
+  // W72 (D72-3): a lost WebGPU device (any loss not caused by our own destroy(); the renderer
+  // decides on device identity, not the reason string, since a crashed GPU process also
+  // reports 'destroyed') rebuilds this instance as Canvas2D on a remounted canvas, with the same core
   // and particle state and one console.warn. A failing rebuild takes the failed-frame path.
   // W72 review fix (M1, M2): every rebuild failure, synchronous or async, takes this path.
   const rebuildFailed = (err: unknown): void => {
@@ -505,6 +506,9 @@ function buildRuntime(
         }
         renderer = c2d;
         resizeCanvas(); // the new canvas gets the backing store and the renderer its grid
+        // W72 ward-review (m2): a paused loop (user pause or hidden tab) has no next frame, so
+        // draw one render-only frame (no core.tick) rather than leave the remounted canvas blank.
+        if (loop.isPaused) c2d.render(buildFrame());
         settleRebuild(true);
       })
       .catch(rebuildFailed); // W72 review fix (M1): also a throw in the success handler
