@@ -15,9 +15,16 @@ import type { RenderFrame, Renderer } from "../frame";
 import { WebGPUUnavailableError } from "./errors";
 import { ELEMENT_GPU_FLOATS, packElements, packHomes, packParticles } from "./gpu-buffers";
 import { COMPOSITE_WGSL, REST_WGSL, SPLAT_WGSL } from "./shaders";
+import { estimateSplatFragments } from "./overdraw";
 
 /** D71-4: T0 render scale relative to the canvas backing size. */
 export const T0_SCALE_DEFAULT = 0.5;
+/**
+ * W72 (W71 ward-review M2): the smallest accepted T0 scale. Far below 0.5 a T0 texel grows past
+ * the kernel radius (R ≤ 8 CSS px) and the thresholded edge turns blocky; D71-4 compared 0.5 and
+ * 0.75 only. The options validate the same range (`webgpuT0Scale`, options.ts).
+ */
+export const T0_SCALE_MIN = 0.25;
 export const T0_FORMAT: GPUTextureFormat = "rgba16float";
 export const T0_ALPHA_FORMAT: GPUTextureFormat = "r16float";
 /** WGSL `struct View`: size_css (2), size_px (2), dpr, t0_scale, 2 × pad. */
@@ -41,9 +48,20 @@ export const OVER_BLEND: GPUBlendState = {
   alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
 };
 
+/** W72 (D72-3): the message of a loss caused by loseDeviceForTest(), reported as reason 'unknown'. */
+export const SIMULATED_LOSS_MESSAGE = "simulated device loss (test hook)";
+
+function simulatedLossInfo(): GPUDeviceLostInfo {
+  return { reason: "unknown", message: SIMULATED_LOSS_MESSAGE } as unknown as GPUDeviceLostInfo;
+}
+
 export interface WebGPURendererOptions {
-  /** D71-4: T0 render scale relative to the canvas backing size, in (0, 1]. Default 0.5. */
+  /** D71-4: T0 render scale relative to the canvas backing size, in [T0_SCALE_MIN, 1] = [0.25, 1] (W72, M2). Default 0.5. */
   readonly t0Scale?: number;
+  /** W72 (D72-1, D72-2): false makes a fallback (software) adapter a WebGPUUnavailableError ('auto'). Default true ('webgpu'). */
+  readonly acceptFallbackAdapter?: boolean;
+  /** W72 (D72-3): a device lost after init; never for reason 'destroyed' (our destroy()), never after destroy(). */
+  readonly onDeviceLost?: (info: GPUDeviceLostInfo) => void;
 }
 
 export interface LiquidPipelines {
@@ -131,7 +149,8 @@ export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat
   };
 }
 
-function adapterIsFallback(adapter: GPUAdapter): boolean {
+/** W71; W72 (D72-1) exports it: either adapter.info.isFallbackAdapter or the deprecated adapter.isFallbackAdapter. */
+export function adapterIsFallback(adapter: GPUAdapter): boolean {
   const info = (adapter as { info?: { isFallbackAdapter?: boolean } }).info;
   const legacy = (adapter as { isFallbackAdapter?: boolean }).isFallbackAdapter;
   return info?.isFallbackAdapter === true || legacy === true;
@@ -184,15 +203,22 @@ export class WebGPURenderer implements Renderer {
   private readonly encoderDescriptor: GPUCommandEncoderDescriptor = { label: "liquiddom frame" };
   private readonly submitList: GPUCommandBuffer[] = [];
   private lost = false;
-  private warnedLost = false;
   private reportedGpuError = false;
+  // ---- W72 (D72-2, D72-3) ----
+  private readonly acceptFallbackAdapter: boolean;
+  private readonly deviceLostCallback: ((info: GPUDeviceLostInfo) => void) | undefined;
+  private simulatedLoss = false;
+  private initSettled = false;
+  private lostDuringInit: GPUDeviceLostInfo | null = null;
 
   constructor(opts: WebGPURendererOptions = {}) {
     const s = opts.t0Scale ?? T0_SCALE_DEFAULT;
-    if (!(Number.isFinite(s) && s > 0 && s <= 1)) {
-      throw new RangeError(`[liquiddom] WebGPU t0Scale must be a finite number in (0, 1], got ${String(s)}`);
+    if (!(Number.isFinite(s) && s >= T0_SCALE_MIN && s <= 1)) {
+      throw new RangeError(`[liquiddom] WebGPU t0Scale must be a finite number in [${T0_SCALE_MIN}, 1], got ${String(s)}`);
     }
     this.t0Scale = s;
+    this.acceptFallbackAdapter = opts.acceptFallbackAdapter ?? true;
+    this.deviceLostCallback = opts.onDeviceLost;
   }
 
   /** True for a software adapter (SwiftShader). Explicit 'webgpu' accepts it; W72 (D72-1) reads it for 'auto'. */
@@ -200,9 +226,18 @@ export class WebGPURenderer implements Renderer {
     return this.fallbackAdapter;
   }
 
-  /** Splat fragments of the last frame (D72-4). W72 fills it; 0 in W71. */
+  /** D72-4: estimated splat fragments of the last rendered frame (0 before the first frame, at rest and after a loss). */
   get lastFragmentEstimate(): number {
     return this.fragmentEstimate;
+  }
+
+  /**
+   * @internal W72 (D72-6): the size of T0 and T0a in px, `[width, height]` = ceil(backing px ×
+   * t0Scale), clamped to [1, maxTextureDimension2D]; null before init and after destroy() or a
+   * failed init. Read only by FluidRuntime.t0Size (scene test hooks).
+   */
+  get t0Size(): readonly [number, number] | null {
+    return this.t0 ? [this.t0Width, this.t0Height] : null;
   }
 
   async init(canvas: HTMLCanvasElement): Promise<void> {
@@ -217,6 +252,10 @@ export class WebGPURenderer implements Renderer {
     }
     if (!adapter) throw new WebGPUUnavailableError("requestAdapter returned null");
     this.fallbackAdapter = adapterIsFallback(adapter);
+    // W72 (D72-1, D72-2): 'auto' treats a fallback (software) adapter as unavailable, before any device or context exists.
+    if (this.fallbackAdapter && !this.acceptFallbackAdapter) {
+      throw new WebGPUUnavailableError("the adapter is a fallback (software) adapter, which renderer 'auto' treats as unavailable");
+    }
     let device: GPUDevice;
     try {
       // W71.4 review (Minor 4): the default limit is 8192 px; a wide backing at dpr 2 exceeds it.
@@ -228,11 +267,24 @@ export class WebGPURenderer implements Renderer {
     } catch (cause) {
       throw new WebGPUUnavailableError("requestDevice rejected", { cause });
     }
+    this.watchDeviceLoss(device); // W72 (D72-3): from requestDevice on, so a loss during init is seen
     try {
       const ctx = canvas.getContext("webgpu");
       if (!ctx) throw new WebGPUUnavailableError("canvas.getContext('webgpu') returned null");
       const format = navigator.gpu.getPreferredCanvasFormat();
+      // W72 (D72-1, D72-2): a separate validation scope proves the presentation surface works.
+      // Chromium's headless shell hands out the same SwiftShader adapter as a working browser and
+      // configure()/getCurrentTexture() do not throw; only createView() on the swapchain texture
+      // raises a validation error (W71.5 review, Part B). Unusable surface = WebGPU unavailable:
+      // 'auto' falls back to Canvas2D, explicit 'webgpu' rejects create(). A configure() that
+      // throws is still a bug and rejects (it leaves this scope open; the catch destroys the device).
+      device.pushErrorScope("validation");
       ctx.configure({ device, format, alphaMode: "premultiplied" });
+      ctx.getCurrentTexture().createView();
+      const surface = await device.popErrorScope();
+      if (surface) {
+        throw new WebGPUUnavailableError(`the canvas presentation surface is unusable (${surface.message})`);
+      }
       device.pushErrorScope("validation");
       const pipelines = buildPipelines(device, format);
       const sampler = device.createSampler({
@@ -262,9 +314,9 @@ export class WebGPURenderer implements Renderer {
           : DEFAULT_MAX_TEXTURE_DIMENSION_2D;
       this.lost = false;
       const owned = device;
-      void device.lost.then((info) => this.onDeviceLost(owned, info));
       device.addEventListener("uncapturederror", (ev) => this.onGpuError(owned, ev as GPUUncapturedErrorEvent));
       this.allocateTargets();
+      this.settleInit(); // W72 (D72-3): a loss during init → WebGPUUnavailableError; the catch destroys the device
     } catch (err) {
       this.releaseGpuObjects();
       device.destroy();
@@ -282,6 +334,7 @@ export class WebGPURenderer implements Renderer {
   render(frame: RenderFrame): void {
     const { device, ctx, pipelines } = this;
     if (!device || !ctx || !pipelines || this.lost) return;
+    this.fragmentEstimate = estimateSplatFragments(frame, this.t0Scale); // D72-4: logged, never gated
     this.ensureBuffers(frame);
     const { particleBuffer, homeBuffer, elementBuffer, viewBuffer, t0View, t0AlphaView } = this;
     const { splatGroup, compositeGroup, restGroup } = this;
@@ -349,6 +402,8 @@ export class WebGPURenderer implements Renderer {
     const device = this.device;
     this.releaseGpuObjects();
     this.lost = false;
+    this.fragmentEstimate = 0;
+    this.simulatedLoss = false;
     device?.destroy();
   }
 
@@ -476,15 +531,46 @@ export class WebGPURenderer implements Renderer {
     this.submitList.length = 0;
   }
 
-  /** W72 (D72-3) turns this into the Canvas2D rebuild; W71 warns once and stops drawing. Our own destroy() is silent. */
-  private onDeviceLost(owned: GPUDevice, info: GPUDeviceLostInfo): void {
-    // Only our own destroy() is silent (it clears this.device first). A crashed GPU process also
-    // reports reason "destroyed" (W71.0 spike, SwiftShader), so the reason string decides nothing.
-    if (this.device !== owned) return;
-    this.lost = true;
-    if (this.warnedLost) return;
-    this.warnedLost = true;
-    console.warn(`[liquiddom] WebGPU device lost (${info.message}); the liquid is no longer drawn.`);
+  /** W72 (D72-3): watches the device from requestDevice on. Before init settles a loss is remembered (init then throws). */
+  private watchDeviceLoss(device: GPUDevice): void {
+    this.initSettled = false;
+    this.lostDuringInit = null;
+    void device.lost.then((info) => {
+      if (!this.initSettled) {
+        this.lostDuringInit = info;
+        return;
+      }
+      if (this.device !== device) return; // destroy() ran first: our own loss, never a rebuild
+      const simulated = this.simulatedLoss;
+      // D72-3 (amended after the W71.0 spike): any loss we did not cause rebuilds, whatever its
+      // reason; a crashed GPU process reports "destroyed" too. Our own destroy() returned above.
+      this.lost = true;
+      this.fragmentEstimate = 0;
+      // The renderer never warns: the runtime owns the one console.warn (D72-3).
+      this.deviceLostCallback?.(simulated ? simulatedLossInfo() : info);
+    });
+  }
+
+  /** D72-3: the last statement of a successful init. A loss during init counts as unavailable. */
+  private settleInit(): void {
+    this.initSettled = true;
+    const early = this.lostDuringInit;
+    if (early !== null) {
+      throw new WebGPUUnavailableError(`the WebGPU device was lost during init (${early.reason}: ${early.message})`);
+    }
+  }
+
+  /**
+   * @internal W72 (D72-3): lose the device the way a driver reset would. Browsers cannot lose a
+   * device with reason 'unknown' on demand, so this destroys it and reports the loss as
+   * 'unknown'. Reached only through FluidRuntime.simulateDeviceLoss() (scene test hooks).
+   */
+  loseDeviceForTest(): void {
+    const device = this.device;
+    if (!device || this.lost) return;
+    this.simulatedLoss = true;
+    this.lost = true; // no frame may use the destroyed device before the loss is delivered
+    device.destroy();
   }
 
   /** A GPU validation error at runtime is a bug: one console.error (the first), never a flood; none after a loss. */
