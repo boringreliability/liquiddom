@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-68 of 70 Wards complete · 853 estimated tests · 1 blocked
+69 of 72 Wards complete · 952 estimated tests · 1 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -76,6 +76,8 @@
 | 068 | Pointer, hover and material | 81 | ✅ Complete | 2026-10-06 |
 | 069 | Playground, splash scene, whole-picture check | 26 | ✅ Complete | 2026-10-06 |
 | 070 | Slice 2 fix: sloshing shake, readable bulge, clean cross-fade | 18 | ✅ Complete | 2026-10-06 |
+| 071 | Liquid in WebGPU | 41 | ✅ Complete | 2026-10-08 |
+| 072 | WebGPU by default, robust | 58 | 📋 Planned | - |
 
 ## Test Summary
-- Estimated total: 853
+- Estimated total: 952

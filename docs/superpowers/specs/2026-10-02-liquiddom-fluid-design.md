@@ -520,7 +520,7 @@ Slices 1–2 are detailed in the plan. Slices 3–6 are re-planned after each wh
 | Stacking contexts in consumer CSS | Documented. The injected rule covers the common case |
 
 **Open points**, decided by measurement or in the first wards:
-- Render scale for T0 (0.5× vs 0.75×).
+- Render scale for T0: 0.5× (decided at W71 gold, D71-4, side-by-side Metal crops; saga dec_2dc07861).
 - `opt-level` 3 vs `"s"`.
 - What happens to the published `0.2.0-rc.0` (npm deprecate or leave it) and to the CHANGELOGs.
 - Whether F is updated every substep or every 2nd substep (benchmark in slice 4).

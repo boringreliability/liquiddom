@@ -3,12 +3,12 @@ ward: 71
 revision: null
 name: "Liquid in WebGPU"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [70]
 layer: "typescript"
 estimated_tests: 41
 created: "2026-10-07"
-completed: null
+completed: "2026-10-08"
 ---
 # Ward 071: Liquid in WebGPU
 
@@ -214,4 +214,4 @@ Consequence for W72 (D72-3): a loss we did not cause can arrive with `reason: "d
 
 **Approved-test change for Dennis to confirm:** I1 changed ONE approved expectation, `gpu-buffers.test.ts:146-147`: a slot with `w == 0` now keeps its home (`2`) instead of `-1`; it stays invisible through flags 0 in its element record (splat and rest pass). Review Focus 3 wording updated accordingly.
 
-**Carried:** W72 — headless-shell unusable surface (see ward-072 "Carried from W71"), M1, M2, M4, warm Vite deps for the first e2e test. Open: Dennis' D71-4 choice.
+**Carried:** W72 — headless-shell unusable surface (see ward-072 "Carried from W71"), M1, M2, M4, warm Vite deps for the first e2e test. Resolved at gold 2026-10-08: D71-4 = 0.5× (dec_2dc07861); the I1 expectation change approved (dec_49094051); gold approved by Dennis.

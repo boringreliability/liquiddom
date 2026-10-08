@@ -143,7 +143,7 @@ describe("W71 gpu-buffers", () => {
     const out = new Int32Array(CAP).fill(9);
     packHomes(frame(), out);
     // 0, 0, 1, 1: painted and active; HOME_NONE; NaN; slot 2 inactive (w = 0); slot 3 unpainted.
-    // W71 ward-review I1: w==0 is hidden by element flags, not by home (Dennis approves at gold)
+    // W71 ward-review I1: w==0 is hidden by element flags, not by home (approved by Dennis at W71 gold, saga dec_49094051)
     expect(Array.from(out)).toEqual([0, 0, 1, 1, -1, -1, 2, -1]);
     packHomes(frame({ homes: [7, 1.5, -0, 4, 1, 1, 1, 1] }), out);
     expect(Array.from(out)).toEqual([-1, -1, 0, -1, 1, 1, 1, 1]);
