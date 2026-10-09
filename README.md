@@ -3,7 +3,7 @@
 **WASM-driven fluid dynamics on web elements via a hidden canvas, preserving a11y.** The elements *are* liquid: they splash, split, merge and always re-form. This is a playground, not a product.
 
 - **Rust/WASM** runs a 2D MLS-MPM fluid on the CPU (`src/fluid/`).
-- **TypeScript** observes the DOM, owns the frame loop and renders (Canvas2D now, WebGPU from a later slice).
+- **TypeScript** observes the DOM, owns the frame loop and renders (WebGPU by default, Canvas2D as the fallback).
 - They share pre-allocated `Float32Array` views; there is no JSON over the FFI.
 - **The DOM stays the source of truth.** Semantics, focus, events and hit areas stay on the real elements. The canvas is `aria-hidden` and sits below them.
 

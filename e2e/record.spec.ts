@@ -1,14 +1,14 @@
 /**
- * W69: whole-picture recording of the acceptance scene after slice 2 (D69-2).
- * - Runs only in the local `record` project (`npm run whole-picture`); never in CI.
- *   Video comes from PROJECT_USE.record (e2e/projects.ts) via useFor() in
- *   playwright.config.ts; viewport 1280×800 and DPR 1 from desktopChrome.
+ * W69/W70: whole-picture recording of the acceptance scene (D69-2, D70-6); W72: one test per
+ * renderer for the W72 gold GIFs.
+ * - canvas2d runs in the local `record` project (`npm run whole-picture`, `npm run record:w72`);
+ *   webgpu runs in the local `record-webgpu` project (hardware adapter, `npm run record:w72`).
+ *   Neither ever runs in CI. Video comes from PROJECT_USE (e2e/projects.ts) via useFor().
  * - RAF clock (no ?clock=manual): a manual clock would record a frozen video (C6).
- * - canvas2d only: no WebGPU fluid renderer exists before slice 3 (C6).
- * - Records steps 1–4, 6 and 8 (a ?rm=1 segment, D70-6). Step 5 (drag, slice 5) and 7 (scroll, slice 6) are ⏳ in S2.
- * - Re-form budgets are read from .wdd/NORTH-STAR.md (the D67-1 outcome), never
- *   hard-coded. They are reported, not asserted: acceptance.spec.ts (W67/W68) asserts them.
- * Timings are wall-clock (±50 ms) and go to manifest.json for the status report.
+ * - Records steps 1–4, 6 and 8 (a ?rm=1 segment, D70-6). Step 5 (drag, slice 5) and 7 (scroll, slice 6) are ⏳.
+ * - Re-form budgets are read from .wdd/NORTH-STAR.md (the D67-1 outcome), never hard-coded.
+ *   They are reported, not asserted: acceptance.spec.ts and webgpu-robust.spec.ts assert them.
+ * Timings are wall-clock (±50 ms) and go to the manifest for the status report.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -24,15 +24,16 @@ type SceneHook = {
 
 const OUT_DIR = resolve(process.cwd(), "test-results/whole-picture");
 const SHOTS_DIR = resolve(OUT_DIR, "shots");
+
 /**
- * Stable, gitignored video path outside test-results: Playwright moves its video to
- * test-results/<test>/video.webm only after the page closes, and parallel runs can wipe
- * test-results. The manifest points here so scripts/webm-to-gif.mjs reads a file that exists.
+ * One recording per renderer. The canvas2d paths are W69's (the whole-picture script and the
+ * slice-2 report use them). Videos live outside test-results at a stable, gitignored path:
+ * Playwright moves its video only after the page closes, and parallel runs can wipe test-results.
  */
-const VIDEO_PATH = resolve(process.cwd(), "tmp/whole-picture/slice-2.webm");
-const SCENE_URL = "/scenes/acceptance.html?seed=1&renderer=canvas2d&test=1";
-/** D70-6: step 8, the same scene in reduced motion (forceReducedMotion via ?rm=1). */
-const RM_SCENE_URL = `${SCENE_URL}&rm=1`;
+const RECORDINGS = [
+  { renderer: "canvas2d", project: "record", manifest: "manifest.json", video: "tmp/whole-picture/slice-2.webm", shotPrefix: "s2" },
+  { renderer: "webgpu", project: "record-webgpu", manifest: "manifest-webgpu.json", video: "tmp/whole-picture/webgpu.webm", shotPrefix: "webgpu" },
+] as const;
 
 const NORTH_STAR_MD = readFileSync(resolve(process.cwd(), NORTH_STAR_PATH), "utf8");
 /** Step 3 budget = D67-1 outcome. Step 4 is the same splash at the centre, so it shares it. */
@@ -66,12 +67,6 @@ async function until(page: Page, kind: "allRest" | "anyMoving", timeoutMs: numbe
   }
 }
 
-async function shot(page: Page, name: string, shots: string[]): Promise<void> {
-  const path = resolve(SHOTS_DIR, `s2-${name}.png`);
-  await page.screenshot({ path });
-  shots.push(path);
-}
-
 /** A visible sweep: one pointermove per ~16 ms frame. */
 async function sweep(page: Page, x0: number, x1: number, y: number, durationMs: number): Promise<void> {
   const n = Math.max(2, Math.round(durationMs / 16));
@@ -81,158 +76,165 @@ async function sweep(page: Page, x0: number, x1: number, y: number, durationMs: 
   }
 }
 
-/** Runs `act`, then measures reaction (any restAlpha < 1) and re-form (all = 1) from the act. */
-async function measure(
-  page: Page,
-  act: () => Promise<void>,
-  midShot: { name: string; afterMs: number },
-  shots: string[],
-  reformTimeoutMs: number,
-): Promise<{ reactedMs: number | null; reformMs: number | null }> {
-  const t0 = Date.now();
-  await act();
-  const reacted = await until(page, "anyMoving", 500);
-  const reactedMs = reacted ? Date.now() - t0 : null;
-  const wait = midShot.afterMs - (Date.now() - t0);
-  if (wait > 0) await page.waitForTimeout(wait);
-  await shot(page, midShot.name, shots);
-  const reformed = await until(page, "allRest", reformTimeoutMs);
-  return { reactedMs, reformMs: reformed ? Date.now() - t0 : null };
-}
+for (const r of RECORDINGS) {
+  // W72 red: approved-test change (Dennis approves at W72 red): W69/W70's canvas2d recording becomes one test per renderer (canvas2d assertions and paths kept)
+  test(`whole picture – acceptance steps 1-4, 6 and 8 recorded in ${r.renderer}`, async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== r.project, `the ${r.renderer} recording runs only in the ${r.project} project`);
+    test.setTimeout(120_000);
+    mkdirSync(SHOTS_DIR, { recursive: true });
+    const timings: StepTiming[] = [];
+    const shots: string[] = [];
+    const SCENE_URL = `/scenes/acceptance.html?seed=1&renderer=${r.renderer}&test=1`;
+    /** D70-6: step 8, the same scene in reduced motion (forceReducedMotion via ?rm=1). */
+    const RM_SCENE_URL = `${SCENE_URL}&rm=1`;
+    const VIDEO_PATH = resolve(process.cwd(), r.video);
 
-test("whole picture – slice 2 – acceptance steps 1-4, 6 and 8 recorded in canvas2d", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== "record", "recording runs only in the record project (npm run whole-picture)");
-  test.setTimeout(120_000);
-  mkdirSync(SHOTS_DIR, { recursive: true });
-  const timings: StepTiming[] = [];
-  const shots: string[] = [];
+    const shot = async (name: string): Promise<void> => {
+      const path = resolve(SHOTS_DIR, `${r.shotPrefix}-${name}.png`);
+      await page.screenshot({ path });
+      shots.push(path);
+    };
+    /** Runs `act`, then measures reaction (any restAlpha < 1) and re-form (all = 1) from the act. */
+    const measure = async (
+      act: () => Promise<unknown>,
+      midShot: { name: string; afterMs: number },
+      reformTimeoutMs: number,
+    ): Promise<{ reactedMs: number | null; reformMs: number | null }> => {
+      const t0 = Date.now();
+      await act();
+      const reacted = await until(page, "anyMoving", 500);
+      const reactedMs = reacted ? Date.now() - t0 : null;
+      const wait = midShot.afterMs - (Date.now() - t0);
+      if (wait > 0) await page.waitForTimeout(wait);
+      await shot(midShot.name);
+      const reformed = await until(page, "allRest", reformTimeoutMs);
+      return { reactedMs, reformMs: reformed ? Date.now() - t0 : null };
+    };
 
-  await page.goto(SCENE_URL);
-  await page.evaluate(() => (window as unknown as { __liquidTest: SceneHook }).__liquidTest.ready);
-  const activeRenderer = await page.evaluate(
-    () => (window as unknown as { __liquidTest: SceneHook }).__liquidTest.instance.activeRenderer,
-  );
-  expect(activeRenderer).toBe("canvas2d");
-  await page.mouse.move(4, 4);
+    await page.goto(SCENE_URL);
+    await page.evaluate(() => (window as unknown as { __liquidTest: SceneHook }).__liquidTest.ready);
+    const activeRenderer = await page.evaluate(
+      () => (window as unknown as { __liquidTest: SceneHook }).__liquidTest.instance.activeRenderer,
+    );
+    expect(activeRenderer).toBe(r.renderer);
+    const adapter = await page.evaluate(async () => {
+      type Info = { vendor?: string; architecture?: string; isFallbackAdapter?: boolean };
+      const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<{ info?: Info } | null> } }).gpu;
+      const a = gpu ? await gpu.requestAdapter() : null;
+      return a?.info ? { vendor: a.info.vendor ?? "", architecture: a.info.architecture ?? "", isFallbackAdapter: a.info.isFallbackAdapter ?? null } : null;
+    });
+    await page.mouse.move(4, 4);
 
-  // Step 1 – idle 2 s at rest.
-  const t1 = Date.now();
-  const rest1 = await until(page, "allRest", 3_000);
-  timings.push({ step: 1, name: "idle", budgetMs: null, reactedMs: null, reformMs: rest1 ? Date.now() - t1 : null });
-  await page.waitForTimeout(2_000);
-  await shot(page, "step1-idle", shots);
+    // Step 1 – idle 2 s at rest.
+    const t1 = Date.now();
+    const rest1 = await until(page, "allRest", 3_000);
+    timings.push({ step: 1, name: "idle", budgetMs: null, reactedMs: null, reformMs: rest1 ? Date.now() - t1 : null });
+    await page.waitForTimeout(2_000);
+    await shot("step1-idle");
 
-  // Step 2 – pointer sweep across the three buttons and back.
-  const splash = page.getByRole("button", { name: "Splash", exact: true });
-  const merge = page.getByRole("button", { name: "Merge", exact: true });
-  const a = await splash.boundingBox();
-  const c = await merge.boundingBox();
-  if (a === null || c === null) throw new Error("acceptance scene buttons are not laid out");
-  const y = a.y + a.height / 2;
-  await page.mouse.move(a.x - 60, y);
-  await sweep(page, a.x - 60, c.x + c.width + 60, y, 1_200);
-  await shot(page, "step2-sweep", shots);
-  await sweep(page, c.x + c.width + 60, a.x - 60, y, 1_200);
-  await page.mouse.move(4, 4, { steps: 10 });
-  const t2 = Date.now();
-  const rest2 = await until(page, "allRest", 5_000);
-  timings.push({ step: 2, name: "pointer sweep", budgetMs: null, reactedMs: null, reformMs: rest2 ? Date.now() - t2 : null });
+    // Step 2 – pointer sweep across the three buttons and back.
+    const splash = page.getByRole("button", { name: "Splash", exact: true });
+    const merge = page.getByRole("button", { name: "Merge", exact: true });
+    const a = await splash.boundingBox();
+    const c = await merge.boundingBox();
+    if (a === null || c === null) throw new Error("acceptance scene buttons are not laid out");
+    const y = a.y + a.height / 2;
+    await page.mouse.move(a.x - 60, y);
+    await sweep(page, a.x - 60, c.x + c.width + 60, y, 1_200);
+    await shot("step2-sweep");
+    await sweep(page, c.x + c.width + 60, a.x - 60, y, 1_200);
+    await page.mouse.move(4, 4, { steps: 10 });
+    const t2 = Date.now();
+    const rest2 = await until(page, "allRest", 5_000);
+    timings.push({ step: 2, name: "pointer sweep", budgetMs: null, reactedMs: null, reformMs: rest2 ? Date.now() - t2 : null });
 
-  // Step 3 – click "Splash" (splash at the pointer), then park the pointer far from any
-  // liquid, as acceptance.spec does (W68: pointer field and hover swell on the clicked pill).
-  const s3 = await measure(
-    page,
-    async () => {
-      await splash.click();
-      await page.mouse.move(1279, 799);
-    },
-    { name: "step3-splash-150ms", afterMs: 150 },
-    shots,
-    reformTimeout(SPLASH_BUDGET_MS),
-  );
-  await shot(page, "step3-reformed", shots);
-  timings.push({ step: 3, name: 'click "Splash"', budgetMs: SPLASH_BUDGET_MS, ...s3 });
-
-  // Step 4 – Tab to "Split", Enter (click detail 0 → centre). Focus ring visible throughout.
-  await page.mouse.click(4, 4);
-  let focused = false;
-  for (let i = 0; i < 12 && !focused; i++) {
-    await page.keyboard.press("Tab");
-    focused = await page.evaluate(() => (document.activeElement?.textContent ?? "").trim() === "Split");
-  }
-  expect(focused, "Tab never reached the Split button").toBe(true);
-  await page.waitForTimeout(400);
-  await shot(page, "step4-focus", shots);
-  const s4 = await measure(
-    page,
-    () => page.keyboard.press("Enter"),
-    { name: "step4-splash-150ms", afterMs: 150 },
-    shots,
-    reformTimeout(SPLASH_BUDGET_MS),
-  );
-  await shot(page, "step4-reformed", shots);
-  timings.push({ step: 4, name: 'Tab + Enter on "Split"', budgetMs: SPLASH_BUDGET_MS, ...s4 });
-
-  // Step 6 – shake everything.
-  const s6 = await measure(
-    page,
-    () => page.evaluate(() => (window as unknown as { __liquidTest: SceneHook }).__liquidTest.instance.shake()),
-    { name: "step6-shake-200ms", afterMs: 200 },
-    shots,
-    reformTimeout(SHAKE_BUDGET_MS),
-  );
-  await shot(page, "step6-reformed", shots);
-  timings.push({ step: 6, name: "shake", budgetMs: SHAKE_BUDGET_MS, ...s6 });
-
-  // Hold the final rest frame for the GIF.
-  await page.waitForTimeout(1_500);
-
-  // Step 8 – reduced motion (?rm=1, D70-6): the same scene with forceReducedMotion. A click on
-  // "Splash" and a shake must show no motion: every restAlpha stays 1 and the scene stays crisp.
-  await page.goto(RM_SCENE_URL);
-  await page.evaluate(() => (window as unknown as { __liquidTest: SceneHook }).__liquidTest.ready);
-  await page.mouse.move(4, 4);
-  await page.waitForTimeout(1_000);
-  await shot(page, "step8-rm-idle", shots);
-  const t8 = Date.now();
-  await page.getByRole("button", { name: "Splash", exact: true }).click();
-  await page.evaluate(() => (window as unknown as { __liquidTest: SceneHook }).__liquidTest.instance.shake());
-  await page.mouse.move(1279, 799);
-  const moved8 = await until(page, "anyMoving", 1_000);
-  await shot(page, "step8-rm-after-click-and-shake", shots);
-  timings.push({
-    step: 8,
-    name: "reduced motion (?rm=1): click + shake",
-    budgetMs: null,
-    reactedMs: moved8 ? Date.now() - t8 : null,
-    reformMs: null,
-  });
-  expect(moved8, "step 8: under ?rm=1 a click and a shake must not move the liquid").toBe(false);
-  await page.waitForTimeout(1_500);
-
-  const video = page.video();
-  expect(video, "video recording is not enabled (PROJECT_USE.record)").not.toBeNull();
-  mkdirSync(dirname(VIDEO_PATH), { recursive: true });
-  // The video is only finalised once the page is closed; saveAs then copies it to the stable path.
-  await page.close();
-  await video?.saveAs(VIDEO_PATH);
-  writeFileSync(
-    resolve(OUT_DIR, "manifest.json"),
-    JSON.stringify(
-      {
-        scene: SCENE_URL,
-        renderer: activeRenderer,
-        clock: "raf",
-        viewport: "1280x800",
-        budgetsFrom: NORTH_STAR_PATH,
-        budgetsMs: { splash: SPLASH_BUDGET_MS, shake: SHAKE_BUDGET_MS },
-        recordedAt: new Date().toISOString(),
-        video: VIDEO_PATH,
-        timings,
-        shots,
+    // Step 3 – click "Splash" (splash at the pointer), then park the pointer far from any
+    // liquid, as acceptance.spec does (W68: pointer field and hover swell on the clicked pill).
+    const s3 = await measure(
+      async () => {
+        await splash.click();
+        await page.mouse.move(1279, 799);
       },
-      null,
-      2,
-    ),
-  );
-});
+      { name: "step3-splash-150ms", afterMs: 150 },
+      reformTimeout(SPLASH_BUDGET_MS),
+    );
+    await shot("step3-reformed");
+    timings.push({ step: 3, name: 'click "Splash"', budgetMs: SPLASH_BUDGET_MS, ...s3 });
+
+    // Step 4 – Tab to "Split", Enter (click detail 0 → centre). Focus ring visible throughout.
+    await page.mouse.click(4, 4);
+    let focused = false;
+    for (let i = 0; i < 12 && !focused; i++) {
+      await page.keyboard.press("Tab");
+      focused = await page.evaluate(() => (document.activeElement?.textContent ?? "").trim() === "Split");
+    }
+    expect(focused, "Tab never reached the Split button").toBe(true);
+    await page.waitForTimeout(400);
+    await shot("step4-focus");
+    const s4 = await measure(() => page.keyboard.press("Enter"), { name: "step4-splash-150ms", afterMs: 150 }, reformTimeout(SPLASH_BUDGET_MS));
+    await shot("step4-reformed");
+    timings.push({ step: 4, name: 'Tab + Enter on "Split"', budgetMs: SPLASH_BUDGET_MS, ...s4 });
+
+    // Step 6 – shake everything.
+    const s6 = await measure(
+      () => page.evaluate(() => (window as unknown as { __liquidTest: SceneHook }).__liquidTest.instance.shake()),
+      { name: "step6-shake-200ms", afterMs: 200 },
+      reformTimeout(SHAKE_BUDGET_MS),
+    );
+    await shot("step6-reformed");
+    timings.push({ step: 6, name: "shake", budgetMs: SHAKE_BUDGET_MS, ...s6 });
+
+    // Hold the final rest frame for the GIF.
+    await page.waitForTimeout(1_500);
+
+    // Step 8 – reduced motion (?rm=1, D70-6): the same scene with forceReducedMotion. A click on
+    // "Splash" and a shake must show no motion: every restAlpha stays 1 and the scene stays crisp.
+    await page.goto(RM_SCENE_URL);
+    await page.evaluate(() => (window as unknown as { __liquidTest: SceneHook }).__liquidTest.ready);
+    await page.mouse.move(4, 4);
+    await page.waitForTimeout(1_000);
+    await shot("step8-rm-idle");
+    const t8 = Date.now();
+    await page.getByRole("button", { name: "Splash", exact: true }).click();
+    await page.evaluate(() => (window as unknown as { __liquidTest: SceneHook }).__liquidTest.instance.shake());
+    await page.mouse.move(1279, 799);
+    const moved8 = await until(page, "anyMoving", 1_000);
+    await shot("step8-rm-after-click-and-shake");
+    timings.push({
+      step: 8,
+      name: "reduced motion (?rm=1): click + shake",
+      budgetMs: null,
+      reactedMs: moved8 ? Date.now() - t8 : null,
+      reformMs: null,
+    });
+    expect(moved8, "step 8: under ?rm=1 a click and a shake must not move the liquid").toBe(false);
+    await page.waitForTimeout(1_500);
+
+    const video = page.video();
+    expect(video, `video recording is not enabled (PROJECT_USE["${r.project}"])`).not.toBeNull();
+    mkdirSync(dirname(VIDEO_PATH), { recursive: true });
+    // The video is only finalised once the page is closed; saveAs then copies it to the stable path.
+    await page.close();
+    await video?.saveAs(VIDEO_PATH);
+    writeFileSync(
+      resolve(OUT_DIR, r.manifest),
+      JSON.stringify(
+        {
+          scene: SCENE_URL,
+          renderer: activeRenderer,
+          adapter,
+          clock: "raf",
+          viewport: "1280x800",
+          budgetsFrom: NORTH_STAR_PATH,
+          budgetsMs: { splash: SPLASH_BUDGET_MS, shake: SHAKE_BUDGET_MS },
+          recordedAt: new Date().toISOString(),
+          video: VIDEO_PATH,
+          timings,
+          shots,
+        },
+        null,
+        2,
+      ),
+    );
+  });
+}

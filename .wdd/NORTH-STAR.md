@@ -183,9 +183,24 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D69-4 | Whole-picture gate semantics: whole-picture gate checks structure and honesty; a ❌ step does not block gold | W69 | dec_ea35ba46 |
 | D69-5 | Carried observations go into the report: report + recommendation per carried item, no engine change in W69 | W69 | dec_035bc206 |
 | D69-6 | Published-dist browser smoke in CI: blocking dist smoke in CI with a core build step | W69 | dec_6de03f81 |
-| D70-1 | Spatially coherent shake impulse: coherent per-element shake field d·speed·(1 + 0.8·sin(π·u + φ)), no white noise, no rotation | W70 | dec_d54a6ce1 |
-| D70-2 | Lower the shake stiffness cap: SHAKE_STIFFNESS_CAP 0.4 → ~0.15, final in [0.1, 0.2] by measurement | W70 | dec_0412fd9a |
+| D70-1 | Spatially coherent shake impulse: coherent per-element shake field d·speed·(1 + 0.8·sin(π·u + φ)), no white noise, no rotation (amplitude superseded by D73-1: 0.5) | W70 | dec_d54a6ce1 |
+| D70-2 | Lower the shake stiffness cap: SHAKE_STIFFNESS_CAP 0.4 → ~0.15, final in [0.1, 0.2] by measurement (superseded by D73-2: 0.3) | W70 | dec_0412fd9a |
 | D70-3 | Raise the pointer drag: AMENDED — POINTER_DRAG_PER_S 12 (was range 12–24 with a pointer-only 3 px bar, dec_2bb9f606) | W70 | dec_7db9a25c |
 | D70-4 | Full density weight during the Canvas2D cross-fade: full density weight while restAlpha < 1, roundRect at restAlpha on top | W70 | dec_b98514b2 |
 | D70-5 | Make experience measurable: AMENDED — bulge ≥ 5 px across the pills, no-hole margin 10 px, slosh ≥ 24 px card / 12 px pills (was 3 px / 6 px / 3 px, dec_ec207f57) | W70 | dec_7db9a25c |
 | D70-6 | Step 8 in the recording plus a slice-2 addendum: ?rm=1 segment in the recording, re-record, slice-2 addendum for steps 2, 6, 8 | W70 | dec_40e9ea63 |
+| D71-1 | CI verification route for WebGPU: SwiftShader spike, yes only with 80/80 on a GitHub runner, fallback B local Metal + soft CI | W71 | dec_b4a57848 |
+| D71-2 | WebGPU acceptance steps: 1–3 in W71, 4, 6, 8 + device.lost in W72 (wider than the slice table's 1–3 in W) | W71 | dec_3a566bf5 |
+| D71-3 | WebGPU passes: splat into T0 + T0a (Σw·a), composite, rest SDF overlay; T2 deferred to slice 4 | W71 | dec_956b5aa9 |
+| D71-4 | T0 render scale: default 0.5×, Dennis picks 0.5× vs 0.75× at W71 gold | W71 | dec_abea49e1 |
+| D71-5 | Shared kernel params: 2.3 per spacing, cap 8 px, one module for both renderers | W71 | dec_0beb7f91 |
+| D71-6 | WebGPU cross-fade: the D70-4 rule (full splat weight while restAlpha < 1, SDF overlay at restAlpha) | W71 | dec_ca46b6f0 |
+| D72-1 | auto probes WebGPU, Canvas2D fallback on unavailable / fallback adapter / unusable surface | W72 | dec_bf2c2cd7 |
+| D72-2 | Explicit 'webgpu' accepts a fallback adapter; unavailable (incl. unusable surface) rejects | W72 | dec_3d5229fc |
+| D72-3 | device.lost → Canvas2D rebuild in place; own destroy() detected by identity, not reason | W72 | dec_a401fee4 |
+| D72-4 | Overdraw estimated (quads × area) and logged, never gated | W72 | dec_ff66ee6c |
+| D72-5 | DOM-text halo stays in slice 4 | W72 | dec_cdf33632 |
+| D72-6 | WebGPU e2e for container mode, multi-instance and DPR 2 (W71 ward review M4) | W72 | dec_2350df52 |
+| D73-1 | Shake profile amplitude 0.8 → 0.5 (amends D70-1; W73 sweep) | W73 | dec_4772155d |
+| D73-2 | Shake stiffness cap 0.2 → 0.3, tension unchanged (amends D70-2) | W73 | dec_08c9b89c |
+| D73-3 | Blocking Canvas2D lace guard at f10/f20 (≤ 1.5 × measured, ≤ 50 % of today) | W73 | dec_81494c68 |

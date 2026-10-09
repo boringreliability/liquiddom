@@ -1,10 +1,13 @@
-import type { Page } from "@playwright/test";
+import { test, type Page } from "@playwright/test";
+import { rendererForProject, type SceneRenderer } from "./projects";
 
 export interface SceneQuery {
   seed?: number;
   clock?: "raf" | "manual";
   rm?: boolean;
   perf?: boolean;
+  /** W71: defaults to the running Playwright project's renderer (projectRenderer()). */
+  renderer?: SceneRenderer;
 }
 
 /** D65-2: pixel baselines exist for Linux (pinned image) only. */
@@ -14,8 +17,13 @@ export const VISUAL_SKIP_REASON =
 /** Scene step 1: 2 s idle at the fixed 60 Hz manual clock. */
 export const IDLE_2S_FRAMES = 120;
 
+/** W71 (D71-2): the renderer of the running Playwright project: "webgpu" in the webgpu project, else "canvas2d". */
+export function projectRenderer(): SceneRenderer {
+  return rendererForProject(test.info().project.name);
+}
+
 export function sceneUrl(q: SceneQuery = {}): string {
-  const p = new URLSearchParams({ test: "1", seed: String(q.seed ?? 1) });
+  const p = new URLSearchParams({ test: "1", seed: String(q.seed ?? 1), renderer: q.renderer ?? projectRenderer() });
   if (q.clock === "manual") p.set("clock", "manual");
   if (q.rm) p.set("rm", "1");
   if (q.perf) p.set("perf", "1");

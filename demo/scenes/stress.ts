@@ -112,6 +112,9 @@ async function createStressInstance(opts: FluidRuntimeOptions): Promise<FluidRun
     loader: opts.loader,
     clock: opts.clock,
     testBackend: opts.testBackend,
+    // W72 ward-review (m3): explicit, so report.params.renderer ("canvas2d") stays truthful now
+    // that the default 'auto' probes WebGPU (D72-1).
+    renderer: "canvas2d",
     autoObserve: false,
   });
   stressInstances.push(instance);

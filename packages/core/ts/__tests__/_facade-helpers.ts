@@ -129,100 +129,11 @@ export function restoreVisibility(): void {
   delete (document as unknown as { visibilityState?: unknown }).visibilityState;
 }
 
-export interface GpuMockCalls {
-  requestAdapter: number;
-  requestDevice: number;
-  configure: unknown[];
-  shaderModules: number;
-  pipelines: number;
-  passes: unknown[];
-  submits: number;
-  deviceDestroyed: number;
-}
-export interface GpuMock {
-  readonly gpu: unknown;
-  readonly canvasContext: { configure(cfg: unknown): void; getCurrentTexture(): { createView(): object } };
-  readonly calls: GpuMockCalls;
-  readonly adapterError: Error;
-  readonly deviceError: Error;
-  loseDevice(message: string): void;
-}
-
-export function makeGpuMock(
-  opts: { adapter?: "ok" | "null" | "throw"; device?: "ok" | "reject"; configureError?: Error } = {},
-): GpuMock {
-  const calls: GpuMockCalls = {
-    requestAdapter: 0, requestDevice: 0, configure: [], shaderModules: 0,
-    pipelines: 0, passes: [], submits: 0, deviceDestroyed: 0,
-  };
-  const adapterError = new Error("adapter exploded");
-  const deviceError = new Error("device exploded");
-  let resolveLost: (info: { message: string; reason: string }) => void = () => {};
-  const lost = new Promise<{ message: string; reason: string }>((r) => {
-    resolveLost = r;
-  });
-  const device = {
-    lost,
-    queue: { submit: () => { calls.submits += 1; }, writeBuffer() {}, writeTexture() {} },
-    destroy: () => { calls.deviceDestroyed += 1; },
-    createShaderModule: () => { calls.shaderModules += 1; return {}; },
-    createRenderPipeline: () => { calls.pipelines += 1; return {}; },
-    createCommandEncoder: () => ({
-      beginRenderPass: (desc: unknown) => {
-        calls.passes.push(desc);
-        return { end() {}, setPipeline() {}, draw() {} };
-      },
-      finish: () => ({}),
-    }),
-  };
-  const adapter = {
-    info: { isFallbackAdapter: false },
-    requestDevice: async () => {
-      calls.requestDevice += 1;
-      if (opts.device === "reject") throw deviceError;
-      return device;
-    },
-  };
-  const gpu = {
-    getPreferredCanvasFormat: () => "bgra8unorm",
-    requestAdapter: async () => {
-      calls.requestAdapter += 1;
-      if (opts.adapter === "null") return null;
-      if (opts.adapter === "throw") throw adapterError;
-      return adapter;
-    },
-  };
-  const canvasContext = {
-    configure: (cfg: unknown) => {
-      calls.configure.push(cfg);
-      if (opts.configureError) throw opts.configureError;
-    },
-    getCurrentTexture: () => ({ createView: () => ({}) }),
-  };
-  return {
-    gpu, canvasContext, calls, adapterError, deviceError,
-    loseDevice: (message) => resolveLost({ message, reason: "unknown" }),
-  };
-}
-
 export function installNavigatorGpu(gpu: unknown): () => void {
   const saved = Object.getOwnPropertyDescriptor(navigator, "gpu");
   Object.defineProperty(navigator, "gpu", { value: gpu, configurable: true, writable: true });
   return () => {
     if (saved) Object.defineProperty(navigator, "gpu", saved);
     else delete (navigator as { gpu?: unknown }).gpu;
-  };
-}
-
-/** Makes `getContext("webgpu")` return `ctx`; every other id falls through (to the fake 2d). */
-export function installWebGpuCanvasContext(ctx: object): () => void {
-  const proto = HTMLCanvasElement.prototype;
-  const previous = proto.getContext;
-  proto.getContext = function (this: HTMLCanvasElement, type: string, ...rest: unknown[]) {
-    if (type === "webgpu") return ctx;
-    return (previous as (this: HTMLCanvasElement, ...a: unknown[]) => unknown).call(this, type, ...rest);
-  } as HTMLCanvasElement["getContext"];
-  return () => {
-    proto.getContext = previous;
   };
 }

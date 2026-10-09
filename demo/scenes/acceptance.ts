@@ -3,7 +3,8 @@
  * W64 created it; W65 adds the query parameters and window.__liquidTest:
  *   ?seed=<u32>         RNG seed (default 1)
  *   ?clock=manual       frames run only via __liquidTest.advance(n) (D65-1)
- *   ?renderer=canvas2d  the only renderer before W66
+ *   ?renderer=canvas2d|webgpu|auto  default canvas2d (W71: webgpu, W72: auto)
+ *   ?t0=0.5|0.75        WebGPU T0 render scale (W71, D71-4; needs ?renderer=webgpu)
  *   ?rm=1               forceReducedMotion
  *   ?test=1             install window.__liquidTest
  *   ?perf=1             tick/RAF perf probe (RAF clock only, D65-8)
@@ -11,7 +12,8 @@
 import { LiquidDOM, type LiquidDOMInstance } from "liquiddom";
 import { runtimeOf } from "../../packages/core/ts/src/internal";
 import type { FluidRuntime, FluidRuntimeOptions } from "../../packages/core/ts/src/runtime";
-import { createManualClock, rafClock, type FrameClock, type ManualClock } from "../../packages/core/ts/src/clock";
+import { createManualClock, rafClock, type FrameClock } from "../../packages/core/ts/src/clock";
+import { createRenderCountingClock, type RenderCountingClock } from "../render-counting-clock";
 import type { LiquidTestHook, ScenePerfProbe, ScenePerfSnapshot } from "../test-hooks";
 import { parseSceneParams } from "./scene-params";
 
@@ -25,7 +27,7 @@ const params = {
   reducedMotion: parsed.reducedMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches,
 };
 const elements = Array.from(document.querySelectorAll<HTMLElement>("[data-liquid]"));
-const manual: ManualClock | null = params.clock === "manual" ? createManualClock(0) : null;
+const manual: RenderCountingClock | null = params.clock === "manual" ? createRenderCountingClock(createManualClock(0)) : null;
 
 // ---- perf probe state (D65-8) ----
 let recording = false;
@@ -84,6 +86,7 @@ async function createSceneInstance(opts: FluidRuntimeOptions): Promise<FluidRunt
     material: opts.material,
     renderer: opts.renderer,
     clock: opts.clock,
+    webgpuT0Scale: opts.webgpuT0Scale,
     autoObserve: true,
   });
   sceneInstance = instance;
@@ -105,6 +108,7 @@ async function start(): Promise<FluidRuntime> {
     forceReducedMotion: parsed.reducedMotion,
     clock,
     renderer: params.renderer,
+    webgpuT0Scale: params.t0Scale,
   });
   for (const el of elements) rt.observe(el);
   await new Promise<void>((resolve) => queueMicrotask(resolve)); // let the batched redistribute run
@@ -141,12 +145,41 @@ const perfProbe: ScenePerfProbe | null = params.perf
 
 const started = start();
 
+// ---- W71: pixel snapshot (a WebGPU canvas is readable only in the task that rendered it) ----
+let snapshot: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null = null;
+let snapshotTaken = false;
+
+function captureLiquidCanvas(): void {
+  const src = document.querySelector<HTMLCanvasElement>("canvas.liquid-canvas");
+  if (!src) return;
+  if (!snapshot) {
+    const canvas = document.createElement("canvas"); // detached: never in the DOM
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) throw new Error("[acceptance] no 2d context for the pixel snapshot");
+    snapshot = { canvas, ctx };
+  }
+  const { canvas, ctx } = snapshot;
+  if (canvas.width !== src.width) canvas.width = src.width;
+  if (canvas.height !== src.height) canvas.height = src.height;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(src, 0, 0);
+  snapshotTaken = true;
+}
+
 const hook: LiquidTestHook = {
   ready: started.then(() => undefined),
   restAlpha: () => elements.map((el) => runtime?.elementState(el)?.restAlpha ?? Number.NaN),
   advance: (frames) => {
     if (!manual) throw new Error("[acceptance] __liquidTest.advance() needs ?clock=manual");
-    manual.advance(frames);
+    // No frame rendered in this task (advance(0), paused, hidden tab, failed frame): a WebGPU
+    // canvas would read back cleared, so keep the previous snapshot (W71.5 review Minor 1,
+    // W71 ward-review M3).
+    if (manual.advance(frames) === 0) return;
+    captureLiquidCanvas();
+  },
+  pixels: () => {
+    if (!snapshot || !snapshotTaken) throw new Error("[acceptance] __liquidTest.pixels() needs a prior advance()");
+    return snapshot.ctx.getImageData(0, 0, snapshot.canvas.width, snapshot.canvas.height);
   },
   // A getter: returns the public facade instance (W66, D66-5).
   get instance(): unknown {
@@ -154,6 +187,21 @@ const hook: LiquidTestHook = {
   },
   params,
   perf: perfProbe,
+  // W72 (D72-3): the device-lost e2e. Resolves after the Canvas2D rebuild.
+  loseDevice: async () => {
+    if (!runtime) throw new Error("[acceptance] loseDevice() called before the scene was ready");
+    if (!(await runtime.simulateDeviceLoss())) {
+      throw new Error(`[acceptance] loseDevice() needs the webgpu renderer; active: ${runtime.activeRenderer}`);
+    }
+  },
+  // W72 (D72-4): logged by webgpu-robust.spec.ts and perf.spec.ts, never gated.
+  get overdraw(): number {
+    return runtime?.fragmentEstimate ?? 0;
+  },
+  // W72 (D72-6): the DPR-2 e2e checks T0 = 0.5 × the backing px.
+  get t0Size(): readonly [number, number] | null {
+    return runtime?.t0Size ?? null;
+  },
 };
 
 started.catch((err: unknown) => {

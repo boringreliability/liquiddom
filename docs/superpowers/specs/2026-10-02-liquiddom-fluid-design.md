@@ -118,7 +118,7 @@ The elements **are** liquid, and so is their text. They splash, split, merge wit
 - **Target** = `rest_uv` mapped into the element's **current home rect** (slots 0–3 plus `home_dx/dy`, see the FFI section). A resize therefore changes the targets and the liquid gently follows the new shape. Scroll and drag become something the liquid follows.
 - **Stiffness:**
   - Each element has a stiffness `s ∈ [s_floor, 1]`, with `s_floor = 0.015`.
-  - Damage rules: `splash` sets `s ← min(s, 0.25·(2 − strength))` clamped to ≥ `s_floor`, `shake` sets `s ← min(s, 0.2)` (amended in W70, D70-2), and drag sets `s ← min(s, 0.5)` while dragging.
+  - Damage rules: `splash` sets `s ← min(s, 0.25·(2 − strength))` clamped to ≥ `s_floor`, `shake` sets `s ← min(s, 0.3)` (amended in W70, D70-2; amended in W73, D73-2), and drag sets `s ← min(s, 0.5)` while dragging.
   - Recovery: `ds/dt = (1 − s)/recovery`, with `recovery` defaulting to 0.7 s.
   - These are internal constants. Only `recovery` is a parameter.
 - **Slip drift** is kept: a grid-independent drift towards the target, scaled by `s²`, at rate 3/s, max 160 px/s. It is **documented as non-physical** (it does not conserve momentum). Without it, merged liquids never separate.
@@ -169,7 +169,7 @@ F's cost (+4 floats of SoA plus an SVD per substep) is benchmarked in slice 4. I
 | Pointer move | A soft velocity field: particles within a 70 px radius are pulled towards the pointer's velocity with weight `(1 − d/r)²`. This replaces the spike's hard radial push (`POINTER_PUSH_PX`), which caused the hole |
 | `click` on an observed element | `splash` at the pointer position. **If `event.detail === 0`** (a keyboard-triggered click from Enter or Space on a focusable element), the splash is at the rect centre instead. Native activation is never prevented, so there is never a double splash |
 | Drag (pointerdown + > 4 px movement) | `home_dx/dy` follow the pointer while the DOM stays put. After the threshold, the following click splash is suppressed. On release `home_dx/dy` → 0 and the liquid crawls home |
-| `shake(strength)` | Global impulse: a seeded direction `d` and phase `φ` per element, speed profile `1 + 0.8·sin(π·u + φ)` across the element (`u = (x − cx)/(w/2)`), no per-particle noise, no rotation (amended in W70, D70-1). Everything goes soft |
+| `shake(strength)` | Global impulse: a seeded direction `d` and phase `φ` per element, speed profile `1 + 0.5·sin(π·u + φ)` across the element (`u = (x − cx)/(w/2)`), no per-particle noise, no rotation (amended in W70, D70-1; amended in W73, D73-1). Everything goes soft |
 | Gravity | `(gx, gy)` in the grid update. Clamped to 0 under reduced motion |
 | Droplets | Particles flung far away are ordinary liquid that crawls home. There is no separate entity type |
 
@@ -240,11 +240,11 @@ The `Renderer` keeps its method shape. The new `RenderFrame` contains:
 ### WebGPU: two passes
 
 1. **Splat.** Each particle is drawn as an instanced quad (instance data read from a storage buffer via `instance_index`) with a smooth kernel. It writes into three render targets, all using additive blending `{src: one, dst: one, op: add}`:
-   - `T0 rgba16float`: `Σw·rgb_premul` and `Σw` (density). Render scale 0.5× DPR.
+   - `T0 rgba16float`: `Σw·rgb` and `Σw` (density). Render scale 0.5× DPR. *(Amended 2026-10-07, slice-3 plan, D71-3: rgb is straight, not premultiplied, and a second target `T0a r16float` holds `Σw·a` at the same scale, so the composite gets the blended alpha `Σw·a/Σw` and translucent elements match Canvas2D. Slice 3 splats into T0 and T0a only: 10 B per sample.)*
    - `T1 rgba16float`: `Σw·text_rgba_premul`, sampled from an RGBA atlas. 1× DPR. **Only particles from elements with `restAlpha < 1`** are splatted here.
-   - `T2 r16float`: `Σw·restAlpha`, used to cross-fade to the rest contour.
+   - `T2 r16float`: `Σw·restAlpha`, used to cross-fade to the rest contour. **Deferred to slice 4** (amended 2026-10-06, slice-3 design, D71-3): slice 3 cross-fades per element from the element buffer's `restAlpha`, so its passes are splat (T0), composite and a rest SDF overlay.
 
-   The targets total 24 B per sample. That is within the default `maxColorAttachmentBytesPerSample = 32`, and rgba16float is blendable in WebGPU core. **No 32-bit float targets.**
+   The targets total 24 B per sample (26 B with T0a, amended 2026-10-07). That is within the default `maxColorAttachmentBytesPerSample = 32`, and rgba16float is blendable in WebGPU core. **No 32-bit float targets.**
 
    **Per-element density normalisation:**
    - Each particle's splat mass is its element's area per particle.
@@ -273,7 +273,7 @@ The mapping direction is correct: `F = ∂x/∂X`, so a world offset is mapped b
 ### Crisp at rest
 
 When `restAlpha → 1`, the composite cross-fades to:
-1. the element's **analytic rounded-rect SDF contour**: one instanced quad per resting element adds SDF density into T0 and T2, so pills are real pills with no fur, and
+1. the element's **analytic rounded-rect SDF contour**: one instanced quad per resting element, drawn over the composite at alpha `restAlpha` while its particles splat at full weight (the D70-4 rule; at `restAlpha = 1` only the SDF is drawn), so pills are real pills with no fur (amended 2026-10-06, slice-3 design, D71-6; was "adds SDF density into T0 and T2"), and
 2. **the real DOM text.** TS removes the `liquid-text` class (`color: transparent`) per element when `restAlpha = 1`, and puts it back as soon as `restAlpha < 1`. At the same moment the atlas is cross-faded out.
 
 At rest, what you see is therefore pixel-exact the DOM text, with no atlas approximation.
@@ -308,7 +308,8 @@ At rest, what you see is therefore pixel-exact the DOM text, with no atlas appro
 - `auto` treats both `WebGPUUnavailableError` **and** `adapter.info.isFallbackAdapter` (software WebGPU) as "unavailable" and falls back to Canvas2D. Other WebGPU init errors (shader or pipeline errors) are bugs and reject `create()`.
 - `silentFallback` only controls the fallback `console.info`.
 - On fallback the canvas is remounted.
-- **`device.lost`:** rebuild as Canvas2D, and remove `liquid-text` from every element so the text is visible again. This is covered by a Playwright test.
+- An explicit `renderer: 'webgpu'` accepts a fallback adapter; only `auto` treats it as unavailable, so CI can test the WebGPU path on SwiftShader (amended 2026-10-06, slice-3 design, D72-2).
+- **`device.lost`:** rebuild as Canvas2D, and remove `liquid-text` from every element so the text is visible again. This is covered by a Playwright test. A loss caused by our own `destroy()` never rebuilds; it is detected by device identity, not by the reason, because a crashed GPU process also reports `'destroyed'` (amended 2026-10-06/07, slice-3 design and W71.0 spike, D72-3).
 
 ## 4. DOM and a11y model
 
@@ -483,7 +484,7 @@ Slices 1–2 are detailed in the plan. Slices 3–6 are re-planned after each wh
 |---|---|---|
 | 1 | **Liquid at rest** | Single-flight init + loud failure; MPM core in Rust (at rest only: sampling, home spring, reduced-motion path); new FFI; Canvas2D render with roundRect at rest; injected stylesheet + stacking + print; acceptance scene; Playwright harness + WebGPU smoke; multi-instance test; soft-body code, old scenes and site removed or frozen; `examples/react` ported |
 | 2 | **Liquid that reacts** | Full MPM dynamics, pointer field, click/keyboard splash, shake, stiffness/re-form/restAlpha, playground on material, splash scene. Followed by a **whole-picture check** |
-| 3 | **WebGPU liquid** | Splat/composite (T0/T2), blended colour, SDF contour at rest, `device.lost`, overdraw logging |
+| 3 | **WebGPU liquid** | Splat/composite (T0), rest SDF overlay, blended colour, `device.lost`, overdraw logging (amended 2026-10-06: T2 deferred to slice 4; design `2026-10-06-liquiddom-slice-3-webgpu-design.md`) |
 | 4 | **Liquid text** | F with clamp/torn, text atlas + T1, the `liquid-text` toggle, extended MutationObserver, forced-colors. Followed by a **whole-picture check** |
 | 5 | **Drag and merge** | `home_dx/dy`, drag threshold, displacement merge, slip separation |
 | 6 | **The world** | Scroll (incl. the 1-frame risk), resize, container, parking, gravity/tilt scene, adapters, site rebuilt and re-enabled. Followed by a **whole-picture check** |
@@ -519,7 +520,7 @@ Slices 1–2 are detailed in the plan. Slices 3–6 are re-planned after each wh
 | Stacking contexts in consumer CSS | Documented. The injected rule covers the common case |
 
 **Open points**, decided by measurement or in the first wards:
-- Render scale for T0 (0.5× vs 0.75×).
+- Render scale for T0: 0.5× (decided at W71 gold, D71-4, side-by-side Metal crops; saga dec_2dc07861).
 - `opt-level` 3 vs `"s"`.
 - What happens to the published `0.2.0-rc.0` (npm deprecate or leave it) and to the CHANGELOGs.
 - Whether F is updated every substep or every 2nd substep (benchmark in slice 4).

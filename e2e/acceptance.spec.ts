@@ -1,6 +1,11 @@
 import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
-import { IDLE_2S_FRAMES, VISUAL_ENABLED, VISUAL_SKIP_REASON, advance, cssAlpha, gotoScene, restAlpha } from "./scene";
+import { cardTearPixels } from "./lace";
+import { SWIFTSHADER_RUNS_LIQUID } from "./projects";
+import { IDLE_2S_FRAMES, VISUAL_ENABLED, VISUAL_SKIP_REASON, advance, cssAlpha, gotoScene, projectRenderer, restAlpha } from "./scene";
+
+/** W71.0 fallback B: SwiftShader cannot carry the liquid, so there are no webgpu Linux baselines. */
+const WEBGPU_NO_BASELINES = "W71.0 fallback B: no webgpu Linux baselines (SWIFTSHADER_RUNS_LIQUID = false)";
 
 interface TextProbe {
   host: string;
@@ -11,7 +16,7 @@ interface TextProbe {
   visible: boolean;
 }
 
-test.describe("acceptance scene – slice 1 (canvas2d)", () => {
+test.describe("acceptance scene – step 1 (canvas2d and webgpu)", () => {
   test("step 1 – given the acceptance scene at seed 1 when idle 2 s then every element has restAlpha 1 and DOM text is visible", async ({ page }, testInfo) => {
     await gotoScene(page, { seed: 1, clock: "manual" });
     await advance(page, IDLE_2S_FRAMES);
@@ -72,6 +77,7 @@ test.describe("acceptance scene – slice 1 (canvas2d)", () => {
   });
 
   test("step 1 – given rest when screenshotted then it matches the baseline (maxDiffPixelRatio 0.01)", async ({ page }) => {
+    test.skip(projectRenderer() === "webgpu" && !SWIFTSHADER_RUNS_LIQUID, WEBGPU_NO_BASELINES);
     test.skip(!VISUAL_ENABLED, VISUAL_SKIP_REASON);
     await gotoScene(page, { seed: 1, clock: "manual" });
     await advance(page, IDLE_2S_FRAMES);
@@ -82,9 +88,11 @@ test.describe("acceptance scene – slice 1 (canvas2d)", () => {
 
 // =============================================================================
 // W67 (slice 2) – scene steps 3, 4 and 6: splash and shake, end to end.
-// Runs in the canvas2d project (the webgpu project's testMatch is the smoke spec, C8).
+// W71 (D71-2): runs in both projects; under renderer=webgpu steps 4 and 6 wait for W72.
 // =============================================================================
-const W67_SCENE = "/scenes/acceptance.html?seed=1&renderer=canvas2d&clock=manual&test=1";
+/** W71: the scene in the running project's renderer. */
+const w67Scene = (): string => `/scenes/acceptance.html?seed=1&renderer=${projectRenderer()}&clock=manual&test=1`;
+const STEPS_4_6_IN_W72 = "W72 (D71-2): steps 4 and 6 run under renderer=webgpu from W72";
 const W67_FPS = 60;
 const W67_IDLE_FRAMES = 120;
 /** D67-1 option 1: spec §6 step 3, amended in W67. */
@@ -92,6 +100,17 @@ const W67_SPLASH_REFORM_BUDGET_S = 3.0;
 /** Spec §6 step 6. */
 const W67_SHAKE_REFORM_BUDGET_S = 3.0;
 const W67_VISION_DIR = "test-results/vision-w67";
+
+// W73 (D73-3): card tear pixels (e2e/lace.ts, the investigation's closing-r4 metric) at seed 1,
+// pinned from measurement like D70-5. Bound per frame = min(1.5 × the sweep's seed-1 value for
+// amp 0.5 / T 0.16 / cap 0.3, 0.5 × today's Canvas2D seed-1 value).
+// Sources (W73 session scratchpad): sweep/browser_metrics.jsonl (amp 0.5/T 0.16/cap 0.3, seed 1:
+// tear10 1133, tear20 610; WebGPU/Metal, the sweep has no Canvas2D runs — the investigation found
+// Canvas2D ≈ WebGPU within ~6 %) and tears_base.json runs/c2d_base (amp 0.8/cap 0.2: f10 4921, f20 2430).
+/** D73-3: min(1.5 × 1133, 0.5 × 4921) = min(1699.5, 2460.5). */
+const W73_LACE_MAX_TEAR_F10 = 1699;
+/** D73-3: min(1.5 × 610, 0.5 × 2430) = min(915, 1215). */
+const W73_LACE_MAX_TEAR_F20 = 915;
 
 type W67Hook = {
   ready: Promise<void>;
@@ -109,7 +128,7 @@ async function w67RestAlphas(page: Page): Promise<number[]> {
 }
 
 async function w67Open(page: Page): Promise<void> {
-  await page.goto(W67_SCENE);
+  await page.goto(w67Scene());
   await page.waitForFunction(() => "__liquidTest" in window);
   await page.evaluate(() => (window as unknown as { __liquidTest: W67Hook }).__liquidTest.ready);
   await w67Advance(page, W67_IDLE_FRAMES);
@@ -132,10 +151,9 @@ async function w67FramesUntilAllRest(page: Page, maxFrames: number): Promise<num
 /** FNV-1a over the liquid canvas pixels. */
 async function w67CanvasHash(page: Page): Promise<string> {
   return page.evaluate(() => {
-    const canvas = document.querySelector<HTMLCanvasElement>("canvas.liquid-canvas");
-    const ctx = canvas?.getContext("2d");
-    if (!canvas || !ctx) throw new Error("W67: liquid canvas missing");
-    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    // W71: the hook's copy of the liquid canvas, taken in the task that drew it (a WebGPU
+    // canvas cannot be read back later; W71 plan, Corrections 6).
+    const data = window.__liquidTest!.pixels().data;
     let h = 0x811c9dc5;
     for (let i = 0; i < data.length; i++) {
       h ^= data[i];
@@ -150,14 +168,12 @@ async function w67OpaquePixelsOutsideElements(page: Page): Promise<number> {
   return page.evaluate(() => {
     const canvas = document.querySelector<HTMLCanvasElement>("canvas.liquid-canvas");
     if (!canvas) throw new Error("W67: canvas.liquid-canvas not found");
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("W67: the liquid canvas has no 2d context");
     const cr = canvas.getBoundingClientRect();
     const sx = canvas.width / cr.width;
     const sy = canvas.height / cr.height;
     const rects = Array.from(document.querySelectorAll(".liquid-element")).map((e) => e.getBoundingClientRect());
     if (rects.length === 0) throw new Error("W67: no .liquid-element found");
-    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    const data = window.__liquidTest!.pixels().data;
     let n = 0;
     for (let py = 0; py < canvas.height; py++) {
       const y = py / sy + cr.top;
@@ -265,6 +281,7 @@ test.describe("slice 2 – splash and shake (W67)", () => {
   });
 
   test("step 3 – given the splash 12 frames after a click when screenshotted then it matches the baseline", async ({ page }) => {
+    test.skip(projectRenderer() === "webgpu" && !SWIFTSHADER_RUNS_LIQUID, WEBGPU_NO_BASELINES);
     test.skip(!VISUAL_ENABLED, "Linux baselines only (D65-2)");
     await w67Open(page);
     await w67ClickSplash(page);
@@ -273,6 +290,7 @@ test.describe("slice 2 – splash and shake (W67)", () => {
   });
 
   test("step 4 – given Tab focus on Split and Enter when ticking then the splash is at the centre and the focus ring is visible throughout", async ({ page }) => {
+    test.skip(projectRenderer() === "webgpu", STEPS_4_6_IN_W72);
     await w67Open(page);
     const split = page.getByRole("button", { name: "Split", exact: true });
     await w67TabTo(page, split);
@@ -301,6 +319,7 @@ test.describe("slice 2 – splash and shake (W67)", () => {
   });
 
   test("step 4 – given the keyboard splash on Split at frame 30 when screenshotted then the focus ring matches the baseline", async ({ page }) => {
+    test.skip(projectRenderer() === "webgpu", STEPS_4_6_IN_W72);
     test.skip(!VISUAL_ENABLED, "Linux baselines only (D65-2)");
     await w67Open(page);
     const split = page.getByRole("button", { name: "Split", exact: true });
@@ -316,6 +335,7 @@ test.describe("slice 2 – splash and shake (W67)", () => {
   });
 
   test("step 6 – given shake when ticking then everything sloshes and every restAlpha returns to 1 within 3 s", async ({ page }) => {
+    test.skip(projectRenderer() === "webgpu", STEPS_4_6_IN_W72);
     await w67Open(page);
     const before = await w67OpaquePixelsOutsideElements(page);
     await page.evaluate(() => (window as unknown as { __liquidTest: W67Hook }).__liquidTest.instance.shake());
@@ -335,11 +355,27 @@ test.describe("slice 2 – splash and shake (W67)", () => {
   });
 
   test("step 6 – given the shake at frame 20 when screenshotted then it matches the baseline", async ({ page }) => {
+    test.skip(projectRenderer() === "webgpu", STEPS_4_6_IN_W72);
     test.skip(!VISUAL_ENABLED, "Linux baselines only (D65-2)");
     await w67Open(page);
     await page.evaluate(() => (window as unknown as { __liquidTest: W67Hook }).__liquidTest.instance.shake());
     await w67Advance(page, 20);
     await expect(page).toHaveScreenshot("acceptance-step6-shake-f20.png", { maxDiffPixelRatio: 0.01 });
+  });
+
+  test("step 6 – given shake at seed 1 when ticking then the card shows no lace: tear pixels at f10 and f20 within the D73-3 bounds", async ({ page }) => {
+    // D73-3: blocking in canvas2d only. Canvas2D shows the same lace as WebGPU at the same
+    // manual frame (W73 investigation: f10 Canvas2D 4921 vs WebGPU 4650), so this covers both.
+    test.skip(projectRenderer() !== "canvas2d", "D73-3: the lace guard runs in the canvas2d project");
+    await w67Open(page);
+    await page.evaluate(() => (window as unknown as { __liquidTest: W67Hook }).__liquidTest.instance.shake());
+    await w67Advance(page, 10);
+    const f10 = await cardTearPixels(page);
+    await w67Advance(page, 10);
+    const f20 = await cardTearPixels(page);
+    console.log(`W73 lace guard: card tear px f10 ${f10} (bound ${W73_LACE_MAX_TEAR_F10}), f20 ${f20} (bound ${W73_LACE_MAX_TEAR_F20})`);
+    expect.soft(f10, "card tear px at f10 (D73-3)").toBeLessThanOrEqual(W73_LACE_MAX_TEAR_F10);
+    expect(f20, "card tear px at f20 (D73-3)").toBeLessThanOrEqual(W73_LACE_MAX_TEAR_F20);
   });
 });
 
@@ -347,6 +383,7 @@ test.describe("vision captures (W67 gold, VISION=1)", () => {
   test.skip(!process.env.VISION, "set VISION=1 to write the gold-phase screenshots");
 
   test("capture steps 3, 4 and 6 frame by frame", async ({ page }) => {
+    test.skip(projectRenderer() === "webgpu", STEPS_4_6_IN_W72);
     const shot = (name: string) => page.screenshot({ path: `${W67_VISION_DIR}/${name}.png` });
     const pad = (n: number) => String(n).padStart(3, "0");
 
@@ -387,7 +424,6 @@ test.describe("vision captures (W67 gold, VISION=1)", () => {
 });
 
 test.describe("step 2 – pointer sweep (W68)", () => {
-  const SCENE = "/scenes/acceptance.html?seed=1&renderer=canvas2d&clock=manual&test=1";
   const STEP_PX = 10; // per frame at the manual clock's 60 Hz → 600 px/s
   const LEAD_PX = 26;
   const INSET_PX = 8;
@@ -401,7 +437,7 @@ test.describe("step 2 – pointer sweep (W68)", () => {
   // `advance`, `restAlpha`, `IDLE_2S_FRAMES` come from W65's e2e/scene.ts; `window.__liquidTest`
   // is typed by W65's e2e/global.d.ts.
   async function open(page: Page): Promise<void> {
-    await page.goto(SCENE);
+    await page.goto(`/scenes/acceptance.html?seed=1&renderer=${projectRenderer()}&clock=manual&test=1`);
     await page.waitForFunction(() => window.__liquidTest !== undefined, undefined, { timeout: 15_000 });
     await page.evaluate(() => window.__liquidTest!.ready);
     await page.evaluate(async () => {
@@ -452,12 +488,10 @@ test.describe("step 2 – pointer sweep (W68)", () => {
     return page.evaluate((points) => {
       const c = document.querySelector<HTMLCanvasElement>("canvas.liquid-canvas");
       if (!c) throw new Error("liquid canvas missing");
-      const ctx = c.getContext("2d");
-      if (!ctx) throw new Error("liquid canvas has no 2d context");
       const r = c.getBoundingClientRect();
       const sx = c.width / r.width;
       const sy = c.height / r.height;
-      const img = ctx.getImageData(0, 0, c.width, c.height);
+      const img = window.__liquidTest!.pixels();
       return points.map(([x, y]) => {
         const px = Math.floor((x - r.left) * sx);
         const py = Math.floor((y - r.top) * sy);
@@ -523,12 +557,10 @@ test.describe("step 2 – pointer sweep (W68)", () => {
     return page.evaluate((rects) => {
       const c = document.querySelector<HTMLCanvasElement>("canvas.liquid-canvas");
       if (!c) throw new Error("liquid canvas missing");
-      const ctx = c.getContext("2d");
-      if (!ctx) throw new Error("liquid canvas has no 2d context");
       const r = c.getBoundingClientRect();
       const sx = c.width / r.width;
       const sy = c.height / r.height;
-      const img = ctx.getImageData(0, 0, c.width, c.height);
+      const img = window.__liquidTest!.pixels();
       return rects.map((b) => {
         const px0 = Math.max(0, Math.floor((b.x - r.left) * sx));
         const px1 = Math.min(c.width, Math.ceil((b.x + b.width - r.left) * sx));
@@ -666,9 +698,65 @@ test.describe("step 2 – pointer sweep (W68)", () => {
   });
 
   test("step 2 – given the end of the pointer sweep when screenshotted then it matches the baseline (maxDiffPixelRatio 0.01)", async ({ page }) => {
+    test.skip(projectRenderer() === "webgpu" && !SWIFTSHADER_RUNS_LIQUID, WEBGPU_NO_BASELINES);
     test.skip(!VISUAL_ENABLED, VISUAL_SKIP_REASON); // W65 D65-2: Linux-only baselines
     await open(page);
     await sweep(page, await buttons(page));
     await expect(page).toHaveScreenshot("acceptance-step2.png", { maxDiffPixelRatio: 0.01 });
+  });
+});
+
+// =============================================================================
+// W71 gold (D71-4): Metal screenshots of steps 1–3 in this project's renderer; under webgpu
+// also T0 at 0.5× and 0.75× for the side-by-side crops. Local only: VISION=1.
+// =============================================================================
+test.describe("vision captures (W71 gold, VISION=1)", () => {
+  test("W71 gold – capture steps 1, 2 and 3 in this project's renderer (and T0 0.5 vs 0.75 under webgpu)", async ({ page }) => {
+    test.skip(!process.env.VISION, "set VISION=1 to write the W71 gold screenshots");
+    const renderer = projectRenderer();
+    const scales: ReadonlyArray<string | null> = renderer === "webgpu" ? ["0.5", "0.75"] : [null];
+    const crop = (b: { x: number; y: number; width: number; height: number }) => ({
+      x: b.x - 30,
+      y: b.y - 30,
+      width: b.width + 60,
+      height: b.height + 60,
+    });
+    for (const t0 of scales) {
+      const dir = `test-results/vision-w71/${renderer}${t0 ? `-t0-${t0}` : ""}`;
+      await page.goto(`/scenes/acceptance.html?seed=1&renderer=${renderer}&clock=manual&test=1${t0 ? `&t0=${t0}` : ""}`);
+      await page.waitForFunction(() => window.__liquidTest !== undefined, undefined, { timeout: 15_000 });
+      await page.evaluate(() => window.__liquidTest!.ready);
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+      });
+      await page.mouse.move(1279, 799);
+      await advance(page, IDLE_2S_FRAMES);
+      const splash = page.getByRole("button", { name: "Splash", exact: true });
+      const box = (await splash.boundingBox())!;
+      const card = (await page.locator("#card").boundingBox())!;
+      await page.screenshot({ path: `${dir}/step1-rest.png` });
+      await page.screenshot({ path: `${dir}/step1-splash-crop.png`, clip: crop(box) });
+      await page.screenshot({ path: `${dir}/step1-card-crop.png`, clip: crop(card) });
+      // Step 2: the e2e sweep (10 px per frame through the pills); frame 12 has the pointer on Splash.
+      const y = box.y + box.height / 2;
+      for (let k = 0; k <= 24; k++) {
+        await page.mouse.move(box.x - 26 + k * 10, y);
+        await advance(page, 1);
+        if (k === 12) await page.screenshot({ path: `${dir}/step2-bulge-crop.png`, clip: crop(box) });
+      }
+      await page.screenshot({ path: `${dir}/step2-mid-sweep.png` });
+      await page.mouse.move(1200, 60);
+      await advance(page, IDLE_2S_FRAMES);
+      // Step 3: click Splash at x = 30 (as the e2e step-3 test), shots at frames 6, 12 and 30.
+      await splash.click({ position: { x: 30, y: box.height / 2 } });
+      await page.mouse.move(1279, 799);
+      let done = 0;
+      for (const f of [6, 12, 30]) {
+        await advance(page, f - done);
+        done = f;
+        await page.screenshot({ path: `${dir}/step3-f${String(f).padStart(3, "0")}.png` });
+      }
+      await page.screenshot({ path: `${dir}/step3-f030-card-crop.png`, clip: crop(card) });
+    }
   });
 });

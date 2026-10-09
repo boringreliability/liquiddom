@@ -1,4 +1,4 @@
-/** W65 (D65-11): pure, DOM-free parser for the acceptance scene query string. */
+/** W65 (D65-11), W71 (D71-2, D71-4): pure, DOM-free parser for the acceptance scene query string. */
 import type { SceneClock, SceneParams } from "../test-hooks";
 
 export const DEFAULT_SCENE_SEED = 1;
@@ -30,9 +30,17 @@ export function parseSceneParams(search: string): SceneParams {
   }
   const clock: SceneClock = clockRaw;
 
+  // W72: "auto" is allowed (the D72-1 e2e); the default stays canvas2d so a test knows its renderer.
   const renderer = q.get("renderer") ?? "canvas2d";
-  if (renderer !== "canvas2d") {
-    throw new TypeError(`[acceptance] ?renderer="${renderer}" is not available before W66 (only "canvas2d")`);
+  if (renderer !== "canvas2d" && renderer !== "webgpu" && renderer !== "auto") {
+    throw new TypeError(`[acceptance] ?renderer must be "canvas2d", "webgpu" or "auto", got "${renderer}"`);
+  }
+  const t0Raw = q.get("t0");
+  let t0Scale: number | undefined;
+  if (t0Raw !== null) {
+    if (renderer !== "webgpu") throw new TypeError(`[acceptance] ?t0 needs ?renderer=webgpu, got renderer "${renderer}"`);
+    if (t0Raw !== "0.5" && t0Raw !== "0.75") throw new TypeError(`[acceptance] ?t0 must be 0.5 or 0.75 (D71-4), got "${t0Raw}"`);
+    t0Scale = Number(t0Raw);
   }
 
   const perf = flag(q, "perf");
@@ -40,5 +48,13 @@ export function parseSceneParams(search: string): SceneParams {
     throw new TypeError("[acceptance] ?perf=1 measures real frames and cannot be combined with ?clock=manual");
   }
 
-  return { seed, clock, renderer, reducedMotion: flag(q, "rm"), test: flag(q, "test"), perf };
+  return {
+    seed,
+    clock,
+    renderer,
+    reducedMotion: flag(q, "rm"),
+    test: flag(q, "test"),
+    perf,
+    ...(t0Scale === undefined ? {} : { t0Scale }),
+  };
 }

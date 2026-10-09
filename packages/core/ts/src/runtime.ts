@@ -16,14 +16,19 @@ import { DEFAULT_STRENGTH, type ElementOptions } from "./options";
 import type { ElementPaint, RenderFrame, Renderer, RenderViewport } from "./renderers/frame";
 import { LoopController } from "./loop-control";
 import { PointerTracker } from "./pointer-tracker";
-import { acquireLiquidStyles, mountLiquidCanvas } from "./stylesheet";
-import { selectRenderer, type ActiveRenderer, type RendererChoice } from "./renderers/select";
+import { acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas } from "./stylesheet";
+import { initCanvas2D, selectRenderer, type ActiveRenderer, type RendererChoice, type SelectedRenderer } from "./renderers/select";
+import type { FluidCanvas2DRenderer } from "./renderers/fluid-canvas2d";
+import { WebGPURenderer } from "./renderers/webgpu/webgpu-renderer";
 import { loadFluidWasm, type FluidBackend, type FluidCoreLike } from "./wasm-loader";
 
 export const LIQUID_CANVAS_CLASS = "liquid-canvas";
 export const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 export const STATIC_CONTAINER_WARNING =
   "[liquiddom] container must be a positioned element (e.g. position: relative); the canvas is absolutely positioned inside it";
+
+/** W72 (D72-3): prefix of the one console.warn when a WebGPU device is lost and the instance continues in Canvas2D. */
+export const DEVICE_LOST_WARNING = "[liquiddom] WebGPU device lost";
 
 export interface FluidRuntimeOptions {
   /** Integer in [16, 65536]; the W66 facade narrows the public range. */
@@ -46,6 +51,10 @@ export interface FluidRuntimeOptions {
   clock?: FrameClock;
   /** W66: renderer choice; the facade passes the resolved option. Default "canvas2d". */
   renderer?: RendererChoice;
+  /** @internal W71 (D71-4): WebGPU T0 render scale; the facade passes the resolved option. */
+  webgpuT0Scale?: number;
+  /** W72 (D72-1): hide the one console.info of an 'auto' fallback to Canvas2D. Default false. */
+  silentFallback?: boolean;
 }
 
 export interface FluidElementState {
@@ -60,13 +69,25 @@ export interface FluidRuntime {
   /** One loop iteration: offset → registry.sync → core.tick → syncGeneration → render. */
   frame(nowMs: number): void;
   elementState(el: HTMLElement): FluidElementState | undefined;
+  /** The current liquid canvas. W72: replaced after an 'auto' fallback or a device-lost rebuild. */
   readonly canvas: HTMLCanvasElement;
   readonly bridge: FluidBridge;
   readonly reducedMotion: boolean;
   pause(): void;
   resume(): void;
   readonly isPaused: boolean;
+  /** W72 (D72-3): 'webgpu' until a lost device rebuilds the instance as 'canvas2d'. */
   readonly activeRenderer: ActiveRenderer;
+  /**
+   * @internal W72 (D72-3) scene test hook: loses the WebGPU device (reported as reason
+   * 'unknown') and resolves once the Canvas2D rebuild finished (true), or false at once when
+   * the instance is not on WebGPU, destroyed or stopped.
+   */
+  simulateDeviceLoss(): Promise<boolean>;
+  /** @internal W72 (D72-4): estimated splat fragments of the last frame; 0 under Canvas2D. */
+  readonly fragmentEstimate: number;
+  /** @internal W72 (D72-6): T0 size in px `[width, height]` of the WebGPU renderer; null under Canvas2D. */
+  readonly t0Size: readonly [number, number] | null;
   /** Re-snapshot colours of an observed element (no-op otherwise). */
   refresh(el: HTMLElement): void;
   /**
@@ -130,6 +151,16 @@ function readOffset(container: HTMLElement): Offset {
   return { x: r.left + container.clientLeft, y: r.top + container.clientTop };
 }
 
+/**
+ * W72 (D72-3): routes a WebGPU device loss to the runtime. A loss that resolves before
+ * buildRuntime installed its handler (between init and the runtime existing) is kept and
+ * replayed there once, so it is never dropped.
+ */
+interface LossRelay {
+  handler: ((info: GPUDeviceLostInfo) => void) | null;
+  early: GPUDeviceLostInfo | null;
+}
+
 export async function createFluidRuntime(opts: FluidRuntimeOptions): Promise<FluidRuntime> {
   assertInt("particles", opts.particles, 16, 65_536);
   assertInt("maxElements", opts.maxElements, 1, 256);
@@ -148,15 +179,29 @@ export async function createFluidRuntime(opts: FluidRuntimeOptions): Promise<Flu
     opts.seed,
   );
   let canvas: HTMLCanvasElement | null = null;
+  const relay: LossRelay = { handler: null, early: null };
   try {
     const bridge = new FluidBridge(backend, core);
     const material = opts.material ?? DEFAULT_MATERIAL;
     core.set_material(material.viscosity, material.cohesion, material.recovery);
     canvas = mountLiquidCanvas(opts.container);
-    // D66-2. selectRenderer destroys a renderer whose init failed; the catch below
-    // (W64) then removes the canvas and frees the core exactly once.
-    const selected = await selectRenderer(opts.renderer ?? "canvas2d", canvas);
-    return startRuntime(opts, core, bridge, canvas, selected.renderer, selected.active);
+    // D66-2 / W72 (D72-1): selectRenderer destroys a renderer whose init failed. An 'auto'
+    // fallback remounts the canvas through remountCanvas, so `canvas` is always the one in
+    // the DOM, and the catch below (W64) removes it and frees the core exactly once.
+    const selected = await selectRenderer(opts.renderer ?? "canvas2d", canvas, {
+      silentFallback: opts.silentFallback === true,
+      remountCanvas: () => {
+        canvas = remountLiquidCanvas(canvas as HTMLCanvasElement, opts.container);
+        return canvas;
+      },
+      onDeviceLost: (info) => {
+        if (relay.handler) relay.handler(info);
+        else relay.early ??= info;
+      },
+      ...(opts.webgpuT0Scale === undefined ? {} : { t0Scale: opts.webgpuT0Scale }),
+    });
+    canvas = selected.canvas;
+    return startRuntime(opts, core, bridge, selected, relay);
   } catch (err) {
     canvas?.remove();
     core.free();
@@ -168,18 +213,17 @@ function startRuntime(
   opts: FluidRuntimeOptions,
   core: FluidCoreLike,
   bridge: FluidBridge,
-  canvas: HTMLCanvasElement,
-  renderer: Renderer,
-  activeRenderer: ActiveRenderer,
+  selected: SelectedRenderer,
+  relay: LossRelay,
 ): FluidRuntime {
   const releaseStyles = acquireLiquidStyles(document);
   try {
-    return buildRuntime(opts, core, bridge, canvas, renderer, activeRenderer, releaseStyles);
+    return buildRuntime(opts, core, bridge, selected, relay, releaseStyles);
   } catch (err) {
     // A synchronous failure after the styles/renderer were acquired: undo both,
     // createFluidRuntime's catch removes the canvas and frees the core.
     releaseStyles();
-    renderer.destroy();
+    selected.renderer.destroy();
     throw err;
   }
 }
@@ -188,11 +232,20 @@ function buildRuntime(
   opts: FluidRuntimeOptions,
   core: FluidCoreLike,
   bridge: FluidBridge,
-  canvas: HTMLCanvasElement,
-  renderer: Renderer,
-  activeRenderer: ActiveRenderer,
+  selected: SelectedRenderer,
+  relay: LossRelay,
   releaseStyles: () => void,
 ): FluidRuntime {
+  // W72 (D72-3): the renderer slot and the canvas are mutable. A lost WebGPU device swaps in
+  // Canvas2D on a remounted canvas; the slot is null while that rebuild is in flight.
+  let canvas: HTMLCanvasElement = selected.canvas;
+  let renderer: Renderer | null = selected.renderer;
+  let activeRenderer: ActiveRenderer = selected.active;
+  let rebuilding = false;
+  const rebuildWaiters: Array<(rebuilt: boolean) => void> = [];
+  const settleRebuild = (rebuilt: boolean): void => {
+    for (const resolve of rebuildWaiters.splice(0)) resolve(rebuilt);
+  };
   const clock: FrameClock = opts.clock ?? rafClock;
   const container = opts.container;
   // Ward-fix I2: the canvas is absolutely positioned inside the container. The
@@ -295,7 +348,7 @@ function buildRuntime(
     canvas.width = bw;
     canvas.height = bh;
     viewport = { widthCss: Math.max(1, w), heightCss: Math.max(1, h), dpr };
-    renderer.resize(bw, bh, dpr);
+    renderer?.resize(bw, bh, dpr);
   };
   resizeCanvas();
   let resizeObserver: ResizeObserver | null = null;
@@ -374,7 +427,8 @@ function buildRuntime(
         paintsDirty = false;
         rebuildPaints();
       }
-      renderer.render(buildFrame());
+      // W72 (D72-3): null only while a device-lost rebuild is in flight; the core keeps ticking.
+      if (renderer !== null) renderer.render(buildFrame());
     } finally {
       inFrame = false;
     }
@@ -400,6 +454,67 @@ function buildRuntime(
     lastMs = null; // the dt must not span a pause
   });
   loop.start();
+
+  // W72 (D72-3): a lost WebGPU device (any loss not caused by our own destroy(); the renderer
+  // decides on device identity, not the reason string, since a crashed GPU process also
+  // reports 'destroyed') rebuilds this instance as Canvas2D on a remounted canvas, with the same core
+  // and particle state and one console.warn. A failing rebuild takes the failed-frame path.
+  // W72 review fix (M1, M2): every rebuild failure, synchronous or async, takes this path.
+  const rebuildFailed = (err: unknown): void => {
+    rebuilding = false;
+    if (renderer !== null) {
+      renderer.destroy();
+      renderer = null;
+    }
+    settleRebuild(false);
+    if (destroyed || failed) return;
+    failed = true;
+    loop.destroy();
+    console.error(
+      "[liquiddom] the Canvas2D rebuild after a lost WebGPU device failed; the instance stopped. Call destroy() and create a new instance.",
+      err,
+    );
+  };
+  const rebuildAsCanvas2D = (info: GPUDeviceLostInfo): void => {
+    if (destroyed || failed) {
+      settleRebuild(false); // W72 review fix (M3): a waiting simulateDeviceLoss() never hangs
+      return;
+    }
+    if (rebuilding || activeRenderer !== "webgpu") return;
+    rebuilding = true;
+    activeRenderer = "canvas2d";
+    console.warn(`${DEVICE_LOST_WARNING} (${info.reason}: ${info.message}); continuing with the Canvas2D renderer.`);
+    let pending: Promise<FluidCanvas2DRenderer>;
+    try {
+      const lostRenderer = renderer;
+      renderer = null;
+      lostRenderer?.destroy();
+      canvas = remountLiquidCanvas(canvas, container);
+      pending = initCanvas2D(canvas);
+    } catch (err) {
+      rebuildFailed(err);
+      return;
+    }
+    pending
+      .then((c2d) => {
+        rebuilding = false;
+        if (destroyed || failed) {
+          // W72 review fix (M3): the instance stopped meanwhile; the new renderer is not used.
+          c2d.destroy();
+          settleRebuild(false);
+          return;
+        }
+        renderer = c2d;
+        resizeCanvas(); // the new canvas gets the backing store and the renderer its grid
+        // W72 ward-review (m2): a paused loop (user pause or hidden tab) has no next frame, so
+        // draw one render-only frame (no core.tick) rather than leave the remounted canvas blank.
+        if (loop.isPaused) c2d.render(buildFrame());
+        settleRebuild(true);
+      })
+      .catch(rebuildFailed); // W72 review fix (M1): also a throw in the success handler
+  };
+  relay.handler = rebuildAsCanvas2D;
+  if (relay.early !== null) rebuildAsCanvas2D(relay.early);
 
   return {
     observe(el, elementOpts) {
@@ -432,7 +547,9 @@ function buildRuntime(
       const o = id * STATE_STRIDE;
       return { s: sv[o + St.S], maxDev: sv[o + St.MAX_DEV], restAlpha: sv[o + St.REST_ALPHA] };
     },
-    canvas,
+    get canvas() {
+      return canvas;
+    },
     bridge,
     get reducedMotion() {
       return reducedMotion;
@@ -448,6 +565,20 @@ function buildRuntime(
     },
     get activeRenderer() {
       return activeRenderer;
+    },
+    simulateDeviceLoss(): Promise<boolean> {
+      if (destroyed || failed || activeRenderer !== "webgpu" || !(renderer instanceof WebGPURenderer)) {
+        return Promise.resolve(false);
+      }
+      const rebuilt = new Promise<boolean>((resolve) => rebuildWaiters.push(resolve));
+      renderer.loseDeviceForTest();
+      return rebuilt;
+    },
+    get fragmentEstimate() {
+      return renderer instanceof WebGPURenderer ? renderer.lastFragmentEstimate : 0;
+    },
+    get t0Size() {
+      return renderer instanceof WebGPURenderer ? renderer.t0Size : null;
     },
     refresh(el: HTMLElement) {
       if (destroyed || registry.idOf(el) === undefined) return;
@@ -466,8 +597,11 @@ function buildRuntime(
       detachPointer();
       resizeObserver?.disconnect();
       window.removeEventListener("resize", resizeCanvas);
-      renderer.destroy();
+      relay.handler = null;
+      renderer?.destroy();
+      renderer = null;
       canvas.remove();
+      settleRebuild(false);
       // Ward-fix M2b: a poisoned core (after a panic) may throw on free; adapter
       // cleanups call destroy() and must never throw.
       try {

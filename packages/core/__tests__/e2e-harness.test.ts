@@ -16,12 +16,17 @@ import {
   DIST_PORT,
   PORT,
   PROJECT_FILES,
+  PROJECT_RENDERER,
   PROJECT_USE,
+  SWIFTSHADER_RUNS_LIQUID,
+  WEBGPU_HW_LAUNCH_ARGS,
   WEBGPU_LAUNCH_ARGS,
   WEB_SERVER_COMMAND,
   projectsForSpec,
+  rendererForProject,
   webServerEnv,
 } from "../../../e2e/projects";
+import * as projectsNs from "../../../e2e/projects";
 import { summarize } from "../../../e2e/stats";
 import config from "../../../playwright.config";
 
@@ -67,16 +72,19 @@ function isIgnored(path: string): boolean {
 }
 
 describe("W65 e2e harness", () => {
-  it("given_playwright_config_when_loaded_then_webgpu_project_matches_only_the_smoke_spec", () => {
-    expect(SPECS).toContain("webgpu-smoke.spec.ts");
-    expect(routedTo("webgpu")).toEqual(["webgpu-smoke.spec.ts"]);
+  it("given_playwright_config_when_loaded_then_webgpu_project_matches_the_acceptance_the_liquid_and_the_smoke_specs_W71", () => {
+    // W71 (D71-2): steps 1–3 run under renderer=webgpu; webgpu-liquid.spec.ts holds the shader and colour checks.
+    expect(SPECS).toEqual(expect.arrayContaining(["acceptance.spec.ts", "webgpu-liquid.spec.ts", "webgpu-smoke.spec.ts"]));
+    // W72 red: approved-test change (Dennis approves at W72 red): the robust spec is routed to webgpu only when SWIFTSHADER_RUNS_LIQUID
+    expect(routedTo("webgpu")).toEqual(["acceptance.spec.ts", "webgpu-liquid.spec.ts", ...(projectsNs.SWIFTSHADER_RUNS_LIQUID ? ["webgpu-robust.spec.ts"] : []), "webgpu-smoke.spec.ts"]);
     // Proven on the REAL config object, not only the helper.
-    expect(configRoutedTo("webgpu")).toEqual(["webgpu-smoke.spec.ts"]);
+    expect(configRoutedTo("webgpu")).toEqual(["acceptance.spec.ts", "webgpu-liquid.spec.ts", ...(projectsNs.SWIFTSHADER_RUNS_LIQUID ? ["webgpu-robust.spec.ts"] : []), "webgpu-smoke.spec.ts"]);
   });
 
-  it("given_e2e_spec_files_when_routed_then_canvas2d_runs_every_spec_except_smoke_perf_record_and_dist", () => {
+  it("given_e2e_spec_files_when_routed_then_canvas2d_runs_every_spec_except_smoke_webgpu_liquid_perf_record_and_dist", () => {
+    // W72 red: approved-test change (Dennis approves at W72 red): webgpu-robust.spec.ts joins the exclusions
     const expected = SPECS.filter(
-      (f) => !["webgpu-smoke.spec.ts", "perf.spec.ts", "record.spec.ts", "dist.spec.ts"].includes(f),
+      (f) => !["webgpu-smoke.spec.ts", "webgpu-liquid.spec.ts", "webgpu-robust.spec.ts", "perf.spec.ts", "record.spec.ts", "dist.spec.ts"].includes(f),
     );
     expect(routedTo("canvas2d")).toEqual(expected);
     expect(expected).toEqual(
@@ -192,5 +200,76 @@ describe("W65 e2e harness", () => {
     expect(sh).toContain("mcr.microsoft.com/playwright:v${PW_VERSION}-noble");
     expect(sh).toMatch(/devDependencies\[['"]@playwright\/test['"]\]/);
     expect(sh).toContain("--exclude=node_modules");
+  });
+
+  it("given_project_renderer_map_when_read_then_only_the_webgpu_project_renders_webgpu_and_an_unknown_project_throws_W71", () => {
+    // W72 red: approved-test change (Dennis approves at W72 red): W72 adds record-webgpu
+    expect(PROJECT_RENDERER).toEqual({ canvas2d: "canvas2d", webgpu: "webgpu", "webgpu-hw": "webgpu", perf: "canvas2d", record: "canvas2d", dist: "canvas2d", "record-webgpu": "webgpu" });
+    for (const p of PROJECT_FILES) expect(rendererForProject(p.name)).toBe(PROJECT_RENDERER[p.name]);
+    expect(() => rendererForProject("chromium")).toThrow(/unknown Playwright project/);
+  });
+
+  it("given_the_webgpu_hw_project_when_read_then_it_runs_the_webgpu_specs_on_the_hardware_adapter_locally_and_the_spike_constant_matches_ci_W71", () => {
+    // W71 (D71-1): local Metal runs use the webgpu-hw project; SWIFTSHADER_RUNS_LIQUID is the W71.0 answer, defined once.
+    expect([...WEBGPU_HW_LAUNCH_ARGS]).toEqual(["--enable-unsafe-webgpu"]);
+    expect(PROJECT_USE["webgpu-hw"]).toEqual({ channel: "chromium", launchArgs: WEBGPU_HW_LAUNCH_ARGS });
+    expect(PROJECT_FILES.find((p) => p.name === "webgpu-hw")?.blocking).toBe(false);
+    // W72 red: approved-test change (Dennis approves at W72 red)
+    expect(routedTo("webgpu-hw")).toEqual(expect.arrayContaining(routedTo("webgpu"))); // W72 adds the robust spec and the webgpu perf test
+    expect(configRoutedTo("webgpu-hw")).toEqual(routedTo("webgpu-hw"));
+    const pkg = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
+    expect(pkg.scripts["e2e:webgpu-hw"]).toBe("playwright test --project=webgpu-hw");
+    const ci = readFileSync(resolve(ROOT, ".github/workflows/ci.yml"), "utf8");
+    expect(ci).not.toMatch(/webgpu-hw/);
+    expect(typeof SWIFTSHADER_RUNS_LIQUID).toBe("boolean");
+    const webgpuRun = SWIFTSHADER_RUNS_LIQUID
+      ? "run: npx playwright test --project=webgpu\n"
+      : "run: npx playwright test --project=webgpu e2e/webgpu-smoke.spec.ts\n";
+    expect(ci, "the CI webgpu step follows the W71.0 answer").toContain(webgpuRun);
+  });
+
+  it("given_local_hardware_projects_when_read_then_webgpu_hw_and_record_webgpu_are_local_only_and_the_robust_spec_is_routed_by_the_spike_answer", () => {
+    // W71's webgpu-hw and W72's record-webgpu: WebGPU on the machine's own adapter (Metal on Dennis' Mac); never in CI.
+    const hwArgs = projectsNs.WEBGPU_HW_LAUNCH_ARGS;
+    expect(hwArgs, "WEBGPU_HW_LAUNCH_ARGS is exported").toBeDefined();
+    expect(hwArgs).toContain("--enable-unsafe-webgpu");
+    expect(hwArgs.some((a: string) => /swiftshader/i.test(a))).toBe(false);
+    const use = PROJECT_USE as unknown as Record<string, { channel?: string; launchArgs?: readonly string[]; video?: string }>;
+    for (const name of ["webgpu-hw", "record-webgpu"]) {
+      expect(PROJECT_FILES.find((p) => p.name === (name as never))?.blocking, name).toBe(false);
+      expect(use[name]?.channel, name).toBe("chromium");
+      expect(use[name]?.launchArgs, name).toBe(hwArgs);
+    }
+    expect(use["record-webgpu"]?.video).toBe("on");
+    expect(routedTo("record-webgpu")).toEqual(["record.spec.ts"]);
+    expect(routedTo("webgpu-hw")).toEqual(expect.arrayContaining(["perf.spec.ts", "webgpu-robust.spec.ts", "webgpu-smoke.spec.ts"]));
+    expect(routedTo("webgpu-hw")).not.toContain("record.spec.ts");
+    expect(routedTo("canvas2d")).not.toContain("webgpu-robust.spec.ts");
+    expect(routedTo("webgpu").includes("webgpu-robust.spec.ts")).toBe(projectsNs.SWIFTSHADER_RUNS_LIQUID);
+    expect(configRoutedTo("webgpu-hw")).toEqual(routedTo("webgpu-hw"));
+    expect(configRoutedTo("webgpu")).toEqual(routedTo("webgpu"));
+    const ci = readFileSync(resolve(ROOT, ".github/workflows/ci.yml"), "utf8");
+    expect(ci).not.toMatch(/webgpu-hw|record-webgpu/);
+  });
+
+  it("given_a_cold_vite_server_when_the_suite_starts_then_global_setup_warms_the_acceptance_scene_and_retries_only_a_navigation_race", () => {
+    // W71 gold notes: on a cold server the first test once failed with "Execution context was destroyed"
+    // (Vite's dependency optimiser reloaded the page). Harness fix, no decision: a best-effort warm-up.
+    expect((config as unknown as { globalSetup?: string }).globalSetup).toBe("./e2e/global-setup.ts");
+    expect(projectsNs.WARMUP_PATH).toBe("/scenes/acceptance.html?test=1&seed=1&renderer=canvas2d&clock=manual");
+    expect(projectsNs.WARMUP_ATTEMPTS).toBe(3);
+    expect(projectsNs.WARMUP_SETTLE_MS).toBe(1_000);
+    const race = projectsNs.isNavigationRace;
+    expect(typeof race, "isNavigationRace is exported").toBe("function");
+    expect(race("page.evaluate: Execution context was destroyed, most likely because of a navigation")).toBe(true);
+    expect(race("page.waitForFunction: Frame was detached")).toBe(true);
+    expect(race("page.goto: net::ERR_ABORTED at http://localhost:4173/scenes/acceptance.html")).toBe(true);
+    expect(race("page.waitForFunction: Timeout 30000ms exceeded.")).toBe(false);
+    expect(race("[acceptance] scene failed to start")).toBe(false);
+    const setup = readFileSync(resolve(ROOT, "e2e/global-setup.ts"), "utf8");
+    for (const name of ["WARMUP_PATH", "WARMUP_ATTEMPTS", "WARMUP_SETTLE_MS", "isNavigationRace", "BASE_URL"]) {
+      expect(setup, `global-setup.ts uses ${name} from ./projects`).toContain(name);
+    }
+    expect(setup, "a failed warm-up only warns; the tests report real problems").toContain("console.warn(");
   });
 });

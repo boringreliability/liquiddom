@@ -107,11 +107,11 @@ jobs:
         run: npx playwright test --project=dist
         env:
           E2E_SUITE: dist
-      - name: E2E webgpu smoke (soft until 10 green runs in a row)
+      - name: E2E webgpu smoke (soft; WebGPU acceptance runs locally on Metal, W71.0 fallback B)
         if: ${{ !cancelled() }}
         continue-on-error: true
         timeout-minutes: 5
-        run: npx playwright test --project=webgpu
+        run: npx playwright test --project=webgpu e2e/webgpu-smoke.spec.ts
         env:
           E2E_SUITE: webgpu
 

@@ -127,7 +127,8 @@ describe("W70: e2e/record.spec.ts records step 8 (D70-6)", () => {
   it("given_the_record_spec_when_read_then_a_reduced_motion_segment_on_rm_1_clicks_and_shakes_after_step_6_and_reports_step_8", () => {
     const spec = readFileSync(resolve(ROOT, "e2e/record.spec.ts"), "utf8");
     expect(spec).toContain("const RM_SCENE_URL = `${SCENE_URL}&rm=1`;");
-    expect(spec).toContain('test("whole picture – slice 2 – acceptance steps 1-4, 6 and 8 recorded in canvas2d"');
+    // W72 red: approved-test change (Dennis approves at W72 red): the record spec declares one test per renderer from a template
+    expect(spec).toContain("test(`whole picture – acceptance steps 1-4, 6 and 8 recorded in ${r.renderer}`");
     const s6 = spec.indexOf("// Step 6");
     const s8 = spec.indexOf("// Step 8");
     const close = spec.indexOf("await page.close();");
@@ -142,5 +143,20 @@ describe("W70: e2e/record.spec.ts records step 8 (D70-6)", () => {
     expect(seg).toContain('"step8-rm-after-click-and-shake"');
     expect(seg).toMatch(/step: 8,/);
     expect(seg, "no motion is asserted, not only reported").toMatch(/expect\(moved8/);
+  });
+});
+
+describe("W72: record:w72 records both renderers (gold GIFs)", () => {
+  it("given_root_package_and_record_spec_when_read_then_record_w72_records_both_renderers_and_ci_never_runs_it", () => {
+    const pkg = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
+    expect(pkg.scripts["record:w72"]).toBe(
+      "playwright test e2e/record.spec.ts --project=record --project=record-webgpu && node scripts/webm-to-gif.mjs test-results/whole-picture/manifest.json docs/superpowers/whole-picture/slice-3-w72-canvas2d.gif && node scripts/webm-to-gif.mjs test-results/whole-picture/manifest-webgpu.json docs/superpowers/whole-picture/slice-3-w72-webgpu.gif",
+    );
+    expect(pkg.scripts["e2e:webgpu-hw"]).toBe("playwright test --project=webgpu-hw");
+    const spec = readFileSync(resolve(ROOT, "e2e/record.spec.ts"), "utf8");
+    expect(spec).toContain('{ renderer: "canvas2d", project: "record", manifest: "manifest.json", video: "tmp/whole-picture/slice-2.webm", shotPrefix: "s2" }');
+    expect(spec).toContain('{ renderer: "webgpu", project: "record-webgpu", manifest: "manifest-webgpu.json", video: "tmp/whole-picture/webgpu.webm", shotPrefix: "webgpu" }');
+    const ci = readFileSync(resolve(ROOT, ".github/workflows/ci.yml"), "utf8");
+    expect(ci).not.toMatch(/record:w72|record-webgpu|webgpu-hw/);
   });
 });
