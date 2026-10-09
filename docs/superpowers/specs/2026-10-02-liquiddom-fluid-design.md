@@ -129,7 +129,7 @@ The elements **are** liquid, and so is their text. They splash, split, merge wit
 
 Rust owns it and exports it:
 - During G2P, Rust computes `maxDev` for each element: the max |x − target| over its particles, O(n).
-- `restAlpha ∈ [0,1]` rises towards 1 when `s > 0.95` (amended in W67, D67-1) and `maxDev < 0.75 px` have both held for at least 150 ms. It falls towards 0 immediately when either is broken. This hysteresis prevents flicker.
+- `restAlpha ∈ [0,1]` rises towards 1 when `s > 0.95` (amended in W67, D67-1) and `maxDev < 0.75 px` have both held for at least 150 ms; from slice 4 also per element `max‖F − I‖ < 0.05` (amended 2026-10-10, slice-4 design, D74-2). It falls towards 0 immediately when either is broken. This hysteresis prevents flicker.
 - The fade time is 120 ms both ways.
 
 ### Deformation gradient F (render-only)
@@ -142,7 +142,7 @@ Per substep:
 
 Safety clamp:
 - Singular values are clamped to `σ ∈ [0.2, 5]` via a closed-form 2×2 SVD, and det < 0 is flipped to the nearest proper rotation.
-- Particles that hit the clamp get a `torn` flag (bit), and their text coverage fades out.
+- Particles that hit the clamp get a `torn` flag (bit), and their text coverage fades out. `torn` is sticky: it clears only when the singular values are back in `[0.67, 1.5]` (amended 2026-10-10, slice-4 design, D74-3).
 
 F's cost (+4 floats of SoA plus an SVD per substep) is benchmarked in slice 4. If it is too expensive, update F every 2nd substep.
 
@@ -241,8 +241,8 @@ The `Renderer` keeps its method shape. The new `RenderFrame` contains:
 
 1. **Splat.** Each particle is drawn as an instanced quad (instance data read from a storage buffer via `instance_index`) with a smooth kernel. It writes into three render targets, all using additive blending `{src: one, dst: one, op: add}`:
    - `T0 rgba16float`: `Σw·rgb` and `Σw` (density). Render scale 0.5× DPR. *(Amended 2026-10-07, slice-3 plan, D71-3: rgb is straight, not premultiplied, and a second target `T0a r16float` holds `Σw·a` at the same scale, so the composite gets the blended alpha `Σw·a/Σw` and translucent elements match Canvas2D. Slice 3 splats into T0 and T0a only: 10 B per sample.)*
-   - `T1 rgba16float`: `Σw·text_rgba_premul`, sampled from an RGBA atlas. 1× DPR. **Only particles from elements with `restAlpha < 1`** are splatted here.
-   - `T2 r16float`: `Σw·restAlpha`, used to cross-fade to the rest contour. **Deferred to slice 4** (amended 2026-10-06, slice-3 design, D71-3): slice 3 cross-fades per element from the element buffer's `restAlpha`, so its passes are splat (T0), composite and a rest SDF overlay.
+   - `T1 rgba16float`: `Σw·text_rgba_premul`, sampled from an RGBA atlas. 1× DPR. **Only particles from elements with `restAlpha < 1`** are splatted here. Because T0 is at `t0Scale` and all attachments of a pass share a size, T1 and a `T1w r16float` (Σw) are written in **their own pass** at 1× DPR, with the liquid's kernel (amended 2026-10-10, slice-4 design, D74-4).
+   - `T2 r16float`: `Σw·restAlpha`, used to cross-fade to the rest contour. **Deferred to slice 4** (amended 2026-10-06, slice-3 design, D71-3): slice 3 cross-fades per element from the element buffer's `restAlpha`, so its passes are splat (T0), composite and a rest SDF overlay. **Dropped in slice 4** (amended 2026-10-10, slice-4 design, D74-4): the per-element cross-fade (D71-6) needs no per-pixel restAlpha target.
 
    The targets total 24 B per sample (26 B with T0a, amended 2026-10-07). That is within the default `maxColorAttachmentBytesPerSample = 32`, and rgba16float is blendable in WebGPU core. **No 32-bit float targets.**
 
@@ -253,7 +253,7 @@ The `Renderer` keeps its method shape. The new `RenderFrame` contains:
 2. **Composite.**
    - Density is thresholded into a silhouette with an anti-aliased edge (`fwidth`).
    - Colour is normalised (`Σw·rgb / Σw`), which **blends at boundaries** (no speckle, and the card no longer "swallows" the button).
-   - Text is composited from T1 in the text colour.
+   - Text is composited from T1 / T1w in the text colour, **after** the rest SDF overlay so it never blinks at the cross-fade (amended 2026-10-10, slice-4 design, D74-4).
    - The context is configured with `alphaMode: 'premultiplied'`.
 
 ### Liquid text: the formula
@@ -264,8 +264,8 @@ uv = rest_uv_p + diag(1/w_rest, 1/h_rest) · F_p⁻¹ · (frag_px − x_p_px)
 ```
 - `w_rest, h_rest` come from the rect at redistribution, not the live rect.
 - `uv` is mapped into the atlas as `atlas_origin + uv · atlas_size`.
-- Coverage is 0 when `uv ∉ [0,1]²`. Atlas entries get a gutter of at least 1 kernel radius.
-- `F⁻¹` is computed once per instance in the vertex shader, and its norm is clamped so compression does not cause minification.
+- Coverage is 0 when `uv ∉ [0,1]²`. Atlas entries get a gutter of at least 1 kernel radius (10 px, (amended 2026-10-10, slice-4 design, D74-5).
+- `F⁻¹` is computed once per instance in the vertex shader, and its norm is clamped (to 2, (amended 2026-10-10, slice-4 design, D74-4) so compression does not cause minification.
 - Coverage is 0 when `|det F| < ε` or `torn` is set.
 
 The mapping direction is correct: `F = ∂x/∂X`, so a world offset is mapped back to rest through `F⁻¹`. Because neighbouring particles' patches agree, the text stretches and tears **continuously** with the liquid.
@@ -485,7 +485,7 @@ Slices 1–2 are detailed in the plan. Slices 3–6 are re-planned after each wh
 | 1 | **Liquid at rest** | Single-flight init + loud failure; MPM core in Rust (at rest only: sampling, home spring, reduced-motion path); new FFI; Canvas2D render with roundRect at rest; injected stylesheet + stacking + print; acceptance scene; Playwright harness + WebGPU smoke; multi-instance test; soft-body code, old scenes and site removed or frozen; `examples/react` ported |
 | 2 | **Liquid that reacts** | Full MPM dynamics, pointer field, click/keyboard splash, shake, stiffness/re-form/restAlpha, playground on material, splash scene. Followed by a **whole-picture check** |
 | 3 | **WebGPU liquid** | Splat/composite (T0), rest SDF overlay, blended colour, `device.lost`, overdraw logging (amended 2026-10-06: T2 deferred to slice 4; design `2026-10-06-liquiddom-slice-3-webgpu-design.md`) |
-| 4 | **Liquid text** | F with clamp/torn, text atlas + T1, the `liquid-text` toggle, extended MutationObserver, forced-colors. Followed by a **whole-picture check** |
+| 4 | **Liquid text** | F with clamp/torn, text atlas + T1 (own pass, T2 dropped), the `liquid-text` toggle, extended MutationObserver, forced-colors, Canvas2D halo. Followed by a **whole-picture check** (amended 2026-10-10; design `2026-10-10-liquiddom-slice-4-liquid-text-design.md`) |
 | 5 | **Drag and merge** | `home_dx/dy`, drag threshold, displacement merge, slip separation |
 | 6 | **The world** | Scroll (incl. the 1-frame risk), resize, container, parking, gravity/tilt scene, adapters, site rebuilt and re-enabled. Followed by a **whole-picture check** |
 
@@ -523,4 +523,4 @@ Slices 1–2 are detailed in the plan. Slices 3–6 are re-planned after each wh
 - Render scale for T0: 0.5× (decided at W71 gold, D71-4, side-by-side Metal crops; saga dec_2dc07861).
 - `opt-level` 3 vs `"s"`.
 - What happens to the published `0.2.0-rc.0` (npm deprecate or leave it) and to the CHANGELOGs.
-- Whether F is updated every substep or every 2nd substep (benchmark in slice 4).
+- Whether F is updated every substep or every 2nd substep: spike W74.0 measured +0.25 ms (every) vs +0.14 ms (every 2nd) per fixed step; decided in W74 (D74-1).
