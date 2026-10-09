@@ -84,3 +84,17 @@ Decision: APPROVED 2026-10-09 — blocking canvas2d lace guard at f10/f20, ≤ 1
 
 ## Verification
 `cargo test` (incl. the updated pins and slosh scenarios), `npm run clippy`, `npm test`, `npm run e2e:canvas2d` (incl. the lace guard), `npm run e2e:webgpu-hw`, vision of step-6 stills in both renderers; ward review; gold STOP.
+
+## Gold notes
+
+**Totals (2026-10-09):** cargo 151 passed + 1 ignored (incl. the 4 updated D73 pins and the slosh scenarios); clippy clean; vitest 529 passed | 4 skipped; `e2e:canvas2d` 28 passed / 9 skipped (incl. the D73-3 lace guard); `e2e:dist` 1 passed; `e2e:webgpu-hw` 24 passed; `e2e:typecheck` clean; `wdd validate` passed. Rust re-form evidence: shake 126 (+10) frames, splash 135 (+10) frames.
+
+**Lace guard (D73-3):** card tear pixels seed 1 f10 = 1171 (bound 1699), f20 = 842 (bound 915); identical on macOS and in the pinned Linux image (deterministic). Before the fix: 4921 / 2430.
+
+**Vision (same manual-clock frames, seeds 1 and 2, Canvas2D and WebGPU on Metal; scratchpad w73/gold/sidebyside_seed{1,2}.png):** f10 the dense diagonal slit net is gone (a few short marks remain); f20 a handful of small diamond bubbles instead of the lace; f40 the card is whole (before: holes still open); Merge's droplet chain at f20 is one body. Both renderers identical in every row. Slosh still clearly visible. GIFs re-recorded (`npm run record:w72`).
+
+**Correction recorded:** the W72-gold note that WebGPU reveals lace Canvas2D hides was wrong (stills from different RAF moments); the lace was physics (D70-1 stretch), now fixed in both renderers.
+
+**Reviews:** red review APPROVED (no blocking findings); ward review 0 high / 0 medium / 3 low — stale slosh comment fixed (scenario_tests.rs), CONTEXT byte trim accepted, honey open item deliberate.
+
+**Open (pre-existing, for Dennis):** the honey preset re-forms in 279–292 frames, above the 3 s budget (CONTEXT).
