@@ -24,6 +24,9 @@ Make observed web elements genuinely liquid, which is the project's declared goa
 | 71 | Liquid in WebGPU (slice 3) | planned |
 | 72 | WebGPU by default, robust (slice 3) | planned |
 | 73 | Shake without lace (fix ward after slice 3) | planned |
+| 74 | Text that flows (slice 4) | planned |
+| 75 | Text that stays true (slice 4) | planned |
+| 76 | Whole picture after slice 4 | planned |
 
 Slices 1–2 = W63–W69. Slices 3–6 (WebGPU liquid, liquid text, drag and merge, the world) are outlines in the spec. Their wards are planned only after the whole-picture check that precedes them. This table is maintained by hand; `wdd progress` / PROGRESS.md is the source of truth for status.
 
