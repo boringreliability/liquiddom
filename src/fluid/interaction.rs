@@ -3,7 +3,8 @@
 //! Both add velocity to particles and damage element stiffness, so the liquid
 //! goes soft and then re-forms (T-1000). They draw only from the core's
 //! interaction RNG stream: same seed + same call sequence = bit-identical velocities.
-//! W70: shake is a spatially coherent field per element (D70-1), cap 0.2 (D70-2).
+//! W70: shake is a spatially coherent field per element (D70-1), W73 amends it to amplitude 0.5
+//! (D73-1) and cap 0.3 (D73-2) so the card no longer tears into a lace.
 
 use std::f32::consts::{PI, TAU};
 
@@ -23,11 +24,11 @@ pub const SPLASH_RADIUS_PER_DIAGONAL: f32 = 0.75;
 pub const SPLASH_ANGLE_JITTER_RAD: f32 = 0.45;
 /// Shake speed at strength 1, px/s (D67-3).
 pub const SHAKE_SPEED_PX_S: f32 = 520.0;
-/// D70-1: amplitude `A` of the coherent speed profile `1 + A · sin(π · u + φ)` across an element.
-pub const SHAKE_PROFILE_AMPLITUDE: f32 = 0.8;
-/// D70-2 (amends spec §2's 0.4): shake sets s ← min(s, 0.2). The highest value in [0.1, 0.2]
-/// that passes the W70 slosh metric (pre-plan: re-form 136 frames, budget 180).
-pub const SHAKE_STIFFNESS_CAP: f32 = 0.2;
+/// D73-1 (amends D70-1's 0.8): amplitude `A` of the coherent speed profile
+/// `1 + A · sin(π · u + φ)` across an element.
+pub const SHAKE_PROFILE_AMPLITUDE: f32 = 0.5;
+/// D73-2 (amends D70-2's 0.2, which amended spec §2's 0.4): shake sets s ← min(s, 0.3).
+pub const SHAKE_STIFFNESS_CAP: f32 = 0.3;
 pub const STRENGTH_MAX: f32 = 2.0;
 
 /// The scalars of `FluidCore::splash` (buffer-space px).
@@ -158,8 +159,8 @@ pub(crate) fn shake_field(stream: u32, id: usize) -> ShakeField {
     }
 }
 
-/// D70-1 gain at the element-local position `u = (x − cx) / (w / 2)`: `1 + A · sin(π · u + φ)`,
-/// in [1 − A, 1 + A] = [0.2, 1.8], so no part of the element reverses. Non-finite input gives 1.
+/// D70-1/D73-1 gain at the element-local position `u = (x − cx) / (w / 2)`: `1 + A · sin(π · u + φ)`,
+/// in [1 − A, 1 + A] = [0.5, 1.5], so no part of the element reverses. Non-finite input gives 1.
 #[inline]
 pub fn shake_gain(u: f32, phase: f32) -> f32 {
     if !(u.is_finite() && phase.is_finite()) {
