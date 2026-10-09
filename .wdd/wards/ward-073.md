@@ -40,7 +40,7 @@ Decision: APPROVED 2026-10-09 — cap 0.3, tension unchanged (saga dec_08c9b89c)
 ### D73-3: A blocking lace guard in the Canvas2D acceptance suite
 Proposal: a new canvas2d e2e test in `e2e/acceptance.spec.ts` (manual clock, seed 1, the step-6 shake) that counts tear pixels inside the card (background-coloured pixels enclosed by the card's silhouette, the investigation's method) at f10 and f20 and asserts each ≤ 1.5 × the value measured at gold on seed 1 and ≤ 50 % of today's value. Canvas2D shows the same lace as WebGPU at the same frame (investigation), so the guard runs in CI (blocking) and covers both renderers.
 Consequence: one more blocking e2e test (~2 s); a future change to shake, material or kernel that brings the lace back fails CI. The thresholds are pinned from measurement, like D70-5.
-Decision: PENDING
+Decision: APPROVED 2026-10-09 — blocking canvas2d lace guard at f10/f20, ≤ 1.5 × measured and ≤ 50 % of today (saga dec_81494c68)
 
 ## Specification
 - `src/fluid/interaction.rs`: `SHAKE_PROFILE_AMPLITUDE: f32 = 0.5`, `SHAKE_STIFFNESS_CAP: f32 = 0.3`; doc comments name D73-1/D73-2.
