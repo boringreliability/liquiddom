@@ -3,12 +3,12 @@ ward: 73
 revision: null
 name: "Shake without lace"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [72]
 layer: "both"
 estimated_tests: 3
 created: "2026-10-09"
-completed: null
+completed: "2026-10-09"
 ---
 # Ward 073: Shake without lace
 
