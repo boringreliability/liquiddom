@@ -1,5 +1,6 @@
 import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
+import { cardTearPixels } from "./lace";
 import { SWIFTSHADER_RUNS_LIQUID } from "./projects";
 import { IDLE_2S_FRAMES, VISUAL_ENABLED, VISUAL_SKIP_REASON, advance, cssAlpha, gotoScene, projectRenderer, restAlpha } from "./scene";
 
@@ -99,6 +100,17 @@ const W67_SPLASH_REFORM_BUDGET_S = 3.0;
 /** Spec §6 step 6. */
 const W67_SHAKE_REFORM_BUDGET_S = 3.0;
 const W67_VISION_DIR = "test-results/vision-w67";
+
+// W73 (D73-3): card tear pixels (e2e/lace.ts, the investigation's closing-r4 metric) at seed 1,
+// pinned from measurement like D70-5. Bound per frame = min(1.5 × the sweep's seed-1 value for
+// amp 0.5 / T 0.16 / cap 0.3, 0.5 × today's Canvas2D seed-1 value).
+// Sources (W73 session scratchpad): sweep/browser_metrics.jsonl (amp 0.5/T 0.16/cap 0.3, seed 1:
+// tear10 1133, tear20 610; WebGPU/Metal, the sweep has no Canvas2D runs — the investigation found
+// Canvas2D ≈ WebGPU within ~6 %) and tears_base.json runs/c2d_base (amp 0.8/cap 0.2: f10 4921, f20 2430).
+/** D73-3: min(1.5 × 1133, 0.5 × 4921) = min(1699.5, 2460.5). */
+const W73_LACE_MAX_TEAR_F10 = 1699;
+/** D73-3: min(1.5 × 610, 0.5 × 2430) = min(915, 1215). */
+const W73_LACE_MAX_TEAR_F20 = 915;
 
 type W67Hook = {
   ready: Promise<void>;
@@ -349,6 +361,21 @@ test.describe("slice 2 – splash and shake (W67)", () => {
     await page.evaluate(() => (window as unknown as { __liquidTest: W67Hook }).__liquidTest.instance.shake());
     await w67Advance(page, 20);
     await expect(page).toHaveScreenshot("acceptance-step6-shake-f20.png", { maxDiffPixelRatio: 0.01 });
+  });
+
+  test("step 6 – given shake at seed 1 when ticking then the card shows no lace: tear pixels at f10 and f20 within the D73-3 bounds", async ({ page }) => {
+    // D73-3: blocking in canvas2d only. Canvas2D shows the same lace as WebGPU at the same
+    // manual frame (W73 investigation: f10 Canvas2D 4921 vs WebGPU 4650), so this covers both.
+    test.skip(projectRenderer() !== "canvas2d", "D73-3: the lace guard runs in the canvas2d project");
+    await w67Open(page);
+    await page.evaluate(() => (window as unknown as { __liquidTest: W67Hook }).__liquidTest.instance.shake());
+    await w67Advance(page, 10);
+    const f10 = await cardTearPixels(page);
+    await w67Advance(page, 10);
+    const f20 = await cardTearPixels(page);
+    console.log(`W73 lace guard: card tear px f10 ${f10} (bound ${W73_LACE_MAX_TEAR_F10}), f20 ${f20} (bound ${W73_LACE_MAX_TEAR_F20})`);
+    expect.soft(f10, "card tear px at f10 (D73-3)").toBeLessThanOrEqual(W73_LACE_MAX_TEAR_F10);
+    expect(f20, "card tear px at f20 (D73-3)").toBeLessThanOrEqual(W73_LACE_MAX_TEAR_F20);
   });
 });
 
