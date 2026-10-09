@@ -3,7 +3,7 @@ ward: 73
 revision: null
 name: "Shake without lace"
 epic: "fluid-engine"
-status: "red"
+status: "approved"
 dependencies: [72]
 layer: "both"
 estimated_tests: 3
