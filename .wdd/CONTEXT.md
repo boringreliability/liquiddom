@@ -1,7 +1,7 @@
 # Context — liquiddom
 
 ## Last Updated
-Ward 72 — 2026-10-08 (slice 3 closed: `auto` = WebGPU with Canvas2D fallback, device.lost rebuild, steps 1–4, 6, 8 in both renderers; changeset minor → 0.3.0-alpha.1). Next: W73 fix ward for the card "lace" in WebGPU.
+Ward 72 — 2026-10-08 (slice 3 closed: `auto` = WebGPU with Canvas2D fallback, device.lost rebuild, steps 1–4, 6, 8 in both renderers; changeset minor → 0.3.0-alpha.1). W73 amends the shake constants.
 
 ## Current State
 Epic 15 (Fluid Engine), slice 1 complete: W63 north star + WDD rules, W64 liquid at rest, W65 verification harness, W66 public API swap. `LiquidDOM.create()` now runs on a 2D MLS-MPM fluid in Rust/WASM (`src/fluid/`, `FluidCore`), drawn by `FluidCanvas2DRenderer` (density grid + exact `roundRect` at rest). The soft-body engine (W6–W62) is deleted; its last state is the tag `softbody-final`.
@@ -42,14 +42,15 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 | Fixed-step p95 (local, W67 full substep) | ~3.6 ms | W67 |
 | WASM size (opt-level 3) | ~85 kB | W65 |
 | Splat overdraw estimate, shake peak (webgpu, Metal, 8000 particles) | max 402341 fragments/frame (mean 192911, p95 402341) | W72 |
-| RAF p95 webgpu (Metal, local) | 3.815 ms | W72 |
+| RAF p95 webgpu | 3.815 ms | W72 |
 | Total tests | 50 Rust + 330 TS + 17 Playwright | W66 |
 
 ## Known Limitations
 - Slice 2 is in progress: splash and shake (W67) and the soft pointer field, hover swell, `setMaterial`/`getMaterial` and material presets (W68) are live; no liquid text yet.
 - Pointer idle decay (D68-4, W68): the ×0.8 velocity decay is per frame, so at 120 Hz the tail decays twice as fast in wall time as at 60 Hz.
 - Pointer drag 12/s (W70): a fast sweep lets a pill's trailing edge recede up to ~8 px; interior holes start at drag ≥ 18 (measured), so the e2e no-hole lattice is 10 px inside the contour.
-- Shake profile (W70, D70-1): the speed profile `1 + 0.8·sin(π·u + φ)` varies along x only (`u = (x − cx)/(w/2)`), so a tall element gets no vertical wave. At cap 0.2 the shake reads as violent (labels left on bare background for ~0.5 s; the card's lace is partly the density renderer's bead chains, a slice-3 carry).
+- Shake profile (W70, D70-1; W73 D73-1/2 amplitude 0.5, cap 0.3): the speed profile `1 + 0.5·sin(π·u + φ)` varies along x only (`u = (x − cx)/(w/2)`), so a tall element gets no vertical wave. The card "lace" was physics, identical in both renderers; W73 removes it.
+- OPEN (pre-existing, for Dennis' playground session): the honey preset re-forms in 279–292 frames, above the 3 s budget.
 - Container mode needs a positioned container (one `console.warn` if static; liquiddom never restyles it).
 - Gravity is validated but has no effect until slice 6; scroll is verified only in slice 6.
 - A large scroll can lock particles across elements (W67 slip, slice-6 parking).
@@ -65,5 +66,5 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 
 ## What Comes Next
 - Slice 2 closed: `.wdd/memory/whole-picture/slice-2.md` + `slice-2-addendum.md` (steps 1–4, 6, 8 ✅; 5/7 ⏳).
-- Slice 3 is closed (W71 + W72, 2026-10-08). Next: **W73 fix ward** for the card "lace" (thin light tears inside the card during shake, visible in WebGPU; Dennis 2026-10-08, saga dec_3342ac32), then plan slice 4 (liquid text, T1/T2, forced-colors, DOM-text halo decision); the whole-picture check after slice 4 is the first in both renderers.
+- Slice 3 is closed (W71 + W72, 2026-10-08). Next: **W73 fix ward** for the card "lace" (thin light tears inside the card during shake; physics, same in both renderers; Dennis 2026-10-08, saga dec_3342ac32), then plan slice 4 (liquid text, T1/T2, forced-colors, DOM-text halo decision); the whole-picture check after slice 4 is the first in both renderers.
 - Open: fate of the published `0.2.0-rc.0` (spec §7); publish of `0.3.0-alpha.x` is Dennis' call (`changeset version` + commit before tagging `v*`).
