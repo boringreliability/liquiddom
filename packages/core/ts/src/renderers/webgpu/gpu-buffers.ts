@@ -41,6 +41,8 @@ export interface AtlasSize {
 const clamp01 = (v: number): number => (v > 0 ? (v < 1 ? v : 1) : 0);
 /** An 8-bit colour channel as a finite 0–1 float (NaN → 0, out of range clamped). */
 const channel01 = (v: number): number => clamp01(v / 255);
+/** restAlpha as 0–1; NaN counts as rest (1), so the SDF covers the element and the text pass skips it (W74 gold, M3). */
+const restAlpha01 = (v: number): number => (Number.isNaN(v) ? 1 : clamp01(v));
 const rect: HomeRect = { x: 0, y: 0, w: 0, h: 0, r: 0 };
 
 function particleCount(frame: RenderFrame): number {
@@ -188,7 +190,7 @@ export function packElements(frame: RenderFrame, out: Float32Array): number {
     out[o + EG.W] = rect.w;
     out[o + EG.H] = rect.h;
     out[o + EG.RADIUS] = rect.r;
-    out[o + EG.REST_ALPHA] = clamp01(frame.stateView[id * STATE_STRIDE + St.REST_ALPHA] as number);
+    out[o + EG.REST_ALPHA] = restAlpha01(frame.stateView[id * STATE_STRIDE + St.REST_ALPHA] as number);
     out[o + EG.MASS] = Number.isFinite(mass) && mass > 0 ? mass : 0;
     out[o + EG.KERNEL_R] = kernelRadiusPx(paint.spacingPx);
     out[o + EG.R] = channel01(bg[0]);

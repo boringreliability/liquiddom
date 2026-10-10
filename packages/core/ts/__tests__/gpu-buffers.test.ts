@@ -193,7 +193,7 @@ describe("W71 gpu-buffers", () => {
     expect(record(fresh, 0)).toEqual(new Array(ELEMENT_GPU_FLOATS).fill(0)); // unpainted
   });
 
-  it("given_a_translucent_background_and_odd_rest_alphas_when_packElements_then_alpha_is_kept_rgb_stays_straight_and_rest_alpha_is_clamped_review_focus_4", () => {
+  it("given_a_translucent_background_and_odd_rest_alphas_when_packElements_then_alpha_is_kept_rgb_stays_straight_and_rest_alpha_is_clamped_and_NaN_counts_as_rest_review_focus_4", () => {
     const out = new Float32Array(SLOTS * ELEMENT_GPU_FLOATS);
     const glass = [paint(0, [0, 128, 255, 0.5], 4), paint(1, BLUE, 9), undefined, undefined];
     packElements(frame({ paints: glass, restAlpha: [Number.NaN, 1.7, 0, 0] }), out);
@@ -202,7 +202,7 @@ describe("W71 gpu-buffers", () => {
     expect(r0[EG.G]).toBeCloseTo(128 / 255, 6);
     expect(r0[EG.B]).toBe(1);
     expect(r0[EG.A]).toBe(0.5);
-    expect(r0[EG.REST_ALPHA]).toBe(0);
+    expect(r0[EG.REST_ALPHA]).toBe(1); // W74 gold (M3): NaN counts as rest, so the DOM text never doubles
     expect(record(out, 1)[EG.REST_ALPHA]).toBe(1);
   });
 
