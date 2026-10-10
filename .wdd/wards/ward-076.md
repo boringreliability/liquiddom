@@ -3,7 +3,7 @@ ward: 76
 revision: null
 name: "Whole picture after slice 4"
 epic: "fluid-engine"
-status: "approved"
+status: "gold"
 dependencies: [75]
 layer: "typescript"
 estimated_tests: 8
@@ -98,3 +98,18 @@ Red run (2026-10-10, W76.1): baseline vitest 621 passed | 4 skipped (625), 61 fi
 
 ## Verification
 `npm run verify`, `npm run e2e:canvas2d`, `npm run e2e:dist`, `npm run e2e:webgpu-hw`, `npm run e2e:typecheck`; the report test in `wdd-docs.test.ts`; vision on both recordings; ward code review; STOP at gold for Dennis.
+
+## Gold notes
+
+**Totals (2026-10-10):** vitest 625 passed | 4 skipped (629); cargo 170 + 2 ignored; clippy clean; e2e canvas2d 40 passed (macOS), landing 3/3; webgpu-hw 39, SwiftShader 15, dist 1 (first W76 run; no renderer/runtime change since); `npm run whole-picture` 2/2 (canvas2d 1.93 MiB / 44.83 s, webgpu 2.29 MiB / 36.08 s, Metal).
+
+**Report:** `.wdd/memory/whole-picture/slice-4.md`. Steps 1–4 and 8 ✅ in both renderers (re-form 2.2–2.6 s), 5 and 7 ⏳. Step 6 ✅ on the motion criterion, but a diagonal band of diamond holes shows ≈0.5 s in both renderers (lace guard 1175/831 vs W73 gold 1171/842): W73's "no diagonal lace" is not fully met — Dennis decides ✅ vs ❌.
+
+**Landing page (D76-2):** at rest it reads as an ordinary SaaS page in both renderers and every element re-forms within budget. Findings (open points, nothing fixed): escaped liquid paints over page text and other observed elements; wide surfaces (dark and tinted cards, "Book a demo") lace under shake; a splash disturbs a neighbour 16 px away; `.liquid-element` drops author border/shadow at rest; `:hover` colour not followed (documented); icon chips detach; WebGPU hover tilts the pill (undiagnosed).
+
+**Reviews:** red review approved (exact CTA label match, lastIndexOf fixed). Ward review (opus): Fix first → fixed — the record spec's forced-colours check read `color` (could never fail), now reads `-webkit-text-fill-color`; the landing re-form is asserted; webm-to-gif never leaves an oversized GIF; landing a11y (focus ring 4.64:1, footer 4.75:1, h2 card titles); the report gained four landing findings, a Canvas2D step-3b observation and honest step-8 sources.
+
+**Approved-test changes:** W69's `whole-picture` script pin (D76-1, approved at red); for Dennis at gold: `whole-picture-tooling.test.ts` pins the text-fill assertion instead of `color` (ward-review fix).
+
+**Recommendation in the report:** a small fix ward before slice 5 (lace on wide surfaces, neighbour disturbance, honey retune); slice 5 is planned only after Dennis' review.
+
