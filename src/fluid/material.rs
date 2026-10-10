@@ -30,7 +30,10 @@ impl Default for Material {
 pub const VISCOSITY_MIN_PX2_S: f32 = 100.0;
 pub const VISCOSITY_MAX_PX2_S: f32 = 2000.0;
 pub const TENSION_MAX_MIN: f32 = 0.02;
-pub const TENSION_MAX_MAX: f32 = 0.30;
+/// W77 (D77-2, amends W67's 0.30): the default cohesion 0.5 now yields J ≤ 1.46, so the shake bend
+/// thins the sheet instead of tearing it into rows with diamond voids (W77 spike: acceptance card
+/// 1145 / 815 → 652 / 297 tear px at f10 / f20 on this lever alone).
+pub const TENSION_MAX_MAX: f32 = 0.90;
 pub const RECOVERY_MIN_S: f32 = 0.2;
 pub const RECOVERY_MAX_S: f32 = 3.0;
 
@@ -39,7 +42,7 @@ pub const RECOVERY_MAX_S: f32 = 3.0;
 pub struct MaterialParams {
     /// Kinematic viscosity in px²/s (log-mapped 100–2000).
     pub viscosity_px2_s: f32,
-    /// Plastic yield on stretch: J ≤ 1 + tension_max (linear 0.02–0.30).
+    /// Plastic yield on stretch: J ≤ 1 + tension_max (linear 0.02–0.90, W77 D77-2).
     pub tension_max: f32,
     /// Stiffness recovery time constant in seconds.
     pub recovery_s: f32,
@@ -59,7 +62,7 @@ pub fn map_viscosity(viscosity: f32) -> f32 {
     VISCOSITY_MIN_PX2_S * (VISCOSITY_MAX_PX2_S / VISCOSITY_MIN_PX2_S).powf(v)
 }
 
-/// `cohesion` [0,1] → TENSION_MAX, linear 0.02–0.30 (0.5 = 0.16).
+/// `cohesion` [0,1] → TENSION_MAX, linear 0.02–0.90 (0.5 = 0.46; W77, D77-2).
 pub fn map_cohesion(cohesion: f32) -> f32 {
     let c = unit_or(cohesion, DEFAULT_MATERIAL.cohesion);
     TENSION_MAX_MIN + (TENSION_MAX_MAX - TENSION_MAX_MIN) * c

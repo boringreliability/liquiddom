@@ -78,7 +78,7 @@ liquid.shake(0.5);
 import { LiquidDOM, presets } from "liquiddom";
 const liquid = await LiquidDOM.create({ material: presets.honey });
 liquid.setMaterial({ cohesion: 0.8 }); // validated and merged atomically, TypeError on invalid input
-liquid.getMaterial();                  // { viscosity: 0.9, cohesion: 0.8, recovery: 1.6 }
+liquid.getMaterial();                  // { viscosity: 0.9, cohesion: 0.8, recovery: 0.8 }
 ```
 
 `viscosity` and `cohesion` are in [0, 1]; `recovery` is the re-form time in seconds, [0.2, 3]. Presets: `water`, `honey`, `jelly`. The 0.2 physics presets (`goo`, `jelly`, `firm` with `tension`, `damping`, …) no longer exist; passing their fields throws a `TypeError`.

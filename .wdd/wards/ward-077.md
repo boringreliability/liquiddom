@@ -93,6 +93,13 @@ The spike's numbers (its table above) used the chromium channel and a margin of 
 
 **D77-3 procedure (W77.3):** after D77-2, measure honey's splash and shake re-form (canvas2d manual clock, seed 1, the W77 e2e helper); lower `recovery` from 1.6 s in steps of 0.2 s with viscosity 0.9 and cohesion 0.7 fixed until both are ≤ 165 frames (15-frame margin under 180); if recovery reaches 0.8 s (water's 0.5 s + 0.3 s) without it, lower viscosity in steps of 0.05 instead; stop at the first pair that passes and keeps honey's splash re-form ≥ 1.15× water's. **Viscosity floor 0.6** (jelly's, so honey stays the thickest preset): if viscosity reaches 0.6 without a passing pair, keep the last tried values out of the tree, **STOP and report to Dennis** (every pair and its frames); never change cohesion, the budget or a guard to get there. Pin the result in `material-api.test.ts` (approved-test change of W68's pin, D77-3; made in W77.3 because the values are not known at red, named here so it is approved with the red tests).
 
+D77-3 run (W77.3, 2026-10-11, canvas2d, macOS, after D77-2; water splash 130 / shake 118, jelly 115 / 106; "> 180" = not back within the 180-frame guard window):
+- viscosity 0.9, cohesion 0.7, recovery 1.6 s: splash 285, shake > 180 → fails
+- viscosity 0.9, cohesion 0.7, recovery 1.4 s: splash 253, shake > 180 → fails
+- viscosity 0.9, cohesion 0.7, recovery 1.2 s: splash 220, shake > 180 → fails
+- viscosity 0.9, cohesion 0.7, recovery 1.0 s: splash 188, shake > 180 → fails
+- viscosity 0.9, cohesion 0.7, recovery 0.8 s: splash 155, shake 152, honey / water 155 / 130 = 1.19 ≥ 1.15 → **passes, chosen** (viscosity unchanged)
+
 **STOP rules after the change (red review findings 3, 4, 7):** W77.3 and W77.5 stop and report to Dennis on **any** W77 guard failure (acceptance or landing lace, specks, water / honey / jelly re-form, honey ≥ 1.15× water, slosh floors, the perf ratio), on macOS or in the Docker (Linux) run; no bound is raised without Dennis. W77.5 reads the W77 log lines from the Docker canvas2d run and records the Linux numbers next to the macOS ones, and measures once in the perf project that the frame-ratio guard rejects cap 16 without the grid scaling (`densityCellPx` forced to 2 in a scratch run).
 
 ## Tests

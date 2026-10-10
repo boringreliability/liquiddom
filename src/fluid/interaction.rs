@@ -5,6 +5,7 @@
 //! interaction RNG stream: same seed + same call sequence = bit-identical velocities.
 //! W70: shake is a spatially coherent field per element (D70-1), W73 amends it to amplitude 0.5
 //! (D73-1) and cap 0.3 (D73-2) so the card no longer tears into a lace.
+//! W77 lowers the amplitude to 0.35 (D77-2) together with a higher stretch yield, so the sheet thins instead of tearing.
 
 use std::f32::consts::{PI, TAU};
 
@@ -24,9 +25,9 @@ pub const SPLASH_RADIUS_PER_DIAGONAL: f32 = 0.75;
 pub const SPLASH_ANGLE_JITTER_RAD: f32 = 0.45;
 /// Shake speed at strength 1, px/s (D67-3).
 pub const SHAKE_SPEED_PX_S: f32 = 520.0;
-/// D73-1 (amends D70-1's 0.8): amplitude `A` of the coherent speed profile
-/// `1 + A · sin(π · u + φ)` across an element.
-pub const SHAKE_PROFILE_AMPLITUDE: f32 = 0.5;
+/// D77-2 (amends D73-1's 0.5, which amended D70-1's 0.8): amplitude `A` of the coherent speed
+/// profile `1 + A · sin(π · u + φ)` across an element.
+pub const SHAKE_PROFILE_AMPLITUDE: f32 = 0.35;
 /// D73-2 (amends D70-2's 0.2, which amended spec §2's 0.4): shake sets s ← min(s, 0.3).
 pub const SHAKE_STIFFNESS_CAP: f32 = 0.3;
 pub const STRENGTH_MAX: f32 = 2.0;
@@ -159,8 +160,8 @@ pub(crate) fn shake_field(stream: u32, id: usize) -> ShakeField {
     }
 }
 
-/// D70-1/D73-1 gain at the element-local position `u = (x − cx) / (w / 2)`: `1 + A · sin(π · u + φ)`,
-/// in [1 − A, 1 + A] = [0.5, 1.5], so no part of the element reverses. Non-finite input gives 1.
+/// D70-1/D73-1/D77-2 gain at the element-local position `u = (x − cx) / (w / 2)`: `1 + A · sin(π · u + φ)`,
+/// in [1 − A, 1 + A] = [0.65, 1.35], so no part of the element reverses. Non-finite input gives 1.
 #[inline]
 pub fn shake_gain(u: f32, phase: f32) -> f32 {
     if !(u.is_finite() && phase.is_finite()) {
