@@ -6,7 +6,7 @@ epic: "fluid-engine"
 status: "planned"
 dependencies: [75]
 layer: "typescript"
-estimated_tests: 3
+estimated_tests: 8
 created: "2026-10-10"
 completed: null
 ---
@@ -49,14 +49,23 @@ Plan: `docs/superpowers/plans/2026-10-10-fluid-slice-4/W76.md`. Slice design: `d
 - **Recording:** RAF clock, 1280×800, DPR 1, seed 1, video per project (W69/W72 `PROJECT_USE`); shots `s2-*` (canvas2d, W69 prefix kept) and `webgpu-*`; manifests `manifest.json` and `manifest-webgpu.json`; videos in `tmp/whole-picture/`.
 - **Status rules:** ✅ only if the step's e2e tests pass in that renderer's project, the re-form (steps 3, 4, 6) is within the NORTH-STAR budget, and vision shows the behaviour; otherwise ❌ with a reason. Steps 5 and 7 are ⏳ (slices 5, 6).
 - **Evidence collection:** canvas2d, webgpu-hw, webgpu (smoke) and dist runs; cargo scenario tests (re-form frames with F in the rest criterion, D74-2); perf in both renderers (`perf-canvas2d.json`, `perf-webgpu.json`) and W74's F-cost numbers; drift greps (soft-body names, DOM writes in renderers, `pkg/` imports); one read-only probe per Carried item.
+- **Landing page (D76-2):** `demo/scenes/landing.html` + `landing.ts`, 1280×800 without scroll and without `overflow: hidden`; six `[data-liquid]` elements (nav pill "Sign in", hero CTAs "Start free" and "Book a demo", three feature cards); same URL params and `window.__liquidTest` hook as the acceptance scene. Recording: a `// Landing (D76-2, W76)` segment after the reduced-motion segment and before the page closes, `LANDING_URL = /scenes/landing.html?seed=1&renderer=${r.renderer}&test=1`, shots `landing-rest`, `landing-hover`, `landing-reformed`, the landing timings in the manifest under `landing`. Report: `## Landing page`, per renderer what holds and what breaks, each citing an `s2-landing-*`/`webgpu-landing-*` shot or a GIF time. `demo/index.html`: heading `liquiddom: fluid engine (slice 4)`, link `<a href="scenes/landing.html">Landing page</a>`.
+- **Reconciled at W76.1 (W75's amendments):** the gate has two decision blocks (D76-1, D76-2), not one; baseline is vitest 621 passed | 4 skipped (625) in 61 files, cargo 170 + 2 ignored, `--list` canvas2d 46, webgpu 26, webgpu-hw 54, record 2, record-webgpu 2. No W75 name the plan assumes differs (`#card`, the `// Step 3 –`/`// Step 4 –`/`// Step 6`/`// Step 8` markers, `liquid-text`, the S4 matrix column and the six Carried names all match). The plan's targets predate D76-2: recomputed in the plan (vitest 625 passed | 4 skipped (629), canvas2d `--list` 49).
 
 ## Tests
 
-| # | Test Name | Verifies |
-|---|-----------|----------|
-| 1 | whole-picture-tooling: given_root_package_when_read_then_whole_picture_script_records_both_renderers_then_converts_to_the_slice_4_gifs | D76-1 script (approved-test change of W69's pin) |
-| 2 | whole-picture-tooling: given_the_record_spec_when_read_then_it_records_a_card_text_splash_after_step_3_and_a_live_forced_colours_switch_before_reduced_motion_in_both_renderers | D76-1 recording segments |
-| 3 | wdd-docs: given_whole_picture_slice_4_when_read_then_it_has_per_renderer_status_against_the_s4_column_carried_rows_perf_and_both_gifs | D76-1 report structure and honesty rule |
+Red run (2026-10-10, W76.1): baseline vitest 621 passed | 4 skipped (625), 61 files; after the tests 5 failed | 620 passed | 4 skipped (629) — the 5 rows below with a vitest red outcome; every other vitest test passes. `e2e/landing.spec.ts` routes to the blocking canvas2d project through the default testMatch (no projects.ts or e2e-harness change); `npx playwright test --project=canvas2d e2e/landing.spec.ts`: 3 failed. `npm run e2e:typecheck` clean.
+
+| # | Test Name | Verifies | Red outcome |
+|---|-----------|----------|-------------|
+| 1 | whole-picture-tooling: given_root_package_when_read_then_whole_picture_script_records_both_renderers_then_converts_to_the_slice_4_gifs | D76-1 script (approved-test change of W69's pin) | ❌ the script is still W69's (`--project=record`, `slice-2-canvas2d.gif`) |
+| 2 | whole-picture-tooling: given_the_record_spec_when_read_then_it_records_a_card_text_splash_after_step_3_and_a_live_forced_colours_switch_before_reduced_motion_in_both_renderers | D76-1 recording segments | ❌ `// Step 3b (S4, W76)` not found |
+| 3 | wdd-docs: given_whole_picture_slice_4_when_read_then_it_has_per_renderer_status_against_the_s4_column_carried_rows_perf_and_both_gifs | D76-1 report structure and honesty rule; D76-2 `## Landing page` (per renderer, holds/breaks, landing shot or GIF time) | ❌ missing `.wdd/memory/whole-picture/slice-4.md` |
+| 4 | whole-picture-tooling: given_the_record_spec_when_read_then_it_records_a_landing_segment_after_reduced_motion_with_rest_hover_click_shake_and_reform_in_both_renderers | D76-2 landing segment in both recordings | ❌ `const LANDING_URL = …` not in `e2e/record.spec.ts` |
+| 5 | wdd-docs: given_demo_index_when_read_then_its_heading_says_slice_4_and_it_links_the_landing_scene | D76-2 demo index heading, link, scene files | ❌ heading still `(slice 2)` |
+| 6 | e2e landing (canvas2d): given the landing page at rest when observed then every [data-liquid] element is observed with restAlpha 1 and its text visible | D76-2 smoke: six observed elements, restAlpha 1, canvas, no console error (fixture) | ❌ `scenes/landing.html` missing: `window.__liquidTest` never installed (15 s timeout) |
+| 7 | e2e landing (canvas2d): given the landing page when Start free is clicked and the instance shakes then every element re-forms to restAlpha 1 within the NORTH-STAR budgets | D76-2 smoke: click splash and shake re-form within the step-3/step-6 budgets | ❌ same (no hook) |
+| 8 | e2e landing (canvas2d): given the landing page at 1280×800 when laid out then it fits one screen without scrolling | D76-2 one screen: scrollHeight ≤ 800, scrollWidth ≤ 1280, no `overflow: hidden` on html/body | ❌ same (no hook) |
 
 ## Must NOT
 - Change engine, renderer, runtime or test assertions to make a step pass; a failing step is ❌ in the report (D69-4).

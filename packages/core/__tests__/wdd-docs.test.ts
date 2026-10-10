@@ -681,3 +681,152 @@ describe("W70: slice-2 addendum (D70-6)", () => {
     expect(gif.length).toBeLessThanOrEqual(10 * 1024 * 1024);
   });
 });
+
+describe("W76: whole-picture check after slice 4 (D76-1)", () => {
+  it("given_whole_picture_slice_4_when_read_then_it_has_per_renderer_status_against_the_s4_column_carried_rows_perf_and_both_gifs", async () => {
+    const reportPath = resolve(ROOT, ".wdd/memory/whole-picture/slice-4.md");
+    expect(existsSync(reportPath), "missing .wdd/memory/whole-picture/slice-4.md").toBe(true);
+    const report = readFileSync(reportPath, "utf8");
+    const lines = report.split("\n");
+    // Variable specifier, absolute path: as in the W69 test above.
+    const northStarModule = resolve(ROOT, "e2e/north-star.ts");
+    const { reformBudgetMs } = (await import(/* @vite-ignore */ northStarModule)) as typeof import("../../../e2e/north-star");
+    const sectionLines = (heading: string): string[] => {
+      const start = lines.findIndex((l) => l.trim() === heading);
+      expect(start, `missing ${heading}`).toBeGreaterThanOrEqual(0);
+      const end = lines.findIndex((l, i) => i > start && /^## /.test(l));
+      return lines.slice(start + 1, end === -1 ? lines.length : end);
+    };
+
+    for (const heading of [
+      "## Renderers",
+      "## Scene steps",
+      "## Text",
+      "## Landing page",
+      "## Carried",
+      "## Feel against the north star",
+      "## Perf",
+      "## Drift check",
+      "## Open points for slice 5",
+      "## Recommendation",
+    ]) {
+      expect(lines.map((l) => l.trim()), `missing heading ${heading}`).toContain(heading);
+    }
+    expect(report).toContain("NORTH-STAR.md");
+
+    // | Step | Scene step | Expected S4 | Canvas2D | WebGPU | Evidence |, rows only inside ## Scene steps.
+    const steps = sectionLines("## Scene steps");
+    const rowCells = (step: string): string[] => {
+      const row = steps.find((l) => new RegExp(`^\\|\\s*${step}\\s*\\|`).test(l));
+      expect(row, `no table row for scene step ${step}`).toBeDefined();
+      return (row ?? "").split("|").slice(1, -1).map((c) => c.trim());
+    };
+    // The S4 column of the slice matrix, verbatim (NORTH-STAR = spec §6; W63 asserts equality).
+    const expectedS4: Record<string, string> = {
+      "1": "✅",
+      "2": "✅",
+      "3": "✅ W with text",
+      "4": "✅",
+      "5": "⏳",
+      "6": "✅",
+      "7": "⏳",
+      "8": "+ forced-colors ✅",
+    };
+    // Honesty (D76-1): a ✅ cites what was seen — a shot, a GIF frame or a GIF time — not only a test.
+    const OBSERVATION = /(s2|webgpu)-step\d|\bf\d{3,4}\b|GIF \d+(\.\d+)?/;
+    for (const [step, expected] of Object.entries(expectedS4)) {
+      const cells = rowCells(step);
+      expect(cells, `step ${step} row must have 6 cells`).toHaveLength(6);
+      expect(cells[2], `step ${step} expected-S4 cell`).toBe(expected);
+      for (const [i, renderer] of [
+        [3, "Canvas2D"],
+        [4, "WebGPU"],
+      ] as const) {
+        const observed = cells[i] ?? "";
+        expect(["✅", "❌", "⏳"], `step ${step} ${renderer} status token`).toContain(observed.split(" ")[0]);
+        if (expected.includes("✅")) {
+          expect(observed.startsWith("⏳"), `step ${step} is expected in S4: ${renderer} is ✅ or ❌, never ⏳`).toBe(false);
+        }
+      }
+      const evidence = cells[5] ?? "";
+      expect(evidence.length, `step ${step} needs evidence`).toBeGreaterThan(0);
+      if ((cells[3] ?? "").startsWith("✅") || (cells[4] ?? "").startsWith("✅")) {
+        expect(evidence, `step ${step}: a ✅ must cite a shot, a GIF frame or a GIF time`).toMatch(OBSERVATION);
+      }
+    }
+    // Re-form steps carry a measured time per renderer.
+    for (const step of ["3", "4", "6"]) {
+      const times = (rowCells(step)[5] ?? "").match(/\b\d{2,5}\s*ms\b/g) ?? [];
+      expect(times.length, `step ${step} needs a re-form time in ms for each renderer`).toBeGreaterThanOrEqual(2);
+    }
+    const northStar = read(NORTH_STAR);
+    for (const step of [3, 6]) {
+      const seconds = String(reformBudgetMs(northStar, step) / 1000);
+      expect(rowCells(String(step))[1], `step ${step} scene-step cell quotes the NORTH-STAR budget`).toContain(`within ${seconds} s`);
+    }
+
+    // W76 (D76-2): the landing page, per renderer what holds and what breaks, each backed by a
+    // landing shot (s2-landing-… / webgpu-landing-…) or a GIF time.
+    const landing = sectionLines("## Landing page");
+    const LANDING_OBSERVATION = /(s2|webgpu)-landing-|GIF \d+(\.\d+)?/;
+    for (const [renderer, re] of [
+      ["Canvas2D", /canvas2d/i],
+      ["WebGPU", /webgpu/i],
+    ] as const) {
+      expect(
+        landing.some((l) => re.test(l) && LANDING_OBSERVATION.test(l)),
+        `## Landing page needs a ${renderer} finding that cites a landing shot or a GIF time`,
+      ).toBe(true);
+    }
+    const landingText = landing.join("\n");
+    expect(landingText, "## Landing page says what holds").toMatch(/\bholds?\b/i);
+    expect(landingText, "## Landing page says what breaks (or that nothing does)").toMatch(/\bbreaks?\b/i);
+
+    // Carried (W69 template, D69-5): exactly these rows, each with evidence and a recommendation.
+    const CARRIED = [
+      "Honey preset re-form (279–292 frames)",
+      "Canvas2D splats w == 0 particles",
+      "Shake profile varies along x only",
+      "Pointer decay per frame, not per unit of time",
+      "runtime-truth.test.ts flake under verify load",
+      "DOM text contrast while the liquid is away",
+    ];
+    const carried = sectionLines("## Carried");
+    const data = carried.filter((l) => l.startsWith("|") && !/^\|\s*-/.test(l) && !/^\|\s*Item\s*\|/.test(l));
+    expect(data, `## Carried must hold exactly ${CARRIED.length} data rows`).toHaveLength(CARRIED.length);
+    for (const item of CARRIED) {
+      const rows = carried.filter((l) => l.startsWith(`| ${item} |`));
+      expect(rows, `## Carried needs exactly one row for "${item}"`).toHaveLength(1);
+      const cells = (rows[0] ?? "").split("|").slice(1, -1).map((c) => c.trim());
+      expect(cells, `"${item}" row must have 3 cells`).toHaveLength(3);
+      expect(cells[1], `"${item}" evidence must reference a number, a frame, a probe or a shot`).toMatch(/\d|frame|probe|shot/i);
+      expect((cells[2] ?? "").length, `"${item}" needs a recommendation`).toBeGreaterThan(0);
+    }
+
+    const perf = sectionLines("## Perf").join("\n");
+    expect((perf.match(/\d+(\.\d+)?\s*ms\b/g) ?? []).length, "## Perf needs measured numbers for both renderers").toBeGreaterThanOrEqual(2);
+    expect(perf).toMatch(/canvas2d/i);
+    expect(perf).toMatch(/webgpu/i);
+    expect(report, "unfilled «…» tokens left in the report").not.toContain("«");
+
+    for (const r of ["canvas2d", "webgpu"]) {
+      const rel = `docs/superpowers/whole-picture/slice-4-${r}.gif`;
+      expect(report, `the report links ${rel}`).toContain(rel);
+      const abs = resolve(ROOT, rel);
+      expect(existsSync(abs), `missing ${rel}`).toBe(true);
+      const gif = readFileSync(abs);
+      expect(gif.subarray(0, 6).toString("latin1")).toBe("GIF89a");
+      expect(gif.length).toBeLessThanOrEqual(10 * 1024 * 1024);
+    }
+  });
+});
+
+describe("W76: the landing page scene is linked from the demo index (D76-2)", () => {
+  it("given_demo_index_when_read_then_its_heading_says_slice_4_and_it_links_the_landing_scene", () => {
+    const index = read(resolve(ROOT, "demo/index.html"));
+    expect(index).toContain("<h1>liquiddom: fluid engine (slice 4)</h1>");
+    expect(index).toContain('<a href="scenes/landing.html">Landing page</a>');
+    expect(existsSync(resolve(ROOT, "demo/scenes/landing.html")), "missing demo/scenes/landing.html").toBe(true);
+    expect(existsSync(resolve(ROOT, "demo/scenes/landing.ts")), "missing demo/scenes/landing.ts").toBe(true);
+  });
+});

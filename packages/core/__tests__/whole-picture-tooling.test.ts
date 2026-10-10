@@ -81,10 +81,11 @@ describe("W69: scripts/webm-to-gif.mjs", () => {
     }
   });
 
-  it("given_root_package_when_read_then_whole_picture_script_records_in_the_record_project_then_converts_to_gif", () => {
+  // W76 red: approved-test change (Dennis approves at W76 red): D76-1 records both renderers and writes the slice-4 GIFs
+  it("given_root_package_when_read_then_whole_picture_script_records_both_renderers_then_converts_to_the_slice_4_gifs", () => {
     const pkg = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
     expect(pkg.scripts["whole-picture"]).toBe(
-      "playwright test e2e/record.spec.ts --project=record && node scripts/webm-to-gif.mjs test-results/whole-picture/manifest.json docs/superpowers/whole-picture/slice-2-canvas2d.gif",
+      "playwright test e2e/record.spec.ts --project=record --project=record-webgpu && node scripts/webm-to-gif.mjs test-results/whole-picture/manifest.json docs/superpowers/whole-picture/slice-4-canvas2d.gif && node scripts/webm-to-gif.mjs test-results/whole-picture/manifest-webgpu.json docs/superpowers/whole-picture/slice-4-webgpu.gif",
     );
   });
 });
@@ -158,5 +159,65 @@ describe("W72: record:w72 records both renderers (gold GIFs)", () => {
     expect(spec).toContain('{ renderer: "webgpu", project: "record-webgpu", manifest: "manifest-webgpu.json", video: "tmp/whole-picture/webgpu.webm", shotPrefix: "webgpu" }');
     const ci = readFileSync(resolve(ROOT, ".github/workflows/ci.yml"), "utf8");
     expect(ci).not.toMatch(/record:w72|record-webgpu|webgpu-hw/);
+  });
+});
+
+describe("W76: the slice-4 recording (D76-1)", () => {
+  it("given_the_record_spec_when_read_then_it_records_a_card_text_splash_after_step_3_and_a_live_forced_colours_switch_before_reduced_motion_in_both_renderers", () => {
+    const spec = readFileSync(resolve(ROOT, "e2e/record.spec.ts"), "utf8");
+    const s3 = spec.indexOf("// Step 3 –");
+    const s3b = spec.indexOf("// Step 3b (S4, W76)");
+    const s4 = spec.indexOf("// Step 4 –");
+    expect(s3, "the step-3 segment").toBeGreaterThan(0);
+    expect(s3b, "step 3b follows step 3").toBeGreaterThan(s3);
+    expect(s4, "and precedes step 4").toBeGreaterThan(s3b);
+    const card = spec.slice(s3b, s4);
+    expect(card).toContain("#card");
+    expect(card).toContain("strength: 0.5");
+    expect(card).toContain('"step3-card-text-250ms"');
+    expect(card).toMatch(/step: 3,/);
+
+    const s6 = spec.indexOf("// Step 6");
+    const fc = spec.indexOf("// S4 step 8 (W76)");
+    const rm = spec.indexOf("// Step 8");
+    expect(fc, "the forced-colours segment follows step 6").toBeGreaterThan(s6);
+    expect(rm, "and precedes the reduced-motion segment").toBeGreaterThan(fc);
+    const forced = spec.slice(fc, rm);
+    expect(forced).toContain('page.emulateMedia({ forcedColors: "active" })');
+    expect(forced).toContain('page.emulateMedia({ forcedColors: "none" })');
+    expect(forced).toContain('"step8-forced-colors-mid-splash"');
+    expect(forced, "the canvas is hidden is asserted, not only shot").toMatch(/expect\(forced\.canvas/);
+    expect(forced, "the DOM text is visible is asserted").toMatch(/expect\(forced\.color/);
+    expect(forced).toMatch(/step: 8,/);
+    // One template for both renderers: no renderer-specific skip inside the new segments.
+    expect(card + forced).not.toMatch(/r\.renderer\s*===|test\.skip/);
+  });
+});
+
+describe("W76: the landing page in the slice-4 recording (D76-2)", () => {
+  it("given_the_record_spec_when_read_then_it_records_a_landing_segment_after_reduced_motion_with_rest_hover_click_shake_and_reform_in_both_renderers", () => {
+    const spec = readFileSync(resolve(ROOT, "e2e/record.spec.ts"), "utf8");
+    // The same URL template as the acceptance scene: seed 1, the recording's renderer, the test hook, RAF clock.
+    expect(spec).toContain("const LANDING_URL = `/scenes/landing.html?seed=1&renderer=${r.renderer}&test=1`;");
+    const rm = spec.indexOf("// Step 8");
+    const landing = spec.indexOf("// Landing (D76-2, W76)");
+    const close = spec.indexOf("await page.close();");
+    expect(landing, "the landing segment follows the reduced-motion segment").toBeGreaterThan(rm);
+    expect(close, "and is recorded before the page closes (same video, both slice-4 GIFs)").toBeGreaterThan(landing);
+    const seg = spec.slice(landing, close);
+    expect(seg).toContain("page.goto(LANDING_URL)");
+    expect(seg).toContain('"Start free"');
+    expect(seg).toMatch(/\.hover\(\)/);
+    expect(seg).toMatch(/\.click\(\)/);
+    expect(seg).toMatch(/\.shake\(\)/);
+    expect(seg, "the re-form is waited for, not a fixed sleep").toContain('until(page, "allRest"');
+    for (const name of ['"landing-rest"', '"landing-hover"', '"landing-reformed"']) {
+      expect(seg, `shot ${name}`).toContain(name);
+    }
+    // The landing re-form time reaches the manifest for the report's ## Landing page.
+    const manifest = spec.slice(spec.indexOf("writeFileSync("));
+    expect(manifest, "the manifest carries the landing timings").toMatch(/\blanding\b/);
+    // One template for both renderers.
+    expect(seg).not.toMatch(/r\.renderer\s*===|test\.skip/);
   });
 });
