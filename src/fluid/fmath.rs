@@ -24,6 +24,9 @@ pub const F_REST_TOL: f32 = 0.05;
 /// (the shared rate gave the strength-2 card splash 218 frames, budget 180). Only `update_f` uses it.
 pub const F_SLIP_RATE_PER_S: f32 = 1.5 * SLIP_RATE_PER_S;
 
+/// W74 review: an intermediate F with an entry beyond this is a blow-up (treated as non-finite).
+const F_BLOWUP: f32 = 1.0e6;
+
 /// 2×2 product `m · n`, row-major.
 #[inline]
 pub fn mul2(m: [f32; 4], n: [f32; 4]) -> [f32; 4] {
@@ -134,7 +137,9 @@ pub fn update_f(f: [f32; 4], c: [f32; 4], dt: f32, stiffness: f32, torn: bool) -
     for (gi, id) in g.iter_mut().zip(IDENTITY) {
         *gi += k * (id - *gi);
     }
-    if !g.iter().all(|v| v.is_finite()) {
+    // W74 review: a finite but huge entry (C = 1e22) would overflow Blinn's squares; no real F
+    // (σ ≤ 5 before one substep's update) comes near 1e6, so treat it like a non-finite one.
+    if !g.iter().all(|v| v.is_finite() && v.abs() <= F_BLOWUP) {
         return (IDENTITY, true);
     }
     // `clamp_f` inlined so Blinn's terms are computed once per particle and substep (hot path).
@@ -375,5 +380,24 @@ mod tests {
             "D74-2 amended: F-only slip 1.5×"
         );
         assert_eq!(F_SLIP_RATE_PER_S, 4.5);
+    }
+
+    // W74 review
+    #[test]
+    fn given_a_finite_but_huge_velocity_gradient_when_update_f_then_f_is_finite_in_band_and_torn() {
+        for c in [
+            [1e22, 0.0, 0.0, 1e22],
+            [3e38, 0.0, 0.0, 0.0],
+            [-1e30, 1e30, 0.0, 5e37],
+        ] {
+            let (f, torn) = update_f(IDENTITY, c, DT, 1.0, false);
+            assert!(f.iter().all(|v| v.is_finite()), "{c:?} -> {f:?}");
+            let (_, sig, _) = svd2(f);
+            assert!(
+                sig[0] <= F_SIGMA_MAX + 1e-3 && sig[1] >= F_SIGMA_MIN - 1e-3,
+                "{sig:?}"
+            );
+            assert!(torn, "{c:?}");
+        }
     }
 }

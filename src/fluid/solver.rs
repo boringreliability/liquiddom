@@ -726,8 +726,9 @@ pub fn substep_with(
             // W74 (D74-2): ‖F − I‖² per element, measured with maxDev on the last substep.
             let [f00, f01, f10, f11] = rd4(&p.f, i, IDENTITY);
             let fd2 = (f00 - 1.0) * (f00 - 1.0) + f01 * f01 + f10 * f10 + (f11 - 1.0) * (f11 - 1.0);
+            // W74 review: a NaN is taken (and stays: `x > NaN` is false) (the rest state maps it to f32::MAX).
             if let Some(m) = s.max_fdev.get_mut(h)
-                && fd2 > *m
+                && (fd2 > *m || fd2.is_nan())
             {
                 *m = fd2;
             }
@@ -802,7 +803,7 @@ pub fn measure_max_f_dev(p: &Particles, out: &mut [f32]) {
         };
         let d = f_dev(rd4(&p.f, i, IDENTITY));
         if let Some(m) = out.get_mut(h)
-            && d > *m
+            && (d > *m || d.is_nan())
         {
             *m = d;
         }
@@ -896,6 +897,45 @@ mod w67_tests {
                 );
             }
         }
+    }
+
+    // W74 review
+    #[test]
+    fn given_a_particle_with_nan_f_when_measuring_then_slot_3_is_f32_max_and_the_element_does_not_rest()
+     {
+        use crate::fluid::layout::{ST_MAX_F_DEV, STATE_STRIDE};
+        let mut rig = Rig::block([170.0, 170.0, 60.0, 60.0], 4, 1.0, |_, _| (0.0, 0.0));
+        rig.p.f[3] = [f32::NAN; 4];
+        let inp = StepInput {
+            dt: DT,
+            time_s: 0.0,
+            pointer: PointerGrid::INACTIVE,
+        };
+        let opts = SubstepOpts {
+            measure_dev: true,
+            reuse_bounds: false,
+            f_dt: 0.0, // keep the NaN (update_f would heal it to I)
+        };
+        substep_with(
+            &mut rig.p, &mut rig.g, &rig.e, &rig.m, &inp, &mut rig.s, opts,
+        );
+        assert!(
+            !rig.s.max_fdev[0].is_finite(),
+            "NaN is not swallowed by the max"
+        );
+        let mut out = [0.0f32; 1];
+        measure_max_f_dev(&rig.p, &mut out);
+        assert!(!out[0].is_finite(), "measure_max_f_dev keeps the NaN too");
+        for _ in 0..40 {
+            rig.e
+                .update_rest_state_with_f(0, 0.0, rig.s.max_fdev[0], 1.0 / 60.0, false);
+        }
+        assert_eq!(rig.e.state[ST_MAX_F_DEV], f32::MAX);
+        assert_eq!(
+            rig.e.state[ST_REST_ALPHA], 0.0,
+            "never at rest with a NaN F"
+        );
+        let _ = STATE_STRIDE;
     }
 
     #[test]
