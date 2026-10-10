@@ -81,7 +81,7 @@
 | 073 | Shake without lace | 3 | ✅ Complete | 2026-10-09 |
 | 074 | Text that flows | 62 | ✅ Complete | 2026-10-10 |
 | 075 | Text that stays true | 54 | ✅ Complete | 2026-10-10 |
-| 076 | Whole picture after slice 4 | 8 | 🔴 Red | - |
+| 076 | Whole picture after slice 4 | 8 | 👀 Approved | - |
 
 ## Test Summary
 - Estimated total: 1092
