@@ -163,11 +163,11 @@ test.describe("W75 – the Canvas2D halo and colour auto-refresh", () => {
 });
 
 test.describe("W75 amendment B – author transitions survive the colour re-read", () => {
-  test("D75-2 B1 – given a 400 ms transform transition started by an own class change on #split when a runtime frame runs then the transition keeps running, and after it ends the liquid paints the new colour", async ({ page }) => {
+  test("D75-2 B1 – given a 3 s transform transition started by an own class change on #split when a runtime frame runs then the transition keeps running, and after it ends the liquid paints the new colour", async ({ page }) => {
     await openAtRest(page);
     await page.addStyleTag({
       content:
-        "#split { transition: transform 400ms linear !important; } #split.pressed { transform: scale(0.5); background: rgb(10, 120, 200); }",
+        "#split { transition: transform 3000ms linear !important; } #split.pressed { transform: scale(0.5); background: rgb(10, 120, 200); }",
     });
     // One task: the class change, a style flush (the transition starts), then one runtime frame,
     // whose colour re-read used to write `transition: none !important` and cancel it.
@@ -177,7 +177,7 @@ test.describe("W75 amendment B – author transitions survive the colour re-read
       void getComputedStyle(split).transform;
       window.__liquidTest!.advance(1);
     });
-    await page.waitForTimeout(150);
+    await page.waitForTimeout(150); // 3 s leaves a slow CI runner ample margin before the end
     const mid = await page.locator("#split").evaluate((el) => ({
       scale: new DOMMatrixReadOnly(getComputedStyle(el).transform).a,
       running: el.getAnimations().length,
@@ -189,7 +189,7 @@ test.describe("W75 amendment B – author transitions survive the colour re-read
     expect(mid.style, "D66-3: no inline style").toBeNull();
 
     await expect
-      .poll(() => page.locator("#split").evaluate((el) => el.getAnimations().length), { timeout: 2000 })
+      .poll(() => page.locator("#split").evaluate((el) => el.getAnimations().length), { timeout: 8000 })
       .toBe(0);
     expect(await page.locator("#split").evaluate((el) => new DOMMatrixReadOnly(getComputedStyle(el).transform).a)).toBe(0.5);
     // The frame after the transition ends re-reads the colours; the liquid then re-forms at the smaller rect.
