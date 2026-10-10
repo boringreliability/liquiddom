@@ -8,6 +8,7 @@
  * show unchanged. No `revert-layer`: inside a layer, Chromium reverts it to
  * the UA default, not the author background. Print and forced colours hide
  * the canvas.
+ * W74 (D74-6): the text rule hides the glyphs of the element and its descendants with -webkit-text-fill-color, so `color` (read by the atlas, used by currentColor icons) is untouched.
  */
 export const STYLE_ELEMENT_ID = "liquiddom-styles";
 export const ELEMENT_CLASS = "liquid-element";
@@ -22,7 +23,7 @@ export const LIQUID_CSS = [
   "    .liquid-element { background: transparent !important; border-color: transparent !important; box-shadow: none !important; }",
   `    .liquid-element[${STACK_ATTR}="relative"] { position: relative !important; z-index: 1 !important; }`,
   `    .liquid-element[${STACK_ATTR}="z"] { z-index: 1 !important; }`,
-  "    .liquid-text { color: transparent !important; }",
+  "    .liquid-text, .liquid-text * { -webkit-text-fill-color: transparent !important; text-decoration-color: transparent !important; text-shadow: none !important; }",
   "  }",
   "  @media print, (forced-colors: active) {",
   "    canvas.liquid-canvas { display: none !important; }",
@@ -156,4 +157,31 @@ export function undecorateElement(el: HTMLElement): void {
   if (!d.hadClassAttr && el.getAttribute("class") === "") el.removeAttribute("class");
   if (d.prevStack === null) el.removeAttribute(STACK_ATTR);
   else el.setAttribute(STACK_ATTR, d.prevStack);
+}
+
+/**
+ * W74 (D74-6): `liquid-text` holds per element across ALL instances, like decorations: the class
+ * stays while any instance draws that element's atlas text, and the last release restores what
+ * the first add found (an author's own `liquid-text` class is never removed).
+ */
+const textHolds = new WeakMap<HTMLElement, { count: number; readonly hadClass: boolean }>();
+
+export function addTextClass(el: HTMLElement): void {
+  const hold = textHolds.get(el);
+  if (hold) {
+    hold.count += 1;
+    return;
+  }
+  textHolds.set(el, { count: 1, hadClass: el.classList.contains(TEXT_CLASS) });
+  el.classList.add(TEXT_CLASS);
+}
+
+/** Releases one add; an unbalanced release is a no-op. */
+export function removeTextClass(el: HTMLElement): void {
+  const hold = textHolds.get(el);
+  if (!hold) return;
+  hold.count -= 1;
+  if (hold.count > 0) return;
+  textHolds.delete(el);
+  if (!hold.hadClass) el.classList.remove(TEXT_CLASS);
 }

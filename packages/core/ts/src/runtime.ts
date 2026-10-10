@@ -13,7 +13,9 @@ import { El, ELEMENT_STRIDE, roundedRectArea, St, STATE_STRIDE, Stat } from "./f
 import { DEFAULT_MATERIAL, type Material } from "./material";
 import { SplashInput, rectCentre, type ClientPoint } from "./input";
 import { DEFAULT_STRENGTH, type ElementOptions } from "./options";
-import type { ElementPaint, RenderFrame, Renderer, RenderViewport } from "./renderers/frame";
+import type { ElementPaint, RenderFrame, Renderer, RenderViewport, TextAtlasFrame } from "./renderers/frame";
+import { ATLAS_MAX_SIZE_PX, TextAtlas, type AtlasCanvasFactory, type AtlasRect } from "./renderers/webgpu/text-atlas";
+import { clearTextClasses, releaseTextClass, syncTextClasses } from "./text-toggle";
 import { LoopController } from "./loop-control";
 import { PointerTracker } from "./pointer-tracker";
 import { acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas } from "./stylesheet";
@@ -29,6 +31,10 @@ export const STATIC_CONTAINER_WARNING =
 
 /** W72 (D72-3): prefix of the one console.warn when a WebGPU device is lost and the instance continues in Canvas2D. */
 export const DEVICE_LOST_WARNING = "[liquiddom] WebGPU device lost";
+/** W74 (D74-5): the one console.warn per instance when the text atlas cannot be built (no liquid text, DOM text stays). */
+export const TEXT_ATLAS_WARNING =
+  "[liquiddom] the text atlas could not be built; the DOM text stays visible while elements move";
+const NO_ATLAS_RECTS: ReadonlyMap<number, AtlasRect> = new Map();
 
 export interface FluidRuntimeOptions {
   /** Integer in [16, 65536]; the W66 facade narrows the public range. */
@@ -55,6 +61,8 @@ export interface FluidRuntimeOptions {
   webgpuT0Scale?: number;
   /** W72 (D72-1): hide the one console.info of an 'auto' fallback to Canvas2D. Default false. */
   silentFallback?: boolean;
+  /** @internal W74 (D74-5): jsdom tests inject the atlas canvas (jsdom has no OffscreenCanvas). */
+  textAtlasCanvas?: AtlasCanvasFactory;
 }
 
 export interface FluidElementState {
@@ -268,6 +276,23 @@ function buildRuntime(
   ).fill(undefined);
   const counts = new Uint32Array(bridge.elementCapacity);
   let viewport: RenderViewport = { widthCss: 1, heightCss: 1, dpr: 1 };
+  // ---- W74 (D74-5, D74-6): the text atlas and the liquid-text toggle ----
+  // W74 review: the page never exceeds the device's maxTextureDimension2D (min(4096, limit)).
+  const atlasMaxSize =
+    selected.renderer instanceof WebGPURenderer
+      ? Math.min(ATLAS_MAX_SIZE_PX, selected.renderer.maxTextureDimension)
+      : ATLAS_MAX_SIZE_PX;
+  const textAtlas = new TextAtlas({
+    maxSize: atlasMaxSize,
+    ...(opts.textAtlasCanvas ? { createCanvas: opts.textAtlasCanvas } : {}),
+  });
+  let atlasRects: ReadonlyMap<number, AtlasRect> = NO_ATLAS_RECTS;
+  let atlasFrame: TextAtlasFrame | null = null;
+  let warnedAtlas = false;
+  /** This instance's liquid-text holds (refcounted across instances in stylesheet.ts). */
+  const textHeld = new Set<HTMLElement>();
+  /** Observed slot ids, refreshed with the paints. */
+  let observedIds: number[] = [];
 
   const coordOffset = (): Offset => {
     if (inFrame) return frameOffset;
@@ -327,6 +352,8 @@ function buildRuntime(
     if (destroyed) return;
     reducedMotion = e.matches;
     core.set_reduced_motion(reducedMotion);
+    // W74 (Review Focus 1): reduced motion switched on mid-splash shows the DOM text at once, without waiting for a frame.
+    if (reducedMotion) clearTextClasses(textHeld);
   };
   mql?.addEventListener("change", onMotionChange);
 
@@ -359,6 +386,43 @@ function buildRuntime(
     window.addEventListener("resize", resizeCanvas);
   }
 
+  /** W74 (D74-5): rebuilt with the paints under WebGPU; any failure means no atlas text (one console.warn). */
+  const rebuildAtlas = (): void => {
+    atlasRects = NO_ATLAS_RECTS;
+    atlasFrame = null;
+    if (activeRenderer !== "webgpu") return;
+    const entries: Array<{ id: number; el: HTMLElement; dpr: number }> = [];
+    for (const rec of registry.entries()) entries.push({ id: rec.id, el: rec.el, dpr: viewport.dpr });
+    try {
+      atlasRects = textAtlas.build(entries);
+      const page = textAtlas.canvas;
+      atlasFrame = page
+        ? { canvas: page, width: textAtlas.width, height: textAtlas.height, dpr: textAtlas.dpr, version: textAtlas.version }
+        : null;
+    } catch (err) {
+      atlasRects = NO_ATLAS_RECTS;
+      atlasFrame = null;
+      if (!warnedAtlas) {
+        warnedAtlas = true;
+        console.warn(TEXT_ATLAS_WARNING, err);
+      }
+    }
+  };
+
+  /** W74 (D74-6): after render(), so the class and the atlas text change in the same frame. */
+  const syncText = (): void => {
+    const sv = bridge.stateView();
+    syncTextClasses({
+      ids: observedIds,
+      elementOf: (id) => registry.get(id)?.el,
+      restAlpha: (id) => sv[id * STATE_STRIDE + St.REST_ALPHA] ?? Number.NaN,
+      renderer,
+      activeRenderer,
+      reducedMotion,
+      held: textHeld,
+    });
+  };
+
   const rebuildPaints = (): void => {
     const cap = bridge.particleCapacity;
     const st = bridge.staticView();
@@ -383,10 +447,11 @@ function buildRuntime(
         particleCount: n,
         areaPerParticle: app,
         spacingPx: Math.sqrt(app),
-        atlasRect: null,
+        atlasRect: atlasRects.get(rec.id) ?? null,
       };
     }
     paints = next;
+    observedIds = Array.from(registry.entries(), (rec) => rec.id);
     activeParticles = core.active_particles();
   };
 
@@ -401,6 +466,7 @@ function buildRuntime(
     paints,
     viewport,
     reducedMotion,
+    textAtlas: atlasFrame,
   });
 
   const frameBody = (nowMs: number): void => {
@@ -423,12 +489,14 @@ function buildRuntime(
         0,
         0,
       );
-      if (bridge.syncGeneration() || paintsDirty) {
+      if (bridge.syncGeneration() || paintsDirty || (activeRenderer === "webgpu" && textAtlas.stale)) {
         paintsDirty = false;
+        rebuildAtlas(); // W74 (D74-5): before the paints, which carry each element's atlas rect
         rebuildPaints();
       }
       // W72 (D72-3): null only while a device-lost rebuild is in flight; the core keeps ticking.
       if (renderer !== null) renderer.render(buildFrame());
+      syncText(); // W74 (D74-6)
     } finally {
       inFrame = false;
     }
@@ -444,6 +512,7 @@ function buildRuntime(
       frameBody(nowMs);
     } catch (err) {
       failed = true;
+      clearTextClasses(textHeld); // W74: a stopped instance never leaves text hidden
       loop.destroy();
       console.error("[liquiddom] frame failed; the instance stopped. Call destroy() and create a new instance.", err);
     }
@@ -467,6 +536,7 @@ function buildRuntime(
       renderer = null;
     }
     settleRebuild(false);
+    clearTextClasses(textHeld);
     if (destroyed || failed) return;
     failed = true;
     loop.destroy();
@@ -484,6 +554,12 @@ function buildRuntime(
     rebuilding = true;
     activeRenderer = "canvas2d";
     console.warn(`${DEVICE_LOST_WARNING} (${info.reason}: ${info.message}); continuing with the Canvas2D renderer.`);
+    // W74 (D74-6, Review Focus 1): the atlas text is gone with the device; show the DOM text now,
+    // before the asynchronous Canvas2D init, and drop the atlas (Canvas2D never draws text).
+    clearTextClasses(textHeld);
+    atlasRects = NO_ATLAS_RECTS;
+    atlasFrame = null;
+    paintsDirty = true;
     let pending: Promise<FluidCanvas2DRenderer>;
     try {
       const lostRenderer = renderer;
@@ -525,6 +601,7 @@ function buildRuntime(
     },
     unobserve(el) {
       if (destroyed) return;
+      releaseTextClass(textHeld, el); // W74: before the registry restores the element
       registry.unobserve(el);
       splashInput.detach(el);
     },
@@ -591,6 +668,7 @@ function buildRuntime(
       loop.destroy();
       batcher.cancel();
       splashInput.destroy();
+      clearTextClasses(textHeld); // W74
       registry.unobserveAll();
       releaseStyles();
       mql?.removeEventListener("change", onMotionChange);

@@ -310,3 +310,45 @@ describe("W74 runtime: atlas and liquid-text (D74-5, D74-6)", () => {
     expect(textPasses()).toBe(0);
   });
 });
+
+// W74 review (carry-over 2): the atlas follows the redistribution bump and the device limit.
+describe("W74 review: atlas build timing and size cap", () => {
+  const textInfoWrites = () => gpu.calls.writes.filter((w) => w.buffer.label === "liquiddom text info");
+
+  it("given_a_second_element_observed_when_the_redistribution_bumps_the_generation_then_the_atlas_is_rebuilt_in_that_frame_and_the_text_records_match_its_rects", async () => {
+    const s = await setup();
+    const a = button("Splash", 100);
+    const idA = await observed(s, a);
+    expect(s.atlas.canvases).toHaveLength(1);
+    const b = button("Split", 300);
+    const idB = s.rt.observe(b);
+    await microtask(); // the batched redistribute bumps the generation
+    const writesBefore = textInfoWrites().length;
+    s.clock.advance(1); // the one frame that sees the bump
+    expect(s.atlas.canvases, "rebuilt with the paints, in the bump frame").toHaveLength(2);
+    expect(s.atlas.fills().map((f) => f.text)).toEqual(["Splash", "Split"]);
+    expect(gpu.calls.externalCopies, "the new page is uploaded in the same frame").toHaveLength(2);
+    const writes = textInfoWrites();
+    expect(writes.length).toBeGreaterThan(writesBefore);
+    const info = writes.at(-1)!.values;
+    // rest size = atlas rect / dpr = the element's border box (140 × 48 CSS px), valid = 1, for both slots
+    for (const id of [idA, idB]) {
+      expect(info.slice(id * 8 + 4, id * 8 + 7)).toEqual([140, 48, 1]);
+    }
+    expect(gpu.calls.errors).toEqual([]);
+  });
+
+  it("given_a_device_texture_limit_below_the_slot_size_when_built_then_the_atlas_is_capped_at_the_limit_and_the_element_keeps_its_dom_text", async () => {
+    gpu.restore();
+    gpu = installFakeGpu({ maxTextureDimension2D: 128 }); // a 140 px wide button + gutter does not fit
+    const s = await setup();
+    const el = button();
+    const id = await observed(s, el);
+    s.core.forceRestAlpha(id, 0.4);
+    s.clock.advance(1);
+    expect(s.atlas.canvases, "no page larger than the device can hold").toHaveLength(0);
+    expect(gpu.calls.externalCopies).toHaveLength(0);
+    expect(el.classList.contains(TEXT_CLASS)).toBe(false);
+    expect(textPasses()).toBe(0);
+  });
+});
