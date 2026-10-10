@@ -17,6 +17,7 @@ pub mod access;
 pub mod api;
 pub mod clock;
 pub mod elements;
+pub mod fmath;
 pub mod grid;
 pub mod interaction;
 pub mod layout;

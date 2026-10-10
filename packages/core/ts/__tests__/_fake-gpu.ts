@@ -32,6 +32,8 @@ export interface FakeGpuOptions {
   holdInit?: boolean;
   /** W71.4 review fix: `adapter.limits.maxTextureDimension2D` (default 8192, the WebGPU default limit). */
   maxTextureDimension2D?: number;
+  /** W74: thrown by `queue.copyExternalImageToTexture()` (a detached or unusable source). */
+  copyExternalError?: Error;
 }
 
 export interface FakeBuffer {
@@ -80,6 +82,15 @@ export interface FakeWrite {
   readonly values: number[];
 }
 
+/** W74: one `queue.copyExternalImageToTexture()` call. */
+export interface FakeExternalCopy {
+  readonly source: unknown;
+  readonly texture: FakeTexture;
+  readonly width: number;
+  readonly height: number;
+  readonly premultipliedAlpha: boolean;
+}
+
 /** What `createRenderPipeline` returns: the descriptor it was called with. */
 export interface FakePipeline {
   readonly descriptor: GPURenderPipelineDescriptor;
@@ -112,6 +123,7 @@ export interface FakeGpuCalls {
   textures: FakeTexture[];
   bindGroups: GPUBindGroupDescriptor[];
   writes: FakeWrite[];
+  externalCopies: FakeExternalCopy[];
   passes: FakePass[];
   submits: number;
   deviceDestroyed: number;
@@ -151,7 +163,7 @@ const PREFERRED_FORMAT = "bgra8unorm";
 export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
   const calls: FakeGpuCalls = {
     requestAdapter: 0, requestDevice: 0, deviceDescriptors: [], configure: [], shaderModules: [], bindGroupLayouts: [], pipelines: [],
-    buffers: [], textures: [], bindGroups: [], writes: [], passes: [], submits: 0, deviceDestroyed: 0, getContextWebgpu: 0, log: [], errors: [],
+    buffers: [], textures: [], bindGroups: [], writes: [], externalCopies: [], passes: [], submits: 0, deviceDestroyed: 0, getContextWebgpu: 0, log: [], errors: [],
   };
   const adapterError = new Error("adapter exploded");
   const deviceError = new Error("device exploded");
@@ -235,6 +247,21 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
           if (offset % 4 !== 0) calls.errors.push(`writeBuffer(${name}): offset ${offset} is not a multiple of 4`);
           if (offset + bytes > buffer.size) calls.errors.push(`writeBuffer(${name}): ${offset} + ${bytes} > ${buffer.size}`);
           calls.writes.push({ buffer, offset, bytes, values: Array.from(data.subarray(dataOffset, dataOffset + elements)) });
+        },
+        copyExternalImageToTexture: (
+          src: { source: unknown },
+          dest: { texture: FakeTexture; premultipliedAlpha?: boolean },
+          size: number[] | GPUExtent3DDict,
+        ) => {
+          if (opts.copyExternalError) throw opts.copyExternalError;
+          const [w, h] = Array.isArray(size) ? [size[0] ?? 0, size[1] ?? 1] : [size.width, size.height ?? 1];
+          const t = dest.texture;
+          const name = t.label ?? "";
+          // WebGPU: the destination needs COPY_DST and RENDER_ATTACHMENT (0x2 | 0x10).
+          if ((t.usage & 0x12) !== 0x12) calls.errors.push(`copyExternalImageToTexture(${name}): usage lacks COPY_DST | RENDER_ATTACHMENT`);
+          if (t.destroyed) calls.errors.push(`copyExternalImageToTexture(${name}): destroyed texture`);
+          if (w > t.width || h > t.height) calls.errors.push(`copyExternalImageToTexture(${name}): ${w}x${h} exceeds ${t.width}x${t.height}`);
+          calls.externalCopies.push({ source: src.source, texture: t, width: w, height: h, premultipliedAlpha: dest.premultipliedAlpha === true });
         },
       },
       destroy: () => {

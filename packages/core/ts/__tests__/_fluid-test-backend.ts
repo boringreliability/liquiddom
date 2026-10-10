@@ -35,6 +35,8 @@ export interface TestFluidCore extends FluidCoreLike {
   readonly ctorArgs: readonly number[];
   readonly freed: boolean;
   readonly reducedMotion: boolean;
+  /** W74: pin restAlpha of slot `id` to `alpha` on every tick (null = back to the default 1). */
+  forceRestAlpha(id: number, alpha: number | null): void;
 }
 
 export interface TestBackend extends FluidBackend {
@@ -104,6 +106,7 @@ export function createTestBackend(opts: TestBackendOptions = {}): TestBackend {
     private gen = 0;
     private active = 0;
     private acc = 0;
+    private readonly forced = new Map<number, number>();
 
     constructor(
       particles: number,
@@ -243,6 +246,12 @@ export function createTestBackend(opts: TestBackendOptions = {}): TestBackend {
       this.pin();
     }
 
+    forceRestAlpha(id: number, alpha: number | null): void {
+      if (alpha === null) this.forced.delete(id);
+      else this.forced.set(id, alpha);
+      this.pin();
+    }
+
     private pin(): void {
       const el = f32(this.elPtr, this.m * ELEMENT_STRIDE);
       const st = f32(this.statPtr, this.n * STATIC_FIELDS);
@@ -260,8 +269,8 @@ export function createTestBackend(opts: TestBackendOptions = {}): TestBackend {
         const o = id * STATE_STRIDE;
         s[o + St.S] = 1;
         s[o + St.MAX_DEV] = 0;
-        s[o + St.REST_ALPHA] = homeRect(el, id, false) ? 1 : 0;
-        s[o + St.RESERVED] = 0;
+        s[o + St.REST_ALPHA] = this.forced.get(id) ?? (homeRect(el, id, false) ? 1 : 0);
+        s[o + St.MAX_F_DEV] = 0;
       }
     }
   }

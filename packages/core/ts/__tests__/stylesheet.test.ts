@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { LiquidDOM } from "../src/index";
 import {
+  TEXT_CLASS, addTextClass, removeTextClass,
   CANVAS_CLASS, ELEMENT_CLASS, LIQUID_CSS, STACK_ATTR, STYLE_ELEMENT_ID,
   acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas, stackingFor,
 } from "../src/stylesheet";
@@ -86,6 +87,7 @@ describe("W66 T2: injected stylesheet", () => {
     expect(document.getElementById(STYLE_ELEMENT_ID)).toBeNull();
   });
 
+  // W74 red: approved-test change (D74-6: the text rule hides descendants via -webkit-text-fill-color)
   it("given_css_text_when_read_then_paint_and_stacking_scoped_to_screen_without_forced_colors_and_print_and_forced_colors_hide_canvas", () => {
     // D66-15 AMENDED (saga dec_d05913c9): scope instead of revert-layer.
     expect(LIQUID_CSS.startsWith("@layer liquiddom {")).toBe(true);
@@ -101,13 +103,38 @@ describe("W66 T2: injected stylesheet", () => {
     expect(screen).toMatch(/\.liquid-element \{[^}]*background: transparent !important;[^}]*border-color: transparent !important;[^}]*box-shadow: none !important;/);
     expect(screen).toMatch(/\.liquid-element\[data-liquid-stack="relative"\] \{ position: relative !important; z-index: 1 !important; \}/);
     expect(screen).toMatch(/\.liquid-element\[data-liquid-stack="z"\] \{ z-index: 1 !important; \}/);
-    expect(screen).toMatch(/\.liquid-text \{ color: transparent !important; \}/);
+    expect(screen).toContain(
+      ".liquid-text, .liquid-text * { -webkit-text-fill-color: transparent !important; text-decoration-color: transparent !important; text-shadow: none !important; }",
+    );
+    // `color` stays: the atlas reads it and currentColor icons keep it (D74-6).
+    expect(screen).not.toMatch(/(?<![-\w])color: transparent/);
     // Nothing paint-, stacking- or text-related outside the screen block.
     const outside = LIQUID_CSS.slice(0, at) + rest.slice(end);
     expect(outside).not.toMatch(/\.liquid-element|\.liquid-text/);
     const hideAt = LIQUID_CSS.indexOf("@media print, (forced-colors: active) {");
     expect(hideAt).toBeGreaterThan(0);
     expect(LIQUID_CSS.slice(hideAt)).toMatch(/canvas\.liquid-canvas \{ display: none !important; \}/);
+  });
+
+  it("given_two_holders_when_addTextClass_twice_and_removeTextClass_once_then_the_class_stays_until_the_last_release_and_a_pre_existing_class_is_kept", () => {
+    const el = document.createElement("p");
+    el.className = "lead";
+    document.body.appendChild(el);
+    addTextClass(el);
+    addTextClass(el);
+    expect(el.className).toBe(`lead ${TEXT_CLASS}`);
+    removeTextClass(el);
+    expect(el.classList.contains(TEXT_CLASS)).toBe(true);
+    removeTextClass(el);
+    expect(el.className).toBe("lead");
+    removeTextClass(el);
+    expect(el.className, "an unbalanced release is a no-op").toBe("lead");
+    const authored = document.createElement("p");
+    authored.className = TEXT_CLASS;
+    document.body.appendChild(authored);
+    addTextClass(authored);
+    removeTextClass(authored);
+    expect(authored.className).toBe(TEXT_CLASS);
   });
 });
 

@@ -47,7 +47,8 @@ test.describe("acceptance scene – step 1 (canvas2d and webgpu)", () => {
       const where = `${p.host} <${p.tag}>`;
       expect(p.text.length, `${where} has text`).toBeGreaterThan(0);
       expect(cssAlpha(p.color), `${where} text colour ${p.color} is opaque`).toBeGreaterThan(0);
-      expect(p.liquidText, `${where} has no liquid-text class`).toBe(false);
+      // W74 red: approved-test change (Dennis approves at W74 red) — message only (D74-6)
+      expect(p.liquidText, `${where} has no liquid-text class at rest (W74, D74-6: both renderers)`).toBe(false);
       expect(p.visible, `${where} is visible`).toBe(true);
     }
 
@@ -376,6 +377,69 @@ test.describe("slice 2 – splash and shake (W67)", () => {
     console.log(`W73 lace guard: card tear px f10 ${f10} (bound ${W73_LACE_MAX_TEAR_F10}), f20 ${f20} (bound ${W73_LACE_MAX_TEAR_F20})`);
     expect.soft(f10, "card tear px at f10 (D73-3)").toBeLessThanOrEqual(W73_LACE_MAX_TEAR_F10);
     expect(f20, "card tear px at f20 (D73-3)").toBeLessThanOrEqual(W73_LACE_MAX_TEAR_F20);
+  });
+});
+
+// =============================================================================
+// W74 (slice 4) – Canvas2D never sets liquid-text (D74-6), and the splash ghost pill (D74-7).
+// =============================================================================
+/** D74-7: the alpha band of the pale rest overlay, calibrated in W74.0 (before ≥ 10 of 27 probes at f4–f7, after ≤ 3). */
+const GHOST_PALE_BAND: readonly [number, number] = [16, 160];
+const GHOST_MAX_PROBES = 4;
+
+/** Canvas alpha at a 9 × 3 probe grid 12 px inside #splash; returns how many fall in GHOST_PALE_BAND. */
+async function paleProbesInSplash(page: Page): Promise<number> {
+  return page.evaluate(([lo, hi]) => {
+    const img = window.__liquidTest!.pixels();
+    const c = document.querySelector<HTMLCanvasElement>("canvas.liquid-canvas");
+    const s = document.getElementById("splash");
+    if (!c || !s) throw new Error("W74: canvas or #splash missing");
+    const cr = c.getBoundingClientRect();
+    const b = s.getBoundingClientRect();
+    const sx = img.width / cr.width;
+    const sy = img.height / cr.height;
+    let pale = 0;
+    for (let j = 0; j < 3; j++) {
+      for (let i = 0; i < 9; i++) {
+        const x = b.left + 12 + ((b.width - 24) * i) / 8;
+        const y = b.top + 12 + ((b.height - 24) * j) / 2;
+        const px = Math.floor((x - cr.left) * sx);
+        const py = Math.floor((y - cr.top) * sy);
+        const a = img.data[(py * img.width + px) * 4 + 3];
+        if (a >= lo && a <= hi) pale++;
+      }
+    }
+    return pale;
+  }, GHOST_PALE_BAND);
+}
+
+test.describe("slice 4 – liquid text and the ghost pill (W74)", () => {
+  test("step 3 (canvas2d) – given a splash when ticking 30 frames then no element ever carries liquid-text (D74-6)", async ({ page }) => {
+    test.skip(projectRenderer() !== "canvas2d", "W74 (D74-6): the Canvas2D guarantee; WebGPU sets liquid-text while an element moves");
+    await w67Open(page);
+    await w67ClickSplash(page);
+    for (let f = 1; f <= 30; f++) {
+      await w67Advance(page, 1);
+      expect(await page.locator(".liquid-text").count(), `liquid-text at frame ${f}`).toBe(0);
+    }
+    expect(Math.min(...(await w67RestAlphas(page))), "the splash happened").toBeLessThan(1);
+  });
+
+  test("step 3 – given a splash at the centre of Splash when ticking 8 frames then its restAlpha is 0 from the first frame and no probe in the hole shows the pale rest overlay (D74-7)", async ({ page }) => {
+    await w67Open(page);
+    await page.mouse.move(1279, 799);
+    await page.evaluate(() => {
+      const el = document.getElementById("splash");
+      if (!el) throw new Error("W74: #splash not found");
+      (window as unknown as { __liquidTest: W67Hook }).__liquidTest.instance.splash(el);
+    });
+    let worst = 0;
+    for (let f = 1; f <= 8; f++) {
+      await w67Advance(page, 1);
+      expect((await w67RestAlphas(page))[0], `restAlpha of Splash at f${f}`).toBe(0);
+      worst = Math.max(worst, await paleProbesInSplash(page));
+    }
+    expect(worst, `probes inside Splash in the pale band ${GHOST_PALE_BAND.join("–")}`).toBeLessThanOrEqual(GHOST_MAX_PROBES);
   });
 });
 

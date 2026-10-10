@@ -36,7 +36,8 @@ const TS_MIRROR: Record<string, number> = {
   ST_S: L.St.S,
   ST_MAX_DEV: L.St.MAX_DEV,
   ST_REST_ALPHA: L.St.REST_ALPHA,
-  ST_RESERVED: L.St.RESERVED,
+  // W74 red: approved-test change (Dennis approves at W74 red) — D74-2: slot 3 renamed
+  ST_MAX_F_DEV: L.St.MAX_F_DEV,
   DYNAMIC_FIELDS: L.DYNAMIC_FIELDS,
   DYN_X: L.Dyn.X,
   DYN_Y: L.Dyn.Y,

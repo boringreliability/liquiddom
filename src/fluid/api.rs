@@ -59,6 +59,10 @@ pub struct FluidCore {
     /// last tick saw it. Pre-allocated to MAX_STEPS_PER_TICK, so it never reallocates.
     #[cfg(test)]
     step_vel_trace: Vec<(f32, f32)>,
+    /// Test-only (D74-1 benchmark): F is updated every `f_every`-th substep (0 = never,
+    /// 1 = production). Read by `f_dt_for`.
+    #[cfg(test)]
+    f_every: u32,
 }
 
 #[wasm_bindgen]
@@ -108,6 +112,8 @@ impl FluidCore {
             interaction_rng: Rng::derive(seed, RNG_STREAM_INTERACTION),
             #[cfg(test)]
             step_vel_trace: Vec::with_capacity(MAX_STEPS_PER_TICK as usize),
+            #[cfg(test)]
+            f_every: 1,
         }
     }
 
@@ -787,6 +793,81 @@ impl FluidCore {
     /// D68-10: whether the next tick's reuse substeps would reuse the current fused AABB.
     pub(crate) fn bounds_reusable(&self) -> bool {
         self.scratch.bounds_reusable()
+    }
+
+    /// W74 (D74-1): F statistics over the homed particles (σ from the eigenvalues of FᵀF,
+    /// independent of `fmath::svd2`).
+    pub(crate) fn f_stats(&self) -> FStats {
+        let p = &self.particles;
+        let mut s = FStats::NONE;
+        for i in 0..p.cap {
+            if p.home_of(i).is_none() {
+                continue;
+            }
+            let [a, b, c, d] = p.f[i];
+            if !(a.is_finite() && b.is_finite() && c.is_finite() && d.is_finite()) {
+                s.non_finite += 1;
+                continue;
+            }
+            let (p00, p01, p11) = (a * a + c * c, a * b + c * d, b * b + d * d);
+            let half_tr = 0.5 * (p00 + p11);
+            let disc = (half_tr * half_tr - (p00 * p11 - p01 * p01))
+                .max(0.0)
+                .sqrt();
+            s.min_det = s.min_det.min(a * d - b * c);
+            s.max_sigma = s.max_sigma.max((half_tr + disc).sqrt());
+            s.min_sigma = s.min_sigma.min((half_tr - disc).max(0.0).sqrt());
+            if p.flags[i] & super::layout::FLAG_TORN != 0 {
+                s.torn += 1;
+            }
+        }
+        s
+    }
+
+    /// W74 (D74-2): state slot 3 (max ‖F − I‖) of every active element, in slot order.
+    pub(crate) fn f_devs(&self) -> Vec<f32> {
+        (0..self.elements.cap)
+            .filter(|&id| self.elements.is_active(id))
+            .map(|id| self.state(id)[super::layout::ST_MAX_F_DEV])
+            .collect()
+    }
+
+    /// W74 (D74-1 benchmark): update F every n-th substep (0 = never, 1 = production).
+    pub(crate) fn set_f_every(&mut self, n: u32) {
+        self.f_every = n;
+    }
+}
+
+/// W74 (D74-1): the worst F seen over a set of particles (test-only).
+#[cfg(test)]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FStats {
+    pub non_finite: usize,
+    pub min_det: f32,
+    pub max_sigma: f32,
+    pub min_sigma: f32,
+    pub torn: usize,
+}
+
+#[cfg(test)]
+impl FStats {
+    pub(crate) const NONE: FStats = FStats {
+        non_finite: 0,
+        min_det: f32::INFINITY,
+        max_sigma: 0.0,
+        min_sigma: f32::INFINITY,
+        torn: 0,
+    };
+
+    /// The worse of two snapshots, field by field (torn: the larger count).
+    pub(crate) fn worst(self, o: FStats) -> FStats {
+        FStats {
+            non_finite: self.non_finite.max(o.non_finite),
+            min_det: self.min_det.min(o.min_det),
+            max_sigma: self.max_sigma.max(o.max_sigma),
+            min_sigma: self.min_sigma.min(o.min_sigma),
+            torn: self.torn.max(o.torn),
+        }
     }
 }
 

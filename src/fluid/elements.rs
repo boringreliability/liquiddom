@@ -4,7 +4,7 @@
 use super::access::{finite_or, positive, rd, rd_or, wr};
 use super::layout::{
     EL_H, EL_HOME_DX, EL_HOME_DY, EL_INTERACTION, EL_RADIUS, EL_RECOVERY, EL_VISCOSITY, EL_W, EL_X,
-    EL_Y, ELEMENT_STRIDE, HOVER_SWELL, INTERACTION_HOVER, ST_MAX_DEV, ST_RESERVED, ST_REST_ALPHA,
+    EL_Y, ELEMENT_STRIDE, HOVER_SWELL, INTERACTION_HOVER, ST_MAX_DEV, ST_MAX_F_DEV, ST_REST_ALPHA,
     ST_S, STATE_STRIDE,
 };
 use super::material::sanitize_recovery;
@@ -217,7 +217,7 @@ impl Elements {
         wr(&mut self.state, base + ST_S, 1.0);
         wr(&mut self.state, base + ST_MAX_DEV, 0.0);
         wr(&mut self.state, base + ST_REST_ALPHA, 0.0);
-        wr(&mut self.state, base + ST_RESERVED, 0.0);
+        wr(&mut self.state, base + ST_MAX_F_DEV, 0.0);
     }
 
     /// `s ← max(min(s, cap), S_FLOOR)` (spec §2 stiffness damage). Restarts the rest
@@ -266,7 +266,7 @@ impl Elements {
             wr(&mut self.state, base + ST_S, 1.0);
             wr(&mut self.state, base + ST_MAX_DEV, 0.0);
             wr(&mut self.state, base + ST_REST_ALPHA, 0.0);
-            wr(&mut self.state, base + ST_RESERVED, 0.0);
+            wr(&mut self.state, base + ST_MAX_F_DEV, 0.0);
             return;
         }
         if reduced_motion {
@@ -277,7 +277,7 @@ impl Elements {
             wr(&mut self.state, base + ST_S, 1.0);
             wr(&mut self.state, base + ST_MAX_DEV, 0.0);
             wr(&mut self.state, base + ST_REST_ALPHA, 1.0);
-            wr(&mut self.state, base + ST_RESERVED, 0.0);
+            wr(&mut self.state, base + ST_MAX_F_DEV, 0.0);
             return;
         }
         let s = rd_or(&self.stiffness, id, 1.0);
@@ -302,7 +302,20 @@ impl Elements {
         wr(&mut self.state, base + ST_S, s);
         wr(&mut self.state, base + ST_MAX_DEV, dev);
         wr(&mut self.state, base + ST_REST_ALPHA, alpha);
-        wr(&mut self.state, base + ST_RESERVED, 0.0);
+        wr(&mut self.state, base + ST_MAX_F_DEV, 0.0);
+    }
+
+    /// W74 (D74-2): `update_rest_state` with the third rest condition, max ‖F − I‖ < F_REST_TOL.
+    /// W74.1 (red) stub: ignores `max_f_dev`; W74.3 implements it.
+    pub fn update_rest_state_with_f(
+        &mut self,
+        id: usize,
+        max_dev: f32,
+        _max_f_dev: f32,
+        dt: f32,
+        reduced_motion: bool,
+    ) {
+        self.update_rest_state(id, max_dev, dt, reduced_motion);
     }
 
     /// W67 (D67-12): an active element that is stiff (`s > REST_S_MIN`) and whose
@@ -623,5 +636,71 @@ mod w67_tests {
             assert_eq!(below.rest_hold_s[0], 0.0, "and the hold at 0");
         }
         const { assert!(0.1 < REST_MAX_DEV_PX) };
+    }
+
+    #[test]
+    fn given_max_f_dev_at_or_above_0_05_when_rest_state_updated_then_rest_alpha_never_rises_and_slot_3_carries_it_d74_2()
+     {
+        let mut e = one_element();
+        for _ in 0..20 {
+            e.update_rest_state_with_f(0, 0.1, 0.05, DT_STEP, false);
+        }
+        assert_eq!(alpha(&e), 0.0, "‖F − I‖ = 0.05 is not below F_REST_TOL");
+        assert!(
+            (e.state[ST_MAX_F_DEV] - 0.05).abs() < 1e-7,
+            "slot 3 carries max ‖F − I‖"
+        );
+        for _ in 0..20 {
+            e.update_rest_state_with_f(0, 0.1, 0.049, DT_STEP, false);
+        }
+        assert_eq!(
+            alpha(&e),
+            1.0,
+            "all three conditions held for 150 ms + the 120 ms fade"
+        );
+        e.update_rest_state_with_f(0, 0.1, f32::NAN, DT_STEP, false);
+        assert!(alpha(&e) < 1.0, "a NaN ‖F − I‖ breaks rest");
+        assert_eq!(e.state[ST_MAX_F_DEV], f32::MAX);
+        e.update_rest_state_with_f(0, 0.1, 0.5, DT_STEP, true);
+        assert_eq!(
+            (alpha(&e), e.state[ST_MAX_F_DEV]),
+            (1.0, 0.0),
+            "reduced motion: at rest, slot 3 = 0"
+        );
+        e.update_rest_state_with_f(1, 0.0, 0.3, DT_STEP, false);
+        assert_eq!(
+            e.state[STATE_STRIDE + ST_MAX_F_DEV],
+            0.0,
+            "inactive slot: slot 3 = 0"
+        );
+        let mut settling = one_element();
+        settling.update_rest_state_with_f(0, 0.0, 0.2, 0.0, false);
+        settling.settle_if_at_rest(0);
+        assert_eq!(alpha(&settling), 0.0, "D67-12 settle also needs F ≈ I");
+        settling.update_rest_state_with_f(0, 0.0, 0.0, 0.0, false);
+        settling.settle_if_at_rest(0);
+        assert_eq!(alpha(&settling), 1.0);
+    }
+
+    #[test]
+    fn given_rest_alpha_1_when_damaged_then_rest_alpha_is_0_at_once_d74_7() {
+        let mut e = one_element();
+        for _ in 0..20 {
+            e.update_rest_state(0, 0.1, DT_STEP, false);
+        }
+        assert_eq!(alpha(&e), 1.0);
+        e.damage(0, 0.25);
+        assert_eq!(
+            alpha(&e),
+            0.0,
+            "an impulse drops restAlpha at once (no 120 ms fade over a hole)"
+        );
+        assert_eq!(e.rest_hold_s[0], 0.0);
+        let mut nan = one_element();
+        for _ in 0..20 {
+            nan.update_rest_state(0, 0.1, DT_STEP, false);
+        }
+        nan.damage(0, f32::NAN);
+        assert_eq!(alpha(&nan), 1.0, "a NaN cap is a no-op");
     }
 }

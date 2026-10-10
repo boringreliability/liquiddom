@@ -12,9 +12,9 @@ import { fileURLToPath } from "node:url";
 import { T0_SCALE_DEFAULT, WebGPURenderer, type WebGPURendererOptions } from "../src/renderers/webgpu/webgpu-renderer";
 import { WebGPUUnavailableError } from "../src/renderers/webgpu/errors";
 import { WebGPUUnavailableError as BarrelError } from "../src/index";
-import { COMPOSITE_WGSL, REST_WGSL, SPLAT_WGSL } from "../src/renderers/webgpu/shaders";
-import { Dyn, DYNAMIC_FIELDS, ELEMENT_STRIDE, St, STATE_STRIDE, STATIC_FIELDS } from "../src/fluid-layout";
-import type { ElementPaint, RenderFrame, Renderer } from "../src/renderers/frame";
+import { COMPOSITE_WGSL, REST_WGSL, SPLAT_WGSL, TEXT_COMPOSITE_WGSL, TEXT_WGSL } from "../src/renderers/webgpu/shaders";
+import { Dyn, DYNAMIC_FIELDS, ELEMENT_STRIDE, St, STATE_STRIDE, Stat, STATIC_FIELDS } from "../src/fluid-layout";
+import type { ElementPaint, RenderFrame, Renderer, TextAtlasFrame } from "../src/renderers/frame";
 import { installNavigatorGpu } from "./_facade-helpers";
 import { installFakeGpu, type FakeGpu, type FakeGpuOptions, type FakeWrite } from "./_fake-gpu";
 
@@ -43,9 +43,30 @@ const paint = (id: number): ElementPaint => ({
   id, background: BLUE, text: [255, 255, 255, 1], radiusPx: 24, particleCount: CAP, areaPerParticle: 4, spacingPx: 2, atlasRect: null,
 });
 const PAINTS: ReadonlyArray<ElementPaint | undefined> = [paint(0), undefined];
+/** W74: a 320 × 136 atlas at dpr 2 holding slot 0's 140 × 48 box at (20, 20). */
+const ATLAS: TextAtlasFrame = {
+  canvas: { width: 320, height: 136 } as unknown as OffscreenCanvas,
+  width: 320,
+  height: 136,
+  dpr: 2,
+  version: 1,
+};
+const textPaint = (id: number): ElementPaint => ({ ...paint(id), atlasRect: { x: 20, y: 20, w: 280, h: 96 } });
+const TEXT_PAINTS: ReadonlyArray<ElementPaint | undefined> = [textPaint(0), undefined];
+const flush = (): Promise<void> => new Promise<void>((r) => setTimeout(r, 0));
+const expectClose = (actual: number[], expected: number[]): void =>
+  expected.forEach((v, i) => expect(actual[i], `float ${i}`).toBeCloseTo(v, 5));
+const t1Textures = (f: FakeGpu) => f.calls.textures.filter((t) => t.label === "liquiddom T1" || t.label === "liquiddom T1w");
 
 function sceneFrame(
-  o: { generation?: number; paints?: ReadonlyArray<ElementPaint | undefined>; active?: number; restAlpha?: number } = {},
+  o: {
+    generation?: number;
+    paints?: ReadonlyArray<ElementPaint | undefined>;
+    active?: number;
+    restAlpha?: number;
+    textAtlas?: TextAtlasFrame | null;
+    restU?: number;
+  } = {},
 ): RenderFrame {
   const dynamicView = new Float32Array(CAP * DYNAMIC_FIELDS);
   for (let i = 0; i < CAP; i++) {
@@ -56,9 +77,11 @@ function sceneFrame(
   elementView.set([100, 100, 140, 48, 24, 0, 0, 0, Number.NaN, Number.NaN], 0);
   const stateView = new Float32Array(2 * STATE_STRIDE);
   stateView[St.REST_ALPHA] = o.restAlpha ?? 0;
+  const staticView = new Float32Array(CAP * STATIC_FIELDS); // every home = slot 0
+  if (o.restU !== undefined) staticView.fill(o.restU, Stat.REST_U * CAP, (Stat.REST_U + 1) * CAP);
   return {
     dynamicView,
-    staticView: new Float32Array(CAP * STATIC_FIELDS), // every home = slot 0
+    staticView,
     generation: o.generation ?? 1,
     stateView,
     elementView,
@@ -67,6 +90,7 @@ function sceneFrame(
     paints: o.paints ?? PAINTS,
     viewport: { widthCss: 400, heightCss: 300, dpr: 2 },
     reducedMotion: false,
+    textAtlas: o.textAtlas ?? null,
   };
 }
 const emptyFrame = (): RenderFrame => sceneFrame({ active: 0, paints: [undefined, undefined] });
@@ -131,7 +155,8 @@ describe("W71: WebGPURenderer", () => {
     expect(f.calls.deviceDestroyed).toBe(1);
   });
 
-  it("given_successful_init_when_built_then_three_pipelines_with_explicit_layouts_inside_one_validation_error_scope_D71_3", async () => {
+  // W74 red: approved-test change (D74-4: the text and text-composite pipelines are built at init)
+  it("given_successful_init_when_built_then_five_pipelines_with_explicit_layouts_inside_one_validation_error_scope_D71_3_D74_4", async () => {
     const f = gpu();
     await new WebGPURenderer().init(document.createElement("canvas"));
     expect(f.calls.configure).toEqual([expect.objectContaining({ format: "bgra8unorm", alphaMode: "premultiplied" })]);
@@ -142,8 +167,8 @@ describe("W71: WebGPURenderer", () => {
     expect(log.filter((l) => l.startsWith("pushErrorScope")), "two scopes: surface, then pipelines").toHaveLength(2);
     expect(log.lastIndexOf("createRenderPipeline")).toBeLessThan(log.lastIndexOf("popErrorScope"));
     expect(log.filter((l) => l === "popErrorScope")).toHaveLength(2);
-    expect(f.calls.shaderModules).toEqual([SPLAT_WGSL, COMPOSITE_WGSL, REST_WGSL]);
-    expect(f.calls.pipelines).toHaveLength(3);
+    expect(f.calls.shaderModules).toEqual([SPLAT_WGSL, COMPOSITE_WGSL, REST_WGSL, TEXT_WGSL, TEXT_COMPOSITE_WGSL]);
+    expect(f.calls.pipelines).toHaveLength(5);
     const descs = f.calls.pipelines.map((p) => p.descriptor);
     for (const d of descs) {
       expect(d.layout, "explicit layout").not.toBe("auto");
@@ -151,17 +176,22 @@ describe("W71: WebGPURenderer", () => {
       expect(Array.from(d.vertex.buffers ?? [])).toEqual([]);
       for (const t of d.fragment!.targets) expect(String(t!.format)).not.toMatch(/32float/);
     }
-    const [splat, composite, rest] = descs;
+    const [splat, composite, rest, text, textComposite] = descs;
     expect(splat!.fragment!.targets).toEqual([
       { format: "rgba16float", blend: ADDITIVE },
       { format: "r16float", blend: ADDITIVE },
     ]);
     expect(composite!.fragment!.targets).toEqual([{ format: "bgra8unorm" }]);
     expect(rest!.fragment!.targets).toEqual([{ format: "bgra8unorm", blend: OVER }]);
+    expect(text!.fragment!.targets).toEqual([
+      { format: "rgba16float", blend: ADDITIVE },
+      { format: "r16float", blend: ADDITIVE },
+    ]);
+    expect(textComposite!.fragment!.targets).toEqual([{ format: "bgra8unorm", blend: OVER }]);
     const buffers = f.calls.bindGroupLayouts.flatMap((l) => Array.from(l.entries)).filter((e) => e.buffer !== undefined);
-    expect(buffers.filter((e) => e.buffer!.type === "uniform")).toHaveLength(3);
-    expect(buffers.filter((e) => e.buffer!.type === "read-only-storage")).toHaveLength(4);
-    expect(buffers).toHaveLength(7);
+    expect(buffers.filter((e) => e.buffer!.type === "uniform")).toHaveLength(5);
+    expect(buffers.filter((e) => e.buffer!.type === "read-only-storage")).toHaveLength(9);
+    expect(buffers).toHaveLength(14);
     expect(f.calls.errors).toEqual([]);
   });
 
@@ -234,17 +264,20 @@ describe("W71: WebGPURenderer", () => {
     expect(f.calls.errors).toEqual([]);
   });
 
+  // W74 red: approved-test change (D74-4: rest-UV and text-info buffers; a particle is 32 B)
   it("given_an_empty_scene_when_rendering_then_no_zero_size_buffer_no_splat_or_rest_draw_one_composite_draw_and_no_validation_error_review_focus_2", async () => {
     const f = gpu();
     const r = await ready();
     r.render(emptyFrame());
     expect(f.calls.errors).toEqual([]);
     expect(f.calls.buffers.every((b) => b.size >= 16)).toBe(true);
-    // One Element record (64 B) and one particle (8 B) at least: a smaller binding than one array stride is invalid.
+    // One Element record (64 B), one particle (32 B) and one text record (32 B) at least: a smaller
+    // binding than one array stride is invalid.
     expect(f.calls.buffers.find((b) => b.label === "liquiddom elements")!.size).toBeGreaterThanOrEqual(64);
-    expect(f.calls.buffers.find((b) => b.label === "liquiddom particles")!.size).toBeGreaterThanOrEqual(8);
+    expect(f.calls.buffers.find((b) => b.label === "liquiddom particles")!.size).toBeGreaterThanOrEqual(32);
+    expect(f.calls.buffers.find((b) => b.label === "liquiddom text info")!.size).toBeGreaterThanOrEqual(32);
     expect(f.calls.buffers.map((b) => b.label).sort()).toEqual([
-      "liquiddom elements", "liquiddom homes", "liquiddom particles", "liquiddom view",
+      "liquiddom elements", "liquiddom homes", "liquiddom particles", "liquiddom rest uv", "liquiddom text info", "liquiddom view",
     ]);
     expect(f.calls.passes).toHaveLength(2);
     expect(f.calls.passes[0]!.draws).toEqual([]);
@@ -254,6 +287,7 @@ describe("W71: WebGPURenderer", () => {
     expect(f.calls.submits).toBe(1);
   });
 
+  // W74 red: approved-test change (D74-4: 8 floats per particle)
   it("given_a_scene_when_rendering_frames_then_particles_and_elements_upload_every_frame_and_homes_only_on_a_generation_or_paints_change", async () => {
     const f = gpu();
     const r = await ready();
@@ -268,8 +302,8 @@ describe("W71: WebGPURenderer", () => {
     r.render(sceneFrame({ generation: 2, paints: [paint(0), undefined] })); // refresh(el): new paints, same generation
     expect(count("liquiddom homes")).toBe(3);
     const [p] = writesTo("liquiddom particles", f.calls.writes);
-    expect(p!.bytes).toBe(CAP * 8);
-    expect(p!.values.slice(0, 4)).toEqual([110, 120, 114, 120]);
+    expect(p!.bytes).toBe(CAP * 32);
+    expect(p!.values.slice(0, 10)).toEqual([110, 120, 0, 0, 0, 0, 0, 0, 114, 120]);
     expect(writesTo("liquiddom homes", f.calls.writes)[0]!.values).toEqual([0, 0, 0, 0, 0, 0]);
     expect(writesTo("liquiddom elements", f.calls.writes)[0]!.bytes).toBe(64); // one drawable slot
     expect(f.calls.errors).toEqual([]);
@@ -480,5 +514,126 @@ describe("W71: WebGPURenderer", () => {
     await vi.waitFor(() => expect(lost).toHaveBeenCalledTimes(1));
     f.fireUncapturedError("after the loss");
     expect(error).not.toHaveBeenCalled();
+  });
+
+  it("given_a_text_atlas_and_a_moving_element_with_an_atlas_rect_when_rendering_then_the_atlas_is_uploaded_once_per_version_the_1x_text_pass_writes_T1_and_T1w_and_the_text_composite_follows_the_rest_quads_d74_4", async () => {
+    const f = gpu();
+    const r = await ready();
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    expect(f.calls.errors).toEqual([]);
+    expect(f.calls.externalCopies).toHaveLength(1);
+    const copy = f.calls.externalCopies[0]!;
+    expect(copy.source).toBe(ATLAS.canvas);
+    expect([copy.texture.label, copy.texture.format, copy.texture.width, copy.texture.height]).toEqual(["liquiddom atlas", "rgba8unorm", 320, 136]);
+    expect([copy.width, copy.height, copy.premultipliedAlpha]).toEqual([320, 136, true]);
+    expect(f.calls.passes).toHaveLength(3);
+    const [splat, text, screen] = f.calls.passes;
+    expect(splat!.draws.map((d) => [d.vertexCount, d.instanceCount])).toEqual([[6, CAP]]);
+    expect(text!.attachments.map((a) => [a.view.texture.label, a.view.texture.format, a.view.texture.width, a.view.texture.height, a.loadOp])).toEqual([
+      ["liquiddom T1", "rgba16float", 800, 600, "clear"],
+      ["liquiddom T1w", "r16float", 800, 600, "clear"],
+    ]);
+    const [, , , textPipe, textCompositePipe] = f.calls.pipelines;
+    expect(text!.draws.map((d) => [d.pipeline, d.vertexCount, d.instanceCount])).toEqual([[textPipe, 6, CAP]]);
+    expect(screen!.draws.map((d) => [d.vertexCount, d.instanceCount])).toEqual([[3, 1], [6, 1], [3, 1]]);
+    expect(screen!.draws[2]!.pipeline, "text composite after the rest SDF").toBe(textCompositePipe);
+    const info = writesTo("liquiddom text info", f.calls.writes);
+    expect(info).toHaveLength(1);
+    expectClose(info[0]!.values.slice(0, 8), [20 / 320, 20 / 136, 280 / 320, 96 / 136, 140, 48, 1, 0]);
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    expect(f.calls.externalCopies, "same version: no re-upload").toHaveLength(1);
+    expect(writesTo("liquiddom text info", f.calls.writes)).toHaveLength(1);
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: { ...ATLAS, version: 2 }, restAlpha: 0.5 }));
+    expect(f.calls.externalCopies).toHaveLength(2);
+    expect(f.calls.textures.filter((t) => t.label === "liquiddom atlas"), "same size: the texture is reused").toHaveLength(1);
+    expect(writesTo("liquiddom text info", f.calls.writes)).toHaveLength(2);
+    expect(f.calls.errors).toEqual([]);
+  });
+
+  it("given_every_text_element_at_rest_or_no_atlas_rect_when_rendering_then_no_text_pass_and_no_text_composite", async () => {
+    const f = gpu();
+    const r = await ready();
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 1 })); // at rest: the DOM text shows
+    r.render(sceneFrame({ paints: PAINTS, textAtlas: ATLAS, restAlpha: 0.5 })); // moving, but no atlas rect
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: null, restAlpha: 0.5 })); // no atlas at all
+    expect(f.calls.passes).toHaveLength(6);
+    expect(t1Textures(f)).toHaveLength(0);
+    for (const screen of f.calls.passes.filter((_, i) => i % 2 === 1)) {
+      expect(screen.draws.map((d) => [d.vertexCount, d.instanceCount])).toEqual([[3, 1], [6, 1]]);
+    }
+    expect(f.calls.textures.find((t) => t.label === "liquiddom atlas")!.destroyed, "a dropped atlas frees its texture").toBe(true);
+    expect(f.calls.errors).toEqual([]);
+  });
+
+  it("given_textReady_when_queried_then_true_only_for_slots_with_a_valid_uploaded_atlas_rect_and_false_after_a_device_loss_or_destroy", async () => {
+    const f = gpu();
+    const r = await ready();
+    expect(r.textReady(0), "before the first frame").toBe(false);
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    expect([r.textReady(0), r.textReady(1), r.textReady(99), r.textReady(-1), r.textReady(0.5)]).toEqual([true, false, false, false, false]);
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 1 }));
+    expect(r.textReady(0), "readiness does not depend on restAlpha (the toggle checks that)").toBe(true);
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: null, restAlpha: 0.5 }));
+    expect(r.textReady(0), "no atlas").toBe(false);
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: { ...ATLAS, version: 5 }, restAlpha: 0.5 }));
+    expect(r.textReady(0)).toBe(true);
+    f.loseDevice("gone");
+    await flush();
+    expect(r.textReady(0), "after a device loss").toBe(false);
+    const r2 = await ready();
+    r2.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    expect(r2.textReady(0)).toBe(true);
+    r2.destroy();
+    expect(r2.textReady(0), "after destroy").toBe(false);
+  });
+
+  it("given_an_atlas_beyond_maxTextureDimension2D_or_a_failing_copy_when_rendering_then_no_text_textReady_false_and_no_validation_error_review_focus_4", async () => {
+    const f = gpu();
+    const r = await ready();
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: { ...ATLAS, width: 9000, version: 3 }, restAlpha: 0.5 }));
+    expect(f.calls.externalCopies).toHaveLength(0);
+    expect(f.calls.textures.filter((t) => t.label === "liquiddom atlas")).toHaveLength(0);
+    expect(f.calls.passes).toHaveLength(2);
+    expect(r.textReady(0)).toBe(false);
+    expect(f.calls.errors).toEqual([]);
+    fake!.restore();
+    const g = gpu({ copyExternalError: new Error("detached source") });
+    const r2 = await ready();
+    r2.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    expect(g.calls.passes).toHaveLength(2);
+    expect(r2.textReady(0)).toBe(false);
+    expect(g.calls.errors).toEqual([]);
+  });
+
+  it("given_text_drawn_when_resized_then_T1_and_T1w_follow_the_backing_size_at_1x_clamped_to_the_device_limit", async () => {
+    const f = gpu({ maxTextureDimension2D: 4096 });
+    const r = await ready();
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    expect(t1Textures(f).map((t) => `${t.label} ${t.width}x${t.height}`)).toEqual(["liquiddom T1 800x600", "liquiddom T1w 800x600"]);
+    r.resize(1001, 703, 2);
+    expect(t1Textures(f)).toHaveLength(4);
+    expect(t1Textures(f).slice(0, 2).every((t) => t.destroyed)).toBe(true);
+    expect(t1Textures(f).slice(2).map((t) => `${t.width}x${t.height}`)).toEqual(["1001x703", "1001x703"]);
+    r.resize(5000, 300, 2);
+    expect(t1Textures(f).slice(4).map((t) => `${t.width}x${t.height}`)).toEqual(["4096x300", "4096x300"]);
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    expect(f.calls.errors).toEqual([]);
+  });
+
+  it("given_rest_uv_when_rendering_then_it_is_uploaded_with_the_homes_only_on_a_generation_paints_or_count_change", async () => {
+    const f = gpu();
+    const r = await ready();
+    const uv = () => writesTo("liquiddom rest uv", f.calls.writes);
+    r.render(sceneFrame({ generation: 1, restU: 0.25 }));
+    r.render(sceneFrame({ generation: 1, restU: 0.25 }));
+    expect(uv()).toHaveLength(1);
+    expect(uv()[0]!.bytes).toBe(CAP * 8);
+    expect(uv()[0]!.values.slice(0, 4)).toEqual([0.25, 0, 0.25, 0]);
+    r.render(sceneFrame({ generation: 2, restU: 0.25 }));
+    expect(uv()).toHaveLength(2);
+    r.render(sceneFrame({ generation: 2, restU: 0.25, active: 4 }));
+    expect(uv()).toHaveLength(3);
+    expect(uv()[2]!.bytes).toBe(4 * 8);
+    expect(f.calls.errors).toEqual([]);
   });
 });

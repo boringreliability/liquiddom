@@ -6,7 +6,7 @@ epic: "fluid-engine"
 status: planned
 dependencies: [73]
 layer: "typescript"
-estimated_tests: 59
+estimated_tests: 60
 created: "2026-10-10"
 completed: null
 ---
@@ -89,10 +89,11 @@ Plan: `docs/superpowers/plans/2026-10-10-fluid-slice-4/W74.md` (complete code fo
 | 3 | fmath: given_singular_values_beyond_5_or_below_0_2_when_clamp_f_then_clamped_into_the_band_rotations_kept_and_hit | σ clamp |
 | 4 | fmath: given_det_below_0_when_clamp_f_then_det_above_0_with_the_same_singular_values_and_hit_d74_3 | det flip |
 | 5 | fmath: given_identity_and_a_velocity_gradient_when_update_f_then_f_is_i_plus_dt_c_times_f | D74-1 integration |
-| 6 | fmath: given_s_1_and_a_stretched_f_when_update_f_for_1_s_then_f_relaxes_towards_i_at_slip_rate_3_times_s_squared | slip on F |
+| 6 | fmath: given_s_1_and_a_stretched_f_when_update_f_for_1_s_then_f_relaxes_towards_i_at_f_slip_rate_4_5_times_s_squared | F-only slip 1.5× (D74-2 amended) |
 | 7 | fmath: given_a_torn_particle_when_update_f_then_torn_clears_only_with_both_singular_values_in_0_67_to_1_5_d74_3 | D74-3 hysteresis |
 | 8 | fmath: given_non_finite_f_or_c_when_update_f_then_identity_and_torn | no NaN propagation |
 | 9 | fmath: given_the_d74_constants_when_read_then_0_2_5_0_67_1_5_and_0_05 | D74-2/3 literals |
+| 9a | fmath: given_d74_2_amended_when_reading_the_f_slip_rate_then_it_is_1_5_times_the_liquid_slip_rate | D74-2 amended: F_SLIP_RATE_PER_S = 1.5 × SLIP_RATE_PER_S |
 | 10 | particles: given_a_torn_particle_with_deformed_f_when_reset_kinematics_then_f_identity_torn_cleared_other_flag_bits_kept | RM pin heals |
 | 11 | elements: given_max_f_dev_at_or_above_0_05_when_rest_state_updated_then_rest_alpha_never_rises_and_slot_3_carries_it_d74_2 | D74-2 rest condition, slot 3 |
 | 12 | elements: given_rest_alpha_1_when_damaged_then_rest_alpha_is_0_at_once_d74_7 | D74-7 fix A |
@@ -193,7 +194,7 @@ Plan: `docs/superpowers/plans/2026-10-10-fluid-slice-4/W74.md` (complete code fo
 - [ ] No ghost pill in either renderer.
 
 ## Verification
-`npm run verify` (cargo 167 passed + 2 ignored, vitest 564 passed | 4 skipped, clippy clean), `npm run e2e:canvas2d`, `npm run e2e:webgpu-hw`, `npm run e2e:typecheck`, the release benchmark `cargo test --release --lib bench_f_update_cost -- --ignored --nocapture`, the Linux baseline check `npm run e2e:docker -- --project=canvas2d`, Metal vision captures (`VISION=1 npx playwright test --project=webgpu-hw -g "W74 gold"`), and a `code-review` pass at level high over the ward's diff.
+`npm run verify` (cargo 168 passed + 2 ignored, vitest 564 passed | 4 skipped, clippy clean), `npm run e2e:canvas2d`, `npm run e2e:webgpu-hw`, `npm run e2e:typecheck`, the release benchmark `cargo test --release --lib bench_f_update_cost -- --ignored --nocapture`, the Linux baseline check `npm run e2e:docker -- --project=canvas2d`, Metal vision captures (`VISION=1 npx playwright test --project=webgpu-hw -g "W74 gold"`), and a `code-review` pass at level high over the ward's diff.
 
 ## Spike W74.0 result
 

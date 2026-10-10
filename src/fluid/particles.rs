@@ -66,3 +66,22 @@ impl Particles {
         wr4(&mut self.f, i, IDENTITY);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fluid::layout::FLAG_TORN;
+
+    #[test]
+    fn given_a_torn_particle_with_deformed_f_when_reset_kinematics_then_f_identity_torn_cleared_other_flag_bits_kept()
+     {
+        let mut p = Particles::new(2);
+        p.f[1] = [1.7, 0.2, -0.1, 0.4];
+        p.flags[1] = FLAG_TORN | 4;
+        p.reset_kinematics(1);
+        assert_eq!(p.f[1], IDENTITY);
+        assert_eq!(p.flags[1], 4, "torn cleared, other bits kept");
+        assert_eq!(p.flags[0], 0, "other particles untouched");
+        p.reset_kinematics(9); // out of range: no panic
+    }
+}

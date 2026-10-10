@@ -278,18 +278,18 @@ mod w67 {
 
     const FPS: f32 = 60.0;
     /// D67-1 option 1: spec §6 step 3, amended in W67.
-    const REFORM_SPLASH_BUDGET_S: f32 = 3.0;
+    pub(super) const REFORM_SPLASH_BUDGET_S: f32 = 3.0;
     /// Spec §6 step 6.
     const REFORM_SHAKE_BUDGET_S: f32 = 3.0;
-    const SPLASH: usize = 0;
+    pub(super) const SPLASH: usize = 0;
     const SPLIT: usize = 1;
 
-    fn centre(id: usize) -> (f32, f32) {
+    pub(super) fn centre(id: usize) -> (f32, f32) {
         let [x, y, w, h, _] = LAYOUT[id];
         (x + 0.5 * w, y + 0.5 * h)
     }
 
-    fn frame(core: &mut FluidCore) {
+    pub(super) fn frame(core: &mut FluidCore) {
         assert_eq!(
             core.tick(1.0 / 60.0, -1.0e4, -1.0e4, 0.0, 0.0, false, 0.0, 0.0),
             1
@@ -301,14 +301,14 @@ mod w67 {
         a.len() == 4 && a.iter().all(|&x| x >= 1.0)
     }
 
-    fn frames_until_rest(core: &mut FluidCore, max: u32) -> Option<u32> {
+    pub(super) fn frames_until_rest(core: &mut FluidCore, max: u32) -> Option<u32> {
         (1..=max).find(|_| {
             frame(core);
             all_at_rest(core)
         })
     }
 
-    fn settled_core(seed: u32) -> FluidCore {
+    pub(super) fn settled_core(seed: u32) -> FluidCore {
         let mut core = acceptance_core(seed);
         for _ in 0..60 {
             frame(&mut core);
@@ -321,7 +321,7 @@ mod w67 {
         core
     }
 
-    fn budget_frames(seconds: f32, already: u32) -> u32 {
+    pub(super) fn budget_frames(seconds: f32, already: u32) -> u32 {
         ((seconds * FPS).round() as u32).saturating_sub(already)
     }
 
@@ -330,7 +330,7 @@ mod w67 {
     }
 
     /// `run_stress`, calling `observe` with the core after every tick (and its injections).
-    fn run_stress_observed(core: &mut FluidCore, mut observe: impl FnMut(&FluidCore)) {
+    pub(super) fn run_stress_observed(core: &mut FluidCore, mut observe: impl FnMut(&FluidCore)) {
         for f in 0..600u32 {
             let [x, y, w, h, r] = LAYOUT[SPLASH];
             let dx = if (420..480).contains(&f) {
@@ -798,5 +798,211 @@ mod w70 {
                 "element {id}: peak non-rigid RMS {p} px < {min} px (sliding intact, not sloshing)"
             );
         }
+    }
+}
+
+// ---- W74: F, the F rest condition and the ghost pill (D74-1, D74-2, D74-3, D74-7) ------
+mod w74 {
+    use super::w67::{
+        REFORM_SPLASH_BUDGET_S, SPLASH, budget_frames, centre, frame, frames_until_rest,
+        run_stress_observed, settled_core,
+    };
+    use super::{CARD, LAYOUT, acceptance_core, slot};
+    use crate::fluid::api::FStats;
+    use crate::fluid::fmath::{F_REST_TOL, F_SIGMA_MAX, F_SIGMA_MIN};
+
+    #[test]
+    fn given_stress_sequence_when_run_then_every_f_stays_finite_with_det_above_0_and_sigma_within_the_clamp_d74_1()
+     {
+        let mut core = acceptance_core(1);
+        let mut worst = FStats::NONE;
+        let mut torn_peak = 0usize;
+        run_stress_observed(&mut core, |c| {
+            let s = c.f_stats();
+            worst = worst.worst(s);
+            torn_peak = torn_peak.max(s.torn);
+        });
+        eprintln!("W74 D74-1 evidence: worst F {worst:?}, torn peak {torn_peak}");
+        assert_eq!(worst.non_finite, 0, "no non-finite F");
+        assert!(
+            worst.min_det > 0.0,
+            "det F > 0 everywhere: {}",
+            worst.min_det
+        );
+        assert!(
+            worst.max_sigma <= F_SIGMA_MAX + 1e-3,
+            "σ1 ≤ 5: {}",
+            worst.max_sigma
+        );
+        assert!(
+            worst.min_sigma >= F_SIGMA_MIN - 1e-3,
+            "σ2 ≥ 0.2: {}",
+            worst.min_sigma
+        );
+        // No upper bound: the strength-2 card splash shreds most of the card, and torn heals only
+        // in σ ∈ [0.67, 1.5] (D74-3), so ~40 % of the particles can be torn at the peak (plan
+        // validation 2026-10-10: 3376 of 8000; the spike's 242 came from a softer sequence).
+        // Test 14 pins that every tear heals by rest.
+        assert!(
+            torn_peak > 0,
+            "the strength-2 card splash tears some liquid"
+        );
+    }
+
+    #[test]
+    fn given_stress_sequence_then_idle_when_every_element_is_at_rest_then_no_particle_is_torn_and_slot_3_is_below_0_05_d74_3()
+     {
+        let mut core = acceptance_core(1);
+        let mut moved = 0.0f32;
+        run_stress_observed(&mut core, |c| {
+            moved = c.f_devs().into_iter().fold(moved, f32::max);
+        });
+        assert!(
+            moved > F_REST_TOL,
+            "the stress deforms F (max slot 3 {moved})"
+        );
+        let frames = frames_until_rest(&mut core, 600);
+        eprintln!("W74 D74-3 evidence: at rest {frames:?} frames after the stress");
+        assert!(frames.is_some(), "the scene comes to rest after the stress");
+        assert_eq!(core.f_stats().torn, 0, "nothing is torn at rest");
+        let devs = core.f_devs();
+        assert!(
+            devs.iter().all(|&d| d < F_REST_TOL),
+            "slot 3 at rest {devs:?}"
+        );
+    }
+
+    #[test]
+    fn given_a_strength_1_splash_when_re_forming_then_rest_alpha_is_1_only_with_slot_3_below_0_05_and_within_3_s_d74_2()
+     {
+        let mut core = settled_core(1);
+        assert!(
+            core.f_devs().iter().all(|&d| d < F_REST_TOL),
+            "settled: F ≈ I"
+        );
+        let (cx, cy) = centre(SPLASH);
+        core.splash(SPLASH as u32, cx, cy, 1.0);
+        let mut peak = 0.0f32;
+        let mut rested = None;
+        for f in 1..=budget_frames(REFORM_SPLASH_BUDGET_S, 0) {
+            frame(&mut core);
+            let (alphas, devs) = (core.rest_alphas(), core.f_devs());
+            peak = peak.max(devs[SPLASH]);
+            for (id, (&a, &d)) in alphas.iter().zip(&devs).enumerate() {
+                assert!(
+                    a < 1.0 || d < F_REST_TOL,
+                    "frame {f}: element {id} at rest with ‖F − I‖ {d}"
+                );
+            }
+            if alphas.iter().all(|&a| a >= 1.0) {
+                rested = Some(f);
+                break;
+            }
+        }
+        eprintln!(
+            "W74 D74-2 evidence: splash re-form after {rested:?} frames, peak slot 3 of Splash {peak}"
+        );
+        assert!(peak > F_REST_TOL, "the splash deforms F");
+        assert!(
+            rested.is_some(),
+            "every restAlpha back to 1 within {REFORM_SPLASH_BUDGET_S} s"
+        );
+    }
+
+    #[test]
+    fn given_a_splash_or_shake_on_resting_elements_when_applied_then_their_rest_alpha_is_0_before_and_after_the_next_frame_d74_7()
+     {
+        let mut core = settled_core(1);
+        let (cx, cy) = centre(SPLASH);
+        core.splash(SPLASH as u32, cx, cy, 1.0);
+        assert_eq!(
+            core.rest_alphas()[SPLASH],
+            0.0,
+            "damage drops restAlpha at once"
+        );
+        frame(&mut core);
+        assert_eq!(
+            core.rest_alphas()[SPLASH],
+            0.0,
+            "no rest contour fades over the hole"
+        );
+        let mut shaken = settled_core(1);
+        shaken.shake(1.0);
+        assert_eq!(
+            shaken.rest_alphas(),
+            vec![0.0; 4],
+            "a shake damages every element"
+        );
+        frame(&mut shaken);
+        assert_eq!(shaken.rest_alphas(), vec![0.0; 4]);
+    }
+
+    /// D74-1: ms per fixed step for F off / every substep / every 2nd substep over the stress
+    /// inputs. Release only: `cargo test --release --lib bench_f_update_cost -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "benchmark (D74-1): cargo test --release --lib bench_f_update_cost -- --ignored --nocapture"]
+    fn bench_f_update_cost_every_vs_every_2nd_substep_d74_1() {
+        use std::time::Instant;
+        const ROUNDS: usize = 3;
+        let variants: [(&str, u32); 3] = [
+            ("F off", 0),
+            ("F every substep", 1),
+            ("F every 2nd substep", 2),
+        ];
+        let mut ms = vec![Vec::<f64>::new(); variants.len()];
+        for _ in 0..ROUNDS {
+            for (k, &(_, every)) in variants.iter().enumerate() {
+                let mut core = acceptance_core(1);
+                core.set_f_every(every);
+                for f in 0..600u32 {
+                    let [x, y, w, h, r] = LAYOUT[SPLASH];
+                    let dx = if (420..480).contains(&f) {
+                        (f - 420) as f32 / 60.0 * 164.0
+                    } else {
+                        0.0
+                    };
+                    core.write_element(SPLASH, slot([x + dx, y, w, h, r]));
+                    let px = 300.0 + ((f * 7) % 700) as f32;
+                    let t = Instant::now();
+                    let steps = core.tick(1.0 / 60.0, px, 284.0, 420.0, 0.0, true, 0.0, 0.0);
+                    if steps > 0 {
+                        ms[k].push(t.elapsed().as_secs_f64() * 1e3 / f64::from(steps));
+                    }
+                    match f {
+                        60 => {
+                            let (cx, cy) = centre(SPLASH);
+                            core.splash(SPLASH as u32, cx, cy, 1.0);
+                        }
+                        200 => {
+                            let (cx, cy) = centre(CARD);
+                            core.splash(CARD as u32, cx, cy, 2.0);
+                        }
+                        330 => core.shake(1.0),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        let summary: Vec<(f64, f64)> = ms
+            .iter_mut()
+            .map(|v| {
+                v.sort_by(f64::total_cmp);
+                let mean = v.iter().sum::<f64>() / v.len() as f64;
+                let p95 = v[((v.len() as f64 * 0.95).ceil() as usize).saturating_sub(1)];
+                (mean, p95)
+            })
+            .collect();
+        for ((name, _), (mean, p95)) in variants.iter().zip(&summary) {
+            eprintln!("W74 D74-1 bench: {name}: mean {mean:.3} ms, p95 {p95:.3} ms per fixed step");
+        }
+        let ratio = summary[1].1 / summary[0].1;
+        eprintln!(
+            "W74 D74-1 bench: p95 every/off = {ratio:.3} (D74-1: every 2nd substep only above 1.2)"
+        );
+        assert!(
+            summary
+                .iter()
+                .all(|&(m, p)| m.is_finite() && p.is_finite() && m > 0.0)
+        );
     }
 }

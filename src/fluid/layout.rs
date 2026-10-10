@@ -21,7 +21,8 @@ pub const STATE_STRIDE: usize = 4;
 pub const ST_S: usize = 0;
 pub const ST_MAX_DEV: usize = 1;
 pub const ST_REST_ALPHA: usize = 2;
-pub const ST_RESERVED: usize = 3;
+/// W74 (D74-2): max ‖F − I‖_F over the element's particles (was reserved).
+pub const ST_MAX_F_DEV: usize = 3;
 
 // 2. Dynamic particle view (SoA, field stride = particle capacity), every tick.
 pub const DYNAMIC_FIELDS: usize = 7;
