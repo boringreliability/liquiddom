@@ -33,6 +33,9 @@ export const LIQUID_CSS = [
   `    .liquid-element[${STACK_ATTR}="relative"] { position: relative !important; z-index: 1 !important; }`,
   `    .liquid-element[${STACK_ATTR}="z"] { z-index: 1 !important; }`,
   "    .liquid-text, .liquid-text * { -webkit-text-fill-color: transparent !important; text-decoration-color: transparent !important; text-shadow: none !important; }",
+  // Ward-review M7: a halo held by a Canvas2D instance (`.liquid-halo[data-liquid-id="…"]`, 0,2,0)
+  // must never draw around glyphs a WebGPU instance hides; this override (0,3,0) wins over it.
+  `    .${TEXT_CLASS}.${HALO_CLASS}[${HALO_ID_ATTR}], .${TEXT_CLASS} .${HALO_CLASS}[${HALO_ID_ATTR}] { text-shadow: none !important; }`,
   "  }",
   "  @media print, (forced-colors: active) {",
   "    canvas.liquid-canvas { display: none !important; }",
@@ -117,7 +120,11 @@ function writeHaloRule(doc: Document, key: string, background: RGBA): void {
     rules = new Map<string, string>();
     haloRules.set(doc, rules);
   }
-  rules.set(key, haloRule(key, background));
+  const rule = haloRule(key, background);
+  // Amendment B (D75-2): an unchanged background rewrites nothing (a sheet write is a
+  // document-wide style change).
+  if (rules.get(key) === rule) return;
+  rules.set(key, rule);
   rewriteSheet(doc);
 }
 
@@ -139,7 +146,7 @@ export function acquireHaloRule(el: HTMLElement, background: RGBA): void {
   writeHaloRule(el.ownerDocument, key, background);
 }
 
-/** W75 (D75-2): rewrites a claimed element's rule after a colour re-snapshot; no-op otherwise. */
+/** W75 (D75-2): rewrites a claimed element's rule after a colour re-snapshot; no-op otherwise, and no sheet write when the background is unchanged (amendment B). */
 export function updateHaloRule(el: HTMLElement, background: RGBA): void {
   const claim = haloClaims.get(el);
   if (claim) writeHaloRule(el.ownerDocument, claim.key, background);

@@ -226,14 +226,19 @@ export class ElementRegistry {
     this.deps.scheduleRedistribute();
   }
 
-  /** W66: re-snapshot an observed element's colours (D66-10: unobserved → no-op). W75: also re-colours the halo rule. */
-  refresh(el: HTMLElement): void {
+  /**
+   * W66: re-snapshot an observed element's colours (D66-10: unobserved → no-op). W75: also re-colours the halo rule.
+   * Ward-review M4: a detached element is not read (its computed style is empty, which would parse to the
+   * fallback colours); its previous colours and halo rule are kept. Returns true when the colours were re-read.
+   */
+  refresh(el: HTMLElement): boolean {
     const rec = this.byEl.get(el);
-    if (!rec) return;
+    if (!rec || !el.isConnected) return false;
     const colors = snapshotColorsWithout(el, ELEMENT_CLASS);
     rec.background = colors.background;
     rec.text = colors.text;
     updateHaloRule(el, colors.background);
+    return true;
   }
 
   unobserveAll(): void {

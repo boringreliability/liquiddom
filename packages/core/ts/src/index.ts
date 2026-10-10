@@ -29,10 +29,17 @@ export interface LiquidDOMInstance {
   /** Stop observing; the element is restored exactly. Silent no-op after destroy(). */
   unobserve(el: HTMLElement): void;
   /**
-   * Re-read the element's background-color and color. Since W75 a change to the element's own
-   * `class`/`style` (or a descendant's) and the end of a `color`/`background-color` transition
-   * are picked up on the next frame without it; call refresh() after a change elsewhere (a new
-   * stylesheet rule, an ancestor class without a colour transition).
+   * Re-read the element's background-color and color now. Since W75 a change to the element's own
+   * `class`/`style` and the end of its own `color`/`background-color` transition are picked up
+   * without it, once the element runs no CSS transition (the re-read waits for running transitions,
+   * so it never cancels them) and while it is attached (a detached element keeps its colours until
+   * it is re-attached). A descendant's `class`/`style` change re-renders the text only.
+   *
+   * Call refresh() after a colour change from anywhere else: a new stylesheet rule, an ancestor
+   * class without a colour transition, a `:hover`/`:focus` colour change without a transition, or
+   * a CSS `@keyframes` colour animation (not followed). A `background-color` transition never fires
+   * while the element is observed (liquiddom makes its background transparent). A manual refresh()
+   * runs at once, even while the element runs a transition (that transition is then cut short).
    */
   refresh(el: HTMLElement): void;
   /**

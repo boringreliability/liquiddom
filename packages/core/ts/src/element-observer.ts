@@ -28,7 +28,7 @@ export const OBSERVER_INIT: MutationObserverInit = Object.freeze({
 });
 
 export interface DomChange {
-  /** A `style` or `class` attribute of the element or a descendant changed: re-read colours. */
+  /** The observed element's own `style` or `class` attribute changed: re-read colours (amendment B). */
   colour: boolean;
   /** Anything that can change the rendered text: text nodes, children, or a style/class change. */
   text: boolean;
@@ -122,7 +122,9 @@ export class ElementObserver {
       names.add(name);
       const now = (r.target as Element).getAttribute(name);
       if (sameAuthorValue(name, r.oldValue, now)) continue;
-      colour = true;
+      // Amendment B (D75-2): only the observed element's own class/style can change its own
+      // background-color/color; a descendant's class/style re-renders the atlas only.
+      if (r.target === el) colour = true;
       text = true;
     }
     if (!colour && !text) return;

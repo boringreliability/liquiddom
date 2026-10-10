@@ -312,6 +312,8 @@ export class WebGPURenderer implements Renderer {
   private atlasOk = false;
   /** W74 review: bumped by every upload, drop and release, so a late error-scope result for an older upload is ignored. */
   private atlasUploadSeq = 0;
+  /** W75 amendment B (D75-1): the seq of the upload whose error scope has not resolved yet (0: none). */
+  private inFlightSeq = 0;
   // ---- W74 ward-review (I1): the staged page and its text records, swapped in once confirmed ----
   private stagingTexture: GPUTexture | null = null;
   private stagingWidth = 0;
@@ -375,6 +377,16 @@ export class WebGPURenderer implements Renderer {
    */
   get maxTextureDimension(): number {
     return this.maxTextureDim;
+  }
+
+  /**
+   * @internal W75 amendment B (D75-1, saga dec_b2499bfc): true while an atlas upload (staged or
+   * first) awaits its error scope. The runtime builds no new page meanwhile, so at most one upload
+   * is in flight and continuous text changes cannot supersede every upload before it confirms.
+   * False after a drop, a release, a loss or destroy() (each bumps the upload seq).
+   */
+  get atlasPending(): boolean {
+    return this.inFlightSeq !== 0 && this.inFlightSeq === this.atlasUploadSeq && this.device !== null && !this.lost;
   }
 
   async init(canvas: HTMLCanvasElement): Promise<void> {
@@ -822,9 +834,11 @@ export class WebGPURenderer implements Renderer {
     } catch {
       this.releaseAtlas(); // Review Focus 1: no atlas text; the runtime keeps the DOM text
     }
+    this.inFlightSeq = seq;
     const confirm = (ok: boolean, why: string): void => {
       // superseded, dropped, destroyed or lost
       if (seq !== this.atlasUploadSeq || this.device !== device || this.lost) return;
+      this.inFlightSeq = 0;
       if (!ok) {
         console.warn(`liquiddom: text atlas upload failed (${why}); the DOM text stays`);
         this.releaseAtlas();

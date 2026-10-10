@@ -478,15 +478,22 @@ describe("W75: the halo on W74's fail-safe paths (README Review Focus 1 for the 
 
 /** A stand-in for a running CSS transition as `el.getAnimations()` returns it (jsdom has no getAnimations). */
 function runningAnimation(): Animation {
-  return { playState: "running", pending: false } as unknown as Animation;
+  // W75 B, CSS transitions only (approved by Dennis, saga dec_5b38c40e): a CSSTransition carries
+  // `transitionProperty` (jsdom has no CSSTransition class), which tells it apart from @keyframes.
+  return { playState: "running", pending: false, transitionProperty: "transform" } as unknown as Animation;
+}
+
+/** A stand-in for a running infinite CSS @keyframes animation (a CSSAnimation: `animationName`, no `transitionProperty`). */
+function runningKeyframes(): Animation {
+  return { playState: "running", pending: false, animationName: "spin" } as unknown as Animation;
 }
 
 /** Stubs `el.getAnimations` on the instance; returns a switch for "an author transition is running". */
-function stubAnimations(el: HTMLElement): { set(running: boolean): void } {
+function stubAnimations(el: HTMLElement, make: () => Animation = runningAnimation): { set(running: boolean): void } {
   let running = false;
   Object.defineProperty(el, "getAnimations", {
     configurable: true,
-    value: () => (running ? [runningAnimation()] : []),
+    value: () => (running ? [make()] : []),
   });
   return { set: (r) => { running = r; } };
 }
@@ -547,6 +554,26 @@ describe("W75 amendment B: no colour re-read while the element animates (D75-2 B
     anim.set(false);
     clock.advance(1);
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  // W75 B, CSS transitions only (approved by Dennis, saga dec_5b38c40e): `transition: none` never
+  // cancels a @keyframes animation, and an infinite one (a spinner, a pulse) must not starve the re-read.
+  it("given_a_running_infinite_keyframes_animation_when_an_own_class_change_arrives_then_the_re_read_runs_on_the_next_frame_B1", async () => {
+    authorStyles();
+    const { rt, clock } = await start();
+    const frames = captureFrames(FluidCanvas2DRenderer.prototype);
+    const el = button();
+    const id = rt.observe(el);
+    await flush();
+    clock.advance(1);
+    const anim = stubAnimations(el, runningKeyframes);
+    const refresh = vi.spyOn(ElementRegistry.prototype, "refresh");
+    anim.set(true); // runs forever
+    el.classList.add("alt");
+    await flush();
+    clock.advance(1);
+    expect(refresh, "a @keyframes animation never blocks the re-read").toHaveBeenCalledTimes(1);
+    expect(frames.at(-1)?.paints[id]?.background).toEqual([200, 30, 30, 1]);
   });
 });
 

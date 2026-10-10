@@ -157,6 +157,27 @@ function measureHint(elements: readonly HTMLElement[]): { area: number; tallest:
   return { area, tallest };
 }
 
+/**
+ * W75 amendment B (D75-2, saga dec_5b38c40e): true while `el` runs a CSS transition of its own,
+ * which the colour snapshot's inline `transition: none` would cancel. A CSS transition is told
+ * apart by its `transitionProperty` (CSSTransition; jsdom has no such class). @keyframes and Web
+ * Animations never block: `transition: none` does not cancel them, and an infinite one would
+ * starve the re-read. Called only for an element with a pending re-read, never on idle frames.
+ */
+function runsCssTransition(el: HTMLElement): boolean {
+  if (typeof el.getAnimations !== "function") return false;
+  let animations: Animation[];
+  try {
+    animations = el.getAnimations();
+  } catch {
+    return false;
+  }
+  for (const a of animations) {
+    if ("transitionProperty" in a && (a.playState === "running" || a.pending)) return true;
+  }
+  return false;
+}
+
 /** Container mode: buffer space starts at the container's padding box (where the canvas sits). */
 function readOffset(container: HTMLElement): Offset {
   const r = container.getBoundingClientRect();
@@ -293,6 +314,17 @@ function buildRuntime(
   let atlasRects: ReadonlyMap<number, AtlasRect> = NO_ATLAS_RECTS;
   let atlasFrame: TextAtlasFrame | null = null;
   let warnedAtlas = false;
+  /**
+   * W75 amendment B (D75-1): a page build skipped while an upload is in flight (a generation or
+   * paints change); the build runs on the first frame after the confirmation.
+   */
+  let atlasDeferred = false;
+  /**
+   * W75 amendment B (D75-1): slots whose text changed (or that were newly observed) since the last
+   * build. While a build waits, their paints carry no atlas rect, so the in-flight page's record for
+   * them is never valid (no stale glyphs once it confirms) and the DOM text shows until the next page.
+   */
+  const atlasOutdated = new Set<number>();
   /** This instance's liquid-text holds (refcounted across instances in stylesheet.ts). */
   const textHeld = new Set<HTMLElement>();
   /** Observed slot ids, refreshed with the paints. */
@@ -327,7 +359,12 @@ function buildRuntime(
   // D75-1: one MutationObserver per observed element; D75-2: transitionend; RF5: fonts and DPR.
   // Everything is recorded here and applied once per frame in applyDomChanges().
   const elementObserver = new ElementObserver();
-  const transitionDirty = new Set<HTMLElement>();
+  /**
+   * D75-2 (amendment B, ward-review M4): elements whose colours must be re-read. An entry stays
+   * while the element runs a CSS transition or is detached, and is re-read on the first frame
+   * where neither holds.
+   */
+  const colourPending = new Set<HTMLElement>();
   let invalidateAllText = false;
   let textInvalidations = 0;
   /** D75-3: this instance's halo holds (W74's `textHeld` pattern; refcounted across instances in stylesheet.ts). */
@@ -337,7 +374,7 @@ function buildRuntime(
     const el = e.currentTarget as HTMLElement | null;
     if (el === null || e.target !== el) return; // a descendant's transition bubbled up
     const prop = (e as Event & { propertyName?: string }).propertyName;
-    if (prop === "background-color" || prop === "color") transitionDirty.add(el);
+    if (prop === "background-color" || prop === "color") colourPending.add(el);
   };
   const watchElement = (el: HTMLElement): void => {
     elementObserver.observe(el);
@@ -346,7 +383,7 @@ function buildRuntime(
   const unwatchElement = (el: HTMLElement): void => {
     elementObserver.unobserve(el);
     el.removeEventListener("transitionend", onTransitionEnd);
-    transitionDirty.delete(el);
+    colourPending.delete(el);
     // W75.2 review: the halo CLASS hold goes before the registry releases the halo RULE claim.
     releaseHaloClass(haloHeld, el);
   };
@@ -356,18 +393,21 @@ function buildRuntime(
     const changes = elementObserver.drain();
     const all = invalidateAllText;
     invalidateAllText = false;
-    if (changes.size === 0 && transitionDirty.size === 0 && !all) return;
+    if (changes.size === 0 && colourPending.size === 0 && !all) return;
     for (const rec of registry.entries()) {
       const c = changes.get(rec.el);
-      const colour = c?.colour === true || transitionDirty.has(rec.el);
-      if (colour) {
-        registry.refresh(rec.el);
+      if (c?.colour === true) colourPending.add(rec.el); // amendment B: own class/style only (element-observer.ts)
+      let recoloured = false;
+      // Amendment B: the snapshot's inline `transition: none` would cancel a running author
+      // transition, so the re-read waits for it (M4: and for a detached element to re-attach).
+      if (colourPending.has(rec.el) && !runsCssTransition(rec.el) && registry.refresh(rec.el)) {
+        colourPending.delete(rec.el);
         paintsDirty = true;
+        recoloured = true;
       }
       // A colour change re-renders the atlas entry too (the text colour is baked into the page).
-      if (all || colour || c?.text === true) invalidateText(rec.id);
+      if (all || recoloured || c?.text === true) invalidateText(rec.id);
     }
-    transitionDirty.clear();
   };
   /** D75-3: after the render and W74's syncText(); reads only the state view. Runs while a device-lost rebuild is in flight too (activeRenderer is already "canvas2d"). */
   // One args object and one restAlpha reader for the instance's life (W74 review M1's syncText pattern).
@@ -486,6 +526,8 @@ function buildRuntime(
 
   /** W74 (D74-5): rebuilt with the paints under WebGPU; any failure means no atlas text (one console.warn). */
   const rebuildAtlas = (): void => {
+    atlasDeferred = false;
+    atlasOutdated.clear();
     atlasRects = NO_ATLAS_RECTS;
     atlasFrame = null;
     if (activeRenderer !== "webgpu") return;
@@ -548,6 +590,7 @@ function buildRuntime(
   const invalidateText = (id: number): void => {
     textInvalidations += 1;
     textAtlas.invalidate(id);
+    atlasOutdated.add(id);
     // D75-1 A: W74's double-buffered upload keeps drawing the confirmed (old) page for 1–2 frames;
     // a new owner token masks this slot on it, so textReady is false and the DOM text shows meanwhile.
     const el = registry.get(id)?.el;
@@ -580,7 +623,7 @@ function buildRuntime(
         particleCount: n,
         areaPerParticle: app,
         spacingPx: Math.sqrt(app),
-        atlasRect: atlasRects.get(rec.id) ?? null,
+        atlasRect: atlasOutdated.has(rec.id) ? null : (atlasRects.get(rec.id) ?? null),
         owner: ownerOf(rec.el),
       };
     }
@@ -624,9 +667,15 @@ function buildRuntime(
         0,
         0,
       );
-      if (bridge.syncGeneration() || paintsDirty || (activeRenderer === "webgpu" && textAtlas.stale)) {
+      // W75 amendment B (D75-1): at most one atlas upload in flight. While one awaits its error
+      // scope no page is built; `stale` (or atlasDeferred) stays set and the build runs on the
+      // first frame after the confirmation, with the newest text.
+      const atlasBusy = activeRenderer === "webgpu" && renderer instanceof WebGPURenderer && renderer.atlasPending;
+      const atlasDue = activeRenderer === "webgpu" && (textAtlas.stale || atlasDeferred) && !atlasBusy;
+      if (bridge.syncGeneration() || paintsDirty || atlasDue) {
         paintsDirty = false;
-        rebuildAtlas(); // W74 (D74-5): before the paints, which carry each element's atlas rect
+        if (atlasBusy) atlasDeferred = true;
+        else rebuildAtlas(); // W74 (D74-5): before the paints, which carry each element's atlas rect
         rebuildPaints();
       }
       // W72 (D72-3): null only while a device-lost rebuild is in flight; the core keeps ticking.
@@ -697,6 +746,8 @@ function buildRuntime(
     clearTextClasses(textHeld);
     atlasRects = NO_ATLAS_RECTS;
     atlasFrame = null;
+    atlasDeferred = false;
+    atlasOutdated.clear();
     paintsDirty = true;
     let pending: Promise<FluidCanvas2DRenderer>;
     try {
@@ -733,7 +784,15 @@ function buildRuntime(
   return {
     observe(el, elementOpts) {
       if (destroyed) throw new Error("[liquiddom] observe() called after destroy().");
+      const fresh = registry.idOf(el) === undefined;
       const id = registry.observe(el, elementOpts);
+      if (fresh) {
+        // Ward-review M3: a new observation gets a new paint owner token, so a page built for an
+        // earlier observation of the same element (unobserve + observe in one task) never matches.
+        renewOwner(el);
+        // W75 amendment B: no atlas rect until a page is built for this observation.
+        atlasOutdated.add(id);
+      }
       splashInput.attach(el);
       watchElement(el); // W75 (D75-1, D75-2)
       return id;
@@ -804,7 +863,14 @@ function buildRuntime(
       if (destroyed) return;
       const id = registry.idOf(el);
       if (id === undefined) return;
-      registry.refresh(el);
+      // Amendment B: a manual refresh() stays immediate, even during a running transition (the
+      // author asked for it). Ward-review M4: a detached element keeps its colours; the re-read
+      // is queued and runs on the first frame after re-attachment.
+      if (!registry.refresh(el)) {
+        colourPending.add(el);
+        return;
+      }
+      colourPending.delete(el);
       invalidateText(id); // W75: the atlas colour follows (and marks the paints dirty)
     },
     destroy() {
@@ -818,7 +884,7 @@ function buildRuntime(
       clearHaloClasses(haloHeld);
       for (const rec of registry.entries()) rec.el.removeEventListener("transitionend", onTransitionEnd);
       elementObserver.disconnect();
-      transitionDirty.clear();
+      colourPending.clear();
       fontSet?.removeEventListener("loadingdone", onFontsDone);
       dprQuery?.removeEventListener("change", onDprChange);
       dprQuery = null;
