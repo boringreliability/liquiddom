@@ -82,7 +82,7 @@
 | 074 | Text that flows | 62 | ✅ Complete | 2026-10-10 |
 | 075 | Text that stays true | 54 | ✅ Complete | 2026-10-10 |
 | 076 | Whole picture after slice 4 | 8 | ✅ Complete | 2026-10-10 |
-| 077 | Closed liquid under shake and splash | 10 | 🔴 Red | - |
+| 077 | Closed liquid under shake and splash | 10 | 👀 Approved | - |
 
 ## Test Summary
 - Estimated total: 1102
