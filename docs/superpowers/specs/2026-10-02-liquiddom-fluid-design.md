@@ -118,7 +118,7 @@ The elements **are** liquid, and so is their text. They splash, split, merge wit
 - **Target** = `rest_uv` mapped into the element's **current home rect** (slots 0–3 plus `home_dx/dy`, see the FFI section). A resize therefore changes the targets and the liquid gently follows the new shape. Scroll and drag become something the liquid follows.
 - **Stiffness:**
   - Each element has a stiffness `s ∈ [s_floor, 1]`, with `s_floor = 0.015`.
-  - Damage rules: `splash` sets `s ← min(s, 0.25·(2 − strength))` clamped to ≥ `s_floor`, `shake` sets `s ← min(s, 0.3)` (amended in W70, D70-2; amended in W73, D73-2), and drag sets `s ← min(s, 0.5)` while dragging.
+  - Damage rules: `splash` sets `s ← min(s, 0.25·(2 − strength))` clamped to ≥ `s_floor`, `shake` sets `s ← min(s, 0.3)` (amended in W70, D70-2; amended in W73, D73-2), and drag sets `s ← min(s, 0.5)` while dragging. Splash and shake also set `restAlpha ← 0` at once, so the rest contour never fades over the hole they open (amended 2026-10-10, W74, D74-7).
   - Recovery: `ds/dt = (1 − s)/recovery`, with `recovery` defaulting to 0.7 s.
   - These are internal constants. Only `recovery` is a parameter.
 - **Slip drift** is kept: a grid-independent drift towards the target, scaled by `s²`, at rate 3/s, max 160 px/s. It is **documented as non-physical** (it does not conserve momentum). Without it, merged liquids never separate.
@@ -274,7 +274,7 @@ The mapping direction is correct: `F = ∂x/∂X`, so a world offset is mapped b
 
 When `restAlpha → 1`, the composite cross-fades to:
 1. the element's **analytic rounded-rect SDF contour**: one instanced quad per resting element, drawn over the composite at alpha `restAlpha` while its particles splat at full weight (the D70-4 rule; at `restAlpha = 1` only the SDF is drawn), so pills are real pills with no fur (amended 2026-10-06, slice-3 design, D71-6; was "adds SDF density into T0 and T2"), and
-2. **the real DOM text.** TS removes the `liquid-text` class (`color: transparent`) per element when `restAlpha = 1`, and puts it back as soon as `restAlpha < 1`. At the same moment the atlas is cross-faded out.
+2. **the real DOM text.** TS removes the `liquid-text` class per element when `restAlpha = 1`, and puts it back as soon as `restAlpha < 1` while the WebGPU renderer draws that element's atlas text, in the same frame as the renderer starts or stops drawing it (amended 2026-10-10, W74, D74-6).
 
 At rest, what you see is therefore pixel-exact the DOM text, with no atlas approximation.
 
@@ -282,6 +282,7 @@ At rest, what you see is therefore pixel-exact the DOM text, with no atlas appro
 
 - Built from `Range.getClientRects()` line boxes plus computed style (font, weight, size, letter/word spacing, text-transform, colour). It is **not** re-wrapped.
 - It is drawn with OffscreenCanvas `fillText` at the current DPR.
+- One shelf-packed page of at most 4096 × 4096 atlas px at the viewport DPR, built by the runtime (never the renderer) on every generation or paints change; an element that does not fit keeps its DOM text (amended 2026-10-10, W74, D74-5).
 - **Goal: visually matching the DOM text, not pixel-identical.** It is only seen while the element is moving, and at rest the real DOM text is shown.
 - It is re-rendered:
   - on the per-element MutationObserver, which is **extended** to `childList`, `characterData`, `subtree` and the `style`/`class` attributes,
@@ -318,7 +319,7 @@ At rest, what you see is therefore pixel-exact the DOM text, with no atlas appro
   - `.liquid-element`
     - `background: transparent; border-color: transparent; box-shadow: none;` (D8)
     - `position: relative; z-index: 1;` when the element's computed position is `static`. Otherwise only `z-index: 1` if `z-index` is `auto`.
-  - `.liquid-text { color: transparent; }`
+  - `.liquid-text, .liquid-text * { -webkit-text-fill-color: transparent; text-decoration-color: transparent; text-shadow: none; }` (amended 2026-10-10, W74, D74-6: `color` stays for the atlas and `currentColor` icons)
     - Set **only** under WebGPU, and **only** while the element is moving (§3).
   - `@media (forced-colors: active)` and `@media print`: canvas `display: none`, and both classes neutralised with `!important`.
   - `unobserve` removes the classes. The element is then exactly as it was.

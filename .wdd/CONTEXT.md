@@ -1,12 +1,10 @@
 # Context — liquiddom
 
 ## Last Updated
-Ward 73 — 2026-10-09 (shake without lace: amplitude 0.5, cap 0.3, blocking lace guard; slice 3 + fix closed). Next: plan slice 4.
+Ward 74 — 2026-10-10 (slice 4: text that flows in WebGPU, F in Rust, rest needs F ≈ I, the liquid-text toggle, no ghost pill). Next: W75.
 
 ## Current State
-Epic 15 (Fluid Engine), slice 1 complete: W63 north star + WDD rules, W64 liquid at rest, W65 verification harness, W66 public API swap. `LiquidDOM.create()` now runs on a 2D MLS-MPM fluid in Rust/WASM (`src/fluid/`, `FluidCore`), drawn by `FluidCanvas2DRenderer` (density grid + exact `roundRect` at rest). The soft-body engine (W6–W62) is deleted; its last state is the tag `softbody-final`.
-
-Tests: cargo 50 (fluid only), vitest 330 + 4 skipped (gravity, slice 6), Playwright canvas2d 17 + 3 Linux-only visual specs (Linux baselines committed, vision-checked). Packages are `0.3.0-alpha.0` in changeset pre mode `alpha`; release plan `0.3.0-alpha.1` ×3, nothing published. `site/` is frozen until slice 6.
+Epic 15 (Fluid Engine): slices 1–3 closed, slice 4 in progress. `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. The soft-body engine is the tag `softbody-final`. Packages `0.3.0-alpha.x` (pre mode `alpha`), nothing published; `site/` frozen until slice 6. Test totals: `.wdd/PROGRESS.md` and the ward gold notes.
 
 Canonical vision, acceptance scene (8 steps) and slice matrix: `.wdd/NORTH-STAR.md`. Binding design: `docs/superpowers/specs/2026-10-02-liquiddom-fluid-design.md`. Execution ledger and rulings: `.superpowers/sdd/README/progress.md` (git-ignored).
 
@@ -24,6 +22,7 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 | `LoopController`: user pause and hidden tab are separate sources; dt reset on resume; first throwing frame stops the instance for good | 0.2 regression fixes; no silent re-arm | W66 (D66-12) |
 | WebGPU liquid: splat into T0 rgba16float + T0a r16float, composite with an fwidth edge, rest SDF overlay at restAlpha; T2 deferred | No 32-bit targets; Canvas2D parity through kernel-params.ts and Σw·a | W71 (D71-3…6) |
 | `'auto'` = WebGPU on a hardware adapter, Canvas2D fallback (unavailable, software adapter or unusable presentation surface) on a remounted canvas, one `console.info` unless `silentFallback`; explicit `'webgpu'` accepts SwiftShader; `device.lost` → Canvas2D rebuild in place, one `console.warn` | WebGPU by default without breaking anyone; CI can test the WebGPU path | W72 (D72-1, D72-2, D72-3) |
+| Liquid text in WebGPU: render-only F (every substep, σ clamp, sticky torn), rest needs max‖F − I‖ < 0.05, runtime-built atlas, T1/T1w at 1× in its own pass, text composite after the rest SDF, refcounted liquid-text with fail-safe; damage drops restAlpha to 0 | Text that flows without ever hiding the DOM text; no ghost pill | W74 (D74-1…7) |
 | Playwright is the visual/behaviour guard; Linux baselines from the pinned image, committed only after a vision check | jsdom cannot see cascade or transitions | W65 (D65-7) |
 
 ## Active Constraints
@@ -43,28 +42,28 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 | WASM size (opt-level 3) | ~85 kB | W65 |
 | Splat overdraw estimate, shake peak (webgpu, Metal, 8000 particles) | max 402341 fragments/frame (mean 192911, p95 402341) | W72 |
 | RAF p95 webgpu | 3.815 ms | W72 |
-| Total tests | 50 Rust + 330 TS + 17 Playwright | W66 |
 
 ## Known Limitations
-- Slice 2 is in progress: splash and shake (W67) and the soft pointer field, hover swell, `setMaterial`/`getMaterial` and material presets (W68) are live; no liquid text yet.
 - Pointer idle decay (D68-4, W68): the ×0.8 velocity decay is per frame, so at 120 Hz the tail decays twice as fast in wall time as at 60 Hz.
 - Pointer drag 12/s (W70): a fast sweep lets a pill's trailing edge recede up to ~8 px; interior holes start at drag ≥ 18 (measured), so the e2e no-hole lattice is 10 px inside the contour.
-- Shake profile (W70, D70-1; W73 D73-1/2 amplitude 0.5, cap 0.3): the speed profile `1 + 0.5·sin(π·u + φ)` varies along x only (`u = (x − cx)/(w/2)`), so a tall element gets no vertical wave. The card "lace" was physics, identical in both renderers; W73 removes it.
+- Shake profile (W70, D70-1; W73 D73-1/2 amplitude 0.5, cap 0.3): the speed profile `1 + 0.5·sin(π·u + φ)` varies along x only (`u = (x − cx)/(w/2)`), so a tall element gets no vertical wave. W73 removed the card "lace".
 - OPEN (pre-existing, for Dennis' playground session): the honey preset re-forms in 279–292 frames, above the 3 s budget.
 - Container mode needs a positioned container (one `console.warn` if static; liquiddom never restyles it).
 - Gravity is validated but has no effect until slice 6; scroll is verified only in slice 6.
 - A large scroll can lock particles across elements (W67 slip, slice-6 parking).
-- Edge ring (D67-13, W67): the in-motion edge envelope sd is 0.120 px at 120 px/s (W67 metric; W64's R2 layout scored ≈ 0.6–0.7 px with it). The ring spacing is cell/2, from the area hint, so when the hint is far off the ring is a little denser or sparser than the interior.
+- Edge ring (D67-13): spacing cell/2 from the area hint, so a far-off hint makes the ring a little denser or sparser than the interior.
 - The first frame that throws stops the instance (unchanged in W67); adapters do not yet react to a stopped instance.
-- No browser loads the published `dist` yet (carry to W69 whole-picture check).
-- WebGPU acceptance (steps 1–3, shader validation, translucent colour) runs only locally (`npm run e2e:webgpu` / `e2e:webgpu-hw` on Metal); CI runs the soft smoke only (W71.0 spike: every rendering test loses the device within 2–5 frames on SwiftShader inside the pinned container, on native arm64 and on the GitHub runner; reason 'destroyed' or 'unknown', no validation errors). There are no webgpu Linux baselines (spike answer NO in W72; steps 4, 6, 8 and device.lost (W72) included in the local-only runs).
+- WebGPU e2e runs only locally (`e2e:webgpu`, `e2e:webgpu-hw` on Metal); CI runs the soft smoke (W71.0: SwiftShader loses the device within 2–5 frames in CI). No webgpu Linux baselines (W72).
 - A WebGPU canvas is readable only in the task that rendered it; the e2e helpers read `__liquidTest.pixels()` (a snapshot taken in advance()).
-- DOM-text contrast while the liquid is away (D72-5): under both renderers an element's DOM text sits on the bare page during a splash or shake; the halo / liquid text is slice 4.
+- DOM-text contrast while the liquid is away (D72-5): solved under WebGPU by the liquid text (W74); under Canvas2D the DOM text still sits on the bare page during a splash or shake until W75's halo.
+- Liquid text v1 (W74, D74-5): text nodes only; underline, text-shadow, icons, images and SVG are not in the atlas (decorations hide while the text moves); `capitalize` is per word; a font that loads after the atlas build shows the fallback in motion until W75; the page is ≤ 4096² atlas px and an element that does not fit keeps its DOM text. Words are clipped to the border box, so `overflow: visible` text outside it vanishes while moving.
+- Liquid text costs (W74): the atlas is rebuilt on every paints rebuild until W75; T1/T1w stay allocated after the first moving text (released only on resize, device loss or destroy).
+- Hover swell with liquid text (W74): the particles swell 2 % while the DOM text does not, so the atlas → DOM switch after a hover can shift glyphs by ≈ 1 px at the edges; a pointer resting on a moving card can smear its text locally (spike W74.0).
 - `activeRenderer` can change during an instance's life (W72): a lost WebGPU device switches it to `'canvas2d'`; a frame or two during the rebuild draw nothing.
 - Canvas2D still splats the moving particles of an element whose rect is w == 0 (hidden); WebGPU hides them through element flags. Since W72 a device loss can switch renderers mid-session, so the difference can become visible; parking (slice 6) resolves it.
 - The overdraw number is an estimate (quads × area at the T0 scale), not a GPU counter (D72-4).
 
 ## What Comes Next
 - Slice 2 closed: `.wdd/memory/whole-picture/slice-2.md` + `slice-2-addendum.md` (steps 1–4, 6, 8 ✅; 5/7 ⏳).
-- Slice 3 closed (W71–W72) and W73 removed the shake lace (2026-10-09). Next: plan slice 4 (liquid text, T1/T2, forced-colors, DOM-text halo decision); the whole-picture check after slice 4 is the first in both renderers.
+- Slice 4 in progress: W74 done (liquid text in WebGPU). Next: W75 (MutationObserver, colour auto-refresh, atlas re-render on text/fonts/DPR, forced-colors/print with liquid-text active, refresh() and a11y under WebGPU, Canvas2D halo), then W76 (whole picture after slice 4, both renderers).
 - Open: fate of the published `0.2.0-rc.0` (spec §7); publish of `0.3.0-alpha.x` is Dennis' call (`changeset version` + commit before tagging `v*`).
