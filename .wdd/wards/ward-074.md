@@ -3,12 +3,12 @@ ward: 74
 revision: null
 name: "Text that flows"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [73]
 layer: "typescript"
 estimated_tests: 62
 created: "2026-10-10"
-completed: null
+completed: "2026-10-10"
 ---
 # Ward 074: Text that flows
 
@@ -216,6 +216,6 @@ Measured 2026-10-10 on the throwaway branch `spike/w74-measure` (deleted twice; 
 
 **Reviews:** task reviews W74.0+1 (fix round: fail-safe tests held pending, failed rebuild), W74.2–3 (+ non-finite F guards), W74.4–5 (+ atlas clip), W74.6–7 (+ upload confirmed via error scope) — all APPROVED. Ward review: 0 Critical, 1 Important — I1: the error-scope confirmation blinked text on every mid-motion atlas rebuild; fixed by a double-buffered atlas swap (60b2a52) plus reused-slot masking (229be6a); re-review clean. M1 F packed only while text moves; M2 form values / generated text hidden while moving documented; M3 deferred (needs an approved-test change: NaN restAlpha packs as 0 today).
 
-**Open for Dennis:** M3 approved-test change (NaN restAlpha → 1 in packElements); changeset bump (patch per plan; earlier feature changesets were minor — same 0.3.0-alpha.x result in pre mode).
+**Resolved at gold (Dennis, 2026-10-10, saga dec_b9f2badf):** gold approved; M3 approved-test change made (NaN restAlpha packs as 1 = rest, 9c08a5c); the liquid-text changeset is minor.
 
 **Carried:** T1/T1w kept after first use; two atlas pages held after the first rebuild (≤ 2 × 64 MB at 4096²); atlas rebuilt on every paints rebuild until W75 invalidate; a version stream faster than error-scope confirmation keeps drawing the older page (no blink, possibly stale); border-box clip hides overflow:visible text while moving; device.lost shows one blank frame during the Canvas2D rebuild.
