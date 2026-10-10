@@ -794,6 +794,28 @@ describe("W74 ward-review: double-buffered atlas swap (I1)", () => {
   });
 
   // W74 ward-review
+  it("given_a_confirmed_page_for_owner_1_in_slot_0_when_a_pending_version_gives_slot_0_to_owner_2_then_slot_0_is_masked_and_its_drawn_record_zeroed_until_the_swap", async () => {
+    const f = gpu();
+    const r = await ready();
+    const A: ReadonlyArray<ElementPaint | undefined> = [{ ...textPaint(0), owner: 1 }, { ...textPaint(1), owner: 7 }];
+    const B: ReadonlyArray<ElementPaint | undefined> = [{ ...textPaint(0), owner: 2, atlasRect: { x: 20, y: 30, w: 280, h: 96 } }, { ...textPaint(1), owner: 7 }];
+    r.render(sceneFrame({ paints: A, textAtlas: ATLAS, restAlpha: 0.5 }));
+    await flush();
+    r.render(sceneFrame({ paints: A, textAtlas: ATLAS, restAlpha: 0.5 }));
+    expect([r.textReady(0), r.textReady(1)]).toEqual([true, true]);
+    const before = lastTextBindings(f);
+    r.render(sceneFrame({ paints: B, textAtlas: V2, restAlpha: 0.5 }));
+    expect(r.textReady(0), "slot 0 now holds another element: the old page is not its text").toBe(false);
+    expect(r.textReady(1), "slot 1 keeps its owner: the old page still draws it").toBe(true);
+    const drawn = lastWriteTo(f, before.info).values;
+    expect(drawn.slice(0, 8), "slot 0's drawn record is zeroed (no text)").toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(drawn[8 + 6], "slot 1's drawn record stays valid").toBe(1);
+    await flush();
+    expect([r.textReady(0), r.textReady(1)], "after the swap: the new page's records").toEqual([true, true]);
+    expect(f.calls.errors).toEqual([]);
+  });
+
+  // W74 ward-review
   it("given_a_confirmed_page_when_the_new_version_has_another_size_then_the_swap_reallocates_the_drawn_texture_at_that_size", async () => {
     const f = gpu();
     const r = await confirmedV1(f);

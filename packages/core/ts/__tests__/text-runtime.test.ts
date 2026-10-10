@@ -372,6 +372,34 @@ describe("W74 review: atlas build timing and size cap", () => {
     expect(error).not.toHaveBeenCalled();
   });
 
+  // W74 ward-review (I1 follow-up): a slot reused by another element never shows the old element's text.
+  it("given_a_confirmed_page_for_A_in_slot_0_when_A_is_unobserved_and_B_takes_slot_0_then_B_gets_no_text_from_the_old_page_until_its_version_is_confirmed", async () => {
+    const s = await setup();
+    const a = button("Splash", 100);
+    const idA = await observed(s, a);
+    s.core.forceRestAlpha(idA, 0.4);
+    s.clock.advance(1);
+    expect(a.classList.contains(TEXT_CLASS)).toBe(true);
+    const passes = textPasses();
+    s.rt.unobserve(a);
+    const b = button("Split", 100);
+    const idB = s.rt.observe(b);
+    expect(idB, "precondition: B reuses A's slot").toBe(idA);
+    await microtask();
+    s.core.forceRestAlpha(idB, 0.4);
+    s.clock.advance(1); // a new version is pending; the drawn page still holds A's text in slot 0
+    expect(s.atlas.canvases, "precondition: rebuilt").toHaveLength(2);
+    expect(b.classList.contains(TEXT_CLASS), "B's DOM text stays: the old page is A's").toBe(false);
+    expect(textPasses(), "no atlas text for slot 0 from the old page").toBe(passes);
+    await flush(); // B's version is confirmed and swapped in
+    s.clock.advance(1);
+    expect(b.classList.contains(TEXT_CLASS), "B's own text once confirmed").toBe(true);
+    expect(textPasses()).toBe(passes + 1);
+    expect(gpu.calls.errors).toEqual([]);
+    expect(warn).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+  });
+
   it("given_a_device_texture_limit_below_the_slot_size_when_built_then_the_atlas_is_capped_at_the_limit_and_the_element_keeps_its_dom_text", async () => {
     gpu.restore();
     gpu = installFakeGpu({ maxTextureDimension2D: 128 }); // a 140 px wide button + gutter does not fit

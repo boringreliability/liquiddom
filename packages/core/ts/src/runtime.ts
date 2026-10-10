@@ -431,6 +431,18 @@ function buildRuntime(
     syncTextClasses(textArgs);
   };
 
+  /** W74 ward-review (I1): one owner token per element, so the renderer can tell a reused slot apart. */
+  const owners = new WeakMap<HTMLElement, number>();
+  let nextOwner = 1;
+  const ownerOf = (el: HTMLElement): number => {
+    let t = owners.get(el);
+    if (t === undefined) {
+      t = nextOwner++;
+      owners.set(el, t);
+    }
+    return t;
+  };
+
   const rebuildPaints = (): void => {
     const cap = bridge.particleCapacity;
     const st = bridge.staticView();
@@ -456,6 +468,7 @@ function buildRuntime(
         areaPerParticle: app,
         spacingPx: Math.sqrt(app),
         atlasRect: atlasRects.get(rec.id) ?? null,
+        owner: ownerOf(rec.el),
       };
     }
     paints = next;

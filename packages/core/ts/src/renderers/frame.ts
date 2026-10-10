@@ -25,6 +25,12 @@ export interface ElementPaint {
    * (no text nodes, page overflow, no atlas, Canvas2D). Null keeps the DOM text visible.
    */
   readonly atlasRect: AtlasRect | null;
+  /**
+   * W74 ward-review (I1): a token of the element this slot holds (one per element per instance).
+   * While a new atlas version is pending, a slot whose owner differs from the one the drawn page
+   * was built for gets no atlas text. Undefined compares equal to undefined.
+   */
+  readonly owner?: number;
 }
 
 export interface RenderViewport {

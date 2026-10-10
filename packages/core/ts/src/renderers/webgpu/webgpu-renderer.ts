@@ -236,6 +236,12 @@ export function adapterIsFallback(adapter: GPUAdapter): boolean {
 /** Backing-store px: integers ≥ 1 (Review Focus 1: a 0×0 or sub-pixel canvas never yields a 0-size texture). */
 const pxOrOne = (v: number): number => (Number.isFinite(v) && v >= 1 ? Math.floor(v) : 1);
 
+/** W74 ward-review (I1): the paint owner of slots `[0, n)` at pack time (allocation-free once sized). */
+function recordOwners(frame: RenderFrame, out: Array<number | undefined>, n: number): void {
+  out.length = n;
+  for (let id = 0; id < n; id++) out[id] = frame.paints[id]?.owner;
+}
+
 export class WebGPURenderer implements Renderer {
   readonly t0Scale: number;
   private fallbackAdapter = false;
@@ -318,6 +324,9 @@ export class WebGPURenderer implements Renderer {
   private pendingOk = new Uint8Array(0);
   private pendingInfoDirty = true;
   private pendingInfoPaints: RenderFrame["paints"] | null = null;
+  /** Per slot: the paint owner each record was packed for (drawn / staged); a reused slot is masked while staged. */
+  private textOwners: Array<number | undefined> = [];
+  private pendingOwners: Array<number | undefined> = [];
   private readonly swapEncoderDescriptor: GPUCommandEncoderDescriptor = { label: "liquiddom atlas swap" };
   private readonly swapSubmitList: GPUCommandBuffer[] = [];
   private t1: GPUTexture | null = null;
@@ -711,15 +720,28 @@ export class WebGPURenderer implements Renderer {
       if (this.pendingInfoDirty || frame.paints !== this.pendingInfoPaints) {
         packTextInfo(frame, atlas, this.pendingInfoScratch, this.pendingOk);
         device.queue.writeBuffer(this.ensureBackInfoBuffer(device), 0, this.pendingInfoScratch);
+        recordOwners(frame, this.pendingOwners, this.pendingOk.length);
         this.pendingInfoPaints = frame.paints;
         this.pendingInfoDirty = false;
+        // A slot that lost its paint, or now holds another element (unobserve + observe, ward
+        // review), must not show the drawn page's text: masked and its drawn record zeroed.
         const ok = this.textOk;
-        for (let id = 0; id < ok.length; id++) if (frame.paints[id] === undefined) ok[id] = 0;
+        let masked = false;
+        for (let id = 0; id < ok.length; id++) {
+          if (ok[id] !== 1) continue;
+          const p = frame.paints[id];
+          if (p !== undefined && p.owner === this.textOwners[id]) continue;
+          ok[id] = 0;
+          this.textInfoScratch.fill(0, id * TEXT_INFO_FLOATS, (id + 1) * TEXT_INFO_FLOATS);
+          masked = true;
+        }
+        if (masked) device.queue.writeBuffer(textInfoBuffer, 0, this.textInfoScratch);
       }
     } else if (this.textInfoDirty || frame.paints !== this.textInfoPaints) {
       // Packed before the atlasOk check, so textReady() turns true as soon as the upload is confirmed.
       packTextInfo(frame, atlas, this.textInfoScratch, this.textOk);
       device.queue.writeBuffer(textInfoBuffer, 0, this.textInfoScratch);
+      recordOwners(frame, this.textOwners, this.textOk.length);
       this.textInfoPaints = frame.paints;
       this.textInfoDirty = false;
     }
@@ -874,6 +896,9 @@ export class WebGPURenderer implements Renderer {
     const ok = this.textOk;
     this.textOk = this.pendingOk;
     this.pendingOk = ok;
+    const owners = this.textOwners;
+    this.textOwners = this.pendingOwners;
+    this.pendingOwners = owners;
     this.textInfoPaints = this.pendingInfoPaints;
     this.textInfoDirty = false;
     this.pendingInfoDirty = true;
@@ -996,6 +1021,8 @@ export class WebGPURenderer implements Renderer {
     this.pendingOk = new Uint8Array(0);
     this.pendingInfoDirty = true;
     this.pendingInfoPaints = null;
+    this.textOwners = [];
+    this.pendingOwners = [];
     this.swapSubmitList.length = 0;
     this.t1 = null;
     this.t1Weight = null;
