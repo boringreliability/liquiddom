@@ -58,9 +58,9 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 - A WebGPU canvas is readable only in the task that rendered it; e2e reads `__liquidTest.pixels()`.
 - DOM-text contrast while the liquid is away: WebGPU carries the text on its liquid (W74); Canvas2D draws a text-shadow halo in the background colour (W75). A 1–8 px blurred halo is not a solid backdrop for very thin glyphs.
 - Colour changes outside the element (a new stylesheet rule, an ancestor class) are detected only when they end a `color` transition on the element; `background-color` transitions never run on a decorated element (its background is held transparent), so `refresh(el)` stays for those (W75, D75-2).
-- An author that rewrites an observed element's inline style every frame causes one colour snapshot and one atlas re-render per frame (W75, D75-1); the DOM text stays visible meanwhile.
+- An author rewriting an observed element's inline style every frame costs one colour snapshot and one atlas re-render per frame (W75); its DOM text shows meanwhile.
 - Liquid text v1 (W74, D74-5): text nodes only; underline, text-shadow, icons, images, SVG, form values/placeholders and `::before`/`::after` text hide while the text moves; `capitalize` is per word; atlas ≤ 4096² px (else the DOM text stays); words are clipped to the border box, so overflowing text vanishes while moving.
-- Liquid text costs (W74): two atlas pages on the GPU (a new one is staged until confirmed); T1/T1w stay allocated after the first moving text.
+- Liquid text costs: the whole atlas page is re-rendered on any generation, paints or text change (v1); two pages on the GPU (one staged); T1/T1w stay allocated.
 - Hover swell with liquid text (W74): particles swell 2 % while the DOM text does not (≈ 1 px glyph shift at the edges on the switch); a pointer resting on a moving card can smear its text.
 - `activeRenderer` can change mid-session (W72): a lost WebGPU device switches it to `'canvas2d'`; a frame or two draw nothing.
 - Canvas2D still splats the particles of a hidden (w == 0) element; WebGPU hides them through flags. Parking (slice 6) resolves it.
