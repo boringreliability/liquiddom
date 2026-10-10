@@ -400,6 +400,11 @@ const W77_SPLASH_BUDGET_FRAMES = Math.round((reformBudgetMs(W77_NORTH_STAR, 3) /
 const W77_SHAKE_BUDGET_FRAMES = Math.round((reformBudgetMs(W77_NORTH_STAR, 6) / 1000) * W67_FPS);
 /** Frames the material settles after setMaterial before the splash (the W77.0 probe's value). */
 const W77_MATERIAL_SETTLE_FRAMES = 30;
+/**
+ * W77 red review (finding 8): honey's splash re-form is at least this multiple of water's, so it
+ * still reads slower and thicker (D77-3), not merely one frame slower. W77.0: 285 / 135 = 2.1.
+ */
+const W77_HONEY_OVER_WATER_MIN = 1.15;
 
 type W77Hook = W67Hook & { instance: W67Hook["instance"] & { setMaterial(m: unknown): void } };
 
@@ -436,19 +441,21 @@ test.describe("W77 – presets re-form within the budgets (D77-2, D77-3)", () =>
 
     test(`D77-2 – given the ${preset} preset when the instance shakes then every restAlpha returns to 1 within the NORTH-STAR step-6 budget`, async ({ page }) => {
       const frames = await w77ShakeReform(page, preset, W77_SHAKE_BUDGET_FRAMES);
-      console.log(`W77 re-form: ${preset} shake ${frames} frames (budget ${W77_SHAKE_BUDGET_FRAMES}; W77.0: water 129, honey 279, jelly 106)`);
+      // W77 red review (finding 12): this test shakes from rest (setMaterial, 30 frames, shake). Its own red run (W77.1): water 131,
+      // jelly 111, honey over the budget. The W77.0 probe's 129 / 279 / 106 shook 30 frames after its splash measurement.
+      console.log(`W77 re-form: ${preset} shake ${frames} frames (budget ${W77_SHAKE_BUDGET_FRAMES}; W77.1 red, from rest: water 131, jelly 111, honey > 180)`);
       expect(frames, `${preset}: every restAlpha back to 1 within ${W77_SHAKE_BUDGET_FRAMES} frames after the shake`).toBeGreaterThan(0);
     });
   }
 
-  test("D77-3 – given honey and water when Splash is splashed then honey re-forms more slowly than water (it still reads thicker)", async ({ page }) => {
+  test("D77-3 – given honey and water when Splash is splashed then honey re-forms at least 1.15× as slowly as water (it still reads thicker)", async ({ page }) => {
     const long = 3 * W77_SPLASH_BUDGET_FRAMES;
     const water = await w77SplashReform(page, "water", long);
     const honey = await w77SplashReform(page, "honey", long);
-    console.log(`W77 honey vs water: splash re-form ${honey} vs ${water} frames`);
+    console.log(`W77 honey vs water: splash re-form ${honey} vs ${water} frames (ratio ${(honey / water).toFixed(2)}, min ${W77_HONEY_OVER_WATER_MIN})`);
     expect(water, "water re-forms").toBeGreaterThan(0);
     expect(honey, "honey re-forms").toBeGreaterThan(0);
-    expect(honey, "honey is slower than water").toBeGreaterThan(water);
+    expect(honey, `honey re-forms at least ${W77_HONEY_OVER_WATER_MIN}× as slowly as water`).toBeGreaterThanOrEqual(W77_HONEY_OVER_WATER_MIN * water);
   });
 });
 

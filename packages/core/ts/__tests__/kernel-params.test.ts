@@ -221,4 +221,81 @@ describe("W77 density grid cell (D77-1)", () => {
     expect(r.densityCellPx).toBe(2);
     expect(created().at(-1)).toEqual([100, 50]);
   });
+
+  // W77 red review (findings 1 and 2): the cell follows only paints that have particles, and it is
+  // bounded by the smallest kernel radius as well, so no element's kernel falls under 2.3 cells per
+  // radius (it never reaches the one-cell floor in DensityGrid.splat, where Canvas2D would diverge
+  // from WebGPU's kernel, D71-5).
+  it("given_the_largest_and_smallest_kernel_radius_when_densityCellPx_then_the_cell_is_never_coarser_than_the_finest_spacing", () => {
+    const cell = grid.densityCellPx;
+    // One radius: the min bound is looser than ceil(R) / 4, so the single-radius rule is unchanged.
+    expect(cell(13.04, 13.04)).toBe(3.5);
+    // The landing page (cards R 12.47, pills R 13.04): unchanged, 3.5 px.
+    expect(cell(13.04, kernelRadiusPx(5.42))).toBe(3.5);
+    // A 16 px kernel next to an acceptance-sized one (spacing 3.2, R 7.36): the cell drops to the
+    // finest spacing in quarter px, floor(4 · 3.2) / 4 = 3 (not 4).
+    expect(cell(16, kernelRadiusPx(3.2))).toBe(3);
+    // Next to a fine element (spacing 2, R 4.6) the grid stays at 2 px.
+    expect(cell(16, kernelRadiusPx(2))).toBe(2);
+    // The 2 px floor (DEFAULT_SCALE_PX, WebGPU's 0.5× backing at DPR 1) still wins for spacings under 2 px.
+    expect(cell(16, kernelRadiusPx(0.5))).toBe(2);
+    // A bad smallest radius adds no bound; a smallest radius above the largest is clamped to it.
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) expect(cell(16, bad), String(bad)).toBe(4);
+    expect(cell(8, 16)).toBe(2);
+    // The property: every kernel spans at least 2.3 cells per radius whenever the grid is coarser than 2 px.
+    for (const maxR of [8.01, 10, 12.47, 13.04, 16]) {
+      for (const minSpacing of [2.2, 2.6, 3.09, 3.5, 4.4, 5.42, 6.5]) {
+        const minR = Math.min(kernelRadiusPx(minSpacing), maxR);
+        const c = cell(maxR, minR);
+        if (c > grid.DEFAULT_SCALE_PX) expect(minR / c, `maxR ${maxR}, minR ${minR.toFixed(2)}: cell ${c}`).toBeGreaterThanOrEqual(KERNEL_RADIUS_PER_SPACING - 1e-9);
+      }
+    }
+  });
+
+  it("given_a_paint_without_particles_or_with_a_non_positive_spacing_when_rendering_then_it_does_not_coarsen_the_grid", async () => {
+    const r = new FluidCanvas2DRenderer();
+    await r.init(document.createElement("canvas"));
+    r.resize(200, 100, 1);
+    // spacingPx = sqrt(areaPerParticle) is 0 for an observed element without particles (hidden,
+    // zero-size or waiting for redistribute); kernelRadiusPx(0) is the cap, which would put the
+    // whole page on the 4 px grid.
+    r.render(paintsFrame([{ spacingPx: 3.09, particleCount: 16 }, { spacingPx: 0, particleCount: 0 }]));
+    expect(r.densityCellPx, "a zero-particle paint is skipped").toBe(2);
+    r.render(paintsFrame([{ spacingPx: 3.09, particleCount: 16 }, { spacingPx: 0, particleCount: 8 }]));
+    expect(r.densityCellPx, "a zero spacing is skipped").toBe(2);
+    r.render(paintsFrame([{ spacingPx: 3.09, particleCount: 16 }, { spacingPx: Number.NaN, particleCount: 8 }]));
+    expect(r.densityCellPx, "a non-finite spacing is skipped").toBe(2);
+  });
+
+  it("given_paints_with_mixed_spacings_when_rendering_then_the_cell_is_bounded_by_the_smallest_kernel_radius_and_each_splat_keeps_its_own_radius", async () => {
+    const splat = vi.spyOn(grid.DensityGrid.prototype, "splat");
+    const r = new FluidCanvas2DRenderer();
+    await r.init(document.createElement("canvas"));
+    r.resize(200, 100, 1);
+    // Spacing 2.6 (R 5.98) moving next to spacing 6.5 (R 14.95): ceil(14.95) / 4 = 3.75 px would put
+    // the fine element at 1.6 cells per radius; the bound keeps 2.5 px (floor(4 · 2.6) / 4).
+    r.render(paintsFrame([{ spacingPx: 2.6, particleCount: 16 }, { spacingPx: 6.5, particleCount: 16 }]));
+    expect(r.densityCellPx).toBe(2.5);
+    expect(kernelRadiusPx(2.6) / r.densityCellPx).toBeGreaterThanOrEqual(KERNEL_RADIUS_PER_SPACING);
+    // One kernel in both renderers (D71-5): each splat still gets its own paint's kernelRadiusPx.
+    expect(splat).toHaveBeenCalled();
+    for (const call of splat.mock.calls) expect(call[3]).toBe(kernelRadiusPx(2.6));
+  });
 });
+
+/**
+ * W77 red review: a frame with one paint per spec (ids 0, 1, …); 16 moving particles belong to
+ * paint 0, the other paints are at rest. Only `particleCount` and `spacingPx` differ per paint.
+ */
+function paintsFrame(specs: ReadonlyArray<{ spacingPx: number; particleCount: number }>): RenderFrame {
+  const base = onePaintFrame(specs[0]!.spacingPx);
+  const n = specs.length;
+  const elementView = new Float32Array(n * ELEMENT_STRIDE);
+  const stateView = new Float32Array(n * STATE_STRIDE);
+  const paints: ElementPaint[] = specs.map((s, id) => {
+    elementView.set([40 + 60 * id, 40, 40, 20, 4, 0, 0, 0, Number.NaN, Number.NaN], id * ELEMENT_STRIDE);
+    stateView[id * STATE_STRIDE + St.REST_ALPHA] = id === 0 ? 0 : 1;
+    return { ...base.paints[0]!, id, particleCount: s.particleCount, areaPerParticle: s.spacingPx * s.spacingPx, spacingPx: s.spacingPx };
+  });
+  return { ...base, elementView, stateView, paints };
+}

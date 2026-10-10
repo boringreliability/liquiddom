@@ -922,6 +922,16 @@ const W77_NORTH_STAR = readFileSync(resolve(process.cwd(), NORTH_STAR_PATH), "ut
 const W77_SPLASH_BUDGET_FRAMES = Math.round((reformBudgetMs(W77_NORTH_STAR, 3) / 1000) * FPS);
 const W77_SHAKE_BUDGET_FRAMES = Math.round((reformBudgetMs(W77_NORTH_STAR, 6) / 1000) * FPS);
 type W77Instance = SceneInstance & { setMaterial(m: unknown): void };
+/** Landing DOM order of the observed elements: #sign-in, #start, #demo, #card-sources, #card-sql, #card-ops (landing.spec.ts). */
+const W77_LANDING_START_INDEX = 1;
+
+/** Opens the acceptance scene at rest, applies `preset` and lets it settle 30 frames (the canvas2d protocol). */
+async function w77OpenWithPreset(page: Page, preset: keyof typeof presets): Promise<void> {
+  await openAtRest(page);
+  await page.mouse.move(VIEWPORT.width - 1, VIEWPORT.height - 1);
+  await page.evaluate((m) => (window.__liquidTest!.instance as W77Instance).setMaterial(m), { ...presets[preset] });
+  await advanceFrames(page, 30);
+}
 
 async function w77OpenLanding(page: Page): Promise<void> {
   await page.goto("/scenes/landing.html?seed=1&renderer=webgpu&clock=manual&test=1");
@@ -976,6 +986,9 @@ test.describe("W77 – closed liquid under shake and splash (webgpu)", () => {
     const series: number[] = [];
     for (let f = 1; f <= W77_SPECK_FRAMES; f++) {
       await advanceFrames(page, 1);
+      // W77 red review (finding 10): as in landing.spec.ts, the splash must have softened Start free,
+      // or the guard would pass vacuously.
+      if (f === 2) expect((await restAlphas(page))[W77_LANDING_START_INDEX], "the splash softened Start free").toBeLessThan(1);
       series.push(await specksInside(page, demo));
     }
     const peak = Math.max(...series);
@@ -984,14 +997,14 @@ test.describe("W77 – closed liquid under shake and splash (webgpu)", () => {
   });
 
   for (const preset of ["water", "honey", "jelly"] as const) {
-    test(`W77 D77-3 – given renderer webgpu and the ${preset} preset when Splash is splashed and later the instance shakes then each re-forms within the NORTH-STAR budgets`, async ({ page }) => {
-      await openAtRest(page);
-      await page.mouse.move(VIEWPORT.width - 1, VIEWPORT.height - 1);
-      await page.evaluate((m) => (window.__liquidTest!.instance as W77Instance).setMaterial(m), { ...presets[preset] });
-      await advanceFrames(page, 30);
+    test(`W77 D77-3 – given renderer webgpu and the ${preset} preset when Splash is splashed, and from rest the instance shakes, then each re-forms within the NORTH-STAR budgets`, async ({ page }) => {
+      await w77OpenWithPreset(page, preset);
       await page.evaluate(() => (window.__liquidTest!.instance as SceneInstance).splash(document.getElementById("splash")!));
       const splash = await framesUntilAllRest(page, W77_SPLASH_BUDGET_FRAMES);
-      await advanceFrames(page, 30);
+      // W77 red review (finding 11): the shake starts from rest on a fresh scene, so a failed splash
+      // re-form cannot confound it (the canvas2d protocol in acceptance.spec.ts).
+      await w77OpenWithPreset(page, preset);
+      expect((await restAlphas(page)).every((v) => v === 1), "at rest before the shake").toBe(true);
       await page.evaluate(() => (window.__liquidTest!.instance as SceneInstance).shake());
       const shake = await framesUntilAllRest(page, W77_SHAKE_BUDGET_FRAMES);
       console.log(`W77 webgpu re-form: ${preset} splash ${splash}, shake ${shake} frames (budgets ${W77_SPLASH_BUDGET_FRAMES} / ${W77_SHAKE_BUDGET_FRAMES})`);

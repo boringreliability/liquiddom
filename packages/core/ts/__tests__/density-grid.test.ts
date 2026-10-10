@@ -86,6 +86,29 @@ describe("W64 DensityGrid", () => {
     expect(Math.abs(g.density(cell(281), cell(91)) - 1)).toBeLessThan(0.06);
   });
 
+  it("given_a_spacing_8_lattice_whose_radius_18_4_is_capped_at_16px_when_splatted_then_the_interior_still_integrates_to_1", () => {
+    // W77 red review (finding 9): since the 16 px cap the spacing-4 lattice above is uncapped
+    // (R 9.2), so this lattice covers the capped case: 2.3 × 8 = 18.4 px → 16 px (2 × spacing).
+    expect(Math.min(KERNEL_RADIUS_PER_SPACING * 8, KERNEL_RADIUS_CAP_PX)).toBe(16);
+    const g = new DensityGrid(2);
+    g.resize(400, 300);
+    lattice(g, 40, 40, 240, 200, 8, BLUE);
+    // Interior cells more than R from every edge, sampled across one lattice period in x and y.
+    let lo = Number.POSITIVE_INFINITY;
+    let hi = 0;
+    for (let y = 141; y < 149; y += 2) {
+      for (let x = 141; x < 149; x += 2) {
+        const d = g.density(cell(x), cell(y));
+        lo = Math.min(lo, d);
+        hi = Math.max(hi, d);
+      }
+    }
+    expect(Math.abs(lo - 1), `interior min ${lo.toFixed(4)}`).toBeLessThan(0.06);
+    expect(Math.abs(hi - 1), `interior max ${hi.toFixed(4)}`).toBeLessThan(0.06);
+    // The capped kernel reaches 16 px: a cell 14 px outside the last particle row's centre still has density.
+    expect(g.density(cell(40 + 4 - 14), cell(141)), "reach of the 16 px kernel").toBeGreaterThan(0);
+  });
+
   it("given_overlapping_elements_when_resolving_color_then_rgb_is_density_weighted_blend", () => {
     const g = new DensityGrid(2);
     g.resize(400, 300);

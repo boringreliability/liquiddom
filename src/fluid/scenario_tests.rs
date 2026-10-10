@@ -654,8 +654,8 @@ mod w70 {
     /// on every pill (min) and 61.68 px on the card (W70, amplitude 0.8). W73 (amplitude 0.5,
     /// cap 0.3; D73-1/2) measured card 30.7 px / pills 14.9 px at the worst of seeds 1–3.
     /// W77 red: approved-test change (D77-2 consequence "shake slosh drops ≈30 % but stays visibly
-    /// a bend", approved 2026-10-10, saga dec_3ba590a1; the floors themselves are confirmed by
-    /// Dennis at W77 red). W77.0 measured seed 1 at D77-2's constants (TENSION_MAX_MAX 0.90,
+    /// a bend", approved 2026-10-10, saga dec_3ba590a1; the floors 20 / 10 themselves approved by
+    /// Dennis 2026-10-11, saga dec_a99cad59, recorded on D77-2's Decision line). W77.0 measured seed 1 at D77-2's constants (TENSION_MAX_MAX 0.90,
     /// amplitude 0.35): [Splash, Split, Merge, card] = [16.46, 11.52, 21.90, 25.39] px (today
     /// [21.42, 14.88, 31.59, 36.65]); the floors drop 24 → 20 and 12 → 10, still 1.5× W67's
     /// white-noise peak (6.64 px), so a sliding-intact element still fails.
