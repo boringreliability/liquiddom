@@ -90,7 +90,10 @@ test.describe("W75 – the Canvas2D halo and colour auto-refresh", () => {
       expect(h.cls, `${selector} carries the halo while moving`).toBe(true);
       expect(h.shadow, `${selector} halo colour`).toContain(colour);
     }
-    expect(await page.locator("#card p").evaluate((el) => getComputedStyle(el).textShadow)).toContain("rgb(38, 50, 56)");
+    // The card has two paragraphs; each inherits the halo (W75.5: strict-mode fix, intent unchanged).
+    const paragraphShadows = await page.locator("#card p").evaluateAll((els) => els.map((el) => getComputedStyle(el).textShadow));
+    expect(paragraphShadows).toHaveLength(2);
+    for (const shadow of paragraphShadows) expect(shadow).toContain("rgb(38, 50, 56)");
     await page.screenshot({ path: testInfo.outputPath("w75-halo-shake-f5.png") });
   });
 

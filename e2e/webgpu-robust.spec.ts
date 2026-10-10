@@ -844,6 +844,10 @@ test.describe("W75 – text that stays true (webgpu)", () => {
     const before = await textInvalidations(page);
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 2, mobile: false });
+    // W75.5 (approved by Dennis 2026-10-10): the CDP override changes devicePixelRatio but fires neither the
+    // resolution query's change nor resize (measured); a real zoom fires resize, so the test does too.
+    // The matchMedia re-arm is covered in jsdom (runtime-text-true test 23).
+    await page.evaluate(() => window.dispatchEvent(new Event("resize")));
     await page.waitForFunction(() => document.querySelector<HTMLCanvasElement>("canvas.liquid-canvas")!.width === 2560);
     await advanceFrames(page, 1);
     expect(await textInvalidations(page) - before).toBe(4);
