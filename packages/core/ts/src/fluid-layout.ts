@@ -26,7 +26,8 @@ export const El = {
   RECOVERY: 9,
 } as const;
 
-export const St = { S: 0, MAX_DEV: 1, REST_ALPHA: 2, RESERVED: 3 } as const;
+/** State view slots. W74 (D74-2): slot 3 is max ‖F − I‖_F of the element's particles (was reserved). */
+export const St = { S: 0, MAX_DEV: 1, REST_ALPHA: 2, MAX_F_DEV: 3 } as const;
 
 export const Dyn = { X: 0, Y: 1, F00: 2, F01: 3, F10: 4, F11: 5, FLAGS: 6 } as const;
 
