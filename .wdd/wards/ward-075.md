@@ -3,7 +3,7 @@ ward: 75
 revision: null
 name: "Text that stays true"
 epic: "fluid-engine"
-status: "red"
+status: "approved"
 dependencies: [74]
 layer: "typescript"
 estimated_tests: 43
