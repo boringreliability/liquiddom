@@ -173,7 +173,8 @@ function runsCssTransition(el: HTMLElement): boolean {
     return false;
   }
   for (const a of animations) {
-    if ("transitionProperty" in a && (a.playState === "running" || a.pending)) return true;
+    // A paused transition resumes later; the snapshot would cancel it too (B review M4).
+    if ("transitionProperty" in a && (a.playState === "running" || a.playState === "paused" || a.pending)) return true;
   }
   return false;
 }
@@ -400,7 +401,8 @@ function buildRuntime(
       let recoloured = false;
       // Amendment B: the snapshot's inline `transition: none` would cancel a running author
       // transition, so the re-read waits for it (M4: and for a detached element to re-attach).
-      if (colourPending.has(rec.el) && !runsCssTransition(rec.el) && registry.refresh(rec.el)) {
+      // isConnected first: a detached element waits without a getAnimations() call per frame (B review M1).
+      if (colourPending.has(rec.el) && rec.el.isConnected && !runsCssTransition(rec.el) && registry.refresh(rec.el)) {
         colourPending.delete(rec.el);
         paintsDirty = true;
         recoloured = true;
