@@ -2,7 +2,9 @@
  * Landing page scene (W76, D76-2): an ordinary one-screen SaaS page at 1280×800 with liquid on
  * its nav pill, its two hero CTAs and its three feature cards. A foreign test page: liquiddom
  * meets author CSS it did not write (hover transitions, focus rings, nested icon chips).
- * Same query parameters and window.__liquidTest hook as the acceptance scene:
+ * The acceptance scene's query parameters and window.__liquidTest hook, except ?perf=1 (no perf
+ * report here: `perf` is null) and the pixel snapshot, which needs a prior advance() under
+ * ?clock=manual:
  *   ?seed=<u32>         RNG seed (default 1)
  *   ?clock=manual       frames run only via __liquidTest.advance(n) (D65-1)
  *   ?renderer=canvas2d|webgpu|auto  default canvas2d

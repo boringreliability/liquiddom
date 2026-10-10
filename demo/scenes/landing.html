@@ -21,7 +21,8 @@
         --brand-tint: #e4e8ff;
         --dark: #111827;
         --dark-hover: #273246;
-        --ring: #f59e0b;
+        /* W76 review (finding 8): amber 700, 4.64:1 on --page (WCAG 1.4.11 asks ≥ 3:1). */
+        --ring: #b45309;
       }
       *,
       *::before,
@@ -207,7 +208,7 @@
         background: #1f2937;
         color: #a5b4fc;
       }
-      .card h3 {
+      .card h2 {
         margin: 0 0 8px;
         font-size: 19px;
         line-height: 26px;
@@ -237,7 +238,7 @@
         padding: 18px 0 20px;
         border-top: 1px solid #e2e6ef;
         font-size: 13px;
-        color: #64748b;
+        color: #5f6f83; /* 4.75:1 on --page (≥ 4.5:1 for 13 px text) */
       }
     </style>
   </head>
@@ -281,7 +282,7 @@
                 <path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" />
               </svg>
             </div>
-            <h3>Every source, one stream</h3>
+            <h2>Every source, one stream</h2>
             <p>Postgres, Stripe and 140 more connectors,<br />synced every minute with no code.</p>
           </article>
           <article id="card-sql" class="card card--tint" data-liquid>
@@ -290,7 +291,7 @@
                 <path d="M8 6l-6 6 6 6M16 6l6 6-6 6M14 4l-4 16" />
               </svg>
             </div>
-            <h3>Transform in plain SQL</h3>
+            <h2>Transform in plain SQL</h2>
             <p>Write a query, preview the rows, ship it.<br />Versioned and reviewed like code.</p>
           </article>
           <article id="card-ops" class="card card--dark" data-liquid>
@@ -300,7 +301,7 @@
                 <path d="M8.5 12l2.5 2.5 4.5-5" />
               </svg>
             </div>
-            <h3>Runs while you sleep</h3>
+            <h2>Runs while you sleep</h2>
             <p>Automatic retries, backfills and alerts.<br />99.95% uptime, SOC 2 Type II.</p>
           </article>
         </section>
