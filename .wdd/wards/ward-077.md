@@ -61,7 +61,35 @@ Consequence: a person opening the demo sees the default renderer; one approved t
 Decision: APPROVED 2026-10-10 — demo index links scenes with ?renderer=auto; scene default stays canvas2d (saga dec_eab87afb)
 
 ## Specification
-To be written in the W77 plan after the gate.
+Plan: `docs/superpowers/plans/2026-10-10-fluid-slice-4/W77.md`. Spec: `docs/superpowers/specs/2026-10-02-liquiddom-fluid-design.md` §2 (cohesion map, line ~224; shake row, line ~172), §3 (kernel cap, line ~251; overdraw risk, line ~519), amended in W77.6.
+
+**W77.0 baseline (2026-10-10, at 9de5607, real WASM, seed 1, manual clock, 1280×800, DPR 1).** Probe: a temporary Playwright spec (never committed) using the guards' own helpers in `e2e/lace.ts`, run in the `perf` project (canvas2d, headless shell, the same browser as the blocking `canvas2d` project) and `webgpu-hw` (Metal).
+
+| Measure | Method | Canvas2D | WebGPU |
+|---|---|---|---|
+| Acceptance card lace, f10 / f20 after `shake()` | `cardTearPixels` (W73 closing-r4, `#263238`) | 1175 / 831 | 972 / 573 |
+| Landing dark card lace, f10 / f20 (peak f1–30, Σ f1–30) | `regionTearPixels(#card-ops, #111827, margin 40)` | 5232 / 1805 (5636, 72,203) | 3938 / 1316 (4282, 54,139) |
+| "Book a demo" specks after an API splash on "Start free", peak / Σ f1–60 / last frame | `specksInside(#demo, inset 6, caps excluded)` | 307 / 11,542 / f46 | 238 / 8,947 / f46 |
+| Same after a click on "Start free" (landing.spec's path), peak / Σ | same | 307 / 11,544 | 238 / 8,948 |
+| Re-form after a splash on `#splash` (frames), default / water / honey / jelly | `setMaterial(preset)`, 30 frames, `splash()`, frames until every restAlpha is 1 | 144 / 135 / **285** / 123 | 144 / 135 / **285** / 123 |
+| Re-form after `shake()` (frames), default / water / honey / jelly | same, `shake()` | 142 / 129 / **279** / 106 | 142 / 129 / **279** / 106 |
+| Frame cost on the shake, median wall ms of `advance(1)` over f1–40 (3 runs) | acceptance / landing | 22.06–22.81 / 24.81–25.54 (medians 22.53 / 25.10, ratio 1.114; a first run 1.122) | 4.35–4.41 / 4.48–4.69 |
+
+The spike's numbers (its table above) used the chromium channel and a margin of 80 px; the guard margin is 40 px because at 80 px the region reaches the corner of "Book a demo" (`#111827` as well, 48 px from the dark card). The headless shell's absolute Canvas2D frame cost differs from the spike's (22 vs 10 ms), so the frame-cost guard is normalised by the acceptance shake, which D77-1 leaves alone (R 7.09 px, 2 px grid).
+
+**Rust at D77-2's constants (scratch copy, never the worktree):** `TENSION_MAX_MAX 0.90` + `SHAKE_PROFILE_AMPLITUDE 0.35` fails exactly the six pins the red changes below and the W70 slosh floor: peak non-rigid RMS [Splash, Split, Merge, card] = [16.46, **11.52**, 21.90, 25.39] px (today [21.42, 14.88, 31.59, 36.65]) against floors 12 / 24. Re-form evidence there: splash 129 (+10), shake 130 (+10), D74-2 splash 139 frames (today 135 / 126 / 145). With the red tests applied the scratch copy passes `170 passed; 0 failed; 2 ignored`.
+
+**Guard thresholds (red):**
+- Acceptance card lace (D77-2, approved-test change of D73-3's 1699 / 915): ≤ **300** tear px at f10 and at f20 (spike 99 / 176: 3.0× / 1.7× margin; 26 % / 36 % of today). Canvas2D blocking, WebGPU in webgpu-hw.
+- Landing dark card lace (D77-2): ≤ **400** region tear px at f10 and at f20 (spike 8 / 40 at margin 80; 7.6 % / 22 % of today). The spike had no Canvas2D grid scaling (D77-1's 3.5 px cells on this page, set by the pills' R 13.04 px), hence the wider margin. Canvas2D blocking (`landing.spec.ts`), WebGPU in webgpu-hw.
+- Neighbour specks (D77-1): peak ≤ **16** px inside "Book a demo" over f1–60 after a splash on "Start free" (spike 0 with cap 16; today 307 / 238). Canvas2D blocking, WebGPU in webgpu-hw.
+- Re-form (D77-2, D77-3): water, honey and jelly re-form within the NORTH-STAR step-3 (splash) and step-6 (shake) budgets, 180 frames each, read from `.wdd/NORTH-STAR.md`; honey's splash re-form stays longer than water's. Canvas2D blocking, WebGPU in webgpu-hw.
+- Canvas2D frame cost (D77-1): median landing-shake frame / median acceptance-shake frame ≤ **1.29** = baseline 1.12 × 1.15 (perf project, non-blocking; the spike's cap 16 without the grid scaling, +78 % on the landing page, fails it).
+- Slosh floors (W70 D70-5, consequence of D77-2): card 24 → **20** px, pills 12 → **10** px (still 1.5× W67's white-noise peak 6.64 px). Dennis confirms at red.
+
+**D77-1 grid rule (W77.2):** `densityCellPx(R) = max(2, ceil(min(R, 16)) / 4)` CSS px for the largest kernel radius R among the frame's paints (a bad R takes the cap); the Canvas2D renderer reallocates its density buffer only when that cell changes. Acceptance R 7.09–7.36 px → 2 px (unchanged); landing R 12.47 / 13.04 px → 3.25 / 3.5 px, so the landing page (largest R 13.04) runs at 3.5 px; R 16 → 4 px. A splat touches ≈ π·(R/cell)² ≈ 50 cells at every R, as at R 8 px on 2 px cells.
+
+**D77-3 procedure (W77.3):** after D77-2, measure honey's splash and shake re-form (canvas2d manual clock, seed 1, the W77 e2e helper); lower `recovery` from 1.6 s in steps of 0.2 s with viscosity 0.9 and cohesion 0.7 fixed until both are ≤ 165 frames (15-frame margin under 180); if recovery reaches 0.8 s (water's 0.5 s + 0.3 s) without it, lower viscosity in steps of 0.05 instead; stop at the first pair that passes and keeps honey's splash re-form > water's. Pin the result in `material-api.test.ts` (approved-test change of W68's pin, D77-3).
 
 ## Tests
 
