@@ -3,8 +3,10 @@
 //! proper matrix, and the per-substep update with the sticky `torn` hysteresis. Pure,
 //! allocation-free and panic-free. Matrices are row-major `[m00, m01, m10, m11]`, like C.
 //!
-//! W74.1 (red): the constants and `mul2` are final; the other functions are stubs that
-//! W74.2 replaces.
+//! Closed form (J. Blinn, "Consider the lowly 2×2 matrix"): with E = (a + d)/2,
+//! F = (a − d)/2, G = (c + b)/2, H = (c − b)/2, Q = √(E² + H²), R = √(F² + G²):
+//! M = R(φ)·diag(Q + R, Q − R)·R(θ), φ = (atan2(H, E) + atan2(G, F))/2,
+//! θ = (atan2(H, E) − atan2(G, F))/2, R(t) the rotation by t. Q − R < 0 ⇔ det M < 0.
 
 use super::particles::IDENTITY;
 use super::solver::SLIP_RATE_PER_S;
@@ -30,30 +32,119 @@ pub fn mul2(m: [f32; 4], n: [f32; 4]) -> [f32; 4] {
     [a * e + b * g, a * f + b * h, c * e + d * g, c * f + d * h]
 }
 
-/// W74.1 stub (W74.2 implements it).
-pub fn svd2(_f: [f32; 4]) -> ([f32; 4], [f32; 2], [f32; 4]) {
-    (IDENTITY, [1.0, 1.0], IDENTITY)
+/// Blinn's terms of `m`: (E, F, G, H, Q, R). `sqrt` instead of `hypot`: F stays within
+/// σ ∈ [0.2, 5], far from overflow, and this runs per particle per substep.
+#[inline]
+fn blinn(m: [f32; 4]) -> (f32, f32, f32, f32, f32, f32) {
+    let [a, b, c, d] = m;
+    let e = 0.5 * (a + d);
+    let f = 0.5 * (a - d);
+    let g = 0.5 * (c + b);
+    let h = 0.5 * (c - b);
+    (e, f, g, h, (e * e + h * h).sqrt(), (f * f + g * g).sqrt())
 }
 
-/// W74.1 stub (W74.2 implements it).
+/// (φ, θ) of the closed form.
+#[inline]
+fn angles(e: f32, f: f32, g: f32, h: f32) -> (f32, f32) {
+    let (a1, a2) = (g.atan2(f), h.atan2(e));
+    (0.5 * (a2 + a1), 0.5 * (a2 - a1))
+}
+
+/// R(t) = [[cos t, −sin t], [sin t, cos t]].
+#[inline]
+fn rot(t: f32) -> [f32; 4] {
+    let (s, c) = t.sin_cos();
+    [c, -s, s, c]
+}
+
+/// Closed-form 2×2 SVD: `F = U·diag(σ)·Vᵀ`, σ = [σ1, σ2] with σ1 ≥ σ2 ≥ 0. U is a rotation;
+/// V is a rotation when det F ≥ 0 and a reflection when det F < 0. No allocation.
+pub fn svd2(f: [f32; 4]) -> ([f32; 4], [f32; 2], [f32; 4]) {
+    let (e, ff, g, h, q, r) = blinn(f);
+    let (phi, theta) = angles(e, ff, g, h);
+    let sy = q - r;
+    // Vᵀ = diag(1, sign(sy))·R(θ), so U·diag(σ1, |sy|)·Vᵀ = R(φ)·diag(σ1, sy)·R(θ) = F.
+    let [t0, t1, t2, t3] = rot(theta);
+    let s = if sy < 0.0 { -1.0 } else { 1.0 };
+    (rot(phi), [q + r, sy.abs()], [t0, s * t2, t1, s * t3])
+}
+
+/// Spec §2 safety clamp: F is returned unchanged when σ1 ≤ F_SIGMA_MAX and the signed
+/// σ2 ≥ F_SIGMA_MIN (which implies det F > 0). Otherwise both singular values are clamped into
+/// the band and a negative det is flipped to the nearest proper matrix (σ2 changes sign);
+/// `hit_clamp` is true.
 pub fn clamp_f(f: [f32; 4]) -> ([f32; 4], bool) {
-    (f, false)
+    let (e, ff, g, h, q, r) = blinn(f);
+    let (sx, sy) = (q + r, q - r);
+    if sx <= F_SIGMA_MAX && sy >= F_SIGMA_MIN {
+        return (f, false);
+    }
+    (clamped(e, ff, g, h, sx, sy), true)
 }
 
-/// W74.1 stub (W74.2 implements it).
-pub fn update_f(
-    f: [f32; 4],
-    _c: [f32; 4],
-    _dt: f32,
-    _stiffness: f32,
-    torn: bool,
-) -> ([f32; 4], bool) {
-    (f, torn)
+/// `R(φ)·diag(clamp(sx), clamp(|sy|))·R(θ)` from Blinn's terms without trigonometry (a clamped
+/// particle is re-clamped on every substep, so this is hot): F is the sum of its conformal part
+/// Q = [[E, −H], [H, E]] (= q·R(φ+θ)) and its anticonformal part A = [[F, G], [G, −F]]
+/// (= r·R(φ)·diag(1, −1)·R(θ)), so scaling them by q'/q and r'/r with q' = (σ1' + σ2')/2 and
+/// r' = (σ1' − σ2')/2 gives the clamped matrix. Only q ≈ 0 (a pure reflection-scale, where
+/// R(φ+θ) is undefined) takes the angle path. Plan validation 2026-10-10: the native F-cost
+/// ratio fell from 1.31 (angles) to 1.22.
+#[inline]
+fn clamped(e: f32, ff: f32, g: f32, h: f32, sx: f32, sy: f32) -> [f32; 4] {
+    let s1 = sx.clamp(F_SIGMA_MIN, F_SIGMA_MAX);
+    let s2 = sy.abs().clamp(F_SIGMA_MIN, F_SIGMA_MAX);
+    let q = 0.5 * (sx + sy);
+    let r = 0.5 * (sx - sy);
+    if q <= 1e-6 {
+        let (phi, theta) = angles(e, ff, g, h);
+        return mul2(mul2(rot(phi), [s1, 0.0, 0.0, s2]), rot(theta));
+    }
+    let kq = 0.5 * (s1 + s2) / q;
+    let ka = if r > 1e-6 { 0.5 * (s1 - s2) / r } else { 0.0 };
+    [
+        kq * e + ka * ff,
+        ka * g - kq * h,
+        kq * h + ka * g,
+        kq * e - ka * ff,
+    ]
 }
 
-/// W74.1 stub (W74.2 implements it).
-pub fn f_dev(_f: [f32; 4]) -> f32 {
-    0.0
+/// ‖F − I‖ (Frobenius), D74-2's rest measure.
+#[inline]
+pub fn f_dev(f: [f32; 4]) -> f32 {
+    let [a, b, c, d] = f;
+    ((a - 1.0) * (a - 1.0) + b * b + c * c + (d - 1.0) * (d - 1.0)).sqrt()
+}
+
+/// One substep of the render-only F (spec §2, D74-1, D74-3): `F ← (I + dt·C)·F`, the slip
+/// `F ← F + k·(I − F)` with `k = clamp(dt·F_SLIP_RATE_PER_S·s², 0, 1)` (s clamped to [0, 1],
+/// non-finite → 1), then `clamp_f`. `torn` is sticky: set when the clamp hits, cleared only
+/// when both singular values of the new F lie in [TORN_CLEAR_MIN, TORN_CLEAR_MAX]. A
+/// non-finite intermediate F (from F, C or dt) gives `(I, true)`.
+pub fn update_f(f: [f32; 4], c: [f32; 4], dt: f32, stiffness: f32, torn: bool) -> ([f32; 4], bool) {
+    let [c00, c01, c10, c11] = c;
+    let mut g = mul2([1.0 + dt * c00, dt * c01, dt * c10, 1.0 + dt * c11], f);
+    let s = if stiffness.is_finite() {
+        stiffness.clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let k = (dt * F_SLIP_RATE_PER_S * s * s).clamp(0.0, 1.0);
+    for (gi, id) in g.iter_mut().zip(IDENTITY) {
+        *gi += k * (id - *gi);
+    }
+    if !g.iter().all(|v| v.is_finite()) {
+        return (IDENTITY, true);
+    }
+    // `clamp_f` inlined so Blinn's terms are computed once per particle and substep (hot path).
+    let (e, ff, gg, h, q, r) = blinn(g);
+    let (sx, sy) = (q + r, q - r);
+    if sx <= F_SIGMA_MAX && sy >= F_SIGMA_MIN {
+        let healed = sy >= TORN_CLEAR_MIN && sx <= TORN_CLEAR_MAX;
+        return (g, torn && !healed);
+    }
+    (clamped(e, ff, gg, h, sx, sy), true)
 }
 
 #[cfg(test)]

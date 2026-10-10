@@ -2,6 +2,7 @@
 //! home, rest_u, rest_v, flags`), plus the per-generation rank and mass.
 
 use super::access::{wr, wr4};
+use super::layout::FLAG_TORN;
 
 pub const NO_HOME: u32 = u32::MAX;
 pub const IDENTITY: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
@@ -57,13 +58,24 @@ impl Particles {
         }
     }
 
-    /// v = 0, C = 0, J = 1, F = I.
+    /// v = 0, C = 0, J = 1, and (W74) `reset_deformation`: the reduced-motion pin leaves no
+    /// particle torn.
     pub fn reset_kinematics(&mut self, i: usize) {
         wr(&mut self.vx, i, 0.0);
         wr(&mut self.vy, i, 0.0);
         wr4(&mut self.c, i, [0.0; 4]);
         wr(&mut self.j, i, 1.0);
+        self.reset_deformation(i);
+    }
+
+    /// W74 (D74-2, D74-3): F = I and `torn` cleared; other flag bits, positions and velocities
+    /// stay. Used by `reset_kinematics` and by `pool::redistribute` for a refilled particle,
+    /// whose new rest_uv makes its old render-only F meaningless.
+    pub fn reset_deformation(&mut self, i: usize) {
         wr4(&mut self.f, i, IDENTITY);
+        if let Some(flags) = self.flags.get_mut(i) {
+            *flags &= !FLAG_TORN;
+        }
     }
 }
 
