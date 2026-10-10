@@ -26,7 +26,8 @@ const cell = (px: number) => Math.floor(px / 2);
 describe("W64 DensityGrid", () => {
   it("given_kernel_constants_when_read_then_pinned_to_spec_values", () => {
     expect(KERNEL_RADIUS_PER_SPACING).toBe(2.3);
-    expect(KERNEL_RADIUS_CAP_PX).toBe(8);
+    // W77 red: approved-test change (D77-1, approved 2026-10-10, saga dec_279c7763)
+    expect(KERNEL_RADIUS_CAP_PX).toBe(16);
     expect(DENSITY_THRESHOLD).toBe(0.5);
   });
 
@@ -80,7 +81,7 @@ describe("W64 DensityGrid", () => {
     const g = new DensityGrid(2);
     g.resize(400, 300);
     lattice(g, 20, 40, 120, 100, 2, RED); // R = 4.6 px
-    lattice(g, 220, 40, 120, 100, 4, BLUE); // R = 9.2 → capped at 8 px
+    lattice(g, 220, 40, 120, 100, 4, BLUE); // R = 9.2 px (W77, D77-1: under the 16 px cap; was capped at 8)
     expect(Math.abs(g.density(cell(81), cell(91)) - 1)).toBeLessThan(0.06);
     expect(Math.abs(g.density(cell(281), cell(91)) - 1)).toBeLessThan(0.06);
   });
@@ -98,13 +99,14 @@ describe("W64 DensityGrid", () => {
     expect(g.density(cell(101), cell(71))).toBeCloseTo(4, 0);
   });
 
-  it("given_radius_request_above_8px_when_splatting_then_capped_at_8px", () => {
+  it("given_radius_request_above_16px_when_splatting_then_capped_at_16px", () => {
+    // W77 red: approved-test change (D77-1, approved 2026-10-10, saga dec_279c7763): the cap is 16 px (was 8: 6 px inside, 8 px outside).
     const g = new DensityGrid(2);
     g.resize(400, 300);
-    g.splat(101, 101, 50, 20, RED);
+    g.splat(101, 101, 50, 40, RED);
     expect(g.density(cell(101), cell(101))).toBeGreaterThan(0);
-    expect(g.density(cell(107), cell(101))).toBeGreaterThan(0); // 6 px away
-    expect(g.density(cell(109), cell(101))).toBe(0); // 8 px away: outside the capped kernel
+    expect(g.density(cell(115), cell(101))).toBeGreaterThan(0); // 14 px away
+    expect(g.density(cell(117), cell(101))).toBe(0); // 16 px away: outside the capped kernel
     let total = 0;
     for (let iy = 0; iy < g.height; iy++) for (let ix = 0; ix < g.width; ix++) total += g.density(ix, iy) * 4;
     expect(Math.abs(total - 50) / 50).toBeLessThan(0.05);

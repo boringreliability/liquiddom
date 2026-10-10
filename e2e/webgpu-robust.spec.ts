@@ -12,7 +12,23 @@ import AxeBuilder from "@axe-core/playwright";
 import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
 import { advanceAndCountOpaque, advanceAndCountOutside, advanceAndHash, advanceFrames } from "./frame-readback";
-import { SWIFTSHADER_RUNS_LIQUID } from "./projects";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { presets } from "../packages/core/ts/src/material";
+import {
+  LANDING_DARK_RGB,
+  W77_CARD_LACE_MAX_TEAR,
+  W77_LACE_FRAMES,
+  W77_LANDING_LACE_MAX_TEAR,
+  W77_SPECK_FRAMES,
+  W77_SPECK_MAX_PX,
+  cardTearPixels,
+  clientRectOf,
+  regionTearPixels,
+  specksInside,
+} from "./lace";
+import { NORTH_STAR_PATH, reformBudgetMs } from "./north-star";
+import { SWIFTSHADER_RUNS_LIQUID, VIEWPORT } from "./projects";
 import { VISUAL_ENABLED, VISUAL_SKIP_REASON, canvasPixelAt, cssAlpha } from "./scene";
 
 const FPS = 60;
@@ -895,4 +911,92 @@ test.describe("W75 – text that stays true (webgpu)", () => {
       }
     }
   });
+});
+
+// =============================================================================
+// W77 (D77-1 … D77-3): closed liquid under shake and splash in WebGPU on the hardware adapter.
+// The same guards as acceptance.spec.ts / landing.spec.ts (canvas2d, blocking); bounds in e2e/lace.ts.
+// =============================================================================
+const W77_HW_ONLY = "W77: hardware-adapter WebGPU; local webgpu-hw project only (fallback B)";
+const W77_NORTH_STAR = readFileSync(resolve(process.cwd(), NORTH_STAR_PATH), "utf8");
+const W77_SPLASH_BUDGET_FRAMES = Math.round((reformBudgetMs(W77_NORTH_STAR, 3) / 1000) * FPS);
+const W77_SHAKE_BUDGET_FRAMES = Math.round((reformBudgetMs(W77_NORTH_STAR, 6) / 1000) * FPS);
+type W77Instance = SceneInstance & { setMaterial(m: unknown): void };
+
+async function w77OpenLanding(page: Page): Promise<void> {
+  await page.goto("/scenes/landing.html?seed=1&renderer=webgpu&clock=manual&test=1");
+  await page.waitForFunction(() => window.__liquidTest !== undefined, undefined, { timeout: 15_000 });
+  await page.evaluate(() => window.__liquidTest!.ready);
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+  });
+  expect(await activeRenderer(page), "renderer=webgpu is active").toBe("webgpu");
+  await advanceFrames(page, IDLE_FRAMES);
+  await page.mouse.move(VIEWPORT.width - 1, VIEWPORT.height - 1);
+}
+
+test.describe("W77 – closed liquid under shake and splash (webgpu)", () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== HW_PROJECT, W77_HW_ONLY);
+  });
+
+  test("W77 D77-2 step 6 – given renderer webgpu and a shake when ticking then the acceptance card shows no lace: tear pixels at f10 and f20 within the W77 bound", async ({ page }) => {
+    await openAtRest(page);
+    await page.mouse.move(VIEWPORT.width - 1, VIEWPORT.height - 1);
+    await page.evaluate(() => (window.__liquidTest!.instance as SceneInstance).shake());
+    const [fa, fb] = W77_LACE_FRAMES;
+    await advanceFrames(page, fa);
+    const a = await cardTearPixels(page);
+    await advanceFrames(page, fb - fa);
+    const b = await cardTearPixels(page);
+    console.log(`W77 webgpu lace: card tear px f${fa} ${a}, f${fb} ${b} (bound ${W77_CARD_LACE_MAX_TEAR}; W77.0 webgpu 972 / 573)`);
+    expect.soft(a, `card tear px at f${fa} (D77-2)`).toBeLessThanOrEqual(W77_CARD_LACE_MAX_TEAR);
+    expect(b, `card tear px at f${fb} (D77-2)`).toBeLessThanOrEqual(W77_CARD_LACE_MAX_TEAR);
+  });
+
+  test("W77 D77-2 – given renderer webgpu on the landing page and a shake when ticking then the dark card shows no lace: region tear pixels at f10 and f20 within the W77 bound", async ({ page }) => {
+    await w77OpenLanding(page);
+    const card = await clientRectOf(page, "#card-ops");
+    await page.evaluate(() => (window.__liquidTest!.instance as SceneInstance).shake());
+    const [fa, fb] = W77_LACE_FRAMES;
+    await advanceFrames(page, fa);
+    const a = await regionTearPixels(page, LANDING_DARK_RGB, card);
+    await advanceFrames(page, fb - fa);
+    const b = await regionTearPixels(page, LANDING_DARK_RGB, card);
+    console.log(`W77 webgpu landing lace: dark card tear px f${fa} ${a}, f${fb} ${b} (bound ${W77_LANDING_LACE_MAX_TEAR}; W77.0 webgpu 3938 / 1316)`);
+    expect.soft(a, `dark card tear px at f${fa} (D77-2)`).toBeLessThanOrEqual(W77_LANDING_LACE_MAX_TEAR);
+    expect(b, `dark card tear px at f${fb} (D77-2)`).toBeLessThanOrEqual(W77_LANDING_LACE_MAX_TEAR);
+  });
+
+  test("W77 D77-1 – given renderer webgpu and a splash on Start free when ticking then Book a demo shows no specks", async ({ page }) => {
+    await w77OpenLanding(page);
+    const demo = await clientRectOf(page, "#demo");
+    expect(await specksInside(page, demo), "no speck at rest").toBe(0);
+    await page.evaluate(() => (window.__liquidTest!.instance as SceneInstance).splash(document.getElementById("start")!));
+    const series: number[] = [];
+    for (let f = 1; f <= W77_SPECK_FRAMES; f++) {
+      await advanceFrames(page, 1);
+      series.push(await specksInside(page, demo));
+    }
+    const peak = Math.max(...series);
+    console.log(`W77 webgpu specks: Book a demo peak ${peak} px at f${series.indexOf(peak) + 1} (bound ${W77_SPECK_MAX_PX}; W77.0 webgpu 238)`);
+    expect(peak, `peak speck px inside Book a demo over ${W77_SPECK_FRAMES} frames (D77-1)`).toBeLessThanOrEqual(W77_SPECK_MAX_PX);
+  });
+
+  for (const preset of ["water", "honey", "jelly"] as const) {
+    test(`W77 D77-3 – given renderer webgpu and the ${preset} preset when Splash is splashed and later the instance shakes then each re-forms within the NORTH-STAR budgets`, async ({ page }) => {
+      await openAtRest(page);
+      await page.mouse.move(VIEWPORT.width - 1, VIEWPORT.height - 1);
+      await page.evaluate((m) => (window.__liquidTest!.instance as W77Instance).setMaterial(m), { ...presets[preset] });
+      await advanceFrames(page, 30);
+      await page.evaluate(() => (window.__liquidTest!.instance as SceneInstance).splash(document.getElementById("splash")!));
+      const splash = await framesUntilAllRest(page, W77_SPLASH_BUDGET_FRAMES);
+      await advanceFrames(page, 30);
+      await page.evaluate(() => (window.__liquidTest!.instance as SceneInstance).shake());
+      const shake = await framesUntilAllRest(page, W77_SHAKE_BUDGET_FRAMES);
+      console.log(`W77 webgpu re-form: ${preset} splash ${splash}, shake ${shake} frames (budgets ${W77_SPLASH_BUDGET_FRAMES} / ${W77_SHAKE_BUDGET_FRAMES})`);
+      expect.soft(splash, `${preset}: re-formed within ${W77_SPLASH_BUDGET_FRAMES} frames after the splash`).toBeGreaterThan(0);
+      expect(shake, `${preset}: re-formed within ${W77_SHAKE_BUDGET_FRAMES} frames after the shake`).toBeGreaterThan(0);
+    });
+  }
 });

@@ -1,6 +1,10 @@
 import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
-import { cardTearPixels } from "./lace";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { presets } from "../packages/core/ts/src/material";
+import { W77_CARD_LACE_MAX_TEAR, cardTearPixels } from "./lace";
+import { NORTH_STAR_PATH, reformBudgetMs } from "./north-star";
 import { SWIFTSHADER_RUNS_LIQUID } from "./projects";
 import { IDLE_2S_FRAMES, VISUAL_ENABLED, VISUAL_SKIP_REASON, advance, cssAlpha, gotoScene, projectRenderer, restAlpha } from "./scene";
 
@@ -108,10 +112,15 @@ const W67_VISION_DIR = "test-results/vision-w67";
 // Sources (W73 session scratchpad): sweep/browser_metrics.jsonl (amp 0.5/T 0.16/cap 0.3, seed 1:
 // tear10 1133, tear20 610; WebGPU/Metal, the sweep has no Canvas2D runs — the investigation found
 // Canvas2D ≈ WebGPU within ~6 %) and tears_base.json runs/c2d_base (amp 0.8/cap 0.2: f10 4921, f20 2430).
-/** D73-3: min(1.5 × 1133, 0.5 × 4921) = min(1699.5, 2460.5). */
-const W73_LACE_MAX_TEAR_F10 = 1699;
-/** D73-3: min(1.5 × 610, 0.5 × 2430) = min(915, 1215). */
-const W73_LACE_MAX_TEAR_F20 = 915;
+// W77 red: approved-test change (D77-2, approved 2026-10-10, saga dec_3ba590a1): the guard tightens
+// to the closed sheet. W77.0 (canvas2d, seed 1): today 1175 / 831; the W77 spike at cap 16 +
+// tension 0.46 + amplitude 0.35 measured 99 / 176 (the acceptance kernel R 7.09 px stays below
+// both caps and its density grid stays 2 px, so D77-1 does not move this scene). Bound 300 at
+// both frames: 3.0× / 1.7× the spike's value, 26 % / 36 % of today's.
+/** D77-2 (was D73-3's 1699). */
+const W73_LACE_MAX_TEAR_F10 = W77_CARD_LACE_MAX_TEAR;
+/** D77-2 (was D73-3's 915). */
+const W73_LACE_MAX_TEAR_F20 = W77_CARD_LACE_MAX_TEAR;
 
 type W67Hook = {
   ready: Promise<void>;
@@ -364,7 +373,8 @@ test.describe("slice 2 – splash and shake (W67)", () => {
     await expect(page).toHaveScreenshot("acceptance-step6-shake-f20.png", { maxDiffPixelRatio: 0.01 });
   });
 
-  test("step 6 – given shake at seed 1 when ticking then the card shows no lace: tear pixels at f10 and f20 within the D73-3 bounds", async ({ page }) => {
+  // W77 red: approved-test change (D77-2): title and bounds (D73-3 → D77-2); method unchanged.
+  test("step 6 – given shake at seed 1 when ticking then the card shows no lace: tear pixels at f10 and f20 within the D77-2 bounds", async ({ page }) => {
     // D73-3: blocking in canvas2d only. Canvas2D shows the same lace as WebGPU at the same
     // manual frame (W73 investigation: f10 Canvas2D 4921 vs WebGPU 4650), so this covers both.
     test.skip(projectRenderer() !== "canvas2d", "D73-3: the lace guard runs in the canvas2d project");
@@ -374,9 +384,71 @@ test.describe("slice 2 – splash and shake (W67)", () => {
     const f10 = await cardTearPixels(page);
     await w67Advance(page, 10);
     const f20 = await cardTearPixels(page);
-    console.log(`W73 lace guard: card tear px f10 ${f10} (bound ${W73_LACE_MAX_TEAR_F10}), f20 ${f20} (bound ${W73_LACE_MAX_TEAR_F20})`);
-    expect.soft(f10, "card tear px at f10 (D73-3)").toBeLessThanOrEqual(W73_LACE_MAX_TEAR_F10);
-    expect(f20, "card tear px at f20 (D73-3)").toBeLessThanOrEqual(W73_LACE_MAX_TEAR_F20);
+    console.log(`W77 lace guard: card tear px f10 ${f10} (bound ${W73_LACE_MAX_TEAR_F10}), f20 ${f20} (bound ${W73_LACE_MAX_TEAR_F20})`);
+    expect.soft(f10, "card tear px at f10 (D77-2)").toBeLessThanOrEqual(W73_LACE_MAX_TEAR_F10);
+    expect(f20, "card tear px at f20 (D77-2)").toBeLessThanOrEqual(W73_LACE_MAX_TEAR_F20);
+  });
+});
+
+// =============================================================================
+// W77 (D77-2, D77-3): every preset re-forms within the NORTH-STAR budgets after the cohesion
+// remap, and honey re-forms within the splash budget while it stays slower than water.
+// =============================================================================
+const W77_NORTH_STAR = readFileSync(resolve(process.cwd(), NORTH_STAR_PATH), "utf8");
+/** NORTH-STAR step 3 (splash) and step 6 (shake), in 60 Hz frames (180 each today). */
+const W77_SPLASH_BUDGET_FRAMES = Math.round((reformBudgetMs(W77_NORTH_STAR, 3) / 1000) * W67_FPS);
+const W77_SHAKE_BUDGET_FRAMES = Math.round((reformBudgetMs(W77_NORTH_STAR, 6) / 1000) * W67_FPS);
+/** Frames the material settles after setMaterial before the splash (the W77.0 probe's value). */
+const W77_MATERIAL_SETTLE_FRAMES = 30;
+
+type W77Hook = W67Hook & { instance: W67Hook["instance"] & { setMaterial(m: unknown): void } };
+
+/** Frames from a splash on #splash (API, strength 1) until every restAlpha is 1, at most `budget`; -1 if it runs out. */
+async function w77SplashReform(page: Page, preset: keyof typeof presets, budget: number): Promise<number> {
+  await w67Open(page);
+  await page.evaluate((m) => (window as unknown as { __liquidTest: W77Hook }).__liquidTest.instance.setMaterial(m), { ...presets[preset] });
+  await w67Advance(page, W77_MATERIAL_SETTLE_FRAMES);
+  await page.evaluate(() => (window as unknown as { __liquidTest: W77Hook }).__liquidTest.instance.splash(document.getElementById("splash")!));
+  return w67FramesUntilAllRest(page, budget);
+}
+
+/** Frames from a shake (strength 1) until every restAlpha is 1, at most `budget`; -1 if it runs out. */
+async function w77ShakeReform(page: Page, preset: keyof typeof presets, budget: number): Promise<number> {
+  await w67Open(page);
+  await page.evaluate((m) => (window as unknown as { __liquidTest: W77Hook }).__liquidTest.instance.setMaterial(m), { ...presets[preset] });
+  await w67Advance(page, W77_MATERIAL_SETTLE_FRAMES);
+  await page.evaluate(() => (window as unknown as { __liquidTest: W77Hook }).__liquidTest.instance.shake());
+  return w67FramesUntilAllRest(page, budget);
+}
+
+test.describe("W77 – presets re-form within the budgets (D77-2, D77-3)", () => {
+  test.beforeEach(() => {
+    // The solver is shared by both renderers; webgpu-robust.spec.ts repeats this in webgpu-hw.
+    test.skip(projectRenderer() !== "canvas2d", "W77: canvas2d project (webgpu-hw: webgpu-robust.spec.ts W77 block)");
+  });
+
+  for (const preset of ["water", "honey", "jelly"] as const) {
+    test(`D77-3 – given the ${preset} preset when Splash is splashed then every restAlpha returns to 1 within the NORTH-STAR step-3 budget`, async ({ page }) => {
+      const frames = await w77SplashReform(page, preset, W77_SPLASH_BUDGET_FRAMES);
+      console.log(`W77 re-form: ${preset} splash ${frames} frames (budget ${W77_SPLASH_BUDGET_FRAMES}; W77.0: water 135, honey 285, jelly 123)`);
+      expect(frames, `${preset}: every restAlpha back to 1 within ${W77_SPLASH_BUDGET_FRAMES} frames after the splash`).toBeGreaterThan(0);
+    });
+
+    test(`D77-2 – given the ${preset} preset when the instance shakes then every restAlpha returns to 1 within the NORTH-STAR step-6 budget`, async ({ page }) => {
+      const frames = await w77ShakeReform(page, preset, W77_SHAKE_BUDGET_FRAMES);
+      console.log(`W77 re-form: ${preset} shake ${frames} frames (budget ${W77_SHAKE_BUDGET_FRAMES}; W77.0: water 129, honey 279, jelly 106)`);
+      expect(frames, `${preset}: every restAlpha back to 1 within ${W77_SHAKE_BUDGET_FRAMES} frames after the shake`).toBeGreaterThan(0);
+    });
+  }
+
+  test("D77-3 – given honey and water when Splash is splashed then honey re-forms more slowly than water (it still reads thicker)", async ({ page }) => {
+    const long = 3 * W77_SPLASH_BUDGET_FRAMES;
+    const water = await w77SplashReform(page, "water", long);
+    const honey = await w77SplashReform(page, "honey", long);
+    console.log(`W77 honey vs water: splash re-form ${honey} vs ${water} frames`);
+    expect(water, "water re-forms").toBeGreaterThan(0);
+    expect(honey, "honey re-forms").toBeGreaterThan(0);
+    expect(honey, "honey is slower than water").toBeGreaterThan(water);
   });
 });
 

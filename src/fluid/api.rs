@@ -943,12 +943,13 @@ mod w67_tests {
                 core.max_j()
             );
         }
+        // W77 red: approved-test change (D77-2, approved 2026-10-10, saga dec_3ba590a1): cohesion 1 → 0.90, NaN → 0.46.
         core.set_material(0.5, 1.0, 0.7);
-        assert!((core.material_params().tension_max - 0.30).abs() < 1e-6);
+        assert!((core.material_params().tension_max - 0.90).abs() < 1e-6);
         core.set_material(f32::NAN, f32::NAN, f32::NAN);
         let p = core.material_params();
         assert!(
-            (p.tension_max - 0.16).abs() < 1e-6 && (p.recovery_s - 0.7).abs() < 1e-6,
+            (p.tension_max - 0.46).abs() < 1e-6 && (p.recovery_s - 0.7).abs() < 1e-6,
             "NaN → defaults"
         );
     }

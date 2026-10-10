@@ -70,7 +70,8 @@ function onePaintFrame(spacingPx: number): RenderFrame {
 
 describe("W71 kernel-params (D71-5)", () => {
   it("given_kernel_params_when_read_then_spec_values_and_density_grid_re_exports_them_instead_of_defining_its_own", () => {
-    expect(KERNEL_RADIUS_CAP_PX).toBe(8);
+    // W77 red: approved-test change (D77-1, approved 2026-10-10, saga dec_279c7763)
+    expect(KERNEL_RADIUS_CAP_PX).toBe(16);
     expect(KERNEL_RADIUS_PER_SPACING).toBe(2.3);
     expect(DENSITY_THRESHOLD).toBe(0.5);
     expect(EDGE_SOFTNESS).toBe(0.1);
@@ -84,12 +85,16 @@ describe("W71 kernel-params (D71-5)", () => {
   });
 
   it("given_a_spacing_when_kernelRadiusPx_then_min_of_the_cap_and_2_3_spacing_and_the_cap_for_non_finite_or_non_positive", () => {
+    // W77 red: approved-test change (D77-1, approved 2026-10-10, saga dec_279c7763): 2.3 × spacing up to the 16 px cap (was 8). The landing page's spacing 5.42–5.67 px
+    // now gets 12.47–13.04 px (was capped at 8 px = 1.45 × spacing).
     expect(kernelRadiusPx(2)).toBeCloseTo(4.6, 12);
     expect(kernelRadiusPx(3)).toBeCloseTo(6.9, 12);
-    expect(kernelRadiusPx(8 / 2.3)).toBeCloseTo(8, 12);
-    expect(kernelRadiusPx(4)).toBe(8);
-    expect(kernelRadiusPx(100)).toBe(8);
-    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) expect(kernelRadiusPx(bad), String(bad)).toBe(8);
+    expect(kernelRadiusPx(4)).toBeCloseTo(9.2, 12);
+    expect(kernelRadiusPx(5.42)).toBeCloseTo(12.466, 12);
+    expect(kernelRadiusPx(16 / 2.3)).toBeCloseTo(16, 12);
+    expect(kernelRadiusPx(8)).toBe(16);
+    expect(kernelRadiusPx(100)).toBe(16);
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) expect(kernelRadiusPx(bad), String(bad)).toBe(16);
   });
 
   it("given_kernelWeight_when_integrated_over_its_disk_then_it_returns_the_mass_and_it_is_zero_at_and_beyond_R", () => {
@@ -141,5 +146,79 @@ describe("W71 kernel-params (D71-5)", () => {
       for (const call of splat.mock.calls) expect(call[3]).toBe(kernelRadiusPx(spacing));
     }
     expect(readFileSync(resolve(RENDERERS, "fluid-canvas2d.ts"), "utf8")).toContain("kernelRadiusPx(paint.spacingPx)");
+  });
+});
+
+// =============================================================================
+// W77 (D77-1): the kernel reach follows the spacing up to 16 px, and the Canvas2D density grid
+// cell scales with the largest kernel radius so a splat touches as many cells as at R = 8 px on
+// the 2 px grid (the splat cost per particle stays flat on large-area pages).
+// =============================================================================
+
+/** Cells with density > 0 after one splat of radius `R` at an off-centre point on a grid of `scalePx`. */
+function touchedCells(scalePx: number, R: number): number {
+  const g = new grid.DensityGrid(scalePx);
+  g.resize(200, 200);
+  g.splat(100.3, 99.7, 9, R, [255, 0, 0, 1]);
+  let n = 0;
+  for (let iy = 0; iy < g.height; iy++) for (let ix = 0; ix < g.width; ix++) if (g.density(ix, iy) > 0) n++;
+  return n;
+}
+
+describe("W77 density grid cell (D77-1)", () => {
+  it("given_the_largest_kernel_radius_when_densityCellPx_then_max_of_2px_and_ceil_R_over_4_with_bad_or_oversized_radii_taking_the_cap", () => {
+    expect(grid.DEFAULT_SCALE_PX).toBe(2);
+    expect(grid.DENSITY_CELLS_PER_RADIUS).toBe(4);
+    const cell = grid.densityCellPx;
+    // The acceptance scene (R 7.09–7.36 px) keeps the 2 px grid: its frames do not change.
+    expect(cell(4.6)).toBe(2);
+    expect(cell(7.09)).toBe(2);
+    expect(cell(7.36)).toBe(2);
+    expect(cell(8)).toBe(2);
+    // Quarter-px steps above 8 px: ceil(R) / 4.
+    expect(cell(8.01)).toBe(2.25);
+    expect(cell(12.466)).toBe(3.25); // landing cards, spacing 5.42 px
+    expect(cell(13.04)).toBe(3.5); // landing pills, spacing 5.67 px
+    expect(cell(16)).toBe(4);
+    // A radius above the cap is capped first; a bad radius gets the cap (kernelRadiusPx's contract).
+    expect(cell(100)).toBe(4);
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) expect(cell(bad), String(bad)).toBe(4);
+  });
+
+  it("given_a_splat_at_R_on_the_densityCellPx_R_grid_when_counting_touched_cells_then_at_most_1_15x_a_splat_at_8px_on_the_2px_grid", () => {
+    const reference = touchedCells(2, 8);
+    expect(reference).toBeGreaterThan(40); // π·8²/2² ≈ 50 cells
+    for (const R of [kernelRadiusPx(5.42), kernelRadiusPx(5.67), 16]) {
+      const n = touchedCells(grid.densityCellPx(R), R);
+      expect(n, `R ${R.toFixed(2)} px on ${grid.densityCellPx(R)} px cells: ${n} vs ${reference}`).toBeLessThanOrEqual(1.15 * reference);
+    }
+    // Without the scaling the 16 px kernel touches ≈4× the cells (the spike's 12 → 21.5 ms Canvas2D frame).
+    expect(touchedCells(2, 16)).toBeGreaterThan(3 * reference);
+  });
+
+  it("given_paints_whose_largest_kernel_radius_changes_when_rendering_then_the_grid_cell_follows_densityCellPx_and_the_buffer_is_reallocated_only_on_a_change", async () => {
+    const r = new FluidCanvas2DRenderer();
+    await r.init(document.createElement("canvas"));
+    r.resize(200, 100, 1);
+    const created = (): unknown[][] => fake.contexts.flatMap((c) => c.ops("createImageData").map((op) => op.args));
+    expect(created().at(-1)).toEqual([100, 50]);
+
+    r.render(onePaintFrame(3.09)); // acceptance spacing: R 7.11 px
+    expect(r.densityCellPx).toBe(2);
+    const before = created().length;
+
+    r.render(onePaintFrame(5.42)); // landing card spacing: R 12.47 px
+    expect(r.densityCellPx).toBe(3.25);
+    expect(created().at(-1), "buffer sized to the new cell").toEqual([Math.ceil(200 / 3.25), Math.ceil(100 / 3.25)]);
+    const afterChange = created().length;
+    expect(afterChange).toBe(before + 1);
+
+    r.render(onePaintFrame(5.42));
+    r.render(onePaintFrame(5.42));
+    expect(created().length, "no reallocation while the cell stays the same").toBe(afterChange);
+
+    r.render(onePaintFrame(3.09));
+    expect(r.densityCellPx).toBe(2);
+    expect(created().at(-1)).toEqual([100, 50]);
   });
 });

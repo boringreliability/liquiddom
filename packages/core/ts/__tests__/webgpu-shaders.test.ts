@@ -20,7 +20,8 @@ describe("W71 WGSL sources", () => {
   });
 
   it("given_SPLAT_WGSL_when_read_then_it_embeds_the_shared_kernel_cap_normalises_by_pi_R2_over_3_and_skips_unassigned_or_resting_particles", () => {
-    expect(SPLAT_WGSL).toContain("const KERNEL_RADIUS_CAP_PX: f32 = 8.0;");
+    // W77 red: approved-test change (D77-1, approved 2026-10-10, saga dec_279c7763): the shared cap 8 → 16 px.
+    expect(SPLAT_WGSL).toContain("const KERNEL_RADIUS_CAP_PX: f32 = 16.0;");
     expect(SPLAT_WGSL).toContain("e.mass / (PI * r2 / 3.0)");
     expect(SPLAT_WGSL).toContain("home < 0");
     expect(SPLAT_WGSL).toContain("e.rest_alpha >= 1.0"); // D71-6: skipped at rest
@@ -49,7 +50,8 @@ describe("W71 WGSL sources", () => {
   });
 
   it("given_TEXT_WGSL_when_read_then_it_splats_t1_and_t1w_with_the_liquids_kernel_and_skips_resting_unpainted_or_textless_elements", () => {
-    expect(TEXT_WGSL).toContain("const KERNEL_RADIUS_CAP_PX: f32 = 8.0;");
+    // W77 red: approved-test change (D77-1, approved 2026-10-10, saga dec_279c7763): the shared cap 8 → 16 px.
+    expect(TEXT_WGSL).toContain("const KERNEL_RADIUS_CAP_PX: f32 = 16.0;");
     expect(TEXT_WGSL).toContain("e.mass / (PI * r2 / 3.0)");
     expect(TEXT_WGSL).toContain("1.0 / max(view.dpr * view.t0_scale, 1e-6)"); // the splat's T0-texel floor
     expect(TEXT_WGSL).toContain("e.rest_alpha >= 1.0");

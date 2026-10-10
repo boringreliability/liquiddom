@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
 import { gotoScene } from "./scene";
 import { summarize } from "./stats";
@@ -115,4 +116,54 @@ test("perf – webgpu (local hardware adapter): RAF p95 and splat overdraw are l
     `[perf webgpu] raf mean ${report.raf.mean.toFixed(3)} p95 ${report.raf.p95.toFixed(3)} ms; ` +
       `overdraw mean ${Math.round(report.overdraw.mean)} p95 ${Math.round(report.overdraw.p95)} max ${report.overdraw.max} fragments/frame`,
   );
+});
+
+// W77 (D77-1): the Canvas2D frame on the landing shake costs at most the W77.0 baseline + 15 %.
+// Normalised by the acceptance shake, whose kernel (R 7.09 px) and 2 px grid D77-1 leaves alone,
+// so the bound holds on any machine. W77.0 (perf project, M4 Pro, 3 runs × 40 frames, median of
+// medians): acceptance 22.53 ms, landing 25.10 ms → ratio 1.114 (a first run: 1.122). Bound
+// 1.12 × 1.15 = 1.29. The W77 spike measured cap 16 without the grid scaling at 12.1 → 21.5 ms
+// on the landing page (+78 %), which this bound rejects.
+const W77_FRAME_RATIO_BASELINE = 1.12;
+const W77_FRAME_RATIO_MAX = 1.29;
+const W77_COST_FRAMES = 40;
+const W77_COST_RUNS = 3;
+
+/** Median wall ms of `advance(1)` over the first W77_COST_FRAMES frames after `shake()` (seed 1, manual clock). */
+async function shakeFrameMedianMs(page: Page, scene: "acceptance" | "landing"): Promise<number> {
+  await page.goto(`/scenes/${scene}.html?seed=1&renderer=canvas2d&clock=manual&test=1`);
+  await page.waitForFunction(() => window.__liquidTest !== undefined, undefined, { timeout: 15_000 });
+  await page.evaluate(() => window.__liquidTest!.ready);
+  await page.evaluate(() => window.__liquidTest!.advance(120));
+  await page.mouse.move(1279, 799);
+  const ms = await page.evaluate((n) => {
+    (window.__liquidTest!.instance as { shake(): void }).shake();
+    const out: number[] = [];
+    for (let f = 0; f < n; f++) {
+      const t = performance.now();
+      window.__liquidTest!.advance(1);
+      out.push(performance.now() - t);
+    }
+    return out.sort((a, b) => a - b);
+  }, W77_COST_FRAMES);
+  return ms[Math.floor(ms.length / 2)];
+}
+
+const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+
+test("perf – W77 D77-1: the Canvas2D frame on the landing shake costs at most the W77.0 baseline + 15 % (normalised by the acceptance shake)", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "perf", "the canvas2d frame-cost guard runs in the perf project");
+  test.setTimeout(180_000);
+  const acceptance: number[] = [];
+  const landing: number[] = [];
+  for (let k = 0; k < W77_COST_RUNS; k++) {
+    acceptance.push(await shakeFrameMedianMs(page, "acceptance"));
+    landing.push(await shakeFrameMedianMs(page, "landing"));
+  }
+  const ratio = median(landing) / median(acceptance);
+  console.log(
+    `[perf W77] canvas2d shake frame median: acceptance ${median(acceptance).toFixed(2)} ms, landing ${median(landing).toFixed(2)} ms, ` +
+      `ratio ${ratio.toFixed(3)} (baseline ${W77_FRAME_RATIO_BASELINE}, bound ${W77_FRAME_RATIO_MAX})`,
+  );
+  expect(ratio, "landing / acceptance Canvas2D shake frame cost (D77-1: ≤ baseline + 15 %)").toBeLessThanOrEqual(W77_FRAME_RATIO_MAX);
 });

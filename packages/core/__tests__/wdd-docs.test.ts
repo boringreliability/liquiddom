@@ -825,8 +825,21 @@ describe("W76: the landing page scene is linked from the demo index (D76-2)", ()
   it("given_demo_index_when_read_then_its_heading_says_slice_4_and_it_links_the_landing_scene", () => {
     const index = read(resolve(ROOT, "demo/index.html"));
     expect(index).toContain("<h1>liquiddom: fluid engine (slice 4)</h1>");
-    expect(index).toContain('<a href="scenes/landing.html">Landing page</a>');
+    // W77 red: approved-test change (D77-4, approved 2026-10-10, saga dec_eab87afb): the index opens the scenes with renderer=auto (was "scenes/landing.html").
+    expect(index).toContain('<a href="scenes/landing.html?renderer=auto">Landing page</a>');
     expect(existsSync(resolve(ROOT, "demo/scenes/landing.html")), "missing demo/scenes/landing.html").toBe(true);
     expect(existsSync(resolve(ROOT, "demo/scenes/landing.ts")), "missing demo/scenes/landing.ts").toBe(true);
+  });
+});
+
+describe("W77: the demo index opens scenes as a library user sees them (D77-4)", () => {
+  it("given_demo_index_when_read_then_acceptance_landing_splash_and_playground_are_linked_with_renderer_auto", () => {
+    const index = read(resolve(ROOT, "demo/index.html"));
+    for (const scene of ["acceptance", "landing", "splash", "playground"]) {
+      expect(index, `scenes/${scene}.html is linked with ?renderer=auto`).toContain(`href="scenes/${scene}.html?renderer=auto"`);
+      expect(index, `no link to scenes/${scene}.html without a renderer`).not.toContain(`href="scenes/${scene}.html"`);
+    }
+    // The scenes' own default stays canvas2d, so every test knows its renderer (D77-4).
+    expect(read(resolve(ROOT, "demo/scenes/scene-params.ts"))).toContain('q.get("renderer") ?? "canvas2d"');
   });
 });

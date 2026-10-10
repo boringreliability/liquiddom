@@ -9,6 +9,16 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
+import {
+  LANDING_DARK_RGB,
+  W77_LACE_FRAMES,
+  W77_LANDING_LACE_MAX_TEAR,
+  W77_SPECK_FRAMES,
+  W77_SPECK_MAX_PX,
+  clientRectOf,
+  regionTearPixels,
+  specksInside,
+} from "./lace";
 import { NORTH_STAR_PATH, reformBudgetMs } from "./north-star";
 import { VIEWPORT } from "./projects";
 import { IDLE_2S_FRAMES, advance, projectRenderer, restAlpha } from "./scene";
@@ -21,7 +31,7 @@ const SHAKE_BUDGET_FRAMES = Math.round((reformBudgetMs(NORTH_STAR_MD, 6) / 1000)
 /** The observed elements in DOM order: nav pill, the two hero CTAs, the three feature cards. */
 const LIQUID_COUNT = 6;
 
-type LandingInstance = { activeRenderer: string; shake(strength?: number): void };
+type LandingInstance = { activeRenderer: string; shake(strength?: number): void; splash(el: Element, opts?: unknown): void };
 
 /** W76 red review: an exact label match, so a card body that mentions a CTA never matches it. */
 const exactText = (label: string): RegExp => new RegExp(`^\\s*${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`);
@@ -111,5 +121,50 @@ test.describe("landing page (W76, D76-2) – canvas2d smoke", () => {
     expect(size.scrollWidth, "no horizontal scroll at 1280×800").toBeLessThanOrEqual(VIEWPORT.width);
     // The layout fits; it does not hide its overflow (D76-2).
     expect(size.overflow, "html/body do not clip with overflow: hidden").not.toContain("hidden");
+  });
+});
+
+// =============================================================================
+// W77 (D77-1, D77-2): the landing page's wide dark card stays closed under the shake, and a
+// splash on "Start free" leaves its neighbour "Book a demo" (16 px away) without specks.
+// Canvas2D (this file's project, blocking); webgpu-robust.spec.ts repeats both in webgpu-hw.
+// =============================================================================
+/** DOM order of the observed elements: #sign-in, #start, #demo, #card-sources, #card-sql, #card-ops. */
+const START_INDEX = 1;
+
+test.describe("landing page (W77) – closed liquid under shake and splash, canvas2d", () => {
+  test("D77-2 – given the landing page when the instance shakes then the dark card shows no lace: region tear pixels at f10 and f20 within the W77 bound", async ({ page }) => {
+    await gotoLanding(page);
+    await advance(page, IDLE_2S_FRAMES);
+    await page.mouse.move(VIEWPORT.width - 1, VIEWPORT.height - 1);
+    const card = await clientRectOf(page, "#card-ops");
+    await page.evaluate(() => (window.__liquidTest!.instance as LandingInstance).shake());
+    const [fa, fb] = W77_LACE_FRAMES;
+    await advance(page, fa);
+    const a = await regionTearPixels(page, LANDING_DARK_RGB, card);
+    await advance(page, fb - fa);
+    const b = await regionTearPixels(page, LANDING_DARK_RGB, card);
+    console.log(`W77 landing lace: dark card tear px f${fa} ${a}, f${fb} ${b} (bound ${W77_LANDING_LACE_MAX_TEAR}; W77.0 canvas2d 5232 / 1805)`);
+    expect.soft(a, `dark card tear px at f${fa} (D77-2)`).toBeLessThanOrEqual(W77_LANDING_LACE_MAX_TEAR);
+    expect(b, `dark card tear px at f${fb} (D77-2)`).toBeLessThanOrEqual(W77_LANDING_LACE_MAX_TEAR);
+  });
+
+  test("D77-1 – given a splash on Start free when ticking then Book a demo shows no specks: at most 16 page pixels inside it in every frame", async ({ page }) => {
+    await gotoLanding(page);
+    await advance(page, IDLE_2S_FRAMES);
+    await page.mouse.move(VIEWPORT.width - 1, VIEWPORT.height - 1);
+    const demo = await clientRectOf(page, "#demo");
+    expect(await specksInside(page, demo), "no speck at rest").toBe(0);
+    await page.evaluate(() => (window.__liquidTest!.instance as LandingInstance).splash(document.getElementById("start")!));
+    const series: number[] = [];
+    for (let f = 1; f <= W77_SPECK_FRAMES; f++) {
+      await advance(page, 1);
+      if (f === 2) expect((await restAlpha(page))[START_INDEX], "the splash softened Start free").toBeLessThan(1);
+      series.push(await specksInside(page, demo));
+    }
+    const peak = Math.max(...series);
+    const sum = series.reduce((x, y) => x + y, 0);
+    console.log(`W77 specks: Book a demo peak ${peak} px at f${series.indexOf(peak) + 1}, sum ${sum} (bound ${W77_SPECK_MAX_PX}; W77.0 canvas2d 307)`);
+    expect(peak, `peak speck px inside Book a demo over ${W77_SPECK_FRAMES} frames (D77-1)`).toBeLessThanOrEqual(W77_SPECK_MAX_PX);
   });
 });

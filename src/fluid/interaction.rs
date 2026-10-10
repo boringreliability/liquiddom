@@ -425,8 +425,9 @@ mod w67_tests {
     fn given_shake_when_applied_then_each_element_moves_along_one_seeded_direction_with_a_coherent_sine_profile_across_u_and_no_particle_noise()
      {
         // W73 red: approved-test change (D73-1/D73-2, Dennis approves at W73 red)
-        // D73-1 (amends D70-1): v = d · 520 · (1 + 0.5 · sin(π·u + φ)), u = (x − cx) / (w / 2). Fit
-        // s = v·d/520 − 1 = a·sin(πu) + b·cos(πu); amplitude hypot(a, b) = 0.5, and no particle
+        // W77 red: approved-test change (D77-2, approved 2026-10-10, saga dec_3ba590a1)
+        // D77-2 (amends D73-1): v = d · 520 · (1 + 0.35 · sin(π·u + φ)), u = (x − cx) / (w / 2). Fit
+        // s = v·d/520 − 1 = a·sin(πu) + b·cos(πu); amplitude hypot(a, b) = 0.35, and no particle
         // may deviate from the fit (white noise did, by ±0.45 · 520 px/s).
         let mut core = two_button_core(7);
         core.shake(1.0);
@@ -477,8 +478,8 @@ mod w67_tests {
                 })
                 .fold(0.0f64, f64::max);
             assert!(
-                (a.hypot(b) - 0.5).abs() < 2e-3, // W73 red: approved-test change (D73-1/D73-2, Dennis approves at W73 red)
-                "element {id}: profile amplitude {} (D73-1: 0.5)",
+                (a.hypot(b) - 0.35).abs() < 2e-3, // W77 red: approved-test change (D77-2, approved 2026-10-10, saga dec_3ba590a1)
+                "element {id}: profile amplitude {} (D77-2: 0.35)",
                 a.hypot(b)
             );
             assert!(
@@ -519,19 +520,19 @@ mod w67_tests {
     }
 
     #[test]
-    fn given_shake_gain_when_evaluated_across_u_then_it_is_1_plus_0_5_sin_pi_u_plus_phase_within_0_5_and_1_5()
+    fn given_shake_gain_when_evaluated_across_u_then_it_is_1_plus_0_35_sin_pi_u_plus_phase_within_0_65_and_1_35()
      {
-        // W73 red: approved-test change (D73-1/D73-2, Dennis approves at W73 red)
-        // D73-1: 1 + 0.5 · sin(π·u + φ), in [0.5, 1.5] (was D70-1: 0.8, [0.2, 1.8]).
+        // W77 red: approved-test change (D77-2, approved 2026-10-10, saga dec_3ba590a1)
+        // D77-2: 1 + 0.35 · sin(π·u + φ), in [0.65, 1.35] (D73-1: 0.5, [0.5, 1.5]; D70-1: 0.8, [0.2, 1.8]).
         use crate::fluid::interaction::shake_gain;
         use std::f32::consts::{FRAC_PI_2, PI};
         let close = |a: f32, b: f32| (a - b).abs() < 1e-5;
         // φ = 0: sin(π·u). The two halves move at different speeds: the element shears.
         for (u, g) in [
             (-1.0f32, 1.0f32),
-            (-0.5, 0.5),
+            (-0.5, 0.65),
             (0.0, 1.0),
-            (0.5, 1.5),
+            (0.5, 1.35),
             (1.0, 1.0),
         ] {
             assert!(
@@ -541,16 +542,16 @@ mod w67_tests {
             );
         }
         // φ = π/2: cos(π·u). The centre leads and both ends lag: the element bends.
-        assert!(close(shake_gain(0.0, FRAC_PI_2), 1.5));
-        assert!(close(shake_gain(-1.0, FRAC_PI_2), 0.5));
-        assert!(close(shake_gain(1.0, FRAC_PI_2), 0.5));
+        assert!(close(shake_gain(0.0, FRAC_PI_2), 1.35));
+        assert!(close(shake_gain(-1.0, FRAC_PI_2), 0.65));
+        assert!(close(shake_gain(1.0, FRAC_PI_2), 0.65));
         // Never reverses: every part of the element moves along d.
         for k in 0..=200 {
             let u = -1.0 + k as f32 / 100.0;
             for phase in [0.0f32, 1.0, PI, 5.0] {
                 let g = shake_gain(u, phase);
                 assert!(
-                    (0.5 - 1e-5..=1.5 + 1e-5).contains(&g),
+                    (0.65 - 1e-5..=1.35 + 1e-5).contains(&g),
                     "u {u}, φ {phase}: {g}"
                 );
             }
@@ -670,7 +671,8 @@ mod w67_tests {
         assert_eq!(SPLASH_RADIUS_PER_DIAGONAL, 0.75);
         assert_eq!(SHAKE_SPEED_PX_S, 520.0);
         // W73 red: approved-test change (D73-1/D73-2, Dennis approves at W73 red)
-        assert_eq!(SHAKE_PROFILE_AMPLITUDE, 0.5, "D73-1 (amends D70-1)");
+        // W77 red: approved-test change (D77-2, approved 2026-10-10, saga dec_3ba590a1)
+        assert_eq!(SHAKE_PROFILE_AMPLITUDE, 0.35, "D77-2 (amends D73-1's 0.5)");
         assert_eq!(
             SHAKE_STIFFNESS_CAP, 0.3,
             "D73-2 (amends D70-2): removes the f40 void tail; held by the re-form budget (<= 180 frames)"
