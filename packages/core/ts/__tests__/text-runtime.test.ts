@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import { createFluidRuntime, TEXT_ATLAS_WARNING, type FluidRuntime } from "../src/runtime";
 import { createManualClock, type ManualClock } from "../src/clock";
 import { TEXT_CLASS } from "../src/stylesheet";
+import { FluidCanvas2DRenderer } from "../src/renderers/fluid-canvas2d";
 import { installFakeCanvas2D, type FakeCanvasHandle } from "./_fake-canvas";
 import { installFakeGpu, type FakeGpu } from "./_fake-gpu";
 import { fakeAtlasCanvas, installRangeRects, oneLinePerNode, type FakeAtlasFactory } from "./_fake-atlas";
@@ -170,13 +171,61 @@ describe("W74 runtime: atlas and liquid-text (D74-5, D74-6)", () => {
     s.core.forceRestAlpha(id, 0.4);
     s.clock.advance(1);
     expect(el.classList.contains(TEXT_CLASS)).toBe(true);
+    // Hold the Canvas2D init pending (device-lost.test.ts pattern), so the assertion below runs
+    // while the rebuild is provably still in flight.
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const realInit = FluidCanvas2DRenderer.prototype.init;
+    const init2d = vi.spyOn(FluidCanvas2DRenderer.prototype, "init").mockImplementation(async function (this: FluidCanvas2DRenderer, c: HTMLCanvasElement) {
+      await gate;
+      return realInit.call(this, c);
+    });
+    const render2d = vi.spyOn(FluidCanvas2DRenderer.prototype, "render");
     gpu.loseDevice("gpu reset");
-    await vi.waitFor(() => expect(s.rt.activeRenderer).toBe("canvas2d"));
-    expect(el.classList.contains(TEXT_CLASS), "cleared in the loss handler, before the async Canvas2D init").toBe(false);
+    await vi.waitFor(() => expect(init2d).toHaveBeenCalledTimes(1));
+    await flush();
+    expect(s.rt.activeRenderer).toBe("canvas2d");
+    expect(render2d, "precondition: the Canvas2D init is still pending").not.toHaveBeenCalled();
+    expect(el.classList.contains(TEXT_CLASS), "cleared in the loss handler, while the Canvas2D init is unresolved").toBe(false);
+    s.clock.advance(1); // a frame while the rebuild is in flight (no renderer)
+    expect(el.classList.contains(TEXT_CLASS)).toBe(false);
+    release();
     await flush();
     s.clock.advance(2);
+    expect(render2d, "the rebuild completed: Canvas2D draws").toHaveBeenCalled();
     expect(el.classList.contains(TEXT_CLASS), "Canvas2D never sets it").toBe(false);
     expect(warn).toHaveBeenCalledTimes(1); // the W72 device-lost warning only
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("given_liquid_text_on_when_the_canvas2d_rebuild_fails_then_the_class_is_removed_review_focus_1", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const s = await setup();
+      const el = button();
+      const id = await observed(s, el);
+      s.core.forceRestAlpha(id, 0.4);
+      s.clock.advance(1);
+      expect(el.classList.contains(TEXT_CLASS)).toBe(true);
+      vi.spyOn(FluidCanvas2DRenderer.prototype, "init").mockRejectedValue(new Error("2d gone"));
+      gpu.loseDevice("gpu reset");
+      await vi.waitFor(() => expect(error).toHaveBeenCalledTimes(1));
+      expect(String(error.mock.calls[0]![0])).toMatch(/Canvas2D rebuild after a lost WebGPU device failed/);
+      await flush();
+      expect(el.classList.contains(TEXT_CLASS), "the failed rebuild leaves no liquid-text").toBe(false);
+      s.clock.advance(2); // the instance stopped: no frame brings it back
+      expect(el.classList.contains(TEXT_CLASS)).toBe(false);
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
   });
 
   it("given_liquid_text_on_when_reduced_motion_switches_on_then_the_class_is_removed_without_a_frame_review_focus_1", async () => {

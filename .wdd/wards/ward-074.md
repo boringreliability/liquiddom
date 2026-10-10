@@ -6,7 +6,7 @@ epic: "fluid-engine"
 status: planned
 dependencies: [73]
 layer: "typescript"
-estimated_tests: 60
+estimated_tests: 62
 created: "2026-10-10"
 completed: null
 ---
@@ -119,6 +119,7 @@ Plan: `docs/superpowers/plans/2026-10-10-fluid-slice-4/W74.md` (complete code fo
 | 32 | webgpu-renderer: given_every_text_element_at_rest_or_no_atlas_rect_when_rendering_then_no_text_pass_and_no_text_composite | no text at rest |
 | 33 | webgpu-renderer: given_textReady_when_queried_then_true_only_for_slots_with_a_valid_uploaded_atlas_rect_and_false_after_a_device_loss_or_destroy | toggle input |
 | 34 | webgpu-renderer: given_an_atlas_beyond_maxTextureDimension2D_or_a_failing_copy_when_rendering_then_no_text_textReady_false_and_no_validation_error_review_focus_4 | Review Focus 4 |
+| 34a | webgpu-renderer: given_version_n_uploaded_when_the_copy_for_version_n_plus_1_fails_then_textReady_drops_and_the_stale_atlas_is_not_drawn_review_focus_4 | Review Focus 4 (no stale atlas; red review fix 1) |
 | 35 | webgpu-renderer: given_text_drawn_when_resized_then_T1_and_T1w_follow_the_backing_size_at_1x_clamped_to_the_device_limit | T1 at 1× |
 | 36 | webgpu-renderer: given_rest_uv_when_rendering_then_it_is_uploaded_with_the_homes_only_on_a_generation_paints_or_count_change | rest-UV cadence |
 | 37 | text-atlas: given_three_elements_with_text_when_built_then_shelf_packed_left_to_right_with_a_10px_gutter_and_rects_in_atlas_px | D74-5 packing |
@@ -139,7 +140,8 @@ Plan: `docs/superpowers/plans/2026-10-10-fluid-slice-4/W74.md` (complete code fo
 | 52 | text-runtime: given_webgpu_and_a_moving_element_with_text_when_a_frame_runs_then_the_atlas_is_built_the_text_pass_runs_and_liquid_text_is_set | wiring |
 | 53 | text-runtime: given_the_element_comes_to_rest_when_a_frame_runs_then_liquid_text_is_removed_in_the_frame_the_text_pass_stops | no blink (unit) |
 | 54 | text-runtime: given_canvas2d_when_elements_move_then_liquid_text_is_never_set_and_no_atlas_is_built | Canvas2D never |
-| 55 | text-runtime: given_liquid_text_on_when_the_device_is_lost_then_every_class_is_removed_before_the_canvas2d_rebuild_settles_review_focus_1 | Review Focus 1 (lost device) |
+| 55 | text-runtime: given_liquid_text_on_when_the_device_is_lost_then_every_class_is_removed_before_the_canvas2d_rebuild_settles_review_focus_1 | Review Focus 1 (lost device; Canvas2D init held pending) |
+| 55a | text-runtime: given_liquid_text_on_when_the_canvas2d_rebuild_fails_then_the_class_is_removed_review_focus_1 | Review Focus 1 (failed rebuild; red review fix 1) |
 | 56 | text-runtime: given_liquid_text_on_when_reduced_motion_switches_on_then_the_class_is_removed_without_a_frame_review_focus_1 | Review Focus 1 (RM mid-splash) |
 | 57 | text-runtime: given_liquid_text_on_when_unobserve_or_destroy_then_the_class_is_removed_and_the_class_attribute_restored_review_focus_1 | Review Focus 1 (destroy) |
 | 58 | text-runtime: given_an_atlas_build_that_throws_when_frames_run_then_one_console_warn_no_class_and_the_liquid_keeps_rendering_review_focus_1 | Review Focus 1 (atlas failure) |
@@ -194,7 +196,7 @@ Plan: `docs/superpowers/plans/2026-10-10-fluid-slice-4/W74.md` (complete code fo
 - [ ] No ghost pill in either renderer.
 
 ## Verification
-`npm run verify` (cargo 168 passed + 2 ignored, vitest 564 passed | 4 skipped, clippy clean), `npm run e2e:canvas2d`, `npm run e2e:webgpu-hw`, `npm run e2e:typecheck`, the release benchmark `cargo test --release --lib bench_f_update_cost -- --ignored --nocapture`, the Linux baseline check `npm run e2e:docker -- --project=canvas2d`, Metal vision captures (`VISION=1 npx playwright test --project=webgpu-hw -g "W74 gold"`), and a `code-review` pass at level high over the ward's diff.
+`npm run verify` (cargo 168 passed + 2 ignored, vitest 566 passed | 4 skipped, clippy clean), `npm run e2e:canvas2d`, `npm run e2e:webgpu-hw`, `npm run e2e:typecheck`, the release benchmark `cargo test --release --lib bench_f_update_cost -- --ignored --nocapture`, the Linux baseline check `npm run e2e:docker -- --project=canvas2d`, Metal vision captures (`VISION=1 npx playwright test --project=webgpu-hw -g "W74 gold"`), and a `code-review` pass at level high over the ward's diff.
 
 ## Spike W74.0 result
 

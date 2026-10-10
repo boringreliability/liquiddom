@@ -605,6 +605,22 @@ describe("W71: WebGPURenderer", () => {
     expect(g.calls.errors).toEqual([]);
   });
 
+  it("given_version_n_uploaded_when_the_copy_for_version_n_plus_1_fails_then_textReady_drops_and_the_stale_atlas_is_not_drawn_review_focus_4", async () => {
+    const opts: FakeGpuOptions = {};
+    const f = gpu(opts); // the fake reads opts.copyExternalError at call time
+    const r = await ready();
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    expect(f.calls.externalCopies).toHaveLength(1);
+    expect(r.textReady(0), "version 1 uploaded").toBe(true);
+    expect(f.calls.passes).toHaveLength(3);
+    opts.copyExternalError = new Error("detached source");
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: { ...ATLAS, version: 2 }, restAlpha: 0.5 }));
+    expect(r.textReady(0), "the texture still holds version 1: not ready for version 2").toBe(false);
+    expect(f.calls.passes, "no text pass with the stale atlas").toHaveLength(5);
+    expect(f.calls.passes[4]!.draws.map((d) => [d.vertexCount, d.instanceCount]), "no text composite").toEqual([[3, 1], [6, 1]]);
+    expect(f.calls.errors).toEqual([]);
+  });
+
   it("given_text_drawn_when_resized_then_T1_and_T1w_follow_the_backing_size_at_1x_clamped_to_the_device_limit", async () => {
     const f = gpu({ maxTextureDimension2D: 4096 });
     const r = await ready();

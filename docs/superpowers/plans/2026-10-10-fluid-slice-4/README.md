@@ -18,7 +18,7 @@
 | W75 | 4 | [W75.md](W75.md) | **Text that stays true:** per-element MutationObserver, colour auto-refresh (+ `transitionend`), atlas re-render on text/fonts/DPR, forced-colors/print with `liquid-text` active, `refresh()` and a11y under WebGPU, Canvas2D `liquid-halo` |
 | W76 | 4 | [W76.md](W76.md) | **Whole picture after slice 4:** recording in both renderers, vision, per-step status against S4, carried table, perf, recommendation (W69 template) |
 
-Order: W74 → W75 → W76. Test totals at each ward's end: W74 cargo `168 passed; 2 ignored`, vitest `564 passed | 4 skipped (568)`; W75 vitest `592 | 4 (596)`; W76 vitest `594 | 4 (598)` (cargo unchanged after W74). Each ward leaves `npm run verify`, `npm run e2e:canvas2d` and `npm run e2e:webgpu-hw` green.
+Order: W74 → W75 → W76. Test totals at each ward's end: W74 cargo `168 passed; 2 ignored`, vitest `566 passed | 4 skipped (570)`; W75 vitest `594 | 4 (598)`; W76 vitest `596 | 4 (600)` (cargo unchanged after W74). Each ward leaves `npm run verify`, `npm run e2e:canvas2d` and `npm run e2e:webgpu-hw` green.
 
 **Human prerequisites:** direction gate per ward before red (D74-*, D75-*, D76-*); Dennis approves red, gold, and any Linux baseline (D65-7); W76's recommendation decides what comes before slice 5.
 
