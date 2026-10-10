@@ -1,7 +1,7 @@
 # Context — liquiddom
 
 ## Last Updated
-Ward 75 — 2026-10-10 (text that stays true: MutationObserver, colour auto-refresh, atlas invalidate with owner renewal, Canvas2D halo). Next: W76.
+Ward 75 — 2026-10-10 (text that stays true, amendment B; gold approved by Dennis). Next: W76 whole picture.
 
 ## Current State
 Epic 15 (Fluid Engine): slices 1–3 closed, slice 4 in progress. `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. The soft-body engine is the tag `softbody-final`. Packages `0.3.0-alpha.x` (pre mode `alpha`), nothing published; `site/` frozen until slice 6. Test totals: `.wdd/PROGRESS.md` and the ward gold notes.

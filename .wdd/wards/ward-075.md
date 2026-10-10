@@ -3,12 +3,12 @@ ward: 75
 revision: null
 name: "Text that stays true"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [74]
 layer: "typescript"
 estimated_tests: 54
 created: "2026-10-10"
-completed: null
+completed: "2026-10-10"
 ---
 # Ward 075: Text that stays true
 
@@ -180,7 +180,7 @@ Amendment B red run (2026-10-10, task B): vitest 609 passed | 11 failed | 4 skip
 - Canvas2D halo splash f3: "Splash" reads in the hole with a blue halo; resting elements carry none. Shake f5: all four elements carry a halo in their own colour; the card's paragraphs read.
 - Same manual frame, step 3 f12: Canvas2D shows the DOM text with the halo, WebGPU only the liquid text ("lash" stretched on the remaining liquid); neither shows both.
 
-**Open for Dennis:** a manual `refresh(el)` runs at once and can cut a running author transition (documented); test 34 (forced colours live) failed once in three full webgpu-hw runs and passed 40/40 repeated (rare race, watch); container-mode DPR change relies on the resolution query only (no browser test; a manual zoom check is suggested).
+**Resolved at gold (Dennis, 2026-10-10):** gold approved; manual `refresh(el)` stays immediate (documented). **Was open:** a manual `refresh(el)` runs at once and can cut a running author transition (documented); test 34 (forced colours live) failed once in three full webgpu-hw runs and passed 40/40 repeated (rare race, watch); container-mode DPR change relies on the resolution query only (no browser test; a manual zoom check is suggested).
 
 **Carried:** the whole atlas page is re-rendered on any generation, paints or text change (v1); an upload whose error scope never resolves leaves the DOM text showing for the instance's life (fail-safe); `@keyframes` colour animations and ancestor/stylesheet/`:hover` colour changes need `refresh(el)`.
 
