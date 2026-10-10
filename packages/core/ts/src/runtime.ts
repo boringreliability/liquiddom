@@ -16,6 +16,8 @@ import { DEFAULT_STRENGTH, type ElementOptions } from "./options";
 import type { ElementPaint, RenderFrame, Renderer, RenderViewport, TextAtlasFrame } from "./renderers/frame";
 import { ATLAS_MAX_SIZE_PX, TextAtlas, type AtlasCanvasFactory, type AtlasRect } from "./renderers/webgpu/text-atlas";
 import { clearTextClasses, releaseTextClass, syncTextClasses, type TextToggleArgs } from "./text-toggle";
+import { ElementObserver } from "./element-observer";
+import { clearHaloClasses, releaseHaloClass, syncHaloClasses } from "./halo-toggle";
 import { LoopController } from "./loop-control";
 import { PointerTracker } from "./pointer-tracker";
 import { acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas } from "./stylesheet";
@@ -96,7 +98,9 @@ export interface FluidRuntime {
   readonly fragmentEstimate: number;
   /** @internal W72 (D72-6): T0 size in px `[width, height]` of the WebGPU renderer; null under Canvas2D. */
   readonly t0Size: readonly [number, number] | null;
-  /** Re-snapshot colours of an observed element (no-op otherwise). */
+  /** @internal W75 (Review Focus 3, 5): atlas re-render requests issued so far; the scene hook reads it. */
+  readonly textInvalidations: number;
+  /** Re-snapshot colours of an observed element (no-op otherwise). W75: also re-colours the halo rule and re-renders the atlas entry. */
   refresh(el: HTMLElement): void;
   /**
    * W67: splash an observed element. `at` is client px (null → rect centre); it is
@@ -319,6 +323,78 @@ function buildRuntime(
     reducedMotion: () => reducedMotion,
   });
 
+  // ---- W75: text that stays true ------------------------------------------------
+  // D75-1: one MutationObserver per observed element; D75-2: transitionend; RF5: fonts and DPR.
+  // Everything is recorded here and applied once per frame in applyDomChanges().
+  const elementObserver = new ElementObserver();
+  const transitionDirty = new Set<HTMLElement>();
+  let invalidateAllText = false;
+  let textInvalidations = 0;
+  /** D75-3: this instance's halo holds (W74's `textHeld` pattern; refcounted across instances in stylesheet.ts). */
+  const haloHeld = new Set<HTMLElement>();
+
+  const onTransitionEnd = (e: Event): void => {
+    const el = e.currentTarget as HTMLElement | null;
+    if (el === null || e.target !== el) return; // a descendant's transition bubbled up
+    const prop = (e as Event & { propertyName?: string }).propertyName;
+    if (prop === "background-color" || prop === "color") transitionDirty.add(el);
+  };
+  const watchElement = (el: HTMLElement): void => {
+    elementObserver.observe(el);
+    el.addEventListener("transitionend", onTransitionEnd);
+  };
+  const unwatchElement = (el: HTMLElement): void => {
+    elementObserver.unobserve(el);
+    el.removeEventListener("transitionend", onTransitionEnd);
+    transitionDirty.delete(el);
+    // W75.2 review: the halo CLASS hold goes before the registry releases the halo RULE claim.
+    releaseHaloClass(haloHeld, el);
+  };
+  /** Once per frame, before registry.sync(): colours (D75-2) and atlas entries (D75-1, RF3, RF5). */
+  const applyDomChanges = (): void => {
+    // W75.3: drain() returns a shared empty map on idle frames; it is read here, never mutated.
+    const changes = elementObserver.drain();
+    const all = invalidateAllText;
+    invalidateAllText = false;
+    if (changes.size === 0 && transitionDirty.size === 0 && !all) return;
+    for (const rec of registry.entries()) {
+      const c = changes.get(rec.el);
+      const colour = c?.colour === true || transitionDirty.has(rec.el);
+      if (colour) {
+        registry.refresh(rec.el);
+        paintsDirty = true;
+      }
+      // A colour change re-renders the atlas entry too (the text colour is baked into the page).
+      if (all || colour || c?.text === true) invalidateText(rec.id);
+    }
+    transitionDirty.clear();
+  };
+  /** D75-3: after the render and W74's syncText(); reads only the state view. Runs while a device-lost rebuild is in flight too (activeRenderer is already "canvas2d"). */
+  const syncHalo = (): void => {
+    const sv = bridge.stateView();
+    syncHaloClasses({
+      entries: registry.entries(),
+      restAlpha: (id) => sv[id * STATE_STRIDE + St.REST_ALPHA] ?? Number.NaN,
+      activeRenderer,
+      reducedMotion,
+      held: haloHeld,
+    });
+  };
+  // RF5: a DPR (zoom) change. The resolution query matches only the current DPR, so it is
+  // re-armed for the new one on every change; resizeCanvas() decides whether the DPR changed.
+  let dprQuery: MediaQueryList | null = null;
+  let lastDpr: number | null = null;
+  const onDprChange = (): void => resizeCanvas();
+  const armDprWatch = (dpr: number): void => {
+    dprQuery?.removeEventListener("change", onDprChange);
+    dprQuery = null;
+    if (typeof window.matchMedia !== "function") return;
+    const q = window.matchMedia(`(resolution: ${dpr}dppx)`);
+    if (typeof q?.addEventListener !== "function") return;
+    q.addEventListener("change", onDprChange);
+    dprQuery = q;
+  };
+
   // ---- W67: splash / shake ----------------------------------------------------
   const splashAt = (el: HTMLElement, at: ClientPoint | null, strength: number): boolean => {
     if (destroyed) return false;
@@ -353,7 +429,10 @@ function buildRuntime(
     reducedMotion = e.matches;
     core.set_reduced_motion(reducedMotion);
     // W74 (Review Focus 1): reduced motion switched on mid-splash shows the DOM text at once, without waiting for a frame.
-    if (reducedMotion) clearTextClasses(textHeld);
+    if (reducedMotion) {
+      clearTextClasses(textHeld);
+      clearHaloClasses(haloHeld); // W75 (D75-3): the halo goes at once as well
+    }
   };
   mql?.addEventListener("change", onMotionChange);
 
@@ -363,11 +442,23 @@ function buildRuntime(
   const pointer = new PointerTracker();
   const pointerDoc = container?.ownerDocument ?? document;
   const detachPointer = pointer.attach(pointerDoc, pointerDoc.defaultView ?? window);
+  // W75 (RF5): a web font that finishes after observe re-renders every atlas entry once (next frame).
+  const fontSet = (pointerDoc as Document & { fonts?: EventTarget }).fonts ?? null;
+  const onFontsDone = (): void => {
+    invalidateAllText = true;
+  };
+  fontSet?.addEventListener("loadingdone", onFontsDone);
 
   // Canvas backing store + DPR (D64-14, C2).
   const resizeCanvas = (): void => {
     if (destroyed) return;
     const dpr = window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+    // W75 (RF5): a DPR change re-renders every atlas entry once (next frame) and re-arms the query.
+    if (dpr !== lastDpr) {
+      if (lastDpr !== null) invalidateAllText = true;
+      lastDpr = dpr;
+      armDprWatch(dpr);
+    }
     const w = container ? container.clientWidth : window.innerWidth;
     const h = container ? container.clientHeight : window.innerHeight;
     const bw = Math.max(1, Math.round(w * dpr));
@@ -442,6 +533,21 @@ function buildRuntime(
     }
     return t;
   };
+  /** D75-1 A: a new paint owner token for `el`; the confirmed (old) page masks its slot. */
+  const renewOwner = (el: HTMLElement): void => {
+    owners.set(el, nextOwner++);
+  };
+  /** W75 (RF3, RF5): W74's atlas (owned by this runtime) is rebuilt with the paints in this frame, before render(). */
+  const invalidateText = (id: number): void => {
+    textInvalidations += 1;
+    textAtlas.invalidate(id);
+    // D75-1 A: W74's double-buffered upload keeps drawing the confirmed (old) page for 1–2 frames;
+    // a new owner token masks this slot on it, so textReady is false and the DOM text shows meanwhile.
+    const el = registry.get(id)?.el;
+    if (el) renewOwner(el);
+    // The atlas entry (and its rect in ElementPaint.atlasRect) is rebuilt: rebuild the paints too.
+    paintsDirty = true;
+  };
 
   const rebuildPaints = (): void => {
     const cap = bridge.particleCapacity;
@@ -496,6 +602,7 @@ function buildRuntime(
     frameOffset = container ? readOffset(container) : ZERO;
     inFrame = true;
     try {
+      applyDomChanges(); // W75: coalesced DOM, colour, font and DPR changes, once per frame
       registry.sync();
       // W68: soft pointer field input, gated by reduced motion (D68-5).
       const ptr = pointer.sample(nowMs, frameOffset);
@@ -518,6 +625,7 @@ function buildRuntime(
       // W72 (D72-3): null only while a device-lost rebuild is in flight; the core keeps ticking.
       if (renderer !== null) renderer.render(buildFrame());
       syncText(); // W74 (D74-6)
+      syncHalo(); // W75 (D75-3)
     } finally {
       inFrame = false;
     }
@@ -535,6 +643,7 @@ function buildRuntime(
       failed = true;
       clearTextClasses(textHeld); // W74: a stopped instance never leaves text hidden
       loop.destroy();
+      clearHaloClasses(haloHeld); // W75: a stopped instance leaves no halo behind
       console.error("[liquiddom] frame failed; the instance stopped. Call destroy() and create a new instance.", err);
     }
   };
@@ -558,6 +667,7 @@ function buildRuntime(
     }
     settleRebuild(false);
     clearTextClasses(textHeld);
+    clearHaloClasses(haloHeld); // W75: the halo may already apply while the Canvas2D rebuild was in flight
     if (destroyed || failed) return;
     failed = true;
     loop.destroy();
@@ -618,11 +728,13 @@ function buildRuntime(
       if (destroyed) throw new Error("[liquiddom] observe() called after destroy().");
       const id = registry.observe(el, elementOpts);
       splashInput.attach(el);
+      watchElement(el); // W75 (D75-1, D75-2)
       return id;
     },
     unobserve(el) {
       if (destroyed) return;
       releaseTextClass(textHeld, el); // W74: before the registry restores the element
+      if (registry.idOf(el) !== undefined) unwatchElement(el); // W75: observer, transitionend, halo hold
       registry.unobserve(el);
       splashInput.detach(el);
     },
@@ -678,10 +790,16 @@ function buildRuntime(
     get t0Size() {
       return renderer instanceof WebGPURenderer ? renderer.t0Size : null;
     },
+    get textInvalidations() {
+      return textInvalidations;
+    },
     refresh(el: HTMLElement) {
-      if (destroyed || registry.idOf(el) === undefined) return;
+      if (destroyed) return;
+      const id = registry.idOf(el);
+      if (id === undefined) return;
       registry.refresh(el);
       paintsDirty = true;
+      invalidateText(id); // W75: the atlas colour follows
     },
     destroy() {
       if (destroyed) return;
@@ -690,6 +808,14 @@ function buildRuntime(
       batcher.cancel();
       splashInput.destroy();
       clearTextClasses(textHeld); // W74
+      // W75: release the halo holds and stop watching before the registry releases rules and decorations.
+      clearHaloClasses(haloHeld);
+      for (const rec of registry.entries()) rec.el.removeEventListener("transitionend", onTransitionEnd);
+      elementObserver.disconnect();
+      transitionDirty.clear();
+      fontSet?.removeEventListener("loadingdone", onFontsDone);
+      dprQuery?.removeEventListener("change", onDprChange);
+      dprQuery = null;
       registry.unobserveAll();
       releaseStyles();
       mql?.removeEventListener("change", onMotionChange);

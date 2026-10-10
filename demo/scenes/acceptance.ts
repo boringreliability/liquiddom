@@ -202,6 +202,10 @@ const hook: LiquidTestHook = {
   get t0Size(): readonly [number, number] | null {
     return runtime?.t0Size ?? null;
   },
+  // W75 (Review Focus 3, 5): atlas re-render requests issued by the runtime so far.
+  get textInvalidations(): number {
+    return runtime?.textInvalidations ?? 0;
+  },
 };
 
 started.catch((err: unknown) => {

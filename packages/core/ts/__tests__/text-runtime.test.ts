@@ -364,9 +364,14 @@ describe("W74 review: atlas build timing and size cap", () => {
     s.clock.advance(1);
     expect(a.classList.contains(TEXT_CLASS), "after the swap").toBe(true);
     expect(textPasses()).toBe(passes + 3);
-    s.rt.refresh(a); // a second rebuild path (colour re-read)
+    // W75 D75-1 A (approved-test change by Dennis 2026-10-10): refresh() invalidates a's own entry and
+    // renews its owner, so the confirmed old page masks it until the re-read page is confirmed.
+    s.rt.refresh(a);
     s.clock.advance(1);
-    expect(a.classList.contains(TEXT_CLASS), "a refresh() rebuild keeps the class too").toBe(true);
+    expect(a.classList.contains(TEXT_CLASS), "D75-1 A: a refresh() masks a's stale glyphs, its DOM text shows").toBe(false);
+    await flush();
+    s.clock.advance(1);
+    expect(a.classList.contains(TEXT_CLASS), "back once the re-read page is confirmed").toBe(true);
     expect(gpu.calls.errors).toEqual([]);
     expect(warn).not.toHaveBeenCalled();
     expect(error).not.toHaveBeenCalled();

@@ -28,7 +28,12 @@ export interface LiquidDOMInstance {
   observe(el: HTMLElement, opts?: ElementOptions): number;
   /** Stop observing; the element is restored exactly. Silent no-op after destroy(). */
   unobserve(el: HTMLElement): void;
-  /** Re-read the element's background-color and color (needed after colour changes until slice 4). */
+  /**
+   * Re-read the element's background-color and color. Since W75 a change to the element's own
+   * `class`/`style` (or a descendant's) and the end of a `color`/`background-color` transition
+   * are picked up on the next frame without it; call refresh() after a change elsewhere (a new
+   * stylesheet rule, an ancestor class without a colour transition).
+   */
   refresh(el: HTMLElement): void;
   /**
    * Splash an observed element (spec §5). `strength` 0–2 (default 1, 0 = no-op);
