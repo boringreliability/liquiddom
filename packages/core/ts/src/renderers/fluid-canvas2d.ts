@@ -10,7 +10,7 @@
  * from `ctx.createImageData`.
  */
 import { Dyn, type HomeRect, homeRectInto, St, STATE_STRIDE, Stat } from "../fluid-layout";
-import { DEFAULT_SCALE_PX, DensityGrid } from "./density-grid";
+import { DEFAULT_SCALE_PX, DensityGrid, densityCellPx } from "./density-grid";
 import { kernelRadiusPx } from "./kernel-params";
 import type { ElementPaint, RenderFrame, Renderer } from "./frame";
 
@@ -21,7 +21,11 @@ export class FluidCanvas2DRenderer implements Renderer {
   private off: HTMLCanvasElement | null = null;
   private offCtx: CanvasRenderingContext2D | null = null;
   private img: ImageData | null = null;
-  private readonly grid: DensityGrid;
+  // W77 (D77-1): replaced when the frame's largest kernel radius needs another cell (densityCellPx).
+  private grid: DensityGrid;
+  // CSS size of the last resize(), so a cell change can reallocate the density buffer.
+  private cssW = 0;
+  private cssH = 0;
   private readonly scratch: HomeRect = { x: 0, y: 0, w: 0, h: 0, r: 0 };
   // Per-slot fillStyle cache, keyed on paint object identity.
   private readonly fillPaint: Array<ElementPaint | undefined> = [];
@@ -29,6 +33,11 @@ export class FluidCanvas2DRenderer implements Renderer {
 
   constructor(scalePx: number = DEFAULT_SCALE_PX) {
     this.grid = new DensityGrid(scalePx);
+  }
+
+  /** W77 (D77-1): the density grid's cell in CSS px (`densityCellPx` of the largest kernel radius). */
+  get densityCellPx(): number {
+    return this.grid.scalePx;
   }
 
   /** Decision D64-5: a missing 2d context rejects (no silent mode). */
@@ -50,10 +59,42 @@ export class FluidCanvas2DRenderer implements Renderer {
   resize(widthPx: number, heightPx: number, dpr: number): void {
     if (!this.off || !this.offCtx) return;
     const d = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
-    this.grid.resize(widthPx / d, heightPx / d);
+    this.cssW = widthPx / d;
+    this.cssH = heightPx / d;
+    this.allocate();
+  }
+
+  /** Sizes the grid, the density canvas and its ImageData to the last CSS size (resize or a cell change only). */
+  private allocate(): void {
+    if (!this.off || !this.offCtx) return;
+    this.grid.resize(this.cssW, this.cssH);
     this.off.width = this.grid.width;
     this.off.height = this.grid.height;
     this.img = this.offCtx.createImageData(this.grid.width, this.grid.height);
+  }
+
+  /**
+   * W77 (D77-1): the cell follows the largest kernel radius among the frame's paints, so a splat
+   * touches about as many cells at R = 16 px as at R = 8 px on the 2 px grid, and is bounded by the
+   * smallest, so no element's kernel is under-sampled (D71-5). Paints without particles or with a
+   * non-finite / non-positive spacing are skipped (spacing 0 would take the cap). A frame without
+   * such paints keeps the current cell. Reallocates only when the cell changes (a generation or
+   * paints change), never per frame.
+   */
+  private fitCell(paints: RenderFrame["paints"]): void {
+    let maxR = 0;
+    let minR = Number.POSITIVE_INFINITY;
+    for (const paint of paints) {
+      if (!paint || !(paint.particleCount > 0) || !Number.isFinite(paint.spacingPx) || !(paint.spacingPx > 0)) continue;
+      const r = kernelRadiusPx(paint.spacingPx);
+      if (r > maxR) maxR = r;
+      if (r < minR) minR = r;
+    }
+    if (!(maxR > 0)) return;
+    const cell = densityCellPx(maxR, minR);
+    if (cell === this.grid.scalePx) return;
+    this.grid = new DensityGrid(cell);
+    this.allocate();
   }
 
   render(frame: RenderFrame): void {
@@ -63,6 +104,7 @@ export class FluidCanvas2DRenderer implements Renderer {
     // DPR via setTransform every frame, never a cumulative scale().
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, widthCss, heightCss);
+    this.fitCell(frame.paints);
     this.splatMoving(frame);
     this.drawDensity(ctx);
     this.drawResting(ctx, frame);

@@ -1,16 +1,41 @@
 /**
  * Low-resolution density and colour accumulator for the Canvas2D fallback
  * (spec §3 "Canvas2D fallback", decision D64-11): per-element density
- * normalisation, blended colour, kernel radius capped at 8 px, threshold 0.5
+ * normalisation, blended colour, kernel radius capped at 16 px (W77, D77-1), threshold 0.5
  * at the rect edge. Pure: no DOM, no canvas.
  */
 import type { RGBA } from "../color";
-import { DENSITY_THRESHOLD, EDGE_SOFTNESS, KERNEL_RADIUS_CAP_PX } from "./kernel-params";
+import { DENSITY_THRESHOLD, EDGE_SOFTNESS, KERNEL_RADIUS_CAP_PX, KERNEL_RADIUS_PER_SPACING } from "./kernel-params";
 
 // W71 (D71-5): the kernel constants live in kernel-params.ts, shared with the WebGPU splat pass.
 export { DENSITY_THRESHOLD, EDGE_SOFTNESS, KERNEL_RADIUS_CAP_PX, KERNEL_RADIUS_PER_SPACING } from "./kernel-params";
-/** CSS px per density cell. */
+/** CSS px per density cell (the finest grid; used while the largest kernel radius is ≤ 8 px). */
 export const DEFAULT_SCALE_PX = 2;
+/**
+ * W77 (D77-1): kernel radius in density cells at which the grid stops refining. At R = 8 px on
+ * 2 px cells a splat spans 4 cells per radius (≈50 cells); `densityCellPx` keeps that ratio for
+ * larger radii, so a splat's cost per particle stays flat when the kernel grows to 16 px.
+ */
+export const DENSITY_CELLS_PER_RADIUS = 4;
+
+/**
+ * W77 (D77-1): the density cell (CSS px) for the largest and smallest kernel radius of a frame:
+ * `max(DEFAULT_SCALE_PX, min(ceil(maxR) / DENSITY_CELLS_PER_RADIUS, floor(4 · minR / 2.3) / 4))`,
+ * maxR capped at `KERNEL_RADIUS_CAP_PX` first. A non-finite or non-positive maxR gets the cap
+ * (kernelRadiusPx's contract); a bad minR adds no bound, and minR is clamped to maxR. The second
+ * term keeps the cell at or under the finest particle spacing (R / 2.3), so every element's kernel
+ * spans ≥ 2.3 cells per radius and never reaches splat's one-cell floor (D71-5: one kernel in both
+ * renderers). Quarter-px steps: R 7.09 → 2 (acceptance, unchanged), 12.47 → 3.25, 16 → 4;
+ * (16, 7.36) → 3; (16, 4.6) → 2. The 2 px floor wins for spacings under 2 px (pre-W77 grid).
+ */
+export function densityCellPx(maxRadiusPx: number, minRadiusPx: number = maxRadiusPx): number {
+  const R =
+    Number.isFinite(maxRadiusPx) && maxRadiusPx > 0 ? Math.min(maxRadiusPx, KERNEL_RADIUS_CAP_PX) : KERNEL_RADIUS_CAP_PX;
+  const r = Number.isFinite(minRadiusPx) && minRadiusPx > 0 ? Math.min(minRadiusPx, R) : R;
+  const coarse = Math.ceil(R) / DENSITY_CELLS_PER_RADIUS;
+  const fine = Math.floor((DENSITY_CELLS_PER_RADIUS * r) / KERNEL_RADIUS_PER_SPACING) / DENSITY_CELLS_PER_RADIUS;
+  return Math.max(DEFAULT_SCALE_PX, Math.min(coarse, fine));
+}
 
 const TRANSPARENT: RGBA = Object.freeze([0, 0, 0, 0] as const);
 
@@ -85,8 +110,9 @@ export class DensityGrid {
 
   /**
    * Adds `massPx2 · weight · (1 − r²/R²)² / (πR²/3)` around `(xPx, yPx)`, so a
-   * uniformly filled interior reads 1. `R` is capped at 8 px (and at least one
-   * cell). `weight` scales the mass; the Canvas2D renderer passes 1 while `restAlpha < 1` (D70-4).
+   * uniformly filled interior reads 1. `R` is capped at 16 px (and at least one
+   * cell; `densityCellPx` keeps every renderer-requested R ≥ 2.3 cells, so the floor only catches
+   * spacings under 2 px on the 2 px grid). `weight` scales the mass; the Canvas2D renderer passes 1 while `restAlpha < 1` (D70-4).
    */
   splat(xPx: number, yPx: number, massPx2: number, radiusPx: number, rgb: RGBA, weight = 1): void {
     if (!(weight > 0) || !(massPx2 > 0) || !Number.isFinite(xPx) || !Number.isFinite(yPx)) return;
