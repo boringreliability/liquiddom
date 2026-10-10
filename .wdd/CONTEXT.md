@@ -1,10 +1,10 @@
 # Context — liquiddom
 
 ## Last Updated
-Ward 75 — 2026-10-10 (text that stays true, amendment B; gold approved by Dennis). Next: W76 whole picture.
+Ward 76 — 2026-10-10 (whole picture after slice 4 in both renderers + landing page; step 6 ❌ by Dennis). Next: fix ward before slice 5.
 
 ## Current State
-Epic 15 (Fluid Engine): slices 1–3 closed, slice 4 in progress. `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. The soft-body engine is the tag `softbody-final`. Packages `0.3.0-alpha.x` (pre mode `alpha`), nothing published; `site/` frozen until slice 6. Test totals: `.wdd/PROGRESS.md` and the ward gold notes.
+Epic 15 (Fluid Engine): slices 1–4 closed. `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. The soft-body engine is the tag `softbody-final`. Packages `0.3.0-alpha.x` (pre mode `alpha`), nothing published; `site/` frozen until slice 6. Test totals: `.wdd/PROGRESS.md` and the ward gold notes.
 
 Canonical vision, acceptance scene (8 steps) and slice matrix: `.wdd/NORTH-STAR.md`. Binding design: `docs/superpowers/specs/2026-10-02-liquiddom-fluid-design.md`. Execution ledger and rulings: `.superpowers/sdd/README/progress.md` (git-ignored).
 
@@ -67,5 +67,5 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 
 ## What Comes Next
 - Slice 2 closed: `.wdd/memory/whole-picture/slice-2.md` + addendum (steps 1–4, 6, 8 ✅; 5/7 ⏳).
-- Slice 4: W74 done (liquid text in WebGPU); W75 is at gold (text and colours follow the DOM, Canvas2D halo). W76 (whole picture after slice 4, both renderers) follows.
+- Slice 4 closed (W74–W76): `.wdd/memory/whole-picture/slice-4.md` + landing page. Next: a fix ward (shake lace on wide surfaces, step 6 ❌; neighbour disturbance; honey), then slice 5.
 - Open: fate of the published `0.2.0-rc.0` (spec §7); publishing `0.3.0-alpha.x` is Dennis' call (`changeset version`, commit, tag `v*`).

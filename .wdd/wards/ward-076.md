@@ -3,12 +3,12 @@ ward: 76
 revision: null
 name: "Whole picture after slice 4"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [75]
 layer: "typescript"
 estimated_tests: 8
 created: "2026-10-10"
-completed: null
+completed: "2026-10-10"
 ---
 # Ward 076: Whole picture after slice 4
 
@@ -113,3 +113,4 @@ Red run (2026-10-10, W76.1): baseline vitest 621 passed | 4 skipped (625), 61 fi
 
 **Recommendation in the report:** a small fix ward before slice 5 (lace on wide surfaces, neighbour disturbance, honey retune); slice 5 is planned only after Dennis' review.
 
+**Resolved at gold (Dennis, 2026-10-10):** gold approved (incl. the text-fill test pin); step 6 ruled ❌ (motion yes, experience no) in both renderers; a fix ward comes before slice 5.
