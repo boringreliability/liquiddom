@@ -45,7 +45,7 @@ Decision: APPROVED 2026-10-10 — every substep; drop to every 2nd only if the g
 ### D74-2: Rest needs F ≈ I
 Proposal: per element `max‖F − I‖_F < 0.05` joins `s > 0.95` and `maxDev < 0.75 px` in the rest condition (same 150 ms hold, same 120 ms rise), measured in the last substep's G2P with maxDev (and by `measure_max_f_dev` on redistribute/reduced motion), exported as state slot 3 (`ST_RESERVED` becomes `ST_MAX_F_DEV` / `St.MAX_F_DEV`); `settle_if_at_rest` also requires it. Re-form must stay ≤ 3 s; W74.0 measures it with the real F before red.
 Consequence: rest comes slightly later after a hard splash, and the "sharpness snap" at the atlas → DOM text switch disappears. Risk measured in W74.0: the wobble keeps `‖F − I‖` above 0 while restAlpha < 1; if it reaches 0.05 or re-form exceeds 3 s, W74.0 stops and the tolerance or the F slip is brought back to this gate.
-Decision: APPROVED 2026-10-10 — rest also needs max‖F−I‖_F < 0.05 (state slot 3 ST_MAX_F_DEV) (saga dec_52b5d447)
+Decision: AMENDED 2026-10-10 — rest also needs max‖F−I‖_F < 0.05 (state slot 3 ST_MAX_F_DEV) and F gets its own slip rate F_SLIP_RATE_PER_S = 1.5 × SLIP_RATE_PER_S, after W74.0 measured the card splash at 218 frames with the shared slip (was dec_52b5d447) (saga dec_f34db06a)
 
 ### D74-3: Torn hysteresis
 Proposal: `torn` (FLAG_TORN) is set whenever the σ clamp hits (σ outside [0.2, 5] or det < 0) and stays set until both singular values of the updated F lie in [0.67, 1.5]. Non-finite F or C gives `(I, torn)`. The reduced-motion pin (`reset_kinematics`) sets F = I and clears `torn`.

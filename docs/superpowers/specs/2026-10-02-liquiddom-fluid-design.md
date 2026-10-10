@@ -137,7 +137,7 @@ Rust owns it and exports it:
 F is used **only** for the liquid text. It never enters the stress.
 
 Per substep:
-- `F ← (I + dt·C)·F`, followed by the slip term `F ← F + dt·SLIP_RATE·s²·(I − F)`, so F returns to I in step with the liquid.
+- `F ← (I + dt·C)·F`, followed by the slip term `F ← F + dt·F_SLIP_RATE·s²·(I − F)` with `F_SLIP_RATE = 1.5 × SLIP_RATE`, so F returns to I no later than the liquid (amended 2026-10-10, W74.0 measurement, D74-2).
 - No plastic projection and no J relaxation, because those would break the continuity of the text between neighbouring particles.
 
 Safety clamp:
