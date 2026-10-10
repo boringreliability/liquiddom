@@ -3,7 +3,7 @@ ward: 77
 revision: null
 name: "Closed liquid under shake and splash"
 epic: "fluid-engine"
-status: "planned"
+status: "red"
 dependencies: [76]
 layer: "both"
 estimated_tests: 10
