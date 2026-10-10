@@ -213,14 +213,19 @@ for (const r of RECORDINGS) {
     await page.getByRole("button", { name: "Splash", exact: true }).click();
     await page.mouse.move(1279, 799);
     await page.waitForTimeout(150);
+    // W74 (D74-6) hides the glyphs with -webkit-text-fill-color, not `color` (forced colours always
+    // force `color` to CanvasText), so the fill is what shows whether the DOM text is visible.
+    const fillBeforeForced = await page.evaluate(
+      () => getComputedStyle(document.querySelector("#splash")!).webkitTextFillColor,
+    );
     await page.emulateMedia({ forcedColors: "active" });
     const forced = await page.evaluate(() => ({
-      color: getComputedStyle(document.querySelector("#splash")!).color,
+      fill: getComputedStyle(document.querySelector("#splash")!).webkitTextFillColor,
       canvas: getComputedStyle(document.querySelector("canvas.liquid-canvas")!).display,
     }));
     await shot("step8-forced-colors-mid-splash");
     expect(forced.canvas, "forced colours hide the liquid canvas").toBe("none");
-    expect(forced.color, "forced colours show the DOM text at once").not.toBe("rgba(0, 0, 0, 0)");
+    expect(forced.fill, "forced colours show the DOM text at once").not.toBe("rgba(0, 0, 0, 0)");
     await page.waitForTimeout(600);
     await page.emulateMedia({ forcedColors: "none" });
     const t8f = Date.now();
@@ -228,7 +233,7 @@ for (const r of RECORDINGS) {
     await shot("step8-forced-colors-after");
     timings.push({
       step: 8,
-      name: "forced colours on live mid-splash, then off",
+      name: `forced colours on live mid-splash, then off (#splash text fill before ${fillBeforeForced}, during ${forced.fill})`,
       budgetMs: null,
       reactedMs: null,
       reformMs: rest8f ? Date.now() - t8f : null,
@@ -286,12 +291,14 @@ for (const r of RECORDINGS) {
       { name: "landing-shake-200ms", afterMs: 200 },
       reformTimeout(SHAKE_BUDGET_MS),
     );
-    const restAfterL = await until(page, "allRest", reformTimeout(SHAKE_BUDGET_MS));
+    // measure() has already waited for every restAlpha = 1 after the shake: its reformMs is the
+    // landing's end state, so there is no second wait.
+    const reformedAtEnd = shakeL.reformMs !== null;
     await shot("landing-reformed");
     const landing = {
       scene: LANDING_URL,
       idleRestMs: landingIdleMs,
-      reformedAtEnd: restAfterL,
+      reformedAtEnd,
       timings: [
         { name: 'click "Start free"', budgetMs: SPLASH_BUDGET_MS, ...splashL },
         { name: "shake", budgetMs: SHAKE_BUDGET_MS, ...shakeL },
@@ -326,5 +333,8 @@ for (const r of RECORDINGS) {
         2,
       ),
     );
+    // Asserted after the manifest is written, so a failing run still leaves its timings. The budgets
+    // stay reported, not asserted; the gate is only that the landing page settles at all.
+    expect(reformedAtEnd, `landing: every element at rest within ${reformTimeout(SHAKE_BUDGET_MS)} ms of the shake`).toBe(true);
   });
 }

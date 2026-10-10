@@ -187,7 +187,11 @@ describe("W76: the slice-4 recording (D76-1)", () => {
     expect(forced).toContain('page.emulateMedia({ forcedColors: "none" })');
     expect(forced).toContain('"step8-forced-colors-mid-splash"');
     expect(forced, "the canvas is hidden is asserted, not only shot").toMatch(/expect\(forced\.canvas/);
-    expect(forced, "the DOM text is visible is asserted").toMatch(/expect\(forced\.color/);
+    // W76 ward-review fix (finding 2), approved-test change for Dennis at gold: forced colours always force
+    // `color`, so a `color` check is vacuous; the W74 liquid-text hides glyphs with -webkit-text-fill-color.
+    expect(forced, "the DOM text is visible is asserted on the text fill").toMatch(/expect\(forced\.fill/);
+    expect(forced).toContain("webkitTextFillColor");
+    expect(forced).not.toMatch(/\.color\b/);
     expect(forced).toMatch(/step: 8,/);
     // One template for both renderers: no renderer-specific skip inside the new segments.
     expect(card + forced).not.toMatch(/r\.renderer\s*===|test\.skip/);
