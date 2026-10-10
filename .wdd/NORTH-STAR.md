@@ -76,7 +76,7 @@ What a person sees and feels. Every ward moves at least one of these closer, or 
 | After | Ward | What is recorded | Where |
 |---|---|---|---|
 | Slice 2 | W69 | The acceptance scene, steps 1–4, 6 and 8, recorded with the RAF clock in canvas2d only (no WebGPU fluid renderer exists before slice 3), plus status per scene step against the matrix | `.wdd/memory/whole-picture/slice-2.md`, `docs/superpowers/whole-picture/slice-2-canvas2d.gif` |
-| Slice 4 | (planned later) | Every renderer that exists at that point (canvas2d and webgpu) | `.wdd/memory/whole-picture/slice-4.md` |
+| Slice 4 | W76 | The acceptance scene, steps 1–4, 6 and 8 plus a card-text splash (3b) and forced colours switched on live mid-splash, recorded with the RAF clock in canvas2d and webgpu (Metal), plus status per scene step and renderer against the matrix | `.wdd/memory/whole-picture/slice-4.md`, `docs/superpowers/whole-picture/slice-4-canvas2d.gif`, `docs/superpowers/whole-picture/slice-4-webgpu.gif` |
 | Slice 6 | (planned later) | Every renderer, all 8 steps | `.wdd/memory/whole-picture/slice-6.md` |
 
 The recording is inspected with vision before the status is written. Each status is ✅, ⏳ or ❌ per step, measured against that slice's column.
@@ -215,4 +215,4 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D75-2 | Colour auto-refresh: AMENDED (B) — own class/style only, deferred while the element animates; refresh(el) kept (was dec_86b58e7b) | W75 | dec_b2499bfc |
 | D75-3 | Canvas2D DOM-text halo (liquid-halo text-shadow rule per element) | W75 | dec_c537bf43 |
 | D76-1 | Whole picture after slice 4 in both renderers (W69 template, step 3b, live forced colours) | W76 | dec_7c523bfc |
-| D76-2 | One-screen landing page scene as a foreign test page (recorded, report section, canvas2d smoke) | W76 | dec_d2aca357 |
+| D76-2 | One-screen landing page scene as a foreign test page (recorded, report section, canvas2d smoke) | W76 | dec_506a5e00, dec_d2aca357 |

@@ -6,6 +6,8 @@
  *   Neither ever runs in CI. Video comes from PROJECT_USE (e2e/projects.ts) via useFor().
  * - RAF clock (no ?clock=manual): a manual clock would record a frozen video (C6).
  * - Records steps 1–4, 6 and 8 (a ?rm=1 segment, D70-6). Step 5 (drag, slice 5) and 7 (scroll, slice 6) are ⏳.
+ * - W76 (D76-1, slice 4): step 3b, a gentle card splash for the liquid text, and a live forced-colours
+ *   switch mid-splash (S4 step 8), in both renderers (`npm run whole-picture`).
  * - Re-form budgets are read from .wdd/NORTH-STAR.md (the D67-1 outcome), never hard-coded.
  *   They are reported, not asserted: acceptance.spec.ts and webgpu-robust.spec.ts assert them.
  * Timings are wall-clock (±50 ms) and go to the manifest for the status report.
@@ -19,7 +21,7 @@ import { NORTH_STAR_PATH, reformBudgetMs } from "./north-star";
 type SceneHook = {
   ready: Promise<void>;
   restAlpha(): number[];
-  instance: { activeRenderer: string; shake(strength?: number): void };
+  instance: { activeRenderer: string; shake(strength?: number): void; splash(el: Element, opts?: { strength?: number }): void };
 };
 
 const OUT_DIR = resolve(process.cwd(), "test-results/whole-picture");
@@ -161,6 +163,22 @@ for (const r of RECORDINGS) {
     await shot("step3-reformed");
     timings.push({ step: 3, name: 'click "Splash"', budgetMs: SPLASH_BUDGET_MS, ...s3 });
 
+    // Step 3b (S4, W76) – a gentle API splash on the card, the element with the most text: under
+    // WebGPU its heading and paragraph should stretch with their liquid (W74), under Canvas2D the
+    // DOM text keeps its halo (W75). An API splash changes no hover or focus state.
+    const s3b = await measure(
+      () =>
+        page.evaluate(() => {
+          const card = document.querySelector<HTMLElement>("#card");
+          if (!card) throw new Error("W76: #card not found");
+          (window as unknown as { __liquidTest: SceneHook }).__liquidTest.instance.splash(card, { strength: 0.5 });
+        }),
+      { name: "step3-card-text-250ms", afterMs: 250 },
+      reformTimeout(SPLASH_BUDGET_MS),
+    );
+    await shot("step3-card-reformed");
+    timings.push({ step: 3, name: "card splash at strength 0.5 (liquid text)", budgetMs: SPLASH_BUDGET_MS, ...s3b });
+
     // Step 4 – Tab to "Split", Enter (click detail 0 → centre). Focus ring visible throughout.
     await page.mouse.click(4, 4);
     let focused = false;
@@ -186,6 +204,33 @@ for (const r of RECORDINGS) {
 
     // Hold the final rest frame for the GIF.
     await page.waitForTimeout(1_500);
+
+    // S4 step 8 (W76) – forced colours switched on live mid-splash: the canvas hides and the DOM
+    // text shows at once (W75), then forced colours go off and the liquid re-forms.
+    await page.getByRole("button", { name: "Splash", exact: true }).click();
+    await page.mouse.move(1279, 799);
+    await page.waitForTimeout(150);
+    await page.emulateMedia({ forcedColors: "active" });
+    const forced = await page.evaluate(() => ({
+      color: getComputedStyle(document.querySelector("#splash")!).color,
+      canvas: getComputedStyle(document.querySelector("canvas.liquid-canvas")!).display,
+    }));
+    await shot("step8-forced-colors-mid-splash");
+    expect(forced.canvas, "forced colours hide the liquid canvas").toBe("none");
+    expect(forced.color, "forced colours show the DOM text at once").not.toBe("rgba(0, 0, 0, 0)");
+    await page.waitForTimeout(600);
+    await page.emulateMedia({ forcedColors: "none" });
+    const t8f = Date.now();
+    const rest8f = await until(page, "allRest", reformTimeout(SPLASH_BUDGET_MS));
+    await shot("step8-forced-colors-after");
+    timings.push({
+      step: 8,
+      name: "forced colours on live mid-splash, then off",
+      budgetMs: null,
+      reactedMs: null,
+      reformMs: rest8f ? Date.now() - t8f : null,
+    });
+    await page.waitForTimeout(1_000);
 
     // Step 8 – reduced motion (?rm=1, D70-6): the same scene with forceReducedMotion. A click on
     // "Splash" and a shake must show no motion: every restAlpha stays 1 and the scene stays crisp.
