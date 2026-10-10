@@ -11,6 +11,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { LiquidDOM } from "../src/index";
 import {
   TEXT_CLASS, addTextClass, removeTextClass,
+  HALO_CLASS, HALO_ID_ATTR, HALO_BLUR_PX, haloRule, acquireHaloRule, updateHaloRule, releaseHaloRule, addHaloClass, removeHaloClass,
   CANVAS_CLASS, ELEMENT_CLASS, LIQUID_CSS, STACK_ATTR, STYLE_ELEMENT_ID,
   acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas, stackingFor,
 } from "../src/stylesheet";
@@ -337,5 +338,106 @@ describe("W72: canvas remount (D72-1, D72-3)", () => {
     expect(fresh.isConnected).toBe(true);
     expect(fresh.previousSibling).toBe(tail); // appended last in body, as a fresh mount
     expect(document.querySelectorAll("canvas")).toHaveLength(1);
+  });
+});
+
+describe("W75: the Canvas2D halo rule (D75-3)", () => {
+  const BLUE = [47, 111, 222, 1] as const;
+  const RED = [200, 30, 30, 1] as const;
+  // A fresh document per test: other tests in this file observe elements of the shared
+  // `document` through bare registries, and their halo claims would show up in its sheet.
+  let doc: Document;
+  let release: () => void;
+  beforeEach(() => {
+    doc = document.implementation.createHTMLDocument("w75");
+    release = acquireLiquidStyles(doc);
+  });
+  afterEach(() => release());
+  const sheetText = (): string => doc.getElementById(STYLE_ELEMENT_ID)?.textContent ?? "";
+  const make = (tag: "button" | "div" | "span" = "button"): HTMLElement => doc.body.appendChild(doc.createElement(tag));
+
+  it("given_an_acquired_halo_rule_when_the_sheet_is_read_then_one_layered_screen_only_rule_keyed_by_a_document_unique_data_liquid_id_D75_3", () => {
+    expect(HALO_CLASS).toBe("liquid-halo");
+    expect(HALO_ID_ATTR).toBe("data-liquid-id");
+    expect(HALO_BLUR_PX).toEqual([1, 2, 4, 8]);
+    expect(haloRule("h7", BLUE)).toBe(
+      [
+        "@layer liquiddom {",
+        "  @media screen and (forced-colors: none) {",
+        '    .liquid-halo[data-liquid-id="h7"] { text-shadow: 0 0 1px rgba(47, 111, 222, 1), 0 0 2px rgba(47, 111, 222, 1), 0 0 4px rgba(47, 111, 222, 1), 0 0 8px rgba(47, 111, 222, 1) !important; }',
+        "  }",
+        "}",
+      ].join("\n"),
+    );
+    const el = make();
+    acquireHaloRule(el, BLUE);
+    const key = el.getAttribute(HALO_ID_ATTR) ?? "";
+    expect(key).toMatch(/^h\d+$/);
+    expect(sheetText()).toBe(`${LIQUID_CSS}\n${haloRule(key, BLUE)}`);
+    releaseHaloRule(el);
+  });
+
+  it("given_two_elements_and_a_shared_element_when_claimed_and_released_then_keys_differ_rules_are_refcounted_and_the_last_release_restores_the_attribute", () => {
+    const a = make();
+    const b = make("div");
+    b.setAttribute(HALO_ID_ATTR, "author");
+    acquireHaloRule(a, BLUE);
+    acquireHaloRule(a, BLUE); // a second instance observes the same element
+    acquireHaloRule(b, RED);
+    const ka = a.getAttribute(HALO_ID_ATTR) ?? "";
+    const kb = b.getAttribute(HALO_ID_ATTR) ?? "";
+    expect(ka).not.toBe(kb);
+    expect(kb).not.toBe("author");
+    releaseHaloRule(a);
+    expect(a.getAttribute(HALO_ID_ATTR), "one claim left").toBe(ka);
+    expect(sheetText()).toContain(`[data-liquid-id="${ka}"]`);
+    releaseHaloRule(a);
+    releaseHaloRule(a); // idempotent past zero
+    expect(a.hasAttribute(HALO_ID_ATTR)).toBe(false);
+    expect(sheetText()).not.toContain(`[data-liquid-id="${ka}"]`);
+    releaseHaloRule(b);
+    expect(b.getAttribute(HALO_ID_ATTR), "the author's value is restored").toBe("author");
+  });
+
+  it("given_updateHaloRule_when_the_background_changes_then_only_the_rule_text_changes_and_no_inline_style_is_written_D66_3", () => {
+    const el = make();
+    acquireHaloRule(el, BLUE);
+    const key = el.getAttribute(HALO_ID_ATTR) ?? "";
+    updateHaloRule(el, RED);
+    expect(sheetText()).toBe(`${LIQUID_CSS}\n${haloRule(key, RED)}`);
+    expect(el.getAttribute(HALO_ID_ATTR)).toBe(key);
+    expect(el.getAttribute("style")).toBeNull();
+    const stranger = make("span");
+    updateHaloRule(stranger, RED); // not claimed: no-op
+    expect(stranger.hasAttribute(HALO_ID_ATTR)).toBe(false);
+    expect(sheetText()).toBe(`${LIQUID_CSS}\n${haloRule(key, RED)}`);
+    releaseHaloRule(el);
+  });
+
+  it("given_every_halo_released_when_the_sheet_is_read_then_it_is_byte_identical_to_LIQUID_CSS", () => {
+    const els = [make(), make(), make()];
+    for (const el of els) acquireHaloRule(el, BLUE);
+    expect(sheetText().length).toBeGreaterThan(LIQUID_CSS.length);
+    for (const el of els) releaseHaloRule(el);
+    expect(sheetText()).toBe(LIQUID_CSS);
+  });
+
+  it("given_two_halo_votes_when_one_is_removed_then_the_class_stays_until_the_last", () => {
+    const el = make();
+    el.className = "btn";
+    addHaloClass(el);
+    addHaloClass(el);
+    expect(el.classList.contains(HALO_CLASS)).toBe(true);
+    removeHaloClass(el);
+    expect(el.classList.contains(HALO_CLASS)).toBe(true);
+    removeHaloClass(el);
+    expect(el.className).toBe("btn");
+    removeHaloClass(el); // no vote left: no-op
+    expect(el.className).toBe("btn");
+    const own = make("div");
+    own.className = HALO_CLASS; // the author's own class
+    addHaloClass(own);
+    removeHaloClass(own);
+    expect(own.className, "the last release restores what the first hold found (W74's text-hold rule)").toBe(HALO_CLASS);
   });
 });

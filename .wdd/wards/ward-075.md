@@ -62,51 +62,53 @@ Plan: `docs/superpowers/plans/2026-10-10-fluid-slice-4/W75.md` (complete code fo
 
 ## Tests
 
-| # | Test Name | Verifies |
-|---|-----------|----------|
-| 1 | element-observer: given_an_author_class_change_when_drained_then_one_entry_with_colour_and_text_D75_1 | D75-1 options and classification |
-| 2 | element-observer: given_only_liquiddom_class_toggles_when_drained_then_no_entry_and_authorClasses_drops_own_classes_RF2 | Review Focus 2 |
-| 3 | element-observer: given_a_refresh_snapshot_round_trip_of_class_and_style_when_drained_then_no_entry_RF2 | Review Focus 2 (first old value per batch) |
-| 4 | element-observer: given_characterData_and_childList_mutations_in_the_subtree_when_drained_then_a_text_only_entry | D75-1 text triggers |
-| 5 | element-observer: given_many_mutations_in_one_frame_when_drained_twice_then_one_entry_then_none_even_before_the_callback_ran | D75-1 coalescing, takeRecords |
-| 6 | element-observer: given_a_descendant_class_or_style_change_when_drained_then_a_colour_entry_for_the_observed_element | D75-1 subtree attributes |
-| 7 | element-observer: given_unobserve_or_disconnect_when_mutated_afterwards_then_nothing_is_pending_and_both_are_idempotent | cleanup |
-| 8 | element-observer: given_data_liquid_id_or_data_liquid_stack_writes_when_drained_then_no_entry | attribute filter |
-| 9 | stylesheet: given_an_acquired_halo_rule_when_the_sheet_is_read_then_one_layered_screen_only_rule_keyed_by_a_document_unique_data_liquid_id_D75_3 | D75-3 rule text and scope |
-| 10 | stylesheet: given_two_elements_and_a_shared_element_when_claimed_and_released_then_keys_differ_rules_are_refcounted_and_the_last_release_restores_the_attribute | D75-3 keys, refcount, restore |
-| 11 | stylesheet: given_updateHaloRule_when_the_background_changes_then_only_the_rule_text_changes_and_no_inline_style_is_written_D66_3 | D75-2/3, D66-3 |
-| 12 | stylesheet: given_every_halo_released_when_the_sheet_is_read_then_it_is_byte_identical_to_LIQUID_CSS | sheet composition |
-| 13 | stylesheet: given_two_halo_votes_when_one_is_removed_then_the_class_stays_until_the_last | shared elements across instances |
-| 14 | halo-toggle: given_canvas2d_and_restAlpha_below_1_when_synced_then_liquid_halo_once_and_removed_at_rest | D75-3 toggle, one write |
-| 15 | halo-toggle: given_webgpu_or_reduced_motion_or_nan_when_synced_then_no_halo_and_an_existing_vote_is_withdrawn | D75-3 Canvas2D only |
-| 16 | halo-toggle: given_clearHaloClasses_when_called_then_every_vote_of_this_instance_is_withdrawn_and_others_kept | cleanup across instances |
-| 17 | color-snapshot: given_liquid_text_on_when_colours_are_snapshotted_lifting_only_liquid_element_then_the_author_text_colour_is_read_and_attributes_are_restored | D75-2; pins W74's text-fill rule (no rule sets `color`) |
-| 18 | runtime-text-true: given_an_author_class_change_when_the_next_frame_runs_then_colours_are_re_snapshotted_once_and_the_paint_carries_them_D75_2 | D75-2 |
-| 19 | runtime-text-true: given_own_class_toggles_and_a_refresh_every_frame_when_60_frames_run_then_no_extra_snapshot_and_no_text_invalidation_RF2 | Review Focus 2 in the runtime |
-| 20 | runtime-text-true: given_transitionend_for_background_color_or_color_on_the_element_when_the_next_frame_runs_then_one_refresh_and_other_properties_or_bubbled_events_none_D75_2 | D75-2 transitionend |
-| 21 | runtime-text-true: given_webgpu_and_a_text_mutation_mid_motion_when_the_next_frame_runs_then_one_invalidate_before_render_and_that_render_already_draws_the_rebuilt_atlas_RF3 | Review Focus 3 (no stale glyphs, new rest-UV rect, no blink) |
-| 22 | runtime-text-true: given_document_fonts_loadingdone_when_the_next_frame_runs_then_every_observed_element_is_invalidated_once_RF5 | Review Focus 5 fonts |
-| 23 | runtime-text-true: given_a_dpr_change_on_the_resolution_query_when_fired_then_the_canvas_is_resized_every_element_is_invalidated_and_the_query_is_re_armed_RF5 | Review Focus 5 DPR |
-| 24 | runtime-text-true: given_liquid_text_on_mid_motion_when_refresh_runs_then_the_author_text_colour_is_read_and_the_atlas_is_rebuilt_in_it_before_the_render | refresh() under WebGPU; atlas glyph colour mid-motion |
-| 25 | runtime-text-true: given_canvas2d_and_a_moving_element_when_frames_run_then_liquid_halo_on_once_off_at_rest_with_a_rule_in_the_background_colour_and_no_inline_style_D75_3 | D75-3 in the runtime |
-| 26 | runtime-text-true: given_unobserve_and_destroy_when_mutations_and_transitionend_follow_then_no_refresh_and_class_attribute_rule_and_listeners_are_gone | cleanup |
-| 27 | halo.spec (canvas2d): D75-3 – given a splash on Splash when it moves then #splash carries liquid-halo with a text-shadow in its own background colour and no inline style, and at rest neither | D75-3 in Chromium |
-| 28 | halo.spec (canvas2d): D75-3 – given a shake when every element moves then each one carries the halo in its own background colour and the card's paragraph inherits it | D75-3 per element |
-| 29 | halo.spec (canvas2d): D75-3 – given print or forced colours while the halo class is on then the computed text-shadow is none, and back on screen it returns | D66-15 scope |
-| 30 | halo.spec (canvas2d): D75-3 – given reduced motion (?rm=1) when Splash is clicked then no element ever carries liquid-halo | reduced motion |
-| 31 | halo.spec (canvas2d): D75-2 – given an author class change on #split at rest when the next frame runs then the liquid paints the new colour without refresh() and the halo follows | D75-2 in Chromium |
-| 32 | halo.spec (canvas2d): D75-2 – given an ancestor theme change with a colour transition on #split when the transition ends then the liquid follows without refresh() | D75-2 transitionend |
-| 33 | webgpu-robust (webgpu-hw): W75 D75-3 – given renderer webgpu and a splash when it moves then no element ever carries liquid-halo | D75-3 Canvas2D only |
-| 34 | webgpu-robust (webgpu-hw): W75 step 8 – given liquid-text on mid-splash when forced colours switch on live then the DOM text is visible at once and the canvas hidden, and switching back restores liquid-text while moving | step 8 forced colours |
-| 35 | webgpu-robust (webgpu-hw): W75 step 8 – given liquid-text on mid-splash when print is emulated live then the DOM text has its author colour at once and the canvas is hidden | step 8 print |
-| 36 | webgpu-robust (webgpu-hw): W75 – given refresh() mid-motion after an author colour change when the next frame renders then the liquid and the liquid text show the new colours | refresh() under WebGPU |
-| 37 | webgpu-robust (webgpu-hw): W75 RF3 – given a text change mid-splash when the next frame runs then exactly one atlas re-render, own class toggles never re-render, and the new text is DOM-visible at rest | Review Focus 2, 3 |
-| 38 | webgpu-robust (webgpu-hw): W75 RF5 – given a web font that finishes loading after observe when the next frame runs then every observed element's atlas entry is re-rendered once | Review Focus 5 fonts |
-| 39 | webgpu-robust (webgpu-hw): W75 RF5 – given a DPR change from 1 to 2 when the next frame runs then the canvas backing doubles and every atlas entry is re-rendered once | Review Focus 5 DPR |
-| 40 | webgpu-robust (webgpu-hw): W75 a11y – given renderer webgpu at rest and mid-splash with liquid-text on when axe runs then 0 violations, and contrast in print 0 | a11y under WebGPU |
-| 41 | webgpu-robust (webgpu-hw): W75 a11y – given Tab and Enter on Split under webgpu when ticking then the focus ring stays visible above the liquid at every 10th frame | focus ring under WebGPU |
-| 42 | runtime-text-true: given_liquid_text_on_under_webgpu_when_the_device_is_lost_then_liquid_text_goes_and_the_halo_applies_from_the_next_frame_under_canvas2d | halo after the WebGPU → Canvas2D switch |
-| 43 | runtime-text-true: given_the_halo_on_when_a_frame_throws_or_the_canvas2d_rebuild_after_a_lost_device_fails_then_this_instance_withdraws_every_halo | halo on the fail-safe paths |
+Red run (2026-10-10, W75.1): baseline measured before the tests was cargo 170 passed / 2 ignored (plan: 168), vitest 582 passed | 4 skipped (586) in 58 files (plan: 566 | 4 (570)), Playwright --list canvas2d 39, webgpu 26, webgpu-hw 45. Targets recomputed with the plan's deltas: vitest 610 passed | 4 skipped (614) in 61 files (+28 tests, +3 files), canvas2d 45, webgpu-hw 54, webgpu 26. No W74 name differed from the plan's. Test 16 was renamed as written in the brief. In tests 21, 24 and 42 the plan's setup lacked W74's atlas-confirm step (W74 review I1: first render uploads the page, `textReady` is true only after its error scope resolves): `clock.advance(1); await flush();` was added before `setRestAlpha(id, 0.4)`, as W74's own `text-runtime.test.ts` does.
+
+| # | Test Name | Verifies | Red outcome |
+|---|-----------|----------|-------------|
+| 1 | element-observer: given_an_author_class_change_when_drained_then_one_entry_with_colour_and_text_D75_1 | D75-1 options and classification | FAIL (import: module missing) |
+| 2 | element-observer: given_only_liquiddom_class_toggles_when_drained_then_no_entry_and_authorClasses_drops_own_classes_RF2 | Review Focus 2 | FAIL (import: module missing) |
+| 3 | element-observer: given_a_refresh_snapshot_round_trip_of_class_and_style_when_drained_then_no_entry_RF2 | Review Focus 2 (first old value per batch) | FAIL (import: module missing) |
+| 4 | element-observer: given_characterData_and_childList_mutations_in_the_subtree_when_drained_then_a_text_only_entry | D75-1 text triggers | FAIL (import: module missing) |
+| 5 | element-observer: given_many_mutations_in_one_frame_when_drained_twice_then_one_entry_then_none_even_before_the_callback_ran | D75-1 coalescing, takeRecords | FAIL (import: module missing) |
+| 6 | element-observer: given_a_descendant_class_or_style_change_when_drained_then_a_colour_entry_for_the_observed_element | D75-1 subtree attributes | FAIL (import: module missing) |
+| 7 | element-observer: given_unobserve_or_disconnect_when_mutated_afterwards_then_nothing_is_pending_and_both_are_idempotent | cleanup | FAIL (import: module missing) |
+| 8 | element-observer: given_data_liquid_id_or_data_liquid_stack_writes_when_drained_then_no_entry | attribute filter | FAIL (import: module missing) |
+| 9 | stylesheet: given_an_acquired_halo_rule_when_the_sheet_is_read_then_one_layered_screen_only_rule_keyed_by_a_document_unique_data_liquid_id_D75_3 | D75-3 rule text and scope | FAIL (halo exports missing) |
+| 10 | stylesheet: given_two_elements_and_a_shared_element_when_claimed_and_released_then_keys_differ_rules_are_refcounted_and_the_last_release_restores_the_attribute | D75-3 keys, refcount, restore | FAIL (halo exports missing) |
+| 11 | stylesheet: given_updateHaloRule_when_the_background_changes_then_only_the_rule_text_changes_and_no_inline_style_is_written_D66_3 | D75-2/3, D66-3 | FAIL (halo exports missing) |
+| 12 | stylesheet: given_every_halo_released_when_the_sheet_is_read_then_it_is_byte_identical_to_LIQUID_CSS | sheet composition | FAIL (halo exports missing) |
+| 13 | stylesheet: given_two_halo_votes_when_one_is_removed_then_the_class_stays_until_the_last | shared elements across instances | FAIL (halo exports missing) |
+| 14 | halo-toggle: given_canvas2d_and_restAlpha_below_1_when_synced_then_liquid_halo_once_and_removed_at_rest | D75-3 toggle, one write | FAIL (import: module missing) |
+| 15 | halo-toggle: given_webgpu_or_reduced_motion_or_nan_when_synced_then_no_halo_and_an_existing_vote_is_withdrawn | D75-3 Canvas2D only | FAIL (import: module missing) |
+| 16 | halo-toggle: given_clearHaloClasses_releaseHaloClass_or_a_missed_release_when_called_then_this_instance_lets_go_and_others_keep_their_hold | cleanup across instances | FAIL (import: module missing) |
+| 17 | color-snapshot: given_liquid_text_on_when_colours_are_snapshotted_lifting_only_liquid_element_then_the_author_text_colour_is_read_and_attributes_are_restored | D75-2; pins W74's text-fill rule (no rule sets `color`) | PASS at red (pins W74's no-`color` rule) |
+| 18 | runtime-text-true: given_an_author_class_change_when_the_next_frame_runs_then_colours_are_re_snapshotted_once_and_the_paint_carries_them_D75_2 | D75-2 | FAIL (refresh not called) |
+| 19 | runtime-text-true: given_own_class_toggles_and_a_refresh_every_frame_when_60_frames_run_then_no_extra_snapshot_and_no_text_invalidation_RF2 | Review Focus 2 in the runtime | FAIL (textInvalidations undefined) |
+| 20 | runtime-text-true: given_transitionend_for_background_color_or_color_on_the_element_when_the_next_frame_runs_then_one_refresh_and_other_properties_or_bubbled_events_none_D75_2 | D75-2 transitionend | FAIL (refresh not called) |
+| 21 | runtime-text-true: given_webgpu_and_a_text_mutation_mid_motion_when_the_next_frame_runs_then_one_invalidate_before_render_and_that_render_already_draws_the_rebuilt_atlas_RF3 | Review Focus 3 (no stale glyphs, new rest-UV rect, no blink) | FAIL (invalidate not called) |
+| 22 | runtime-text-true: given_document_fonts_loadingdone_when_the_next_frame_runs_then_every_observed_element_is_invalidated_once_RF5 | Review Focus 5 fonts | FAIL (no invalidate on loadingdone) |
+| 23 | runtime-text-true: given_a_dpr_change_on_the_resolution_query_when_fired_then_the_canvas_is_resized_every_element_is_invalidated_and_the_query_is_re_armed_RF5 | Review Focus 5 DPR | FAIL (no DPR listener) |
+| 24 | runtime-text-true: given_liquid_text_on_mid_motion_when_refresh_runs_then_the_author_text_colour_is_read_and_the_atlas_is_rebuilt_in_it_before_the_render | refresh() under WebGPU; atlas glyph colour mid-motion | FAIL (invalidate not called with id) |
+| 25 | runtime-text-true: given_canvas2d_and_a_moving_element_when_frames_run_then_liquid_halo_on_once_off_at_rest_with_a_rule_in_the_background_colour_and_no_inline_style_D75_3 | D75-3 in the runtime | FAIL (no data-liquid-id / halo) |
+| 26 | runtime-text-true: given_unobserve_and_destroy_when_mutations_and_transitionend_follow_then_no_refresh_and_class_attribute_rule_and_listeners_are_gone | cleanup | FAIL (no halo rule to release) |
+| 27 | halo.spec (canvas2d): D75-3 – given a splash on Splash when it moves then #splash carries liquid-halo with a text-shadow in its own background colour and no inline style, and at rest neither | D75-3 in Chromium | FAIL (no data-liquid-id key) |
+| 28 | halo.spec (canvas2d): D75-3 – given a shake when every element moves then each one carries the halo in its own background colour and the card's paragraph inherits it | D75-3 per element | FAIL (no halo class) |
+| 29 | halo.spec (canvas2d): D75-3 – given print or forced colours while the halo class is on then the computed text-shadow is none, and back on screen it returns | D66-15 scope | FAIL (no halo class) |
+| 30 | halo.spec (canvas2d): D75-3 – given reduced motion (?rm=1) when Splash is clicked then no element ever carries liquid-halo | reduced motion | PASS at red (trivially: no halo exists; deviation from the plan's 6 failed) |
+| 31 | halo.spec (canvas2d): D75-2 – given an author class change on #split at rest when the next frame runs then the liquid paints the new colour without refresh() and the halo follows | D75-2 in Chromium | FAIL (liquid keeps old colour) |
+| 32 | halo.spec (canvas2d): D75-2 – given an ancestor theme change with a colour transition on #split when the transition ends then the liquid follows without refresh() | D75-2 transitionend | FAIL (liquid keeps old colour) |
+| 33 | webgpu-robust (webgpu-hw): W75 D75-3 – given renderer webgpu and a splash when it moves then no element ever carries liquid-halo | D75-3 Canvas2D only | PASS at red |
+| 34 | webgpu-robust (webgpu-hw): W75 step 8 – given liquid-text on mid-splash when forced colours switch on live then the DOM text is visible at once and the canvas hidden, and switching back restores liquid-text while moving | step 8 forced colours | PASS at red |
+| 35 | webgpu-robust (webgpu-hw): W75 step 8 – given liquid-text on mid-splash when print is emulated live then the DOM text has its author colour at once and the canvas is hidden | step 8 print | PASS at red |
+| 36 | webgpu-robust (webgpu-hw): W75 – given refresh() mid-motion after an author colour change when the next frame renders then the liquid and the liquid text show the new colours | refresh() under WebGPU | FAIL at red (yellow text pixels 0; the plan allowed a pass) |
+| 37 | webgpu-robust (webgpu-hw): W75 RF3 – given a text change mid-splash when the next frame runs then exactly one atlas re-render, own class toggles never re-render, and the new text is DOM-visible at rest | Review Focus 2, 3 | FAIL (textInvalidations undefined) |
+| 38 | webgpu-robust (webgpu-hw): W75 RF5 – given a web font that finishes loading after observe when the next frame runs then every observed element's atlas entry is re-rendered once | Review Focus 5 fonts | FAIL (textInvalidations undefined) |
+| 39 | webgpu-robust (webgpu-hw): W75 RF5 – given a DPR change from 1 to 2 when the next frame runs then the canvas backing doubles and every atlas entry is re-rendered once | Review Focus 5 DPR | FAIL (canvas never resizes on DPR change, timeout) |
+| 40 | webgpu-robust (webgpu-hw): W75 a11y – given renderer webgpu at rest and mid-splash with liquid-text on when axe runs then 0 violations, and contrast in print 0 | a11y under WebGPU | PASS at red |
+| 41 | webgpu-robust (webgpu-hw): W75 a11y – given Tab and Enter on Split under webgpu when ticking then the focus ring stays visible above the liquid at every 10th frame | focus ring under WebGPU | PASS at red |
+| 42 | runtime-text-true: given_liquid_text_on_under_webgpu_when_the_device_is_lost_then_liquid_text_goes_and_the_halo_applies_from_the_next_frame_under_canvas2d | halo after the WebGPU → Canvas2D switch | FAIL (no halo after the switch) |
+| 43 | runtime-text-true: given_the_halo_on_when_a_frame_throws_or_the_canvas2d_rebuild_after_a_lost_device_fails_then_this_instance_withdraws_every_halo | halo on the fail-safe paths | FAIL (no halo to withdraw) |
 
 ## Must NOT
 - Write an inline style on an observed element that outlives one synchronous snapshot (D66-3), or any per-frame DOM write besides class toggles on change.

@@ -8,6 +8,7 @@
  * - Pixel reads go through frame-readback.ts (W71's __liquidTest.pixels() snapshot of the last advance()).
  * - The W65 guard fixture fails every test on console.error, pageerror or a panic.
  */
+import AxeBuilder from "@axe-core/playwright";
 import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
 import { advanceAndCountOpaque, advanceAndCountOutside, advanceAndHash, advanceFrames } from "./frame-readback";
@@ -646,6 +647,247 @@ test.describe("W74 gold – vision captures (VISION=1)", () => {
         await advanceFrames(page, f - done);
         done = f;
         await shot(`shake-f${pad(f)}`);
+      }
+    }
+  });
+});
+
+/** W75: hardware-adapter WebGPU with W74's liquid text; local webgpu-hw project only (fallback B). */
+const W75_HW_ONLY = "W75: liquid text needs WebGPU on the hardware adapter; local webgpu-hw project only";
+
+async function framesUntilTextClass(page: Page, selector: string, maxFrames = 12): Promise<number> {
+  return page.evaluate(
+    ([sel, max]) => {
+      const el = document.querySelector(sel as string);
+      if (!el) throw new Error(`W75: ${String(sel)} not found`);
+      const t = window.__liquidTest!;
+      for (let f = 1; f <= (max as number); f++) {
+        t.advance(1);
+        if (el.classList.contains("liquid-text")) return f;
+      }
+      return -1;
+    },
+    [selector, maxFrames] as const,
+  );
+}
+
+/**
+ * D75-1 A: like framesUntilTextClass, but one task per frame, so a staged atlas page's error scope
+ * can resolve between frames (a synchronous loop never lets it confirm).
+ */
+async function framesUntilTextClassAcrossTasks(page: Page, selector: string, maxFrames = 30): Promise<number> {
+  for (let f = 1; f <= maxFrames; f++) {
+    const on = await page.evaluate((sel) => {
+      window.__liquidTest!.advance(1);
+      return document.querySelector(sel)?.classList.contains("liquid-text") === true;
+    }, selector);
+    if (on) return f;
+  }
+  return -1;
+}
+
+async function textInvalidations(page: Page): Promise<number> {
+  return page.evaluate(() => window.__liquidTest!.textInvalidations);
+}
+
+/** Opaque canvas pixels near `selector` (padded) in the last advance()'s snapshot, by colour class. */
+async function colourCountsNear(page: Page, selector: string, padPx: number): Promise<{ red: number; yellow: number }> {
+  return page.evaluate(
+    ([sel, pad]) => {
+      const img = window.__liquidTest!.pixels();
+      const r = document.querySelector(sel as string)!.getBoundingClientRect();
+      const sx = img.width / window.innerWidth;
+      const sy = img.height / window.innerHeight;
+      const p = pad as number;
+      const x0 = Math.max(0, Math.floor((r.left - p) * sx));
+      const x1 = Math.min(img.width, Math.ceil((r.right + p) * sx));
+      const y0 = Math.max(0, Math.floor((r.top - p) * sy));
+      const y1 = Math.min(img.height, Math.ceil((r.bottom + p) * sy));
+      let red = 0;
+      let yellow = 0;
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          const i = (y * img.width + x) * 4;
+          const [R, G, B, A] = [img.data[i]!, img.data[i + 1]!, img.data[i + 2]!, img.data[i + 3]!];
+          if (A < 200) continue;
+          if (R > 170 && G < 80 && B < 80) red++;
+          else if (R > 200 && G > 180 && B < 90) yellow++;
+        }
+      }
+      return { red, yellow };
+    },
+    [selector, padPx] as const,
+  );
+}
+
+test.describe("W75 – text that stays true (webgpu)", () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== HW_PROJECT, W75_HW_ONLY);
+  });
+
+  test("W75 D75-3 – given renderer webgpu and a splash when it moves then no element ever carries liquid-halo", async ({ page }) => {
+    await openAtRest(page);
+    await splashButton(page, "Splash");
+    await page.evaluate(() => (window.__liquidTest!.instance as SceneInstance).shake());
+    const seen = await page.evaluate(() => {
+      let halo = false;
+      let text = false;
+      for (let f = 0; f < 60; f++) {
+        window.__liquidTest!.advance(1);
+        if (document.querySelector(".liquid-halo")) halo = true;
+        if (document.querySelector(".liquid-text")) text = true;
+      }
+      return { halo, text };
+    });
+    expect(seen).toEqual({ halo: false, text: true });
+    expect(await page.locator("#splash").evaluate((el) => getComputedStyle(el).textShadow)).toBe("none");
+  });
+
+  test("W75 step 8 – given liquid-text on mid-splash when forced colours switch on live then the DOM text is visible at once and the canvas hidden, and switching back restores liquid-text while moving", async ({ page }) => {
+    await openAtRest(page);
+    await splashButton(page, "Splash");
+    expect(await framesUntilTextClass(page, "#splash"), "W74 sets liquid-text while moving").toBeGreaterThan(0);
+    const splash = page.locator("#splash");
+    // W74 (D74-6) hides the glyphs with -webkit-text-fill-color; `color` itself stays the author's.
+    const fill = (): Promise<string> => splash.evaluate((el) => getComputedStyle(el).webkitTextFillColor);
+    expect(await fill()).toBe("rgba(0, 0, 0, 0)");
+    await page.emulateMedia({ forcedColors: "active" });
+    // No frame advanced: the CSS media scope alone shows the DOM text.
+    expect(await fill()).not.toBe("rgba(0, 0, 0, 0)");
+    await expect(page.locator("canvas.liquid-canvas")).toHaveCSS("display", "none");
+    await page.emulateMedia({ forcedColors: "none" });
+    await advanceFrames(page, 1);
+    const moving = (await restAlphas(page))[0]! < 1;
+    expect(await splash.evaluate((el) => el.classList.contains("liquid-text"))).toBe(moving);
+    await expect(page.locator("canvas.liquid-canvas")).not.toHaveCSS("display", "none");
+  });
+
+  test("W75 step 8 – given liquid-text on mid-splash when print is emulated live then the DOM text has its author colour at once and the canvas is hidden", async ({ page }) => {
+    await openAtRest(page);
+    await splashButton(page, "Splash");
+    expect(await framesUntilTextClass(page, "#splash")).toBeGreaterThan(0);
+    await page.emulateMedia({ media: "print" });
+    // W74's text rule sets -webkit-text-fill-color only (screen); in print the fill falls back to `color`.
+    expect(await page.locator("#splash").evaluate((el) => getComputedStyle(el).webkitTextFillColor)).toBe("rgb(255, 255, 255)");
+    await expect(page.locator("canvas.liquid-canvas")).toHaveCSS("display", "none");
+    await page.emulateMedia({ media: "screen" });
+  });
+
+  test("W75 – given refresh() mid-motion after an author colour change when the next frame renders then the liquid and the liquid text show the new colours", async ({ page }, testInfo) => {
+    await openAtRest(page);
+    await page.evaluate(() => {
+      const el = document.querySelector<HTMLElement>("#splash")!;
+      (window.__liquidTest!.instance as { splash(el: HTMLElement, o?: { strength?: number }): void }).splash(el, { strength: 0.3 });
+    });
+    expect(await framesUntilTextClass(page, "#splash")).toBeGreaterThan(0);
+    await page.addStyleTag({ content: "#splash.btn--splash { background: rgb(200, 30, 30); color: rgb(255, 230, 0); }" });
+    await page.evaluate(() => (window.__liquidTest!.instance as { refresh(el: Element): void }).refresh(document.querySelector("#splash")!));
+    expect(
+      await framesUntilTextClassAcrossTasks(page, "#splash"),
+      "D75-1 A: masked while the recoloured page is staged, liquid text back once it is confirmed",
+    ).toBeGreaterThan(0);
+    const counts = await colourCountsNear(page, "#splash", 40);
+    testInfo.annotations.push({ type: "W75 refresh mid-motion", description: JSON.stringify(counts) });
+    expect(counts.red, "the liquid in the new background colour").toBeGreaterThan(500);
+    expect(counts.yellow, "the liquid text in the new text colour").toBeGreaterThan(20);
+    await page.screenshot({ path: testInfo.outputPath("w75-webgpu-refresh-mid-motion.png") });
+  });
+
+  test("W75 RF3 – given a text change mid-splash when the next frame runs then exactly one atlas re-render, own class toggles never re-render, and the new text is DOM-visible at rest", async ({ page }, testInfo) => {
+    await openAtRest(page);
+    const before = await textInvalidations(page);
+    await splashButton(page, "Splash");
+    expect(await framesUntilTextClass(page, "#splash")).toBeGreaterThan(0);
+    await advanceFrames(page, 10);
+    expect(await textInvalidations(page), "W74's own class toggles never re-render the atlas (RF2)").toBe(before);
+    await page.locator("#splash").evaluate((el) => {
+      (el.firstChild as Text).data = "Splo";
+      el.append("sh!");
+      el.append(document.createElement("b"));
+    });
+    await advanceFrames(page, 1);
+    expect(await textInvalidations(page), "three mutations, one frame, one re-render").toBe(before + 1);
+    await page.screenshot({ path: testInfo.outputPath("w75-webgpu-text-change-mid-splash.png") });
+    expect(await framesUntilAllRest(page, REFORM_BUDGET_FRAMES), "re-form within 3 s").toBeGreaterThan(0);
+    const s = await page.locator("#splash").evaluate((el) => ({
+      text: el.textContent,
+      cls: el.classList.contains("liquid-text"),
+      color: getComputedStyle(el).color,
+      fill: getComputedStyle(el).webkitTextFillColor,
+    }));
+    expect(s).toEqual({ text: "Splosh!", cls: false, color: "rgb(255, 255, 255)", fill: "rgb(255, 255, 255)" });
+  });
+
+  test("W75 RF5 – given a web font that finishes loading after observe when the next frame runs then every observed element's atlas entry is re-rendered once", async ({ page }) => {
+    await openAtRest(page);
+    const before = await textInvalidations(page);
+    const loaded = await page.evaluate(async () => {
+      const done = new Promise<void>((resolve) => document.fonts.addEventListener("loadingdone", () => resolve(), { once: true }));
+      const face = new FontFace("W75Probe", "local('Arial'), local('Helvetica')");
+      document.fonts.add(face);
+      try {
+        await face.load();
+      } catch {
+        return false;
+      }
+      await done;
+      return true;
+    });
+    expect(loaded, "a local font face loads on this machine").toBe(true);
+    expect(await textInvalidations(page), "deferred to the next frame").toBe(before);
+    await advanceFrames(page, 1);
+    expect(await textInvalidations(page) - before, "one per observed element (#splash, #split, #merge, #card)").toBe(4);
+  });
+
+  test("W75 RF5 – given a DPR change from 1 to 2 when the next frame runs then the canvas backing doubles and every atlas entry is re-rendered once", async ({ page }) => {
+    await openAtRest(page);
+    const before = await textInvalidations(page);
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 2, mobile: false });
+    await page.waitForFunction(() => document.querySelector<HTMLCanvasElement>("canvas.liquid-canvas")!.width === 2560);
+    await advanceFrames(page, 1);
+    expect(await textInvalidations(page) - before).toBe(4);
+    await advanceFrames(page, 1);
+    expect(await textInvalidations(page) - before, "once, not every frame").toBe(4);
+    await cdp.send("Emulation.clearDeviceMetricsOverride");
+  });
+
+  test("W75 a11y – given renderer webgpu at rest and mid-splash with liquid-text on when axe runs then 0 violations, and contrast in print 0", async ({ page }) => {
+    const tags = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
+    await openAtRest(page);
+    expect((await new AxeBuilder({ page }).withTags(tags).disableRules(["color-contrast"]).analyze()).violations).toEqual([]);
+    await splashButton(page, "Splash");
+    expect(await framesUntilTextClass(page, "#splash")).toBeGreaterThan(0);
+    expect((await new AxeBuilder({ page }).withTags(tags).disableRules(["color-contrast"]).analyze()).violations).toEqual([]);
+    await page.emulateMedia({ media: "print" });
+    expect((await new AxeBuilder({ page }).withRules(["color-contrast"]).analyze()).violations).toEqual([]);
+    await page.emulateMedia({ media: "screen" });
+  });
+
+  test("W75 a11y – given Tab and Enter on Split under webgpu when ticking then the focus ring stays visible above the liquid at every 10th frame", async ({ page }, testInfo) => {
+    await openAtRest(page);
+    const split = page.getByRole("button", { name: "Split", exact: true });
+    await tabTo(page, split);
+    await page.keyboard.press("Enter");
+    for (let f = 0; f < 6; f++) {
+      await advanceFrames(page, 10);
+      await expect(split).toBeFocused();
+      expect(await focusRingVisible(split), `focus ring at frame ${(f + 1) * 10}`).toBe(true);
+      const stack = await split.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        const canvas = document.querySelector("canvas.liquid-canvas")!;
+        return { z: cs.zIndex, position: cs.position, canvasZ: getComputedStyle(canvas).zIndex, halo: el.classList.contains("liquid-halo") };
+      });
+      expect(stack.z).toBe("1");
+      expect(stack.position).not.toBe("static");
+      expect(stack.canvasZ).toBe("0");
+      expect(stack.halo).toBe(false);
+      if (f === 2) {
+        const box = (await split.boundingBox())!;
+        await page.screenshot({
+          path: testInfo.outputPath("w75-webgpu-focus-split-f30.png"),
+          clip: { x: box.x - 40, y: box.y - 40, width: box.width + 80, height: box.height + 80 },
+        });
       }
     }
   });

@@ -64,6 +64,12 @@ export interface LiquidTestHook {
   readonly overdraw: number;
   /** W72 (D72-6): T0 size in px `[width, height]` under webgpu (0.5 × the backing px by default); null under canvas2d. */
   readonly t0Size: readonly [number, number] | null;
+  /**
+   * W75 (Review Focus 3, 5): atlas re-render requests the runtime issued so far (a text or colour
+   * change, a font that finished loading, a DPR change, refresh()). Liquiddom's own class writes
+   * never add to it.
+   */
+  readonly textInvalidations: number;
 }
 
 export interface StressElementState {
