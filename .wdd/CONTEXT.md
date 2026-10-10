@@ -56,12 +56,12 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 - WebGPU e2e runs only locally (`e2e:webgpu`, `e2e:webgpu-hw` on Metal); CI runs the soft smoke (W71.0: SwiftShader loses the device within 2–5 frames in CI). No webgpu Linux baselines (W72).
 - A WebGPU canvas is readable only in the task that rendered it; the e2e helpers read `__liquidTest.pixels()` (a snapshot taken in advance()).
 - DOM-text contrast while the liquid is away (D72-5): solved under WebGPU by the liquid text (W74); under Canvas2D the DOM text still sits on the bare page during a splash or shake until W75's halo.
-- Liquid text v1 (W74, D74-5): text nodes only; underline, text-shadow, icons, images and SVG are not in the atlas (decorations hide while the text moves); `capitalize` is per word; a font that loads after the atlas build shows the fallback in motion until W75; the page is ≤ 4096² atlas px and an element that does not fit keeps its DOM text. Words are clipped to the border box, so `overflow: visible` text outside it vanishes while moving.
-- Liquid text costs (W74): the atlas is rebuilt on every paints rebuild until W75; T1/T1w stay allocated after the first moving text (released only on resize, device loss or destroy).
+- Liquid text v1 (W74, D74-5): text nodes only; underline, text-shadow, icons, images, SVG, form-control values/placeholders and `::before`/`::after` text are not in the atlas and hide while the text moves (`.liquid-text *`); `capitalize` is per word; a late-loading font shows the fallback in motion until W75; the page is ≤ 4096² atlas px; an element that does not fit keeps its DOM text. Words are clipped to the border box, so `overflow: visible` text outside it vanishes while moving.
+- Liquid text costs (W74): the atlas is rebuilt on every paints rebuild until W75 (two pages on the GPU: a new one is staged until confirmed); T1/T1w stay allocated after the first moving text.
 - Hover swell with liquid text (W74): the particles swell 2 % while the DOM text does not, so the atlas → DOM switch after a hover can shift glyphs by ≈ 1 px at the edges; a pointer resting on a moving card can smear its text locally (spike W74.0).
 - `activeRenderer` can change during an instance's life (W72): a lost WebGPU device switches it to `'canvas2d'`; a frame or two during the rebuild draw nothing.
 - Canvas2D still splats the moving particles of an element whose rect is w == 0 (hidden); WebGPU hides them through element flags. Since W72 a device loss can switch renderers mid-session, so the difference can become visible; parking (slice 6) resolves it.
-- The overdraw number is an estimate (quads × area at the T0 scale), not a GPU counter (D72-4).
+- The overdraw number is an estimate, not a GPU counter (D72-4).
 
 ## What Comes Next
 - Slice 2 closed: `.wdd/memory/whole-picture/slice-2.md` + `slice-2-addendum.md` (steps 1–4, 6, 8 ✅; 5/7 ⏳).
