@@ -340,6 +340,38 @@ describe("W74 review: atlas build timing and size cap", () => {
     expect(gpu.calls.errors).toEqual([]);
   });
 
+  // W74 ward-review (I1): a rebuild while an element moves never blinks its text.
+  it("given_liquid_text_on_when_the_atlas_is_rebuilt_mid_motion_then_the_class_stays_on_and_the_text_pass_runs_every_frame_until_and_after_the_new_page_is_confirmed", async () => {
+    const s = await setup();
+    const a = button("Splash", 100);
+    const idA = await observed(s, a);
+    s.core.forceRestAlpha(idA, 0.4);
+    s.clock.advance(1);
+    expect(a.classList.contains(TEXT_CLASS)).toBe(true);
+    const passes = textPasses();
+    const b = button("Split", 300);
+    s.rt.observe(b);
+    await microtask(); // the batched redistribute bumps the generation
+    s.core.forceRestAlpha(idA, 0.4);
+    s.clock.advance(1); // the rebuild frame: a new atlas version, its upload not yet confirmed
+    expect(s.atlas.canvases, "precondition: rebuilt").toHaveLength(2);
+    expect(a.classList.contains(TEXT_CLASS), "the rebuild frame keeps the class").toBe(true);
+    expect(textPasses(), "and draws the text").toBe(passes + 1);
+    s.clock.advance(1);
+    expect(a.classList.contains(TEXT_CLASS), "still pending").toBe(true);
+    expect(textPasses()).toBe(passes + 2);
+    await flush(); // the new page is confirmed and swapped in
+    s.clock.advance(1);
+    expect(a.classList.contains(TEXT_CLASS), "after the swap").toBe(true);
+    expect(textPasses()).toBe(passes + 3);
+    s.rt.refresh(a); // a second rebuild path (colour re-read)
+    s.clock.advance(1);
+    expect(a.classList.contains(TEXT_CLASS), "a refresh() rebuild keeps the class too").toBe(true);
+    expect(gpu.calls.errors).toEqual([]);
+    expect(warn).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+  });
+
   it("given_a_device_texture_limit_below_the_slot_size_when_built_then_the_atlas_is_capped_at_the_limit_and_the_element_keeps_its_dom_text", async () => {
     gpu.restore();
     gpu = installFakeGpu({ maxTextureDimension2D: 128 }); // a 140 px wide button + gutter does not fit

@@ -13,6 +13,10 @@
  * pass, because every attachment of a pass shares one size and T0 is at `t0Scale` — and the screen
  * pass draws the text composite after the rest SDF. T2 is dropped. The atlas page is uploaded
  * once per version; `textReady(id)` tells the runtime whose text is drawn (D74-6).
+ * W74 ward-review (I1): once a page is confirmed, a new version goes into a staging texture and
+ * the confirmed page keeps drawing with its own text records until the new upload's error scope
+ * resolves; the swap then copies the staging page into the drawn texture and switches the records
+ * in one step, so a rebuild during motion never blinks the text.
  * Rendering never touches the DOM; the canvas element belongs to the runtime.
  */
 import { ELEMENT_STRIDE } from "../../fluid-layout";
@@ -285,6 +289,7 @@ export class WebGPURenderer implements Renderer {
   private lostDuringInit: GPUDeviceLostInfo | null = null;
   // ---- W74 (D74-4): the text pass ----
   private restUvBuffer: GPUBuffer | null = null;
+  /** The text records of the drawn page (binding 5 of the text group). */
   private textInfoBuffer: GPUBuffer | null = null;
   private restUvScratch = new Float32Array(0);
   private textInfoScratch = new Float32Array(0);
@@ -301,6 +306,20 @@ export class WebGPURenderer implements Renderer {
   private atlasOk = false;
   /** W74 review: bumped by every upload, drop and release, so a late error-scope result for an older upload is ignored. */
   private atlasUploadSeq = 0;
+  // ---- W74 ward-review (I1): the staged page and its text records, swapped in once confirmed ----
+  private stagingTexture: GPUTexture | null = null;
+  private stagingWidth = 0;
+  private stagingHeight = 0;
+  /** True while a staged version awaits its error scope (the confirmed page keeps drawing). */
+  private staged = false;
+  /** The staged page's text records; created at the first staged upload, swapped with textInfoBuffer. */
+  private textInfoBackBuffer: GPUBuffer | null = null;
+  private pendingInfoScratch = new Float32Array(0);
+  private pendingOk = new Uint8Array(0);
+  private pendingInfoDirty = true;
+  private pendingInfoPaints: RenderFrame["paints"] | null = null;
+  private readonly swapEncoderDescriptor: GPUCommandEncoderDescriptor = { label: "liquiddom atlas swap" };
+  private readonly swapSubmitList: GPUCommandBuffer[] = [];
   private t1: GPUTexture | null = null;
   private t1Weight: GPUTexture | null = null;
   private t1Width = 0;
@@ -452,8 +471,11 @@ export class WebGPURenderer implements Renderer {
     if (!splatGroup || !compositeGroup || !restGroup) return;
     const queue = device.queue;
 
+    // W74 (D74-4): the text pass decision comes first: F and flags are packed only in a frame that
+    // runs it (ward-review M1); the 8-float record layout stays.
+    const textMoves = this.prepareText(frame);
     // W74 (D74-4): 8 floats per particle — position, F and flags — for the splat and the text pass.
-    const count = packParticles(frame, this.particleScratch);
+    const count = packParticles(frame, this.particleScratch, textMoves);
     if (count > 0) queue.writeBuffer(particleBuffer, 0, this.particleScratch, 0, count * PARTICLE_GPU_FLOATS);
     if (
       frame.generation !== this.uploadedGeneration ||
@@ -489,8 +511,8 @@ export class WebGPURenderer implements Renderer {
     v[6] = 0;
     v[7] = 0;
     queue.writeBuffer(viewBuffer, 0, v);
-    // W74 (D74-4): after the element upload, so the text pass sees this frame's restAlpha.
-    const drawText = this.prepareText(frame) && count > 0;
+    // Every write above lands before this frame's submit, so the text pass sees this frame's restAlpha.
+    const drawText = textMoves && count > 0;
 
     const encoder = device.createCommandEncoder(this.encoderDescriptor);
     const splat = encoder.beginRenderPass(this.splatPass);
@@ -604,6 +626,8 @@ export class WebGPURenderer implements Renderer {
     this.restUvBuffer?.destroy();
     this.elementBuffer?.destroy();
     this.textInfoBuffer?.destroy();
+    this.textInfoBackBuffer?.destroy();
+    this.textInfoBackBuffer = null;
     const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST;
     const particleBytes = PARTICLE_GPU_FLOATS * 4;
     const textInfoBytes = TEXT_INFO_FLOATS * 4;
@@ -627,6 +651,10 @@ export class WebGPURenderer implements Renderer {
     this.elementScratch = new Float32Array(slots * ELEMENT_GPU_FLOATS);
     this.textInfoScratch = new Float32Array(slots * TEXT_INFO_FLOATS);
     this.textOk = new Uint8Array(slots);
+    this.pendingInfoScratch = new Float32Array(slots * TEXT_INFO_FLOATS);
+    this.pendingOk = new Uint8Array(slots);
+    this.pendingInfoDirty = true;
+    this.pendingInfoPaints = null;
     this.bufferCapacity = cap;
     this.bufferSlots = slots;
     this.uploadedGeneration = Number.NaN;
@@ -672,8 +700,24 @@ export class WebGPURenderer implements Renderer {
       return false;
     }
     if (atlas.version !== this.atlasVersion) this.uploadAtlas(device, atlas);
-    // Packed before the atlasOk check, so textReady() turns true as soon as the upload is confirmed.
-    if (this.textInfoDirty || frame.paints !== this.textInfoPaints) {
+    if (this.staged) {
+      // W74 ward-review (I1): the frame's paints carry the staged page's rects. They go into the
+      // back records; the drawn records stay with the drawn page and only lose unpainted slots.
+      if (this.textInfoDirty) {
+        this.textOk.fill(0); // the drawn records were lost with a buffer reallocation
+        this.textInfoPaints = frame.paints;
+        this.textInfoDirty = false;
+      }
+      if (this.pendingInfoDirty || frame.paints !== this.pendingInfoPaints) {
+        packTextInfo(frame, atlas, this.pendingInfoScratch, this.pendingOk);
+        device.queue.writeBuffer(this.ensureBackInfoBuffer(device), 0, this.pendingInfoScratch);
+        this.pendingInfoPaints = frame.paints;
+        this.pendingInfoDirty = false;
+        const ok = this.textOk;
+        for (let id = 0; id < ok.length; id++) if (frame.paints[id] === undefined) ok[id] = 0;
+      }
+    } else if (this.textInfoDirty || frame.paints !== this.textInfoPaints) {
+      // Packed before the atlasOk check, so textReady() turns true as soon as the upload is confirmed.
       packTextInfo(frame, atlas, this.textInfoScratch, this.textOk);
       device.queue.writeBuffer(textInfoBuffer, 0, this.textInfoScratch);
       this.textInfoPaints = frame.paints;
@@ -704,51 +748,68 @@ export class WebGPURenderer implements Renderer {
 
   /**
    * W74 (Review Focus 4): a page larger than maxTextureDimension2D, or a copy that throws (a
-   * detached or unusable source), leaves no atlas: textReady stays false and the DOM text stays.
+   * detached or unusable source), leaves no atlas: textReady turns false and the DOM text stays.
    * A same-size page reuses the texture.
    *
    * W74 review (Review Focus 1): a device-timeline validation error does not throw here, so the
-   * copy runs in its own validation scope and the version is marked ready only when
-   * `popErrorScope()` resolves without an error. Until then textReady stays false (no text pass,
-   * the DOM text stays); on an error the version stays not ready and one console.warn is logged
-   * (never console.error: a failed atlas is not a failed frame).
+   * copy runs in its own validation scope and a version counts only once `popErrorScope()`
+   * resolves without an error; on an error one console.warn is logged (never console.error: a
+   * failed atlas is not a failed frame) and the version is not retried.
+   *
+   * W74 ward-review (I1): with no confirmed page (the first version, or after a drop or a failure)
+   * the page is copied into the drawn texture and textReady stays false until it is confirmed.
+   * With a confirmed page, it is copied into the staging texture instead: the confirmed page and
+   * its records keep drawing (textReady stays true for their slots) until the scope resolves, then
+   * swapAtlas() switches both. A failed staged version drops all atlas text (both pages; rare).
    */
   private uploadAtlas(device: GPUDevice, atlas: TextAtlasFrame): void {
     this.atlasVersion = atlas.version;
-    this.atlasOk = false;
     const seq = ++this.atlasUploadSeq;
-    this.textInfoDirty = true;
     const { width: w, height: h } = atlas;
     const max = this.maxTextureDim;
     if (!(Number.isInteger(w) && Number.isInteger(h) && w >= 1 && h >= 1 && w <= max && h <= max)) {
-      this.releaseAtlasTexture();
+      this.releaseAtlas();
       return;
     }
-    if (!this.atlasTexture || w !== this.atlasWidth || h !== this.atlasHeight) {
-      this.releaseAtlasTexture();
-      this.atlasTexture = device.createTexture({
-        label: "liquiddom atlas",
-        size: [w, h],
-        format: ATLAS_FORMAT,
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
-      });
-      this.atlasView = this.atlasTexture.createView();
-      this.atlasWidth = w;
-      this.atlasHeight = h;
+    const staged = this.atlasOk && this.atlasTexture !== null;
+    let target: GPUTexture;
+    if (staged) {
+      if (!this.stagingTexture || w !== this.stagingWidth || h !== this.stagingHeight) {
+        this.stagingTexture?.destroy();
+        this.stagingTexture = device.createTexture({
+          label: "liquiddom atlas staging",
+          size: [w, h],
+          format: ATLAS_FORMAT,
+          usage: GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+        this.stagingWidth = w;
+        this.stagingHeight = h;
+      }
+      target = this.stagingTexture;
+      this.staged = true;
+      this.pendingInfoDirty = true;
+    } else {
+      this.atlasOk = false;
+      this.releaseStaging();
+      target = this.ensureAtlasTexture(device, w, h);
+      this.textInfoDirty = true;
     }
     device.pushErrorScope("validation");
     try {
-      device.queue.copyExternalImageToTexture({ source: atlas.canvas }, { texture: this.atlasTexture, premultipliedAlpha: true }, [w, h]);
+      device.queue.copyExternalImageToTexture({ source: atlas.canvas }, { texture: target, premultipliedAlpha: true }, [w, h]);
     } catch {
-      this.atlasUploadSeq += 1; // Review Focus 1: no atlas text; the runtime keeps the DOM text
+      this.releaseAtlas(); // Review Focus 1: no atlas text; the runtime keeps the DOM text
     }
     const confirm = (ok: boolean, why: string): void => {
-      if (seq !== this.atlasUploadSeq || this.device !== device) return; // superseded, dropped or destroyed
-      if (ok) {
-        this.atlasOk = true;
+      // superseded, dropped, destroyed or lost
+      if (seq !== this.atlasUploadSeq || this.device !== device || this.lost) return;
+      if (!ok) {
+        console.warn(`liquiddom: text atlas upload failed (${why}); the DOM text stays`);
+        this.releaseAtlas();
         return;
       }
-      console.warn(`liquiddom: text atlas upload failed (${why}); the DOM text stays`);
+      if (staged) this.swapAtlas(device);
+      else this.atlasOk = true;
     };
     device.popErrorScope().then(
       (err) => confirm(err === null, err?.message ?? ""),
@@ -756,23 +817,100 @@ export class WebGPURenderer implements Renderer {
     );
   }
 
-  /** W74: no atlas this frame (Canvas2D never gets here; WebGPU without OffscreenCanvas or after an atlas failure). */
-  private dropAtlas(): void {
-    if (this.atlasTexture === null && !this.atlasOk) return;
-    this.releaseAtlasTexture();
-    this.atlasOk = false;
-    this.atlasUploadSeq += 1;
-    this.atlasVersion = Number.NaN;
-    this.textOk.fill(0);
+  /** The drawn atlas texture at w × h (a same-size texture is reused); the text group follows a new one. */
+  private ensureAtlasTexture(device: GPUDevice, w: number, h: number): GPUTexture {
+    if (this.atlasTexture && w === this.atlasWidth && h === this.atlasHeight) return this.atlasTexture;
+    this.atlasTexture?.destroy();
+    const texture = device.createTexture({
+      label: "liquiddom atlas",
+      size: [w, h],
+      format: ATLAS_FORMAT,
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    this.atlasTexture = texture;
+    this.atlasView = texture.createView();
+    this.atlasWidth = w;
+    this.atlasHeight = h;
+    this.textGroup = null;
+    return texture;
   }
 
-  private releaseAtlasTexture(): void {
+  /** W74 ward-review (I1): the staged page's text records live here until the swap; created on first use. */
+  private ensureBackInfoBuffer(device: GPUDevice): GPUBuffer {
+    if (this.textInfoBackBuffer) return this.textInfoBackBuffer;
+    const bytes = TEXT_INFO_FLOATS * 4;
+    this.textInfoBackBuffer = device.createBuffer({
+      label: "liquiddom text info",
+      size: Math.max(bytes, this.pendingOk.length * bytes),
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    return this.textInfoBackBuffer;
+  }
+
+  /**
+   * W74 ward-review (I1): the staged version is confirmed. One submit copies the staging page into
+   * the drawn texture (reallocated when the size changed); the staged records become the drawn
+   * ones and the text group is rebuilt. Both take effect from the next frame on, together.
+   */
+  private swapAtlas(device: GPUDevice): void {
+    const staging = this.stagingTexture;
+    const back = this.textInfoBackBuffer;
+    if (!this.staged || !staging || !back) {
+      this.releaseAtlas();
+      return;
+    }
+    const w = this.stagingWidth;
+    const h = this.stagingHeight;
+    const front = this.ensureAtlasTexture(device, w, h);
+    const encoder = device.createCommandEncoder(this.swapEncoderDescriptor);
+    encoder.copyTextureToTexture({ texture: staging }, { texture: front }, [w, h]);
+    this.swapSubmitList[0] = encoder.finish();
+    device.queue.submit(this.swapSubmitList);
+    this.textInfoBackBuffer = this.textInfoBuffer;
+    this.textInfoBuffer = back;
+    const scratch = this.textInfoScratch;
+    this.textInfoScratch = this.pendingInfoScratch;
+    this.pendingInfoScratch = scratch;
+    const ok = this.textOk;
+    this.textOk = this.pendingOk;
+    this.pendingOk = ok;
+    this.textInfoPaints = this.pendingInfoPaints;
+    this.textInfoDirty = false;
+    this.pendingInfoDirty = true;
+    this.pendingInfoPaints = null;
+    this.staged = false;
+    this.textGroup = null;
+  }
+
+  /** W74: no atlas this frame (Canvas2D never gets here; WebGPU without OffscreenCanvas or after an atlas failure). */
+  private dropAtlas(): void {
+    this.atlasVersion = Number.NaN;
+    if (this.atlasTexture === null && this.stagingTexture === null && !this.atlasOk) return;
+    this.releaseAtlas();
+  }
+
+  /** No atlas text: both pages are released and every pending upload is ignored (the version is kept: no retry). */
+  private releaseAtlas(): void {
     this.atlasTexture?.destroy();
     this.atlasTexture = null;
     this.atlasView = null;
     this.atlasWidth = 0;
     this.atlasHeight = 0;
+    this.releaseStaging();
+    this.atlasOk = false;
+    this.atlasUploadSeq += 1;
+    this.textOk.fill(0);
     this.textGroup = null;
+  }
+
+  private releaseStaging(): void {
+    this.stagingTexture?.destroy();
+    this.stagingTexture = null;
+    this.stagingWidth = 0;
+    this.stagingHeight = 0;
+    this.staged = false;
+    this.pendingInfoDirty = true;
+    this.pendingInfoPaints = null;
   }
 
   /** W74 (D74-4): T1 and T1w at 1× the backing size, clamped to maxTextureDimension2D; the text composite group follows them. */
@@ -814,7 +952,9 @@ export class WebGPURenderer implements Renderer {
     this.elementBuffer?.destroy();
     this.restUvBuffer?.destroy();
     this.textInfoBuffer?.destroy();
+    this.textInfoBackBuffer?.destroy();
     this.atlasTexture?.destroy();
+    this.stagingTexture?.destroy();
     this.t1?.destroy();
     this.t1Weight?.destroy();
     this.viewBuffer?.destroy();
@@ -847,6 +987,16 @@ export class WebGPURenderer implements Renderer {
     this.atlasVersion = Number.NaN;
     this.atlasOk = false;
     this.atlasUploadSeq += 1;
+    this.textInfoBackBuffer = null;
+    this.stagingTexture = null;
+    this.stagingWidth = 0;
+    this.stagingHeight = 0;
+    this.staged = false;
+    this.pendingInfoScratch = new Float32Array(0);
+    this.pendingOk = new Uint8Array(0);
+    this.pendingInfoDirty = true;
+    this.pendingInfoPaints = null;
+    this.swapSubmitList.length = 0;
     this.t1 = null;
     this.t1Weight = null;
     this.t1Width = 0;

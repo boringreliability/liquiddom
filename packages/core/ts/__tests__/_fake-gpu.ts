@@ -93,6 +93,14 @@ export interface FakeExternalCopy {
   readonly premultipliedAlpha: boolean;
 }
 
+/** W74 ward-review (I1): one `encoder.copyTextureToTexture()` call (the atlas swap). */
+export interface FakeTextureCopy {
+  readonly source: FakeTexture;
+  readonly destination: FakeTexture;
+  readonly width: number;
+  readonly height: number;
+}
+
 /** What `createRenderPipeline` returns: the descriptor it was called with. */
 export interface FakePipeline {
   readonly descriptor: GPURenderPipelineDescriptor;
@@ -126,6 +134,8 @@ export interface FakeGpuCalls {
   bindGroups: GPUBindGroupDescriptor[];
   writes: FakeWrite[];
   externalCopies: FakeExternalCopy[];
+  /** W74 ward-review (I1): encoder.copyTextureToTexture() calls, in order. */
+  textureCopies: FakeTextureCopy[];
   passes: FakePass[];
   submits: number;
   deviceDestroyed: number;
@@ -165,7 +175,7 @@ const PREFERRED_FORMAT = "bgra8unorm";
 export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
   const calls: FakeGpuCalls = {
     requestAdapter: 0, requestDevice: 0, deviceDescriptors: [], configure: [], shaderModules: [], bindGroupLayouts: [], pipelines: [],
-    buffers: [], textures: [], bindGroups: [], writes: [], externalCopies: [], passes: [], submits: 0, deviceDestroyed: 0, getContextWebgpu: 0, log: [], errors: [],
+    buffers: [], textures: [], bindGroups: [], writes: [], externalCopies: [], textureCopies: [], passes: [], submits: 0, deviceDestroyed: 0, getContextWebgpu: 0, log: [], errors: [],
   };
   const adapterError = new Error("adapter exploded");
   const deviceError = new Error("device exploded");
@@ -357,6 +367,20 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
               pass.ended = true;
             },
           };
+        },
+        copyTextureToTexture: (src: { texture: FakeTexture }, dst: { texture: FakeTexture }, size: number[] | GPUExtent3DDict) => {
+          const [w, h] = Array.isArray(size) ? [size[0] ?? 0, size[1] ?? 1] : [size.width, size.height ?? 1];
+          const s = src.texture;
+          const d = dst.texture;
+          // WebGPU: the source needs COPY_SRC (0x1), the destination COPY_DST (0x2), one format, and the extent fits both.
+          if ((s.usage & 0x1) === 0) calls.errors.push(`copyTextureToTexture(${s.label ?? ""}): source usage lacks COPY_SRC`);
+          if ((d.usage & 0x2) === 0) calls.errors.push(`copyTextureToTexture(${d.label ?? ""}): destination usage lacks COPY_DST`);
+          if (s.format !== d.format) calls.errors.push(`copyTextureToTexture: formats differ (${s.format} → ${d.format})`);
+          if (s.destroyed || d.destroyed) calls.errors.push("copyTextureToTexture: destroyed texture");
+          if (w > s.width || h > s.height || w > d.width || h > d.height) {
+            calls.errors.push(`copyTextureToTexture: ${w}x${h} exceeds ${s.width}x${s.height} or ${d.width}x${d.height}`);
+          }
+          calls.textureCopies.push({ source: s, destination: d, width: w, height: h });
         },
         finish: () => ({}),
       }),

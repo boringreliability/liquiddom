@@ -262,4 +262,17 @@ describe("W71 gpu-buffers", () => {
     packTextInfo(f, { width: 0, height: 0, dpr: 2 }, out, ok);
     expect(Array.from(ok), "no atlas: nothing is valid").toEqual([0, 0, 0, 0]);
   });
+
+  // W74 ward-review (M1)
+  it("given_withF_false_when_packParticles_then_only_x_y_are_written_and_the_F_and_flag_floats_are_left_untouched", () => {
+    const f = frame();
+    f.dynamicView.fill(3, Dyn.F00 * CAP, (Dyn.F00 + 1) * CAP);
+    f.dynamicView[Dyn.X * CAP + 1] = Number.NaN;
+    const P = PARTICLE_GPU_FLOATS;
+    const out = new Float32Array(CAP * P).fill(7);
+    expect(packParticles(f, out, false)).toBe(CAP);
+    expect(Array.from(out.subarray(0, 2 * P))).toEqual([10, 100, 7, 7, 7, 7, 7, 7, OFFSCREEN_PX, OFFSCREEN_PX, 7, 7, 7, 7, 7, 7]);
+    packParticles(f, out, true);
+    expect(Array.from(out.subarray(0, P))).toEqual([10, 100, 3, 0, 0, 0, 0, 0]);
+  });
 });

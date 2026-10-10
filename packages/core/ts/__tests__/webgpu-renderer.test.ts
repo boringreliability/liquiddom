@@ -728,3 +728,155 @@ describe("W71: WebGPURenderer", () => {
     expect(r.maxTextureDimension).toBe(8192);
   });
 });
+
+// W74 ward-review (I1): a new atlas version is uploaded into a staging texture while the confirmed
+// page keeps drawing; the swap (texture copy + text records) happens once its error scope resolves.
+describe("W74 ward-review: double-buffered atlas swap (I1)", () => {
+  const MOVED_PAINTS: ReadonlyArray<ElementPaint | undefined> = [{ ...paint(0), atlasRect: { x: 20, y: 30, w: 280, h: 96 } }, undefined];
+  const V2: TextAtlasFrame = { ...ATLAS, canvas: { width: 320, height: 136 } as unknown as OffscreenCanvas, version: 2 };
+  const textPassesOf = (f: FakeGpu) => f.calls.passes.filter((p) => p.attachments.some((a) => a.view.texture.label === "liquiddom T1"));
+  /** The text info buffer (binding 5) and the atlas texture (binding 6) the last text pass sampled. */
+  const lastTextBindings = (f: FakeGpu) => {
+    const group = textPassesOf(f).at(-1)!.draws[0]!.bindGroup as { descriptor: GPUBindGroupDescriptor };
+    const entries = Array.from(group.descriptor.entries as Iterable<GPUBindGroupEntry>);
+    const info = (entries.find((e) => e.binding === 5)!.resource as { buffer: unknown }).buffer;
+    const atlas = (entries.find((e) => e.binding === 6)!.resource as unknown as { texture: { label?: string } }).texture;
+    return { info, atlas };
+  };
+  const lastWriteTo = (f: FakeGpu, buffer: unknown) => f.calls.writes.filter((w) => w.buffer === buffer).at(-1)!;
+  const atlasTextures = (f: FakeGpu) => f.calls.textures.filter((t) => t.label === "liquiddom atlas" || t.label === "liquiddom atlas staging");
+
+  async function confirmedV1(f: FakeGpu): Promise<WebGPURenderer> {
+    const r = await ready();
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    await flush();
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    expect(r.textReady(0), "precondition: version 1 confirmed").toBe(true);
+    return r;
+  }
+
+  // W74 ward-review
+  it("given_a_confirmed_page_and_a_moving_element_when_a_new_version_arrives_then_textReady_stays_true_and_the_text_pass_draws_the_old_page_until_the_scope_resolves_then_the_new_page", async () => {
+    const f = gpu();
+    const r = await confirmedV1(f);
+    expect(textPassesOf(f)).toHaveLength(1);
+    const before = lastTextBindings(f);
+    expect(before.atlas.label).toBe("liquiddom atlas");
+    r.render(sceneFrame({ paints: MOVED_PAINTS, textAtlas: V2, restAlpha: 0.5 }));
+    expect(r.textReady(0), "the confirmed page keeps drawing: no blink").toBe(true);
+    const copy = f.calls.externalCopies.at(-1)!;
+    expect(copy.source).toBe(V2.canvas);
+    expect(copy.texture.label, "the new page goes into the staging texture").toBe("liquiddom atlas staging");
+    expect(textPassesOf(f), "the text pass runs in the rebuild frame").toHaveLength(2);
+    const pending = lastTextBindings(f);
+    expect(pending.atlas, "the old page is sampled").toBe(before.atlas);
+    expect(pending.info, "with the old records").toBe(before.info);
+    expect(lastWriteTo(f, before.info).values[1], "the old records are not overwritten").toBeCloseTo(20 / 136, 5);
+    const newInfo = f.calls.writes.filter((w) => w.buffer.label === "liquiddom text info").at(-1)!;
+    expect(newInfo.buffer, "the new records go into the other text info buffer").not.toBe(before.info);
+    expect(newInfo.values[1]).toBeCloseTo(30 / 136, 5);
+    expect(f.calls.textureCopies, "no swap before the scope resolves").toHaveLength(0);
+    r.render(sceneFrame({ paints: MOVED_PAINTS, textAtlas: V2, restAlpha: 0.5 }));
+    expect(r.textReady(0)).toBe(true);
+    expect(lastTextBindings(f).info, "still the old records while pending").toBe(before.info);
+    await flush();
+    expect(r.textReady(0)).toBe(true);
+    expect(f.calls.textureCopies).toHaveLength(1);
+    const swap = f.calls.textureCopies[0]!;
+    expect([swap.source.label, swap.destination, swap.width, swap.height]).toEqual(["liquiddom atlas staging", before.atlas, 320, 136]);
+    r.render(sceneFrame({ paints: MOVED_PAINTS, textAtlas: V2, restAlpha: 0.5 }));
+    const after = lastTextBindings(f);
+    expect(after.atlas, "the drawn texture now holds version 2").toBe(before.atlas);
+    expect(after.info, "the new records are drawn").toBe(newInfo.buffer);
+    expect(textPassesOf(f), "a text pass in every frame").toHaveLength(4);
+    expect(atlasTextures(f), "two pages at most, reused").toHaveLength(2);
+    expect(f.calls.errors).toEqual([]);
+  });
+
+  // W74 ward-review
+  it("given_a_confirmed_page_when_the_new_version_has_another_size_then_the_swap_reallocates_the_drawn_texture_at_that_size", async () => {
+    const f = gpu();
+    const r = await confirmedV1(f);
+    r.render(sceneFrame({ paints: MOVED_PAINTS, textAtlas: { ...V2, width: 400, height: 200 }, restAlpha: 0.5 }));
+    expect(r.textReady(0)).toBe(true);
+    await flush();
+    const swap = f.calls.textureCopies.at(-1)!;
+    expect([swap.destination.label, swap.destination.width, swap.destination.height, swap.width, swap.height]).toEqual(["liquiddom atlas", 400, 200, 400, 200]);
+    r.render(sceneFrame({ paints: MOVED_PAINTS, textAtlas: { ...V2, width: 400, height: 200 }, restAlpha: 0.5 }));
+    expect(lastTextBindings(f).atlas).toBe(swap.destination);
+    expect(f.calls.textures.filter((t) => t.label === "liquiddom atlas" && !t.destroyed)).toHaveLength(1);
+    expect(f.calls.errors).toEqual([]);
+  });
+
+  // W74 ward-review
+  it("given_a_confirmed_page_when_the_new_version_raises_a_validation_error_then_textReady_drops_one_warn_no_console_error_and_both_pages_are_released", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const opts: FakeGpuOptions = {};
+    const f = gpu(opts); // the fake reads opts.copyExternalValidationError at call time
+    const r = await confirmedV1(f);
+    opts.copyExternalValidationError = "copyExternalImageToTexture: source is unusable (fake)";
+    r.render(sceneFrame({ paints: MOVED_PAINTS, textAtlas: V2, restAlpha: 0.5 }));
+    expect(r.textReady(0), "pending: the old page still draws").toBe(true);
+    await flush();
+    expect(r.textReady(0), "the new version failed: no atlas text").toBe(false);
+    r.render(sceneFrame({ paints: MOVED_PAINTS, textAtlas: V2, restAlpha: 0.5 }));
+    expect(f.calls.passes.at(-1)!.draws.map((d) => [d.vertexCount, d.instanceCount]), "no text composite").toEqual([[3, 1], [6, 1]]);
+    expect(f.calls.externalCopies, "the failed version is not retried").toHaveLength(2);
+    expect(f.calls.textureCopies, "never swapped").toHaveLength(0);
+    expect(atlasTextures(f).every((t) => t.destroyed), "both pages released").toBe(true);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(error).not.toHaveBeenCalled();
+    expect(f.calls.errors).toEqual([]);
+  });
+
+  // W74 ward-review
+  it("given_a_pending_swap_when_destroyed_or_the_device_is_lost_then_no_swap_runs_and_both_pages_are_released", async () => {
+    const f = gpu();
+    const r = await confirmedV1(f);
+    r.render(sceneFrame({ paints: MOVED_PAINTS, textAtlas: V2, restAlpha: 0.5 }));
+    expect(atlasTextures(f)).toHaveLength(2);
+    r.destroy();
+    expect(atlasTextures(f).every((t) => t.destroyed), "destroy releases the drawn page and the staging page").toBe(true);
+    await flush();
+    expect(f.calls.textureCopies).toHaveLength(0);
+    expect(r.textReady(0)).toBe(false);
+
+    const pages = atlasTextures(f).length;
+    const r2 = await confirmedV1(f);
+    r2.render(sceneFrame({ paints: MOVED_PAINTS, textAtlas: V2, restAlpha: 0.5 }));
+    const mine = atlasTextures(f).slice(pages);
+    expect(mine.map((t) => t.label)).toEqual(["liquiddom atlas", "liquiddom atlas staging"]);
+    f.loseDevice("gpu reset");
+    await flush();
+    expect(r2.textReady(0), "after the loss").toBe(false);
+    expect(f.calls.textureCopies, "no swap on a lost device").toHaveLength(0);
+    r2.destroy();
+    expect(mine.every((t) => t.destroyed)).toBe(true);
+    expect(f.calls.errors).toEqual([]);
+  });
+});
+
+// W74 ward-review (M1): F and flags are packed only while some element's text moves.
+describe("W74 ward-review: particle F only while text moves (M1)", () => {
+  // W74 ward-review
+  it("given_no_moving_text_when_rendering_then_the_particle_upload_carries_positions_but_no_F_and_with_moving_text_it_carries_F", async () => {
+    const f = gpu();
+    const r = await ready();
+    const particles = () => writesTo("liquiddom particles", f.calls.writes);
+    const withF = (o: Parameters<typeof sceneFrame>[0]): RenderFrame => {
+      const fr = sceneFrame(o);
+      fr.dynamicView.fill(2, Dyn.F00 * CAP, (Dyn.F00 + 1) * CAP);
+      fr.dynamicView.fill(0.5, Dyn.F11 * CAP, (Dyn.F11 + 1) * CAP);
+      return fr;
+    };
+    r.render(withF({ paints: PAINTS, restAlpha: 0.5 })); // moving, but no text
+    expect(particles().at(-1)!.bytes).toBe(CAP * 32);
+    expect(particles().at(-1)!.values.slice(0, 8), "no text pass: F is not packed").toEqual([110, 120, 0, 0, 0, 0, 0, 0]);
+    r.render(withF({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    await flush();
+    r.render(withF({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    expect(particles().at(-1)!.values.slice(0, 8), "the text pass reads this frame's F").toEqual([110, 120, 2, 0, 0, 0.5, 0, 0]);
+    expect(f.calls.errors).toEqual([]);
+  });
+});

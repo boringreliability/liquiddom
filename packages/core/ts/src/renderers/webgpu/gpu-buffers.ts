@@ -55,8 +55,11 @@ function slotCount(frame: RenderFrame): number {
  * W74 (D74-4): one 8-float record per active particle at `out[8i…8i+7]`: `x, y` (a non-finite
  * position goes far off-screen), `f00, f01, f10, f11`, `flags` (a non-finite F becomes the
  * identity with FLAG_TORN, so its text coverage is 0) and a zero pad. Returns the instance count.
+ * W74 ward-review (M1): with `withF` false only `x, y` are written and the other six floats are
+ * left as they are; only the text pass reads F and flags, so the renderer packs them only in a
+ * frame that runs it.
  */
-export function packParticles(frame: RenderFrame, out: Float32Array): number {
+export function packParticles(frame: RenderFrame, out: Float32Array, withF = true): number {
   const n = particleCount(frame);
   const need = n * PARTICLE_GPU_FLOATS;
   if (out.length < need) throw new RangeError(`[liquiddom] packParticles: out holds ${out.length} floats, needs ${need}`);
@@ -69,6 +72,7 @@ export function packParticles(frame: RenderFrame, out: Float32Array): number {
     const ok = Number.isFinite(x) && Number.isFinite(y);
     out[o] = ok ? x : OFFSCREEN_PX;
     out[o + 1] = ok ? y : OFFSCREEN_PX;
+    if (!withF) continue;
     const f00 = dyn[Dyn.F00 * cap + i] as number;
     const f01 = dyn[Dyn.F01 * cap + i] as number;
     const f10 = dyn[Dyn.F10 * cap + i] as number;

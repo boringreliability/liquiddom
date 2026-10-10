@@ -15,7 +15,7 @@ import { SplashInput, rectCentre, type ClientPoint } from "./input";
 import { DEFAULT_STRENGTH, type ElementOptions } from "./options";
 import type { ElementPaint, RenderFrame, Renderer, RenderViewport, TextAtlasFrame } from "./renderers/frame";
 import { ATLAS_MAX_SIZE_PX, TextAtlas, type AtlasCanvasFactory, type AtlasRect } from "./renderers/webgpu/text-atlas";
-import { clearTextClasses, releaseTextClass, syncTextClasses } from "./text-toggle";
+import { clearTextClasses, releaseTextClass, syncTextClasses, type TextToggleArgs } from "./text-toggle";
 import { LoopController } from "./loop-control";
 import { PointerTracker } from "./pointer-tracker";
 import { acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas } from "./stylesheet";
@@ -410,17 +410,25 @@ function buildRuntime(
   };
 
   /** W74 (D74-6): after render(), so the class and the atlas text change in the same frame. */
+  // W74 ward-review (M1): one args object and two closures for the life of the instance, refreshed
+  // per frame (the state view is taken fresh every frame), instead of new ones every frame.
+  let textStateView = bridge.stateView();
+  const textArgs: { -readonly [K in keyof TextToggleArgs]: TextToggleArgs[K] } = {
+    ids: observedIds,
+    elementOf: (id) => registry.get(id)?.el,
+    restAlpha: (id) => textStateView[id * STATE_STRIDE + St.REST_ALPHA] ?? Number.NaN,
+    renderer,
+    activeRenderer,
+    reducedMotion,
+    held: textHeld,
+  };
   const syncText = (): void => {
-    const sv = bridge.stateView();
-    syncTextClasses({
-      ids: observedIds,
-      elementOf: (id) => registry.get(id)?.el,
-      restAlpha: (id) => sv[id * STATE_STRIDE + St.REST_ALPHA] ?? Number.NaN,
-      renderer,
-      activeRenderer,
-      reducedMotion,
-      held: textHeld,
-    });
+    textStateView = bridge.stateView();
+    textArgs.ids = observedIds;
+    textArgs.renderer = renderer;
+    textArgs.activeRenderer = activeRenderer;
+    textArgs.reducedMotion = reducedMotion;
+    syncTextClasses(textArgs);
   };
 
   const rebuildPaints = (): void => {
