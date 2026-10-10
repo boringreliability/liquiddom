@@ -9,12 +9,21 @@
  * the UA default, not the author background. Print and forced colours hide
  * the canvas.
  * W74 (D74-6): the text rule hides the glyphs of the element and its descendants with -webkit-text-fill-color, so `color` (read by the atlas, used by currentColor icons) is untouched.
+ * W75 (D75-3): the sheet also holds one halo rule per observed element (`liquid-halo` + `data-liquid-id`), rewritten when an element is observed, re-coloured or unobserved; never per frame.
  */
+import type { RGBA } from "./color";
+
 export const STYLE_ELEMENT_ID = "liquiddom-styles";
 export const ELEMENT_CLASS = "liquid-element";
 export const TEXT_CLASS = "liquid-text";
 export const CANVAS_CLASS = "liquid-canvas";
 export const STACK_ATTR = "data-liquid-stack";
+/** W75 (D75-3): the Canvas2D halo class, set by the runtime while an element moves under Canvas2D. */
+export const HALO_CLASS = "liquid-halo";
+/** W75 (D75-3): the document-unique key of an element's halo rule (`h<n>`); never the slot id (the sheet is shared). */
+export const HALO_ID_ATTR = "data-liquid-id";
+/** W75 (D75-3): blur radii of the halo's text-shadow layers, in px. */
+export const HALO_BLUR_PX: readonly number[] = Object.freeze([1, 2, 4, 8]);
 export type StackMode = "relative" | "z";
 
 export const LIQUID_CSS = [
@@ -43,7 +52,7 @@ export function acquireLiquidStyles(doc: Document = document): () => void {
   if (!entry) {
     const el = doc.createElement("style");
     el.id = STYLE_ELEMENT_ID;
-    el.textContent = LIQUID_CSS;
+    el.textContent = composeSheet(doc);
     entry = { count: 0, el };
     entries.set(doc, entry);
   }
@@ -60,6 +69,94 @@ export function acquireLiquidStyles(doc: Document = document): () => void {
       if (entries.get(doc) === held) entries.delete(doc);
     }
   };
+}
+
+/** W75 (D75-3): per document, the halo rule text by key, in claim order. */
+const haloRules = new WeakMap<Document, Map<string, string>>();
+
+/** `LIQUID_CSS` plus every halo rule of the document; exactly `LIQUID_CSS` when there is none. */
+function composeSheet(doc: Document): string {
+  const rules = haloRules.get(doc);
+  if (!rules || rules.size === 0) return LIQUID_CSS;
+  return [LIQUID_CSS, ...rules.values()].join("\n");
+}
+
+function rewriteSheet(doc: Document): void {
+  const entry = entries.get(doc);
+  if (entry) entry.el.textContent = composeSheet(doc);
+}
+
+/**
+ * W75 (D75-3): one rule per element. Layered and `!important` like every liquiddom rule, and
+ * scoped to `screen and (forced-colors: none)` (D66-15), so print and forced colours never see it.
+ */
+export function haloRule(key: string, background: RGBA): string {
+  const [r, g, b, a] = background;
+  const c = `rgba(${r}, ${g}, ${b}, ${a})`;
+  const shadow = HALO_BLUR_PX.map((px) => `0 0 ${px}px ${c}`).join(", ");
+  return [
+    "@layer liquiddom {",
+    "  @media screen and (forced-colors: none) {",
+    `    .${HALO_CLASS}[${HALO_ID_ATTR}="${key}"] { text-shadow: ${shadow} !important; }`,
+    "  }",
+    "}",
+  ].join("\n");
+}
+
+interface HaloClaim {
+  count: number;
+  readonly key: string;
+  readonly prevAttr: string | null;
+}
+const haloClaims = new WeakMap<HTMLElement, HaloClaim>();
+let nextHaloKey = 1;
+
+function writeHaloRule(doc: Document, key: string, background: RGBA): void {
+  let rules = haloRules.get(doc);
+  if (!rules) {
+    rules = new Map<string, string>();
+    haloRules.set(doc, rules);
+  }
+  rules.set(key, haloRule(key, background));
+  rewriteSheet(doc);
+}
+
+/**
+ * W75 (D75-3): claims the element's halo rule (refcounted across instances, like the
+ * decoration). The first claim gives it a document-unique `data-liquid-id`; every claim writes
+ * the rule in `background`.
+ */
+export function acquireHaloRule(el: HTMLElement, background: RGBA): void {
+  const claim = haloClaims.get(el);
+  if (claim) {
+    claim.count += 1;
+    writeHaloRule(el.ownerDocument, claim.key, background);
+    return;
+  }
+  const key = `h${nextHaloKey++}`;
+  haloClaims.set(el, { count: 1, key, prevAttr: el.getAttribute(HALO_ID_ATTR) });
+  el.setAttribute(HALO_ID_ATTR, key);
+  writeHaloRule(el.ownerDocument, key, background);
+}
+
+/** W75 (D75-2): rewrites a claimed element's rule after a colour re-snapshot; no-op otherwise. */
+export function updateHaloRule(el: HTMLElement, background: RGBA): void {
+  const claim = haloClaims.get(el);
+  if (claim) writeHaloRule(el.ownerDocument, claim.key, background);
+}
+
+/** W75 (D75-3): releases one claim; the last one removes the rule and restores the attribute. */
+export function releaseHaloRule(el: HTMLElement): void {
+  const claim = haloClaims.get(el);
+  if (!claim) return;
+  claim.count -= 1;
+  if (claim.count > 0) return;
+  haloClaims.delete(el);
+  const doc = el.ownerDocument;
+  haloRules.get(doc)?.delete(claim.key);
+  rewriteSheet(doc);
+  if (claim.prevAttr === null) el.removeAttribute(HALO_ID_ATTR);
+  else el.setAttribute(HALO_ID_ATTR, claim.prevAttr);
 }
 
 /** The liquid canvas element, not yet inserted: aria-hidden, no pointer events, z-index 0. */
@@ -160,28 +257,52 @@ export function undecorateElement(el: HTMLElement): void {
 }
 
 /**
- * W74 (D74-6): `liquid-text` holds per element across ALL instances, like decorations: the class
- * stays while any instance draws that element's atlas text, and the last release restores what
- * the first add found (an author's own `liquid-text` class is never removed).
+ * W74 (D74-6) / W75 (D75-3): the classes the runtime toggles per frame (`liquid-text`,
+ * `liquid-halo`) are held per element across ALL instances, like decorations: the class stays
+ * while any instance holds it, and the last release restores what the first hold found (an
+ * author's own class is never removed). Each instance keeps its own `held` set (text-toggle.ts,
+ * halo-toggle.ts), so one instance holds an element at most once.
  */
-const textHolds = new WeakMap<HTMLElement, { count: number; readonly hadClass: boolean }>();
+function classHolds(cls: string): { add(el: HTMLElement): void; remove(el: HTMLElement): void } {
+  const holds = new WeakMap<HTMLElement, { count: number; readonly hadClass: boolean }>();
+  return {
+    add(el) {
+      const hold = holds.get(el);
+      if (hold) {
+        hold.count += 1;
+        return;
+      }
+      holds.set(el, { count: 1, hadClass: el.classList.contains(cls) });
+      el.classList.add(cls);
+    },
+    remove(el) {
+      const hold = holds.get(el);
+      if (!hold) return; // an unbalanced release is a no-op
+      hold.count -= 1;
+      if (hold.count > 0) return;
+      holds.delete(el);
+      if (!hold.hadClass) el.classList.remove(cls);
+    },
+  };
+}
+
+const textHolds = classHolds(TEXT_CLASS);
+const haloHolds = classHolds(HALO_CLASS);
 
 export function addTextClass(el: HTMLElement): void {
-  const hold = textHolds.get(el);
-  if (hold) {
-    hold.count += 1;
-    return;
-  }
-  textHolds.set(el, { count: 1, hadClass: el.classList.contains(TEXT_CLASS) });
-  el.classList.add(TEXT_CLASS);
+  textHolds.add(el);
 }
 
 /** Releases one add; an unbalanced release is a no-op. */
 export function removeTextClass(el: HTMLElement): void {
-  const hold = textHolds.get(el);
-  if (!hold) return;
-  hold.count -= 1;
-  if (hold.count > 0) return;
-  textHolds.delete(el);
-  if (!hold.hadClass) el.classList.remove(TEXT_CLASS);
+  textHolds.remove(el);
+}
+
+export function addHaloClass(el: HTMLElement): void {
+  haloHolds.add(el);
+}
+
+/** Releases one add; an unbalanced release is a no-op. */
+export function removeHaloClass(el: HTMLElement): void {
+  haloHolds.remove(el);
 }

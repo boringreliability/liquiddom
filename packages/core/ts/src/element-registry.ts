@@ -3,7 +3,14 @@ import { snapshotColorsWithout, type RGBA } from "./color";
 import type { FluidBridge } from "./fluid-bridge";
 import { ELEMENT_STRIDE, El, Interaction, roundedRectArea } from "./fluid-layout";
 import type { ElementOptions } from "./options";
-import { ELEMENT_CLASS, decorateElement, undecorateElement } from "./stylesheet";
+import {
+  ELEMENT_CLASS,
+  acquireHaloRule,
+  decorateElement,
+  releaseHaloRule,
+  undecorateElement,
+  updateHaloRule,
+} from "./stylesheet";
 
 export interface ElementRecord {
   readonly id: number;
@@ -195,6 +202,8 @@ export class ElementRegistry {
     this.writeRect(rec, v, this.deps.coordOffset());
     if (!this.decorated.has(el)) {
       decorateElement(el);
+      // W75 (D75-3): one halo rule claim per registry and element, released with the decoration.
+      acquireHaloRule(el, background);
       this.decorated.add(el);
     }
     this.deps.scheduleRedistribute();
@@ -210,19 +219,21 @@ export class ElementRegistry {
     this.slots[rec.id] = undefined;
     const o = rec.id * ELEMENT_STRIDE;
     this.bridge.elementView().fill(0, o, o + ELEMENT_STRIDE);
-    if (this.decorated.delete(el)) undecorateElement(el);
+    if (this.decorated.delete(el)) {
+      releaseHaloRule(el);
+      undecorateElement(el);
+    }
     this.deps.scheduleRedistribute();
   }
 
-  /** W66: re-snapshot an observed element's colours (D66-10: unobserved → no-op). */
+  /** W66: re-snapshot an observed element's colours (D66-10: unobserved → no-op). W75: also re-colours the halo rule. */
   refresh(el: HTMLElement): void {
-    for (const rec of this.entries()) {
-      if (rec.el !== el) continue;
-      const colors = snapshotColorsWithout(el, ELEMENT_CLASS);
-      rec.background = colors.background;
-      rec.text = colors.text;
-      return;
-    }
+    const rec = this.byEl.get(el);
+    if (!rec) return;
+    const colors = snapshotColorsWithout(el, ELEMENT_CLASS);
+    rec.background = colors.background;
+    rec.text = colors.text;
+    updateHaloRule(el, colors.background);
   }
 
   unobserveAll(): void {
