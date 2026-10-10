@@ -5,7 +5,8 @@
 //! interaction RNG stream: same seed + same call sequence = bit-identical velocities.
 //! W70: shake is a spatially coherent field per element (D70-1), W73 amends it to amplitude 0.5
 //! (D73-1) and cap 0.3 (D73-2) so the card no longer tears into a lace.
-//! W77 lowers the amplitude to 0.35 (D77-2) together with a higher stretch yield, so the sheet thins instead of tearing.
+//! W77 lowers the amplitude to 0.35 (D77-2) together with a higher stretch yield, so the sheet
+//! thins instead of tearing.
 
 use std::f32::consts::{PI, TAU};
 

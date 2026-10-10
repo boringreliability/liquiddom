@@ -81,7 +81,7 @@ The elements **are** liquid, and so is their text. They splash, split, merge wit
 2D MLS-MPM (Hu et al. 2018), re-implemented with `spike/fluid-mpm` as reference.
 
 **Inherited from the spike.** These parameters carry the feel and must not be lost:
-- Constitutive model: `σ = E(J−1)·I + μ(C + Cᵀ)`. J relaxes towards 1 (`J_RELAX`) and is clamped from below (`COMPRESS_MIN = 0.55`). The stretch cap (`TENSION_MAX`) works as plastic yield and gives cohesion.
+- Constitutive model: `σ = E(J−1)·I + μ(C + Cᵀ)`. J relaxes towards 1 (`J_RELAX`) and is clamped from below (`COMPRESS_MIN = 0.55`). The stretch cap (`TENSION_MAX`) works as plastic yield and gives cohesion. The yield range is 0.02–0.90 (amended in W77, D77-2; was 0.02–0.30).
 - 8 substeps per fixed step.
 - CFL velocity cap of 0.45 cells per substep, applied to particles **and** grid velocity (grid is new).
 - Air drag.
@@ -169,7 +169,7 @@ F's cost (+4 floats of SoA plus an SVD per substep) is benchmarked in slice 4. I
 | Pointer move | A soft velocity field: particles within a 70 px radius are pulled towards the pointer's velocity with weight `(1 − d/r)²`. This replaces the spike's hard radial push (`POINTER_PUSH_PX`), which caused the hole |
 | `click` on an observed element | `splash` at the pointer position. **If `event.detail === 0`** (a keyboard-triggered click from Enter or Space on a focusable element), the splash is at the rect centre instead. Native activation is never prevented, so there is never a double splash |
 | Drag (pointerdown + > 4 px movement) | `home_dx/dy` follow the pointer while the DOM stays put. After the threshold, the following click splash is suppressed. On release `home_dx/dy` → 0 and the liquid crawls home |
-| `shake(strength)` | Global impulse: a seeded direction `d` and phase `φ` per element, speed profile `1 + 0.5·sin(π·u + φ)` across the element (`u = (x − cx)/(w/2)`), no per-particle noise, no rotation (amended in W70, D70-1; amended in W73, D73-1). Everything goes soft |
+| `shake(strength)` | Global impulse: a seeded direction `d` and phase `φ` per element, speed profile `1 + 0.35·sin(π·u + φ)` across the element (`u = (x − cx)/(w/2)`), no per-particle noise, no rotation (amended in W70, D70-1; amended in W73, D73-1; amended in W77, D77-2). Everything goes soft |
 | Gravity | `(gx, gy)` in the grid update. Clamped to 0 under reduced motion |
 | Droplets | Particles flung far away are ordinary liquid that crawls home. There is no separate entity type |
 
@@ -221,7 +221,7 @@ The stride constants live in both `src/` (Rust) and the TS bridge, and MUST stay
 
 **Material parameters**, all normalised [0,1] except recovery:
 - `viscosity` maps to `VISCOSITY_PX` 100–2000 on a log scale, default 0.5 ≈ 450.
-- `cohesion` maps to `TENSION_MAX` 0.02–0.30, default 0.5 ≈ 0.16. **It is global only**, because cohesion between different elements is a property of the whole liquid.
+- `cohesion` maps to `TENSION_MAX` 0.02–0.90, default 0.5 ≈ 0.46 (amended in W77, D77-2: the sheet thins under the shake instead of tearing). **It is global only**, because cohesion between different elements is a property of the whole liquid.
 - `recovery` is in seconds, range 0.2–3, default 0.7.
 
 ## 3. Rendering and liquid text
@@ -248,7 +248,7 @@ The `Renderer` keeps its method shape. The new `RenderFrame` contains:
 
    **Per-element density normalisation:**
    - Each particle's splat mass is its element's area per particle.
-   - The kernel radius is proportional to the element's spacing (both passed as per-element uniforms), and is **capped at 8 px**.
+   - The kernel radius is proportional to the element's spacing (both passed as per-element uniforms), and is **capped at 16 px** (amended in W77, D77-1; was 8 px). The Canvas2D density cell follows the largest kernel radius, `max(2, ceil(R)/4)` px, but is never coarser than the finest particle spacing, so a splat's cost stays flat and every kernel spans ≥ 2.3 cells per radius. Canvas2D samples the shared kernel at the cell size and WebGPU at 0.5× the backing size: a sampling difference, not a second kernel (D71-5).
    - The 0.5 threshold therefore lands on the rect edge for every element.
 2. **Composite.**
    - Density is thresholded into a silhouette with an anti-aliased edge (`fwidth`).
@@ -516,7 +516,7 @@ Slices 1–2 are detailed in the plan. Slices 3–6 are re-planned after each wh
 | Slip drift looks "magical" in the wrong way | Tuned in the playground. Scaled by `s²` |
 | WebGPU in CI on SwiftShader is flaky or slow | Smoke job in slice 1. The project stays "soft" until 10 green runs. GPU perf is not measured there |
 | Too large an observed area for the pool (> ~256k px² at 8000/8 px) | Warning (once); the cell size chosen at `create()` stays and the liquid gets noisier. Documented limit. Consumers can raise `particles` |
-| Splat overdraw is heavy on mobile iGPUs (≈1.6M fragments at 1× DPR in the scene) | Kernel cap of 8 px, density at 0.5×, text only for moving elements. Fragments per frame logged |
+| Splat overdraw is heavy on mobile iGPUs (≈1.6M fragments at 1× DPR in the scene) | Kernel cap of 16 px (W77, D77-1: ≈2.4× overdraw on large-area pages, frame time unchanged on Metal), density at 0.5×, text only for moving elements. Fragments per frame logged |
 | The liquid lags 1 frame behind native scroll | DOM text at rest means the text never lags. Measured in slice 6. Alternative: a canvas that scrolls with the content |
 | Stacking contexts in consumer CSS | Documented. The injected rule covers the common case |
 

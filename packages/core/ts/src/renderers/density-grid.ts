@@ -25,7 +25,7 @@ export const DENSITY_CELLS_PER_RADIUS = 4;
  * (kernelRadiusPx's contract); a bad minR adds no bound, and minR is clamped to maxR. The second
  * term keeps the cell at or under the finest particle spacing (R / 2.3), so every element's kernel
  * spans ≥ 2.3 cells per radius and never reaches splat's one-cell floor (D71-5: one kernel in both
- * renderers). Quarter-px steps: R 7.09 → 2 (acceptance, unchanged), 12.47 → 3.25, 16 → 4;
+ * renderers). Quarter-px steps: R 7.09 → 2 (acceptance, unchanged), 13.04 → 3.5 (landing page), 16 → 4;
  * (16, 7.36) → 3; (16, 4.6) → 2. The 2 px floor wins for spacings under 2 px (pre-W77 grid).
  */
 export function densityCellPx(maxRadiusPx: number, minRadiusPx: number = maxRadiusPx): number {

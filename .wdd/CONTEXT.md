@@ -47,8 +47,7 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 ## Known Limitations
 - Pointer idle decay (D68-4): the ×0.8 decay is per frame, so at 120 Hz the tail decays twice as fast in wall time.
 - Pointer drag 12/s (W70): a fast sweep lets a trailing edge recede up to ~8 px; holes start at drag ≥ 18 (e2e lattice 10 px inside).
-- Shake profile (W70/W73, amplitude 0.5, cap 0.3): `1 + 0.5·sin(π·u + φ)` varies along x only, so a tall element gets no vertical wave.
-- OPEN (pre-existing, for Dennis' playground session): the honey preset re-forms in 279–292 frames, above the 3 s budget.
+- Shake (W77): `1 + 0.35·sin(π·u + φ)`, cap 0.3, default yield J ≤ 1.46; x-only profile.
 - Container mode needs a positioned container (`console.warn` if static; never restyled).
 - Gravity is validated but has no effect until slice 6; scroll is verified only in slice 6.
 - A large scroll can lock particles across elements (W67 slip, slice-6 parking).
@@ -67,5 +66,5 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 
 ## What Comes Next
 - Slice 2 closed: `.wdd/memory/whole-picture/slice-2.md` + addendum (steps 1–4, 6, 8 ✅; 5/7 ⏳).
-- Slice 4 closed (W74–W76): `.wdd/memory/whole-picture/slice-4.md` + landing page. Next: a fix ward (shake lace on wide surfaces, step 6 ❌; neighbour disturbance; honey), then slice 5.
+- Slice 4 closed (W74–W76) + fix W77 (closed liquid, kernel cap 16, honey). Next: slice 5.
 - Open: fate of the published `0.2.0-rc.0` (spec §7); publishing `0.3.0-alpha.x` is Dennis' call (`changeset version`, commit, tag `v*`).
