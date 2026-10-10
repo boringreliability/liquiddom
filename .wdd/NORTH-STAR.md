@@ -211,6 +211,6 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D74-5 | Text atlas (word-wise fillText, ≤ 4096², gutter 10 px) | W74 | dec_44a29006 |
 | D74-6 | liquid-text toggle with fail-safe (text-fill-color) | W74 | dec_8a76bea3 |
 | D74-7 | Splash ghost pill: damage() drops restAlpha to 0 at once | W74 | dec_f2bdd4d3 |
-| D75-1 | Per-element MutationObserver, atlas invalidate: AMENDED — a changed element is masked and drops liquid-text until the new page is confirmed (A) | W75 | dec_25b4cea6 |
-| D75-2 | Colour auto-refresh on mutation and transitionend; refresh(el) kept | W75 | dec_86b58e7b |
+| D75-1 | Per-element MutationObserver, atlas invalidate: AMENDED — a changed element is masked and drops liquid-text until the new page is confirmed (A); one atlas upload in flight (B) | W75 | dec_25b4cea6, dec_b2499bfc |
+| D75-2 | Colour auto-refresh: AMENDED (B) — own class/style only, deferred while the element animates; refresh(el) kept (was dec_86b58e7b) | W75 | dec_b2499bfc |
 | D75-3 | Canvas2D DOM-text halo (liquid-halo text-shadow rule per element) | W75 | dec_c537bf43 |
