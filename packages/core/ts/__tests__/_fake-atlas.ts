@@ -16,6 +16,8 @@ export interface FakeFill {
   readonly letterSpacing: string;
   /** `[a, b, c, d, e, f]` of the last setTransform. */
   readonly transform: readonly number[];
+  /** W74 review: `[x, y, w, h]` of the clip rect in force (atlas px, set under the identity transform); null when unclipped. */
+  readonly clip: readonly number[] | null;
 }
 
 /** px size in a CSS font shorthand ("normal 600 16px Arial" → 16); 10 when absent. */
@@ -31,7 +33,40 @@ export class FakeAtlasContext {
   letterSpacing = "0px";
   readonly fills: FakeFill[] = [];
   clears = 0;
+  /** W74 review: save / beginPath / rect / clip / restore in call order, with their arguments. */
+  readonly ops: Array<{ readonly op: string; readonly args: readonly number[] }> = [];
   private transform: number[] = [1, 0, 0, 1, 0, 0];
+  private clipRect: number[] | null = null;
+  private pathRect: number[] | null = null;
+  private readonly stack: Array<{ transform: number[]; clip: number[] | null }> = [];
+
+  save(): void {
+    this.ops.push({ op: "save", args: [] });
+    this.stack.push({ transform: [...this.transform], clip: this.clipRect });
+  }
+
+  restore(): void {
+    this.ops.push({ op: "restore", args: [] });
+    const top = this.stack.pop();
+    if (!top) return;
+    this.transform = top.transform;
+    this.clipRect = top.clip;
+  }
+
+  beginPath(): void {
+    this.ops.push({ op: "beginPath", args: [] });
+    this.pathRect = null;
+  }
+
+  rect(x: number, y: number, w: number, h: number): void {
+    this.ops.push({ op: "rect", args: [x, y, w, h] });
+    this.pathRect = [x, y, w, h];
+  }
+
+  clip(): void {
+    this.ops.push({ op: "clip", args: [] });
+    this.clipRect = this.pathRect;
+  }
 
   setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void {
     this.transform = [a, b, c, d, e, f];
@@ -56,6 +91,7 @@ export class FakeAtlasContext {
   fillText(text: string, x: number, y: number): void {
     this.fills.push({
       text, x, y, font: this.font, fillStyle: String(this.fillStyle), letterSpacing: this.letterSpacing, transform: [...this.transform],
+      clip: this.clipRect ? [...this.clipRect] : null,
     });
   }
 }

@@ -82,11 +82,38 @@ function finiteOr(v: number | undefined, fallback: number): number {
   return v !== undefined && Number.isFinite(v) ? v : fallback;
 }
 
-/** Fills every word of `el`'s text nodes at its first line box: client CSS px mapped onto the page. */
-function drawText(ctx: OffscreenCanvasRenderingContext2D, el: HTMLElement, box: DOMRect, ox: number, oy: number, dpr: number): void {
-  const doc = el.ownerDocument;
-  const view = doc.defaultView;
+/**
+ * Fills every word of `el`'s text nodes at its first line box: client CSS px mapped onto the page.
+ * W74 review: clipped to the element's slot box (its atlas rect, set under the identity
+ * transform), so an overflowing word or ellipsis text never bleeds into a neighbour's slot;
+ * save/restore per element.
+ */
+function drawText(ctx: OffscreenCanvasRenderingContext2D, el: HTMLElement, box: DOMRect, slot: AtlasRect, dpr: number): void {
+  const view = el.ownerDocument.defaultView;
   if (!view) return;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.save();
+  try {
+    ctx.beginPath();
+    ctx.rect(slot.x, slot.y, slot.w, slot.h);
+    ctx.clip();
+    fillWords(ctx, el, view, box, slot.x, slot.y, dpr);
+  } finally {
+    ctx.restore();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+}
+
+function fillWords(
+  ctx: OffscreenCanvasRenderingContext2D,
+  el: HTMLElement,
+  view: Window,
+  box: DOMRect,
+  ox: number,
+  oy: number,
+  dpr: number,
+): void {
+  const doc = el.ownerDocument;
   const range = doc.createRange();
   ctx.setTransform(dpr, 0, 0, dpr, ox - box.left * dpr, oy - box.top * dpr);
   ctx.textBaseline = "alphabetic";
@@ -117,7 +144,6 @@ function drawText(ctx: OffscreenCanvasRenderingContext2D, el: HTMLElement, box: 
       ctx.fillText(word, line.left, line.top + (line.height - (ascent + descent)) / 2 + ascent);
     }
   }
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
 }
 
 export class TextAtlas {
@@ -225,10 +251,9 @@ export class TextAtlas {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
     for (const p of placed) {
-      const ox = p.x + gutter;
-      const oy = p.y + gutter;
-      drawText(ctx, p.el, p.box, ox, oy, dpr);
-      rects.set(p.id, { x: ox, y: oy, w: p.box.width * dpr, h: p.box.height * dpr });
+      const slot: AtlasRect = { x: p.x + gutter, y: p.y + gutter, w: p.box.width * dpr, h: p.box.height * dpr };
+      drawText(ctx, p.el, p.box, slot, dpr);
+      rects.set(p.id, slot);
     }
     this.page = canvas;
     this.pageW = w;

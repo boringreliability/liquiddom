@@ -178,3 +178,39 @@ describe("W74 text atlas (D74-5)", () => {
     expect([atlas.canvas, atlas.version, atlas.stale]).toEqual([null, 0, false]);
   });
 });
+
+// W74 review: an overflowing word never bleeds into a neighbour's slot.
+describe("W74 review: text atlas slot clipping", () => {
+  it("given_an_over_wide_word_when_built_then_each_element_is_clipped_to_its_slot_box_and_the_clip_is_restored", () => {
+    lineInBox();
+    const fake = fakeAtlasCanvas();
+    const atlas = new TextAtlas({ createCanvas: fake.create });
+    const narrow = textEl("Supercalifragilistic", [100, 200, 60, 48]); // 20 chars × 8 px = 160 px > 60 px box
+    const next = textEl("Split", [300, 200, 140, 48]);
+    const rects = atlas.build([
+      { id: 0, el: narrow, dpr: 2 },
+      { id: 1, el: next, dpr: 2 },
+    ]);
+    const r0 = rects.get(0)!;
+    const r1 = rects.get(1)!;
+    expect(r0).toEqual({ x: 20, y: 20, w: 120, h: 96 });
+    expect(r1).toEqual({ x: 180, y: 20, w: 280, h: 96 });
+    const ctx = fake.canvases[0]!.ctx!;
+    expect(ctx.ops).toEqual([
+      { op: "save", args: [] },
+      { op: "beginPath", args: [] },
+      { op: "rect", args: [r0.x, r0.y, r0.w, r0.h] },
+      { op: "clip", args: [] },
+      { op: "restore", args: [] },
+      { op: "save", args: [] },
+      { op: "beginPath", args: [] },
+      { op: "rect", args: [r1.x, r1.y, r1.w, r1.h] },
+      { op: "clip", args: [] },
+      { op: "restore", args: [] },
+    ]);
+    const fills = fake.fills();
+    expect(fills.map((f) => f.text)).toEqual(["Supercalifragilistic", "Split"]);
+    expect(fills[0]!.clip, "the over-wide word is clipped to its own slot").toEqual([r0.x, r0.y, r0.w, r0.h]);
+    expect(fills[1]!.clip).toEqual([r1.x, r1.y, r1.w, r1.h]);
+  });
+});
