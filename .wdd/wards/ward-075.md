@@ -3,7 +3,7 @@ ward: 75
 revision: null
 name: "Text that stays true"
 epic: "fluid-engine"
-status: "planned"
+status: "red"
 dependencies: [74]
 layer: "typescript"
 estimated_tests: 43
@@ -91,7 +91,7 @@ Red run (2026-10-10, W75.1): baseline measured before the tests was cargo 170 pa
 | 23 | runtime-text-true: given_a_dpr_change_on_the_resolution_query_when_fired_then_the_canvas_is_resized_every_element_is_invalidated_and_the_query_is_re_armed_RF5 | Review Focus 5 DPR | FAIL (no DPR listener) |
 | 24 | runtime-text-true: given_liquid_text_on_mid_motion_when_refresh_runs_then_the_author_text_colour_is_read_and_the_atlas_is_rebuilt_in_it_before_the_render | refresh() under WebGPU; atlas glyph colour mid-motion | FAIL (invalidate not called with id) |
 | 25 | runtime-text-true: given_canvas2d_and_a_moving_element_when_frames_run_then_liquid_halo_on_once_off_at_rest_with_a_rule_in_the_background_colour_and_no_inline_style_D75_3 | D75-3 in the runtime | FAIL (no data-liquid-id / halo) |
-| 26 | runtime-text-true: given_unobserve_and_destroy_when_mutations_and_transitionend_follow_then_no_refresh_and_class_attribute_rule_and_listeners_are_gone | cleanup | FAIL (no halo rule to release) |
+| 26 | runtime-text-true: given_unobserve_and_destroy_when_mutations_and_transitionend_follow_then_no_refresh_and_class_attribute_rule_and_listeners_are_gone | cleanup | FAIL (the halo class is never set mid-motion, so its release cannot be shown) |
 | 27 | halo.spec (canvas2d): D75-3 – given a splash on Splash when it moves then #splash carries liquid-halo with a text-shadow in its own background colour and no inline style, and at rest neither | D75-3 in Chromium | FAIL (no data-liquid-id key) |
 | 28 | halo.spec (canvas2d): D75-3 – given a shake when every element moves then each one carries the halo in its own background colour and the card's paragraph inherits it | D75-3 per element | FAIL (no halo class) |
 | 29 | halo.spec (canvas2d): D75-3 – given print or forced colours while the halo class is on then the computed text-shadow is none, and back on screen it returns | D66-15 scope | FAIL (no halo class) |
