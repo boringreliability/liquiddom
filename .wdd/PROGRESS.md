@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-73 of 76 Wards complete · 1087 estimated tests · 1 blocked
+73 of 76 Wards complete · 1092 estimated tests · 1 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -81,7 +81,7 @@
 | 073 | Shake without lace | 3 | ✅ Complete | 2026-10-09 |
 | 074 | Text that flows | 62 | ✅ Complete | 2026-10-10 |
 | 075 | Text that stays true | 54 | ✅ Complete | 2026-10-10 |
-| 076 | Whole picture after slice 4 | 3 | 📋 Planned | - |
+| 076 | Whole picture after slice 4 | 8 | 🔴 Red | - |
 
 ## Test Summary
-- Estimated total: 1087
+- Estimated total: 1092

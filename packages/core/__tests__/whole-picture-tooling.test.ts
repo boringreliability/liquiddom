@@ -132,7 +132,7 @@ describe("W70: e2e/record.spec.ts records step 8 (D70-6)", () => {
     expect(spec).toContain("test(`whole picture – acceptance steps 1-4, 6 and 8 recorded in ${r.renderer}`");
     const s6 = spec.indexOf("// Step 6");
     const s8 = spec.indexOf("// Step 8");
-    const close = spec.indexOf("await page.close();");
+    const close = spec.lastIndexOf("await page.close();");
     expect(s6, "the step-6 segment").toBeGreaterThan(0);
     expect(s8, "the step-8 segment follows step 6").toBeGreaterThan(s6);
     expect(close, "and is recorded before the page closes").toBeGreaterThan(s8);
@@ -201,7 +201,7 @@ describe("W76: the landing page in the slice-4 recording (D76-2)", () => {
     expect(spec).toContain("const LANDING_URL = `/scenes/landing.html?seed=1&renderer=${r.renderer}&test=1`;");
     const rm = spec.indexOf("// Step 8");
     const landing = spec.indexOf("// Landing (D76-2, W76)");
-    const close = spec.indexOf("await page.close();");
+    const close = spec.lastIndexOf("await page.close();");
     expect(landing, "the landing segment follows the reduced-motion segment").toBeGreaterThan(rm);
     expect(close, "and is recorded before the page closes (same video, both slice-4 GIFs)").toBeGreaterThan(landing);
     const seg = spec.slice(landing, close);

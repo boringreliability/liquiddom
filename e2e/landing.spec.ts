@@ -23,6 +23,9 @@ const LIQUID_COUNT = 6;
 
 type LandingInstance = { activeRenderer: string; shake(strength?: number): void };
 
+/** W76 red review: an exact label match, so a card body that mentions a CTA never matches it. */
+const exactText = (label: string): RegExp => new RegExp(`^\\s*${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`);
+
 test.use({ viewport: { ...VIEWPORT } });
 
 async function gotoLanding(page: Page): Promise<void> {
@@ -52,7 +55,7 @@ test.describe("landing page (W76, D76-2) – canvas2d smoke", () => {
     const liquid = page.locator("[data-liquid]");
     await expect(liquid).toHaveCount(LIQUID_COUNT);
     for (const name of ["Sign in", "Start free", "Book a demo"]) {
-      await expect(liquid.filter({ hasText: name }), `"${name}" carries the liquid`).toHaveCount(1);
+      await expect(liquid.filter({ hasText: exactText(name) }), `"${name}" carries the liquid`).toHaveCount(1);
     }
     const observed = await page.evaluate(() =>
       Array.from(document.querySelectorAll<HTMLElement>("[data-liquid]")).map((el) => ({
@@ -76,7 +79,7 @@ test.describe("landing page (W76, D76-2) – canvas2d smoke", () => {
     await gotoLanding(page);
     await advance(page, IDLE_2S_FRAMES);
 
-    await page.locator("[data-liquid]", { hasText: "Start free" }).click();
+    await page.locator("[data-liquid]", { hasText: exactText("Start free") }).click();
     // Park the pointer away from every element (pointer field and hover swell, as acceptance.spec).
     await page.mouse.move(VIEWPORT.width - 1, VIEWPORT.height - 1);
     await advance(page, 2);
