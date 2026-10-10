@@ -37,6 +37,8 @@ export interface DomChange {
 export type MutationObserverFactory = (callback: MutationCallback) => MutationObserver;
 
 const defaultFactory: MutationObserverFactory = (callback) => new MutationObserver(callback);
+/** drain() with nothing pending (most frames) returns this, so an idle frame allocates no Map. */
+const NO_CHANGES: ReadonlyMap<HTMLElement, DomChange> = new Map();
 
 /** The class list without liquiddom's own classes, sorted, so order and own toggles never count. */
 export function authorClasses(value: string | null): string {
@@ -87,12 +89,13 @@ export class ElementObserver {
   }
 
   /** The changes since the last drain, one entry per element; clears them. */
-  drain(): Map<HTMLElement, DomChange> {
+  drain(): ReadonlyMap<HTMLElement, DomChange> {
     // Records queued but not delivered yet (a mutation earlier in this task) belong to this frame.
     for (const [el, mo] of this.observers) {
       const queued = mo.takeRecords();
       if (queued.length > 0) this.record(el, queued);
     }
+    if (this.pending.size === 0) return NO_CHANGES;
     const out = new Map(this.pending);
     this.pending.clear();
     return out;
@@ -102,13 +105,14 @@ export class ElementObserver {
     if (!this.observers.has(el)) return;
     let colour = false;
     let text = false;
-    const firstSeen = new Map<Node, Set<string>>();
+    let firstSeen: Map<Node, Set<string>> | undefined; // allocated on the batch's first attribute record
     for (const r of records) {
       if (r.type !== "attributes") {
         text = true;
         continue;
       }
       const name = r.attributeName ?? "";
+      firstSeen ??= new Map();
       let names = firstSeen.get(r.target);
       if (!names) {
         names = new Set<string>();
