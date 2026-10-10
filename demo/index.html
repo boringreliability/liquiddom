@@ -17,11 +17,11 @@
     <h1>liquiddom: fluid engine (slice 4)</h1>
     <p>The soft-body demos were retired in 0.3 (their last state is tagged <code>softbody-final</code>).</p>
     <ul>
-      <li><a href="scenes/acceptance.html">Acceptance scene</a>: the north-star scene (spec §6). Add <code>?rm=1</code> for reduced motion, <code>?clock=manual&amp;test=1</code> for the test hook.</li>
-      <li><a href="scenes/landing.html">Landing page</a>: an ordinary one-screen page, liquid on its buttons and cards (slice 4). Add <code>?renderer=webgpu</code> for the WebGPU liquid text.</li>
+      <li><a href="scenes/acceptance.html?renderer=auto">Acceptance scene</a>: the north-star scene (spec §6), in the default renderer (WebGPU on a hardware adapter, Canvas2D otherwise). Add <code>&amp;rm=1</code> for reduced motion, <code>&amp;clock=manual&amp;test=1</code> for the test hook; without <code>?renderer</code> the scene runs Canvas2D, as the tests expect.</li>
+      <li><a href="scenes/landing.html?renderer=auto">Landing page</a>: an ordinary one-screen page, liquid on its buttons and cards (slice 4). Use <code>?renderer=canvas2d</code> or <code>?renderer=webgpu</code> to pick one.</li>
       <li><a href="scenes/stress.html?n=4">Multi-instance stress</a>: 2–4 instances created in one task.</li>
-      <li><a href="scenes/splash.html">Splash</a>: three drops with their own viscosity and recovery, a pointer-only pool, splash all and shake (slice 2).</li>
-      <li><a href="scenes/playground.html">Material playground</a>: tune viscosity, cohesion and recovery live; water, honey and jelly presets (slice 2).</li>
+      <li><a href="scenes/splash.html?renderer=auto">Splash</a>: three drops with their own viscosity and recovery, a pointer-only pool, splash all and shake (slice 2).</li>
+      <li><a href="scenes/playground.html?renderer=auto">Material playground</a>: tune viscosity, cohesion and recovery live; water, honey and jelly presets (slice 2).</li>
     </ul>
   </main>
 </body>
