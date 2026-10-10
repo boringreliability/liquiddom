@@ -100,6 +100,22 @@ D77-3 run (W77.3, 2026-10-11, canvas2d, macOS, after D77-2; water splash 130 / s
 - viscosity 0.9, cohesion 0.7, recovery 1.0 s: splash 188, shake > 180 → fails
 - viscosity 0.9, cohesion 0.7, recovery 0.8 s: splash 155, shake 152, honey / water 155 / 130 = 1.19 ≥ 1.15 → **passes, chosen** (viscosity unchanged)
 
+**W77.5 browser, perf and Linux runs (2026-10-11, at 0e3636d, after `npm run build:wasm` and `npm run build -w liquiddom`).** Suites: `e2e:canvas2d` 49 passed, 9 skipped (macOS-skipped visual specs); `e2e:webgpu-hw` (Metal) 45 passed, 23 skipped; `perf` 2 passed, 1 skipped (W65 line: tick/step p95 3.945 ms, RAF p95 4.060 ms); Docker (`e2e:update`, Linux, canvas2d) 56 passed, 2 skipped.
+
+| W77 guard (bound) | macOS canvas2d | Metal (webgpu-hw) | Linux canvas2d (Docker) |
+|---|---|---|---|
+| Acceptance card lace f10 / f20 (≤ 300) | 103 / 161 | 53 / 79 | 103 / 161 |
+| Landing dark card lace f10 / f20 (≤ 400) | 10 / 42 | 0 / 1 | 8 / 40 |
+| "Book a demo" specks, peak f1–60 (≤ 16) | 0 (Σ 0) | 0 | 0 (Σ 0) |
+| Splash re-form water / honey / jelly (≤ 180) | 130 / 155 / 115 | 130 / 155 / 115 | 130 / 155 / 115 |
+| Shake re-form from rest water / honey / jelly (≤ 180) | 118 / 152 / 106 | 118 / 152 / 106 | 118 / 152 / 106 |
+| Honey / water splash re-form (≥ 1.15) | 155 / 130 = 1.19 | 155 / 130 | 155 / 130 = 1.19 |
+| Canvas2D landing / acceptance shake frame (≤ 1.29, perf) | 18.92 / 22.72 ms = **0.833** (W77.0 baseline 1.119) | skips | not run (perf is local) |
+
+Perf guard bites (Step 1b, scratch state never committed: `fitCell` returned before `densityCellPx`, i.e. cap 16 on the 2 px grid): landing 33.34 ms / acceptance 22.20 ms = **1.501** > 1.29, the W77 perf test fails as intended (baseline 1.119, with the grid scaling 0.833). `fluid-canvas2d.ts` restored with `git checkout`, tree clean.
+
+Linux baselines moved (Docker `--update-snapshots=all`): `acceptance-step2`, `acceptance-step3-splash-f12`, `acceptance-step4-split-focus-f30`, `acceptance-step6-shake-f20` (the four the plan expected). Unchanged: `acceptance-step1`, `a11y-focus-split`, `step8-reduced-motion-media`, `step8-reduced-motion-option` (Must NOT holds). The moved baselines wait for Dennis' vision approval (D65-7).
+
 **STOP rules after the change (red review findings 3, 4, 7):** W77.3 and W77.5 stop and report to Dennis on **any** W77 guard failure (acceptance or landing lace, specks, water / honey / jelly re-form, honey ≥ 1.15× water, slosh floors, the perf ratio), on macOS or in the Docker (Linux) run; no bound is raised without Dennis. W77.5 reads the W77 log lines from the Docker canvas2d run and records the Linux numbers next to the macOS ones, and measures once in the perf project that the frame-ratio guard rejects cap 16 without the grid scaling (`densityCellPx` forced to 2 in a scratch run).
 
 ## Tests
