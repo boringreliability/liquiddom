@@ -3,7 +3,7 @@ ward: 75
 revision: null
 name: "Text that stays true"
 epic: "fluid-engine"
-status: "approved"
+status: "gold"
 dependencies: [74]
 layer: "typescript"
 estimated_tests: 54
@@ -160,3 +160,27 @@ Amendment B red run (2026-10-10, task B): vitest 609 passed | 11 failed | 4 skip
 
 ## Verification
 `npm run verify`, `npm run e2e:canvas2d`, `npm run e2e:dist`, `npm run e2e:webgpu-hw` (Metal), `npm run e2e:typecheck`; `npm run e2e:docker -- --project=canvas2d` with the approved baselines; vision on the gold stills; ward code review; STOP at gold for Dennis.
+
+## Gold notes
+
+**Totals (2026-10-10, after amendment B):** cargo 170 passed + 2 ignored; vitest 621 passed | 4 skipped (625, 61 files); clippy clean; `cargo fmt --check` clean; e2e canvas2d 37 passed (macOS, visual skipped); Docker canvas2d 44 passed, 2 skipped (Linux baselines, no diff); webgpu-hw (Metal) 39 passed, 15 skipped; dist 1 passed; e2e typecheck clean.
+
+**Baselines:** Canvas2D Linux steps 2, 3, 4 and 6 regenerated with the halo, vision-approved by Dennis 2026-10-10 (da2be1a; saga dec_90480e1d). Step 1, a11y focus and the reduced-motion baselines unchanged.
+
+**Approved test changes (Dennis 2026-10-10):** W74 text-runtime refresh() step to D75-1 A (dec_47215a89); DPR e2e dispatches resize after the CDP override (CDP DPR emulation fires neither the resolution query change nor resize, measured) and the halo e2e checks both card paragraphs (dec_90480e1d); element-observer test 6 to amendment B (descendant → text only); the B1 unit stubs carry `transitionProperty` (CSS transitions only, dec_5b38c40e).
+
+**Ward review (opus, high): Fix first → fixed.** I1 (confirmed in Chromium: the colour snapshot's `transition: none` made a 400 ms transform jump to its end after one runtime frame) and I2 (descendant style writes cost a full re-read and atlas upload per frame, starving the confirmation) led to amendment B (dec_b2499bfc, dec_5b38c40e): colour re-read on own class/style only, deferred while a CSS transition runs or is paused, halo rule rewritten only on a background change, one atlas upload in flight. Minors M3 (re-observe renews the owner), M4 (detached element keeps colours, re-read after re-attach), M5 (refresh docs), M7 (no halo around liquid-text glyphs) fixed. B task review approved; its minors M1/M4 fixed, CONTEXT/CLAUDE.md updated.
+
+**Measurements:** test 36 (refresh mid-motion, Metal): red 6662 px, yellow 300 px.
+
+**Vision (Metal and Chromium):**
+- refresh mid-motion: the liquid is red, the liquid text yellow, the DOM text hidden.
+- text change mid-splash: the frame after the change shows "Splosh!" as DOM text and no stale "Splash" glyphs (D75-1 A); white-on-beige for 1–2 frames, no halo under WebGPU.
+- focus Split f30 (WebGPU): the focus ring is fully visible; the label is gone with the liquid in the hole (W74's text-rides-the-liquid design).
+- Canvas2D halo splash f3: "Splash" reads in the hole with a blue halo; resting elements carry none. Shake f5: all four elements carry a halo in their own colour; the card's paragraphs read.
+- Same manual frame, step 3 f12: Canvas2D shows the DOM text with the halo, WebGPU only the liquid text ("lash" stretched on the remaining liquid); neither shows both.
+
+**Open for Dennis:** a manual `refresh(el)` runs at once and can cut a running author transition (documented); test 34 (forced colours live) failed once in three full webgpu-hw runs and passed 40/40 repeated (rare race, watch); container-mode DPR change relies on the resolution query only (no browser test; a manual zoom check is suggested).
+
+**Carried:** the whole atlas page is re-rendered on any generation, paints or text change (v1); an upload whose error scope never resolves leaves the DOM text showing for the instance's life (fail-safe); `@keyframes` colour animations and ancestor/stylesheet/`:hover` colour changes need `refresh(el)`.
+

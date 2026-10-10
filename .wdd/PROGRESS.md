@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-72 of 76 Wards complete · 1076 estimated tests · 1 blocked
+72 of 76 Wards complete · 1087 estimated tests · 1 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -80,8 +80,8 @@
 | 072 | WebGPU by default, robust | 71 | ✅ Complete | 2026-10-08 |
 | 073 | Shake without lace | 3 | ✅ Complete | 2026-10-09 |
 | 074 | Text that flows | 62 | ✅ Complete | 2026-10-10 |
-| 075 | Text that stays true | 43 | 👀 Approved | - |
+| 075 | Text that stays true | 54 | 🔨 Gold | - |
 | 076 | Whole picture after slice 4 | 3 | 📋 Planned | - |
 
 ## Test Summary
-- Estimated total: 1076
+- Estimated total: 1087
