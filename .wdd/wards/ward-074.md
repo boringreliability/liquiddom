@@ -3,7 +3,7 @@ ward: 74
 revision: null
 name: "Text that flows"
 epic: "fluid-engine"
-status: "approved"
+status: "gold"
 dependencies: [73]
 layer: "typescript"
 estimated_tests: 62
