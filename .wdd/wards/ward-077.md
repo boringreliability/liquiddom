@@ -43,22 +43,22 @@ Slosh (non-rigid rms displacement, acc card / landing dark card): baseline 37.6/
 ### D77-1: Kernel reach follows the particle spacing (render, both renderers)
 Proposal: the shared kernel radius stays 2.3 × the particle spacing, with `KERNEL_RADIUS_CAP_PX` raised from 8 to 16 px (D71-5 amended); the Canvas2D density grid cell scales with R so its splat cost per frame stays flat on large-area pages.
 Consequence: the neighbour specks after a splash vanish (347 → 0 px in the spike), landing lace drops ≈92 % at f10; the acceptance scene does not change (R there is 7.09 px). WebGPU overdraw on large-area pages rises ≈2.4× (frame time unchanged on Metal); without the grid scaling Canvas2D would cost ≈12 → 21.5 ms per frame on the landing page. At rest nothing changes (exact rounded rect).
-Decision: PENDING
+Decision: APPROVED 2026-10-10 — kernel 2.3 × spacing, cap 8 → 16 px (D71-5 amended), Canvas2D density grid scales with R (saga dec_279c7763)
 
 ### D77-2: The sheet thins instead of tearing (physics)
 Proposal: the default stretch yield `tension_max` rises from 0.16 to ≈0.46 (cohesion 0.5 → 0.46 via the cohesion map, `TENSION_MAX_MAX` 0.30 → 0.90), and `SHAKE_PROFILE_AMPLITUDE` drops from 0.5 to 0.35 (D73-1 amended again); the W73 lace guard tightens to the new level (acceptance card ≤ ≈300 tear px at f10/f20) and gains a landing-page guard.
 Consequence: with D77-1 the acceptance card goes 1145/815 → 99/176 tear px and the landing dark card to 0; re-form ≤ 139 frames; tick p95 ≈4.6 ms. Shake slosh drops ≈30 % but stays visibly a bend. Splash rims shed fewer droplets (7 → 2 fragments at f6). The cohesion remap shifts the water/honey/jelly presets; they are re-measured in W77.
-Decision: PENDING
+Decision: APPROVED 2026-10-10 — tension_max ≈0.46 (TENSION_MAX_MAX 0.30 → 0.90), shake amplitude 0.35 (D73-1 amended), tighter lace guard + landing guard (saga dec_3ba590a1)
 
 ### D77-3: Honey re-forms within the budget
 Proposal: retune the honey preset (recovery/viscosity) so its re-form after the acceptance splash is ≤ 180 frames (3 s) in both renderers while it still reads as slower and thicker than water; measured after D77-2's cohesion remap.
 Consequence: closes the carried W73 item (285 frames); honey becomes a little quicker. The playground's stored `liquiddom-playground-v2` values stay valid (only preset defaults change).
-Decision: PENDING
+Decision: APPROVED 2026-10-10 — honey re-form ≤ 180 frames in both renderers, still slower than water (saga dec_f68c0534)
 
 ### D77-4: The demo index opens scenes as a library user sees them
 Proposal: `demo/index.html` links the acceptance, splash, playground and landing scenes with `?renderer=auto` (WebGPU on a hardware adapter, Canvas2D otherwise); the scenes' own default stays `canvas2d` so every test knows its renderer.
 Consequence: a person opening the demo sees the default renderer; one approved test changes (the W76 pin of the landing link in `wdd-docs.test.ts`).
-Decision: PENDING
+Decision: APPROVED 2026-10-10 — demo index links scenes with ?renderer=auto; scene default stays canvas2d (saga dec_eab87afb)
 
 ## Specification
 To be written in the W77 plan after the gate.

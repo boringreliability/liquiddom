@@ -216,3 +216,7 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D75-3 | Canvas2D DOM-text halo (liquid-halo text-shadow rule per element) | W75 | dec_c537bf43 |
 | D76-1 | Whole picture after slice 4 in both renderers (W69 template, step 3b, live forced colours) | W76 | dec_7c523bfc |
 | D76-2 | One-screen landing page scene as a foreign test page (recorded, report section, canvas2d smoke) | W76 | dec_506a5e00, dec_d2aca357 |
+| D77-1 | Kernel reach follows spacing: cap 8 → 16 px, Canvas2D grid scales with R (amends D71-5) | W77 | dec_279c7763 |
+| D77-2 | Sheet thins instead of tearing: tension 0.46, shake amplitude 0.35 (amends D73-1) | W77 | dec_3ba590a1 |
+| D77-3 | Honey re-forms within 3 s | W77 | dec_f68c0534 |
+| D77-4 | Demo index opens scenes with ?renderer=auto | W77 | dec_eab87afb |
