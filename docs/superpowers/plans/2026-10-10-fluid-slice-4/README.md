@@ -18,7 +18,7 @@
 | W75 | 4 | [W75.md](W75.md) | **Text that stays true:** per-element MutationObserver, colour auto-refresh (+ `transitionend`), atlas re-render on text/fonts/DPR, forced-colors/print with `liquid-text` active, `refresh()` and a11y under WebGPU, Canvas2D `liquid-halo` |
 | W76 | 4 | [W76.md](W76.md) | **Whole picture after slice 4:** recording in both renderers, vision, per-step status against S4, carried table, perf, recommendation (W69 template) |
 
-Order: W74 → W75 → W76. Test totals at each ward's end: W74 cargo `167 passed; 2 ignored`, vitest `564 passed | 4 skipped (568)`; W75 vitest `592 | 4 (596)`; W76 vitest `594 | 4 (598)` (cargo unchanged after W74). Each ward leaves `npm run verify`, `npm run e2e:canvas2d` and `npm run e2e:webgpu-hw` green.
+Order: W74 → W75 → W76. Test totals at each ward's end: W74 cargo `168 passed; 2 ignored`, vitest `564 passed | 4 skipped (568)`; W75 vitest `592 | 4 (596)`; W76 vitest `594 | 4 (598)` (cargo unchanged after W74). Each ward leaves `npm run verify`, `npm run e2e:canvas2d` and `npm run e2e:webgpu-hw` green.
 
 **Human prerequisites:** direction gate per ward before red (D74-*, D75-*, D76-*); Dennis approves red, gold, and any Linux baseline (D65-7); W76's recommendation decides what comes before slice 5.
 
@@ -53,7 +53,7 @@ Final names after the cross-ward verification (2026-10-10, `_verification.md`). 
 
 ```text
 Rust (W74)
-  src/fluid/fmath.rs            pub const F_SIGMA_MIN 0.2, F_SIGMA_MAX 5.0, TORN_CLEAR_MIN 0.67, TORN_CLEAR_MAX 1.5, F_REST_TOL 0.05
+  src/fluid/fmath.rs            pub const F_SIGMA_MIN 0.2, F_SIGMA_MAX 5.0, TORN_CLEAR_MIN 0.67, TORN_CLEAR_MAX 1.5, F_REST_TOL 0.05, F_SLIP_RATE_PER_S 1.5 × SLIP_RATE_PER_S (D74-2 amended)
                                 pub fn mul2(m: [f32; 4], n: [f32; 4]) -> [f32; 4]
                                 pub fn svd2(f: [f32; 4]) -> ([f32; 4], [f32; 2], [f32; 4])   // U, σ (desc, ≥ 0), V; F = U·diag(σ)·Vᵀ (V a reflection when det F < 0), no alloc
                                 pub fn clamp_f(f: [f32; 4]) -> ([f32; 4], bool)               // clamped F (trig-free), hit_clamp
