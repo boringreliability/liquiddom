@@ -7,14 +7,29 @@
  *    `fwidth` edge, colour Σw·rgb/Σw, premultiplied by coverage × Σw·a/Σw), then one
  *    rounded-rect SDF quad per element is drawn over it at `restAlpha` × colour alpha.
  * An element's particles splat at full weight while its `restAlpha < 1` and are skipped at 1
- * (D71-6, the D70-4 rule). No 32-bit float targets; T2 is deferred to slice 4 (D71-3).
+ * (D71-6, the D70-4 rule). No 32-bit float targets.
+ * W74 (D74-4): while an element with atlas text moves, a third pass splats its text into T1
+ * (`rgba16float`, Σw·text_rgba_premul) and T1w (`r16float`, Σw) at 1× the backing size — its own
+ * pass, because every attachment of a pass shares one size and T0 is at `t0Scale` — and the screen
+ * pass draws the text composite after the rest SDF. T2 is dropped. The atlas page is uploaded
+ * once per version; `textReady(id)` tells the runtime whose text is drawn (D74-6).
  * Rendering never touches the DOM; the canvas element belongs to the runtime.
  */
 import { ELEMENT_STRIDE } from "../../fluid-layout";
-import type { RenderFrame, Renderer } from "../frame";
+import type { RenderFrame, Renderer, TextAtlasFrame } from "../frame";
 import { WebGPUUnavailableError } from "./errors";
-import { ELEMENT_GPU_FLOATS, packElements, packHomes, packParticles } from "./gpu-buffers";
-import { COMPOSITE_WGSL, REST_WGSL, SPLAT_WGSL } from "./shaders";
+import {
+  ELEMENT_GPU_FLOATS,
+  PARTICLE_GPU_FLOATS,
+  TEXT_INFO_FLOATS,
+  hasMovingText,
+  packElements,
+  packHomes,
+  packParticles,
+  packRestUV,
+  packTextInfo,
+} from "./gpu-buffers";
+import { COMPOSITE_WGSL, REST_WGSL, SPLAT_WGSL, TEXT_COMPOSITE_WGSL, TEXT_WGSL } from "./shaders";
 import { estimateSplatFragments } from "./overdraw";
 
 /** D71-4: T0 render scale relative to the canvas backing size. */
@@ -27,6 +42,10 @@ export const T0_SCALE_DEFAULT = 0.5;
 export const T0_SCALE_MIN = 0.25;
 export const T0_FORMAT: GPUTextureFormat = "rgba16float";
 export const T0_ALPHA_FORMAT: GPUTextureFormat = "r16float";
+/** W74 (D74-4): the text pass targets (1× the backing size) and the atlas page texture. */
+export const T1_FORMAT: GPUTextureFormat = "rgba16float";
+export const T1_WEIGHT_FORMAT: GPUTextureFormat = "r16float";
+export const ATLAS_FORMAT: GPUTextureFormat = "rgba8unorm";
 /** WGSL `struct View`: size_css (2), size_px (2), dpr, t0_scale, 2 × pad. */
 export const VIEW_UNIFORM_FLOATS = 8;
 /** WebGPU rejects zero-size storage bindings; no buffer is smaller than this (bytes). */
@@ -69,15 +88,20 @@ export interface LiquidPipelines {
   readonly splatLayout: GPUBindGroupLayout;
   readonly compositeLayout: GPUBindGroupLayout;
   readonly restLayout: GPUBindGroupLayout;
+  readonly textLayout: GPUBindGroupLayout;
+  readonly textCompositeLayout: GPUBindGroupLayout;
   readonly splat: GPURenderPipeline;
   readonly composite: GPURenderPipeline;
   readonly rest: GPURenderPipeline;
+  readonly text: GPURenderPipeline;
+  readonly textComposite: GPURenderPipeline;
 }
 
 /**
- * The splat, composite and rest pipelines with explicit bind group layouts (no `layout:
- * "auto"`). Creates GPU objects only: the caller owns the validation error scope (init, and
- * the e2e check page demo/smoke/webgpu-liquid.ts).
+ * The splat, composite, rest, text and text-composite pipelines with explicit bind group layouts
+ * (no `layout: "auto"`). Creates GPU objects only: the caller owns the validation error scope
+ * (init, and the e2e check page demo/smoke/webgpu-liquid.ts), so a text shader bug rejects
+ * create() like any other pipeline bug (W74, D74-4).
  */
 export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat): LiquidPipelines {
   const V = GPUShaderStage.VERTEX;
@@ -85,6 +109,8 @@ export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat
   const splatModule = device.createShaderModule({ label: "liquiddom splat", code: SPLAT_WGSL });
   const compositeModule = device.createShaderModule({ label: "liquiddom composite", code: COMPOSITE_WGSL });
   const restModule = device.createShaderModule({ label: "liquiddom rest", code: REST_WGSL });
+  const textModule = device.createShaderModule({ label: "liquiddom text", code: TEXT_WGSL });
+  const textCompositeModule = device.createShaderModule({ label: "liquiddom text composite", code: TEXT_COMPOSITE_WGSL });
   const splatLayout = device.createBindGroupLayout({
     label: "liquiddom splat",
     entries: [
@@ -108,6 +134,28 @@ export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat
     entries: [
       { binding: 0, visibility: V | F, buffer: { type: "uniform" } },
       { binding: 1, visibility: V, buffer: { type: "read-only-storage" } },
+    ],
+  });
+  const textLayout = device.createBindGroupLayout({
+    label: "liquiddom text",
+    entries: [
+      { binding: 0, visibility: V, buffer: { type: "uniform" } },
+      { binding: 1, visibility: V, buffer: { type: "read-only-storage" } },
+      { binding: 2, visibility: V, buffer: { type: "read-only-storage" } },
+      { binding: 3, visibility: V, buffer: { type: "read-only-storage" } },
+      { binding: 4, visibility: V, buffer: { type: "read-only-storage" } },
+      { binding: 5, visibility: V, buffer: { type: "read-only-storage" } },
+      { binding: 6, visibility: F, texture: { sampleType: "float" } },
+      { binding: 7, visibility: F, sampler: { type: "filtering" } },
+    ],
+  });
+  const textCompositeLayout = device.createBindGroupLayout({
+    label: "liquiddom text composite",
+    entries: [
+      { binding: 0, visibility: F, buffer: { type: "uniform" } },
+      { binding: 1, visibility: F, texture: { sampleType: "float" } },
+      { binding: 2, visibility: F, texture: { sampleType: "float" } },
+      { binding: 3, visibility: F, sampler: { type: "filtering" } },
     ],
   });
   const splat = device.createRenderPipeline({
@@ -138,14 +186,39 @@ export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat
     fragment: { module: restModule, entryPoint: "fs", targets: [{ format: canvasFormat, blend: OVER_BLEND }] },
     primitive: { topology: "triangle-list" },
   });
+  const text = device.createRenderPipeline({
+    label: "liquiddom text",
+    layout: device.createPipelineLayout({ bindGroupLayouts: [textLayout] }),
+    vertex: { module: textModule, entryPoint: "vs" },
+    fragment: {
+      module: textModule,
+      entryPoint: "fs",
+      targets: [
+        { format: T1_FORMAT, blend: ADDITIVE_BLEND },
+        { format: T1_WEIGHT_FORMAT, blend: ADDITIVE_BLEND },
+      ],
+    },
+    primitive: { topology: "triangle-list" },
+  });
+  const textComposite = device.createRenderPipeline({
+    label: "liquiddom text composite",
+    layout: device.createPipelineLayout({ bindGroupLayouts: [textCompositeLayout] }),
+    vertex: { module: textCompositeModule, entryPoint: "vs" },
+    fragment: { module: textCompositeModule, entryPoint: "fs", targets: [{ format: canvasFormat, blend: OVER_BLEND }] },
+    primitive: { topology: "triangle-list" },
+  });
   return {
-    modules: [splatModule, compositeModule, restModule],
+    modules: [splatModule, compositeModule, restModule, textModule, textCompositeModule],
     splatLayout,
     compositeLayout,
     restLayout,
+    textLayout,
+    textCompositeLayout,
     splat,
     composite,
     rest,
+    text,
+    textComposite,
   };
 }
 
@@ -210,6 +283,30 @@ export class WebGPURenderer implements Renderer {
   private simulatedLoss = false;
   private initSettled = false;
   private lostDuringInit: GPUDeviceLostInfo | null = null;
+  // ---- W74 (D74-4): the text pass ----
+  private restUvBuffer: GPUBuffer | null = null;
+  private textInfoBuffer: GPUBuffer | null = null;
+  private restUvScratch = new Float32Array(0);
+  private textInfoScratch = new Float32Array(0);
+  /** Per slot: 1 while its text record is valid (packTextInfo); read by textReady(). */
+  private textOk = new Uint8Array(0);
+  private textInfoDirty = true;
+  private textInfoPaints: RenderFrame["paints"] | null = null;
+  private atlasTexture: GPUTexture | null = null;
+  private atlasView: GPUTextureView | null = null;
+  private atlasWidth = 0;
+  private atlasHeight = 0;
+  private atlasVersion = Number.NaN;
+  private atlasOk = false;
+  private t1: GPUTexture | null = null;
+  private t1Weight: GPUTexture | null = null;
+  private t1Width = 0;
+  private t1Height = 0;
+  private textGroup: GPUBindGroup | null = null;
+  private textCompositeGroup: GPUBindGroup | null = null;
+  private readonly t1Attachment: GPURenderPassColorAttachment = { view: PLACEHOLDER_VIEW, clearValue: CLEAR, loadOp: "clear", storeOp: "store" };
+  private readonly t1WeightAttachment: GPURenderPassColorAttachment = { view: PLACEHOLDER_VIEW, clearValue: CLEAR, loadOp: "clear", storeOp: "store" };
+  private readonly textPass: GPURenderPassDescriptor = { label: "liquiddom text", colorAttachments: [this.t1Attachment, this.t1WeightAttachment] };
 
   constructor(opts: WebGPURendererOptions = {}) {
     const s = opts.t0Scale ?? T0_SCALE_DEFAULT;
@@ -238,6 +335,15 @@ export class WebGPURenderer implements Renderer {
    */
   get t0Size(): readonly [number, number] | null {
     return this.t0 ? [this.t0Width, this.t0Height] : null;
+  }
+
+  /**
+   * W74 review: the device's maxTextureDimension2D (the WebGPU default 8192 before init and after
+   * destroy()). The runtime caps the text atlas page at min(ATLAS_MAX_SIZE_PX, this), so a page
+   * the device cannot hold is never built.
+   */
+  get maxTextureDimension(): number {
+    return this.maxTextureDim;
   }
 
   async init(canvas: HTMLCanvasElement): Promise<void> {
@@ -329,6 +435,7 @@ export class WebGPURenderer implements Renderer {
     this.widthPx = pxOrOne(widthPx);
     this.heightPx = pxOrOne(heightPx);
     this.allocateTargets();
+    if (this.t1) this.allocateTextTargets(); // W74: T1/T1w follow once they exist
   }
 
   render(frame: RenderFrame): void {
@@ -336,21 +443,26 @@ export class WebGPURenderer implements Renderer {
     if (!device || !ctx || !pipelines || this.lost) return;
     this.fragmentEstimate = estimateSplatFragments(frame, this.t0Scale); // D72-4: logged, never gated
     this.ensureBuffers(frame);
-    const { particleBuffer, homeBuffer, elementBuffer, viewBuffer, t0View, t0AlphaView } = this;
+    const { particleBuffer, homeBuffer, restUvBuffer, elementBuffer, viewBuffer, t0View, t0AlphaView } = this;
     const { splatGroup, compositeGroup, restGroup } = this;
-    if (!particleBuffer || !homeBuffer || !elementBuffer || !viewBuffer || !t0View || !t0AlphaView) return;
+    if (!particleBuffer || !homeBuffer || !restUvBuffer || !elementBuffer || !viewBuffer || !t0View || !t0AlphaView) return;
     if (!splatGroup || !compositeGroup || !restGroup) return;
     const queue = device.queue;
 
+    // W74 (D74-4): 8 floats per particle — position, F and flags — for the splat and the text pass.
     const count = packParticles(frame, this.particleScratch);
-    if (count > 0) queue.writeBuffer(particleBuffer, 0, this.particleScratch, 0, count * 2);
+    if (count > 0) queue.writeBuffer(particleBuffer, 0, this.particleScratch, 0, count * PARTICLE_GPU_FLOATS);
     if (
       frame.generation !== this.uploadedGeneration ||
       frame.paints !== this.uploadedPaints ||
       count !== this.uploadedHomeCount
     ) {
       packHomes(frame, this.homeScratch);
-      if (count > 0) queue.writeBuffer(homeBuffer, 0, this.homeScratch, 0, count);
+      packRestUV(frame, this.restUvScratch); // W74: rest UVs change only with the homes
+      if (count > 0) {
+        queue.writeBuffer(homeBuffer, 0, this.homeScratch, 0, count);
+        queue.writeBuffer(restUvBuffer, 0, this.restUvScratch, 0, count * 2);
+      }
       this.uploadedGeneration = frame.generation;
       this.uploadedPaints = frame.paints;
       this.uploadedHomeCount = count;
@@ -374,6 +486,8 @@ export class WebGPURenderer implements Renderer {
     v[6] = 0;
     v[7] = 0;
     queue.writeBuffer(viewBuffer, 0, v);
+    // W74 (D74-4): after the element upload, so the text pass sees this frame's restAlpha.
+    const drawText = this.prepareText(frame) && count > 0;
 
     const encoder = device.createCommandEncoder(this.encoderDescriptor);
     const splat = encoder.beginRenderPass(this.splatPass);
@@ -383,6 +497,14 @@ export class WebGPURenderer implements Renderer {
       splat.draw(6, count);
     }
     splat.end();
+    if (drawText && this.textGroup) {
+      // W74 (D74-4): its own pass — T1/T1w are at 1×, and all attachments of a pass share one size.
+      const text = encoder.beginRenderPass(this.textPass);
+      text.setPipeline(pipelines.text);
+      text.setBindGroup(0, this.textGroup);
+      text.draw(6, count);
+      text.end();
+    }
     this.screenAttachment.view = ctx.getCurrentTexture().createView();
     const screen = encoder.beginRenderPass(this.screenPass);
     screen.setPipeline(pipelines.composite);
@@ -393,9 +515,32 @@ export class WebGPURenderer implements Renderer {
       screen.setBindGroup(0, restGroup);
       screen.draw(6, slots);
     }
+    if (drawText && this.textGroup && this.textCompositeGroup) {
+      // W74 (D74-4): after the rest SDF, so the text never blinks at the cross-fade.
+      screen.setPipeline(pipelines.textComposite);
+      screen.setBindGroup(0, this.textCompositeGroup);
+      screen.draw(3);
+    }
     screen.end();
     this.submitList[0] = encoder.finish();
     queue.submit(this.submitList);
+  }
+
+  /**
+   * W74 (D74-6): true when render() draws atlas text for slot `id` whenever its restAlpha < 1:
+   * the device is alive, the atlas page is uploaded and the slot's text record is valid. The
+   * runtime sets `liquid-text` only then.
+   */
+  textReady(id: number): boolean {
+    return (
+      this.device !== null &&
+      !this.lost &&
+      this.atlasOk &&
+      Number.isInteger(id) &&
+      id >= 0 &&
+      id < this.textOk.length &&
+      this.textOk[id] === 1
+    );
   }
 
   destroy(): void {
@@ -444,7 +589,7 @@ export class WebGPURenderer implements Renderer {
     });
   }
 
-  /** Storage buffers sized by the pools (fixed at create()); never smaller than MIN_BUFFER_BYTES (Review Focus 2). */
+  /** Storage buffers sized by the pools (fixed at create()); never smaller than one array element (Review Focus 2). */
   private ensureBuffers(frame: RenderFrame): void {
     const { device, pipelines, viewBuffer } = this;
     if (!device || !pipelines || !viewBuffer) return;
@@ -453,27 +598,41 @@ export class WebGPURenderer implements Renderer {
     if (this.particleBuffer && cap === this.bufferCapacity && slots === this.bufferSlots) return;
     this.particleBuffer?.destroy();
     this.homeBuffer?.destroy();
+    this.restUvBuffer?.destroy();
     this.elementBuffer?.destroy();
+    this.textInfoBuffer?.destroy();
     const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST;
-    const particleBuffer = device.createBuffer({ label: "liquiddom particles", size: Math.max(MIN_BUFFER_BYTES, cap * 8), usage });
+    const particleBytes = PARTICLE_GPU_FLOATS * 4;
+    const textInfoBytes = TEXT_INFO_FLOATS * 4;
+    const particleBuffer = device.createBuffer({ label: "liquiddom particles", size: Math.max(particleBytes, cap * particleBytes), usage });
     const homeBuffer = device.createBuffer({ label: "liquiddom homes", size: Math.max(MIN_BUFFER_BYTES, cap * 4), usage });
+    const restUvBuffer = device.createBuffer({ label: "liquiddom rest uv", size: Math.max(MIN_BUFFER_BYTES, cap * 8), usage });
     const elementBuffer = device.createBuffer({
       label: "liquiddom elements",
       size: Math.max(ELEMENT_GPU_BYTES, slots * ELEMENT_GPU_BYTES),
       usage,
     });
+    const textInfoBuffer = device.createBuffer({ label: "liquiddom text info", size: Math.max(textInfoBytes, slots * textInfoBytes), usage });
     this.particleBuffer = particleBuffer;
     this.homeBuffer = homeBuffer;
+    this.restUvBuffer = restUvBuffer;
     this.elementBuffer = elementBuffer;
-    this.particleScratch = new Float32Array(cap * 2);
+    this.textInfoBuffer = textInfoBuffer;
+    this.particleScratch = new Float32Array(cap * PARTICLE_GPU_FLOATS);
     this.homeScratch = new Int32Array(cap);
+    this.restUvScratch = new Float32Array(cap * 2);
     this.elementScratch = new Float32Array(slots * ELEMENT_GPU_FLOATS);
+    this.textInfoScratch = new Float32Array(slots * TEXT_INFO_FLOATS);
+    this.textOk = new Uint8Array(slots);
     this.bufferCapacity = cap;
     this.bufferSlots = slots;
     this.uploadedGeneration = Number.NaN;
     this.uploadedPaints = null;
     this.uploadedHomeCount = -1;
     this.uploadedSlots = 0;
+    this.textInfoDirty = true;
+    this.textInfoPaints = null;
+    this.textGroup = null;
     this.splatGroup = device.createBindGroup({
       label: "liquiddom splat",
       layout: pipelines.splatLayout,
@@ -494,12 +653,146 @@ export class WebGPURenderer implements Renderer {
     });
   }
 
+  /**
+   * W74 (D74-4, D74-5, Review Focus 4): uploads the atlas page once per version, packs the text
+   * records when the page or the paints change, and allocates T1/T1w. True when at least one
+   * element with a valid text record has restAlpha < 1 this frame (the text pass then runs).
+   */
+  private prepareText(frame: RenderFrame): boolean {
+    const { device, pipelines, sampler, viewBuffer, particleBuffer, homeBuffer, elementBuffer, restUvBuffer, textInfoBuffer } = this;
+    if (!device || !pipelines || !sampler || !viewBuffer || !particleBuffer || !homeBuffer || !elementBuffer || !restUvBuffer || !textInfoBuffer) {
+      return false;
+    }
+    const atlas = frame.textAtlas ?? null;
+    if (atlas === null) {
+      this.dropAtlas();
+      return false;
+    }
+    if (atlas.version !== this.atlasVersion) this.uploadAtlas(device, atlas);
+    const atlasView = this.atlasView;
+    if (!this.atlasOk || !atlasView) return false;
+    if (this.textInfoDirty || frame.paints !== this.textInfoPaints) {
+      packTextInfo(frame, atlas, this.textInfoScratch, this.textOk);
+      device.queue.writeBuffer(textInfoBuffer, 0, this.textInfoScratch);
+      this.textInfoPaints = frame.paints;
+      this.textInfoDirty = false;
+    }
+    if (!hasMovingText(frame, this.textOk)) return false;
+    this.allocateTextTargets();
+    if (!this.textGroup) {
+      this.textGroup = device.createBindGroup({
+        label: "liquiddom text",
+        layout: pipelines.textLayout,
+        entries: [
+          { binding: 0, resource: { buffer: viewBuffer } },
+          { binding: 1, resource: { buffer: particleBuffer } },
+          { binding: 2, resource: { buffer: homeBuffer } },
+          { binding: 3, resource: { buffer: elementBuffer } },
+          { binding: 4, resource: { buffer: restUvBuffer } },
+          { binding: 5, resource: { buffer: textInfoBuffer } },
+          { binding: 6, resource: atlasView },
+          { binding: 7, resource: sampler },
+        ],
+      });
+    }
+    return this.textCompositeGroup !== null;
+  }
+
+  /**
+   * W74 (Review Focus 4): a page larger than maxTextureDimension2D, or a copy that throws (a
+   * detached or unusable source), leaves no atlas: textReady stays false and the DOM text stays.
+   * A same-size page reuses the texture.
+   */
+  private uploadAtlas(device: GPUDevice, atlas: TextAtlasFrame): void {
+    this.atlasVersion = atlas.version;
+    this.atlasOk = false;
+    this.textInfoDirty = true;
+    const { width: w, height: h } = atlas;
+    const max = this.maxTextureDim;
+    if (!(Number.isInteger(w) && Number.isInteger(h) && w >= 1 && h >= 1 && w <= max && h <= max)) {
+      this.releaseAtlasTexture();
+      return;
+    }
+    if (!this.atlasTexture || w !== this.atlasWidth || h !== this.atlasHeight) {
+      this.releaseAtlasTexture();
+      this.atlasTexture = device.createTexture({
+        label: "liquiddom atlas",
+        size: [w, h],
+        format: ATLAS_FORMAT,
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+      });
+      this.atlasView = this.atlasTexture.createView();
+      this.atlasWidth = w;
+      this.atlasHeight = h;
+    }
+    try {
+      device.queue.copyExternalImageToTexture({ source: atlas.canvas }, { texture: this.atlasTexture, premultipliedAlpha: true }, [w, h]);
+      this.atlasOk = true;
+    } catch {
+      this.atlasOk = false; // Review Focus 1: no atlas text; the runtime keeps the DOM text
+    }
+  }
+
+  /** W74: no atlas this frame (Canvas2D never gets here; WebGPU without OffscreenCanvas or after an atlas failure). */
+  private dropAtlas(): void {
+    if (this.atlasTexture === null && !this.atlasOk) return;
+    this.releaseAtlasTexture();
+    this.atlasOk = false;
+    this.atlasVersion = Number.NaN;
+    this.textOk.fill(0);
+  }
+
+  private releaseAtlasTexture(): void {
+    this.atlasTexture?.destroy();
+    this.atlasTexture = null;
+    this.atlasView = null;
+    this.atlasWidth = 0;
+    this.atlasHeight = 0;
+    this.textGroup = null;
+  }
+
+  /** W74 (D74-4): T1 and T1w at 1× the backing size, clamped to maxTextureDimension2D; the text composite group follows them. */
+  private allocateTextTargets(): void {
+    const { device, pipelines, sampler, viewBuffer } = this;
+    if (!device || !pipelines || !sampler || !viewBuffer) return;
+    const max = this.maxTextureDim;
+    const w = Math.min(max, this.widthPx);
+    const h = Math.min(max, this.heightPx);
+    if (this.t1 && w === this.t1Width && h === this.t1Height) return;
+    this.t1?.destroy();
+    this.t1Weight?.destroy();
+    const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
+    this.t1 = device.createTexture({ label: "liquiddom T1", size: [w, h], format: T1_FORMAT, usage });
+    this.t1Weight = device.createTexture({ label: "liquiddom T1w", size: [w, h], format: T1_WEIGHT_FORMAT, usage });
+    const t1View = this.t1.createView();
+    const t1WeightView = this.t1Weight.createView();
+    this.t1Attachment.view = t1View;
+    this.t1WeightAttachment.view = t1WeightView;
+    this.t1Width = w;
+    this.t1Height = h;
+    this.textCompositeGroup = device.createBindGroup({
+      label: "liquiddom text composite",
+      layout: pipelines.textCompositeLayout,
+      entries: [
+        { binding: 0, resource: { buffer: viewBuffer } },
+        { binding: 1, resource: t1View },
+        { binding: 2, resource: t1WeightView },
+        { binding: 3, resource: sampler },
+      ],
+    });
+  }
+
   private releaseGpuObjects(): void {
     this.t0?.destroy();
     this.t0Alpha?.destroy();
     this.particleBuffer?.destroy();
     this.homeBuffer?.destroy();
     this.elementBuffer?.destroy();
+    this.restUvBuffer?.destroy();
+    this.textInfoBuffer?.destroy();
+    this.atlasTexture?.destroy();
+    this.t1?.destroy();
+    this.t1Weight?.destroy();
     this.viewBuffer?.destroy();
     this.device = null;
     this.ctx = null;
@@ -516,6 +809,27 @@ export class WebGPURenderer implements Renderer {
     this.splatGroup = null;
     this.compositeGroup = null;
     this.restGroup = null;
+    this.restUvBuffer = null;
+    this.textInfoBuffer = null;
+    this.restUvScratch = new Float32Array(0);
+    this.textInfoScratch = new Float32Array(0);
+    this.textOk = new Uint8Array(0);
+    this.textInfoDirty = true;
+    this.textInfoPaints = null;
+    this.atlasTexture = null;
+    this.atlasView = null;
+    this.atlasWidth = 0;
+    this.atlasHeight = 0;
+    this.atlasVersion = Number.NaN;
+    this.atlasOk = false;
+    this.t1 = null;
+    this.t1Weight = null;
+    this.t1Width = 0;
+    this.t1Height = 0;
+    this.textGroup = null;
+    this.textCompositeGroup = null;
+    this.t1Attachment.view = PLACEHOLDER_VIEW;
+    this.t1WeightAttachment.view = PLACEHOLDER_VIEW;
     this.bufferCapacity = -1;
     this.bufferSlots = -1;
     this.t0Width = 0;

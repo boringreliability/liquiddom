@@ -652,4 +652,15 @@ describe("W71: WebGPURenderer", () => {
     expect(uv()[2]!.bytes).toBe(4 * 8);
     expect(f.calls.errors).toEqual([]);
   });
+
+  // W74 review: the runtime caps the atlas page at min(ATLAS_MAX_SIZE_PX, maxTextureDimension), so it reads the device limit.
+  it("given_a_device_limit_when_initialised_then_maxTextureDimension_reports_it_and_falls_back_to_8192_after_destroy", async () => {
+    gpu({ maxTextureDimension2D: 2048 });
+    const r = new WebGPURenderer();
+    expect(r.maxTextureDimension, "before init: the WebGPU default").toBe(8192);
+    await r.init(document.createElement("canvas"));
+    expect(r.maxTextureDimension).toBe(2048);
+    r.destroy();
+    expect(r.maxTextureDimension).toBe(8192);
+  });
 });
