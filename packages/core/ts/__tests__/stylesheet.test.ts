@@ -441,3 +441,87 @@ describe("W75: the Canvas2D halo rule (D75-3)", () => {
     expect(own.className, "the last release restores what the first hold found (W74's text-hold rule)").toBe(HALO_CLASS);
   });
 });
+
+describe("W75 amendment B and ward-review M7: halo sheet writes and liquid-text precedence", () => {
+  const BLUE = [47, 111, 222, 1] as const;
+  let doc: Document;
+  let release: () => void;
+  beforeEach(() => {
+    doc = document.implementation.createHTMLDocument("w75-b");
+    release = acquireLiquidStyles(doc);
+  });
+  afterEach(() => release());
+  const sheetEl = (): HTMLElement => doc.getElementById(STYLE_ELEMENT_ID) as HTMLElement;
+
+  /** Innermost `selector { declarations }` blocks of the sheet, in source order. */
+  function rulesOf(css: string): Array<{ selector: string; body: string; order: number }> {
+    const out: Array<{ selector: string; body: string; order: number }> = [];
+    const re = /([^{}]+)\{([^{}]*)\}/g;
+    let m: RegExpExecArray | null;
+    let order = 0;
+    while ((m = re.exec(css)) !== null) {
+      for (const part of (m[1] ?? "").split(",")) out.push({ selector: part.trim(), body: m[2] ?? "", order: order++ });
+    }
+    return out;
+  }
+
+  /** [ids, classes + attributes + pseudo-classes, types]; `:not(x)` counts as its argument. */
+  function specificity(selector: string): [number, number, number] {
+    const s = selector.replace(/:not\(/g, " (").replace(/::[\w-]+/g, "");
+    const ids = (s.match(/#[\w-]+/g) ?? []).length;
+    const cls = (s.match(/\.[\w-]+/g) ?? []).length + (s.match(/\[[^\]]+\]/g) ?? []).length + (s.match(/:[\w-]+/g) ?? []).length;
+    const types = (s.replace(/\[[^\]]+\]/g, "").match(/(^|[\s>+~(])[a-z][\w-]*/g) ?? []).length;
+    return [ids, cls, types];
+  }
+
+  /** The winning `text-shadow` for `el` among the sheet's !important declarations (one layer, one origin). */
+  function winningTextShadow(el: HTMLElement): string | null {
+    let best: { spec: [number, number, number]; order: number; value: string } | null = null;
+    for (const r of rulesOf(sheetEl().textContent ?? "")) {
+      const decl = /text-shadow:\s*([^;]*?)\s*!important/.exec(r.body);
+      if (!decl || r.selector === "" || r.selector.startsWith("@")) continue;
+      let matches = false;
+      try {
+        matches = el.matches(r.selector);
+      } catch {
+        continue;
+      }
+      if (!matches) continue;
+      const spec = specificity(r.selector);
+      const beats =
+        best === null ||
+        spec[0] > best.spec[0] ||
+        (spec[0] === best.spec[0] && (spec[1] > best.spec[1] || (spec[1] === best.spec[1] && (spec[2] > best.spec[2] || (spec[2] === best.spec[2] && r.order > best.order)))));
+      if (beats) best = { spec, order: r.order, value: decl[1] ?? "" };
+    }
+    return best?.value ?? null;
+  }
+
+  it("given_liquid_text_and_a_halo_held_by_another_instance_on_one_element_when_the_cascade_resolves_then_no_text_shadow_around_the_transparent_glyphs_M7", () => {
+    const el = doc.body.appendChild(doc.createElement("button"));
+    acquireHaloRule(el, BLUE);
+    addHaloClass(el); // a Canvas2D instance moves it ...
+    expect(winningTextShadow(el), "sanity: the halo alone shows its shadow").toContain("rgba(47, 111, 222, 1)");
+    addTextClass(el); // ... while a WebGPU instance draws its liquid text
+    expect(winningTextShadow(el), "M7: liquid-text beats the halo rule").toBe("none");
+    removeTextClass(el);
+    expect(winningTextShadow(el)).toContain("rgba(47, 111, 222, 1)");
+    removeHaloClass(el);
+    releaseHaloRule(el);
+  });
+
+  it("given_updateHaloRule_with_the_same_background_when_called_then_the_sheet_is_not_rewritten_B2", () => {
+    const el = doc.body.appendChild(doc.createElement("button"));
+    acquireHaloRule(el, BLUE);
+    const text = sheetEl().textContent;
+    const writes = new MutationObserver(() => {});
+    writes.observe(sheetEl(), { childList: true, characterData: true, subtree: true });
+    updateHaloRule(el, [47, 111, 222, 1]); // equal RGBA, a different array
+    expect(writes.takeRecords(), "D75-2 B: an unchanged background rewrites nothing").toHaveLength(0);
+    expect(sheetEl().textContent).toBe(text);
+    updateHaloRule(el, [200, 30, 30, 1]);
+    expect(writes.takeRecords().length).toBeGreaterThan(0);
+    writes.disconnect();
+    releaseHaloRule(el);
+  });
+});

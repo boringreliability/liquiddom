@@ -6,7 +6,7 @@ epic: "fluid-engine"
 status: "approved"
 dependencies: [74]
 layer: "typescript"
-estimated_tests: 43
+estimated_tests: 54
 created: "2026-10-10"
 completed: null
 ---
@@ -71,7 +71,7 @@ Red run (2026-10-10, W75.1): baseline measured before the tests was cargo 170 pa
 | 3 | element-observer: given_a_refresh_snapshot_round_trip_of_class_and_style_when_drained_then_no_entry_RF2 | Review Focus 2 (first old value per batch) | FAIL (import: module missing) |
 | 4 | element-observer: given_characterData_and_childList_mutations_in_the_subtree_when_drained_then_a_text_only_entry | D75-1 text triggers | FAIL (import: module missing) |
 | 5 | element-observer: given_many_mutations_in_one_frame_when_drained_twice_then_one_entry_then_none_even_before_the_callback_ran | D75-1 coalescing, takeRecords | FAIL (import: module missing) |
-| 6 | element-observer: given_a_descendant_class_or_style_change_when_drained_then_a_colour_entry_for_the_observed_element | D75-1 subtree attributes | FAIL (import: module missing) |
+| 6 | element-observer: given_a_descendant_class_or_style_change_when_drained_then_a_text_only_entry_for_the_observed_element_B2 (was `..._then_a_colour_entry_for_the_observed_element`; changed by amendment B, approved by Dennis 2026-10-10: `{ colour: false, text: true }`) | D75-1 subtree attributes; D75-2 B | FAIL (import: module missing); amendment B red: FAIL (received `{ colour: true, text: true }`) |
 | 7 | element-observer: given_unobserve_or_disconnect_when_mutated_afterwards_then_nothing_is_pending_and_both_are_idempotent | cleanup | FAIL (import: module missing) |
 | 8 | element-observer: given_data_liquid_id_or_data_liquid_stack_writes_when_drained_then_no_entry | attribute filter | FAIL (import: module missing) |
 | 9 | stylesheet: given_an_acquired_halo_rule_when_the_sheet_is_read_then_one_layered_screen_only_rule_keyed_by_a_document_unique_data_liquid_id_D75_3 | D75-3 rule text and scope | FAIL (halo exports missing) |
@@ -109,6 +109,19 @@ Red run (2026-10-10, W75.1): baseline measured before the tests was cargo 170 pa
 | 41 | webgpu-robust (webgpu-hw): W75 a11y – given Tab and Enter on Split under webgpu when ticking then the focus ring stays visible above the liquid at every 10th frame | focus ring under WebGPU | PASS at red |
 | 42 | runtime-text-true: given_liquid_text_on_under_webgpu_when_the_device_is_lost_then_liquid_text_goes_and_the_halo_applies_from_the_next_frame_under_canvas2d | halo after the WebGPU → Canvas2D switch | FAIL (no halo after the switch) |
 | 43 | runtime-text-true: given_the_halo_on_when_a_frame_throws_or_the_canvas2d_rebuild_after_a_lost_device_fails_then_this_instance_withdraws_every_halo | halo on the fail-safe paths | FAIL (no halo to withdraw) |
+| 44 | element-observer: given_the_observed_elements_own_class_or_style_change_alone_or_with_a_descendant_change_when_drained_then_colour_and_text_B2 | D75-2 B (own class/style only) | FAIL (descendant change + own liquiddom toggle gives colour: true) |
+| 45 | stylesheet: given_liquid_text_and_a_halo_held_by_another_instance_on_one_element_when_the_cascade_resolves_then_no_text_shadow_around_the_transparent_glyphs_M7 | ward-review M7 | FAIL (halo rule 0,2,0 beats `.liquid-text` 0,1,0: shadow wins) |
+| 46 | stylesheet: given_updateHaloRule_with_the_same_background_when_called_then_the_sheet_is_not_rewritten_B2 | D75-2 B (no rewrite when unchanged) | FAIL (one childList record on the style element) |
+| 47 | runtime-text-true: given_a_running_author_transition_when_an_own_class_change_arrives_then_no_re_read_and_no_inline_style_while_it_runs_and_exactly_one_re_read_the_frame_after_it_ends_B1 | D75-2 B (wait while getAnimations runs) | FAIL (refresh called on the first frame) |
+| 48 | runtime-text-true: given_a_running_animation_when_transitionend_for_color_arrives_then_the_re_read_also_waits_until_it_ends_B1 | D75-2 B (transitionend path waits too) | FAIL (refresh called while animating) |
+| 49 | runtime-text-true: given_a_descendant_class_change_when_the_next_frame_runs_then_no_colour_snapshot_and_exactly_one_text_invalidation_B2 | D75-2 B (descendant → atlas only) | FAIL (refresh called once) |
+| 50 | runtime-text-true: given_an_own_class_change_that_leaves_the_colours_unchanged_when_the_next_frame_runs_then_the_liquiddom_styles_sheet_is_not_rewritten_B2 | D75-2 B (halo rule rewritten only on a background change) | FAIL (sheet rewritten: 1 record) |
+| 51 | runtime-text-true: given_text_changes_on_consecutive_frames_before_the_staged_upload_is_confirmed_when_frames_run_then_one_build_and_upload_until_the_confirmation_then_exactly_one_more_and_liquid_text_returns_B3 | D75-1 B (one upload in flight) | FAIL (3 atlas builds before the confirmation, expected 1) |
+| 52 | runtime-text-true: given_unobserve_and_observe_of_the_same_element_when_the_next_frame_runs_then_its_paint_owner_token_is_renewed_M3 | ward-review M3 | FAIL (owner token 1 kept) |
+| 53 | runtime-text-true: given_a_detached_element_when_refresh_runs_manually_or_automatically_then_its_previous_colours_and_halo_rule_are_kept_and_re_read_after_re_attachment_M4 | ward-review M4 | FAIL (detached element re-read: paint [200, 30, 30, 1]; jsdom computes styles of detached elements, Chromium returns fallback colours) |
+| 54 | halo.spec (canvas2d): D75-2 B1 – given a 400 ms transform transition started by an own class change on #split when a runtime frame runs then the transition keeps running, and after it ends the liquid paints the new colour | D75-2 B in Chromium | FAIL (scale 0.5 at 150 ms: the transform jumped to its end) |
+
+Amendment B red run (2026-10-10, task B): vitest 609 passed | 11 failed | 4 skipped (624) in 61 files (+10 new tests; test 6 changed as approved, so 610 → 609 passing of the old set); canvas2d halo.spec 6 passed, 1 failed (test 54). `npm run e2e:typecheck` clean.
 
 ## Must NOT
 - Write an inline style on an observed element that outlives one synchronous snapshot (D66-3), or any per-frame DOM write besides class toggles on change.

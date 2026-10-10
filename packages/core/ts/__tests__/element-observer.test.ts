@@ -102,16 +102,37 @@ describe("W75: ElementObserver (D75-1)", () => {
     expect(obs.drain().size).toBe(0);
   });
 
-  it("given_a_descendant_class_or_style_change_when_drained_then_a_colour_entry_for_the_observed_element", async () => {
+  // W75 amendment B (approved by Dennis 2026-10-10): this test (#6) was
+  // "given_a_descendant_class_or_style_change_when_drained_then_a_colour_entry_for_the_observed_element"
+  // and expected { colour: true, text: true }. D75-2 amended B: a descendant's class/style cannot change
+  // the element's own background/colour, so it re-renders the atlas only (text dirty, no colour re-read).
+  it("given_a_descendant_class_or_style_change_when_drained_then_a_text_only_entry_for_the_observed_element_B2", async () => {
     const el = element();
     const span = el.appendChild(document.createElement("span"));
     obs.observe(el);
     span.className = "accent";
     await flush();
-    expect(obs.drain().get(el)).toEqual({ colour: true, text: true });
+    expect(obs.drain().get(el)).toEqual({ colour: false, text: true });
     span.style.color = "red";
     await flush();
+    expect(obs.drain().get(el)).toEqual({ colour: false, text: true });
+  });
+
+  it("given_the_observed_elements_own_class_or_style_change_alone_or_with_a_descendant_change_when_drained_then_colour_and_text_B2", async () => {
+    const el = element();
+    const span = el.appendChild(document.createElement("span"));
+    obs.observe(el);
+    el.style.setProperty("--tone", "1"); // own style
+    await flush();
     expect(obs.drain().get(el)).toEqual({ colour: true, text: true });
+    span.className = "accent"; // descendant class ...
+    el.classList.add("active"); // ... and own class in the same frame: the own change wins
+    await flush();
+    expect(obs.drain().get(el)).toEqual({ colour: true, text: true });
+    span.className = "accent2"; // descendant again, own class toggled by liquiddom only
+    el.classList.add(TEXT_CLASS);
+    await flush();
+    expect(obs.drain().get(el), "liquiddom's own class toggle never makes a descendant change a colour change").toEqual({ colour: false, text: true });
   });
 
   it("given_unobserve_or_disconnect_when_mutated_afterwards_then_nothing_is_pending_and_both_are_idempotent", async () => {

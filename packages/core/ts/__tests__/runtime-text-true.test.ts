@@ -473,3 +473,227 @@ describe("W75: the halo on W74's fail-safe paths (README Review Focus 1 for the 
     expect(other.classList.contains(HALO_CLASS), "a failed rebuild withdraws the halo").toBe(false);
   });
 });
+
+// ---- W75 amendment B (D75-1/D75-2 AMENDED 2026-10-10, saga dec_b2499bfc) and ward-review minors ----
+
+/** A stand-in for a running CSS transition as `el.getAnimations()` returns it (jsdom has no getAnimations). */
+function runningAnimation(): Animation {
+  return { playState: "running", pending: false } as unknown as Animation;
+}
+
+/** Stubs `el.getAnimations` on the instance; returns a switch for "an author transition is running". */
+function stubAnimations(el: HTMLElement): { set(running: boolean): void } {
+  let running = false;
+  Object.defineProperty(el, "getAnimations", {
+    configurable: true,
+    value: () => (running ? [runningAnimation()] : []),
+  });
+  return { set: (r) => { running = r; } };
+}
+
+describe("W75 amendment B: no colour re-read while the element animates (D75-2 B)", () => {
+  it("given_a_running_author_transition_when_an_own_class_change_arrives_then_no_re_read_and_no_inline_style_while_it_runs_and_exactly_one_re_read_the_frame_after_it_ends_B1", async () => {
+    authorStyles();
+    const { rt, clock } = await start();
+    const el = button();
+    const id = rt.observe(el);
+    await flush();
+    clock.advance(1);
+    const frames = captureFrames(FluidCanvas2DRenderer.prototype);
+    const anim = stubAnimations(el);
+    const refresh = vi.spyOn(ElementRegistry.prototype, "refresh");
+    const styleWrites = new MutationObserver(() => {});
+    styleWrites.observe(el, { attributes: true, attributeFilter: ["style"] });
+
+    anim.set(true); // e.g. `.alt { transform: scale(.95) }` with a transform transition, now running
+    el.classList.add("alt");
+    await flush();
+    for (let f = 0; f < 5; f++) {
+      clock.advance(1);
+      await flush();
+    }
+    expect(refresh, "D75-2 B: the re-read waits while el.getAnimations() has a running animation").not.toHaveBeenCalled();
+    expect(styleWrites.takeRecords(), "no inline `transition: none` ever touches the running transition").toHaveLength(0);
+    expect(el.getAttribute("style")).toBeNull();
+    expect(frames.at(-1)?.paints[id]?.background, "the liquid keeps the old colour meanwhile").toEqual([47, 111, 222, 1]);
+
+    anim.set(false); // the transition ended
+    clock.advance(1);
+    expect(refresh, "the frame after it ends re-reads once").toHaveBeenCalledTimes(1);
+    expect(frames.at(-1)?.paints[id]?.background).toEqual([200, 30, 30, 1]);
+    expect(frames.at(-1)?.paints[id]?.text).toEqual([255, 230, 0, 1]);
+    for (let f = 0; f < 3; f++) {
+      await flush();
+      clock.advance(1);
+    }
+    expect(refresh, "and only once").toHaveBeenCalledTimes(1);
+    styleWrites.disconnect();
+  });
+
+  it("given_a_running_animation_when_transitionend_for_color_arrives_then_the_re_read_also_waits_until_it_ends_B1", async () => {
+    authorStyles();
+    const { rt, clock } = await start();
+    const el = button();
+    rt.observe(el);
+    await flush();
+    clock.advance(1);
+    const anim = stubAnimations(el);
+    const refresh = vi.spyOn(ElementRegistry.prototype, "refresh");
+    anim.set(true); // a colour transition ended, but a transform transition still runs
+    el.dispatchEvent(transitionEnd("color"));
+    clock.advance(1);
+    clock.advance(1);
+    expect(refresh).not.toHaveBeenCalled();
+    anim.set(false);
+    clock.advance(1);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("W75 amendment B: only the element's own class/style re-reads colours (D75-2 B)", () => {
+  it("given_a_descendant_class_change_when_the_next_frame_runs_then_no_colour_snapshot_and_exactly_one_text_invalidation_B2", async () => {
+    authorStyles();
+    const { rt, clock } = await start();
+    const el = button();
+    const icon = el.appendChild(document.createElement("span"));
+    rt.observe(el);
+    await flush();
+    clock.advance(1);
+    const refresh = vi.spyOn(ElementRegistry.prototype, "refresh");
+    const before = rt.textInvalidations;
+    icon.className = "spin"; // a JS-animated icon, a progress bar's style.width, ...
+    icon.style.width = "40%";
+    await flush();
+    clock.advance(1);
+    expect(refresh, "a descendant cannot change the element's own background or colour").not.toHaveBeenCalled();
+    expect(rt.textInvalidations - before, "the atlas entry is re-rendered once").toBe(1);
+    clock.advance(1);
+    expect(rt.textInvalidations - before).toBe(1);
+  });
+
+  it("given_an_own_class_change_that_leaves_the_colours_unchanged_when_the_next_frame_runs_then_the_liquiddom_styles_sheet_is_not_rewritten_B2", async () => {
+    authorStyles();
+    const { rt, clock } = await start();
+    const el = button();
+    rt.observe(el);
+    await flush();
+    clock.advance(1);
+    const sheet = document.getElementById(STYLE_ELEMENT_ID);
+    expect(sheet).not.toBeNull();
+    const text = sheet!.textContent;
+    const writes = new MutationObserver(() => {});
+    writes.observe(sheet!, { childList: true, characterData: true, subtree: true });
+    const refresh = vi.spyOn(ElementRegistry.prototype, "refresh");
+    el.classList.add("is-busy"); // no rule changes its colours
+    await flush();
+    clock.advance(1);
+    expect(refresh, "an own class change is re-read").toHaveBeenCalledTimes(1);
+    expect(writes.takeRecords(), "D75-2 B: the halo rule is rewritten only when the background changed").toHaveLength(0);
+    expect(sheet!.textContent).toBe(text);
+
+    el.classList.add("alt"); // the background changes: now the rule is rewritten
+    await flush();
+    clock.advance(1);
+    expect(writes.takeRecords().length).toBeGreaterThan(0);
+    expect(sheet!.textContent).toContain("rgba(200, 30, 30, 1)");
+    writes.disconnect();
+  });
+});
+
+describe("W75 amendment B: at most one atlas upload in flight (D75-1 B)", () => {
+  it("given_text_changes_on_consecutive_frames_before_the_staged_upload_is_confirmed_when_frames_run_then_one_build_and_upload_until_the_confirmation_then_exactly_one_more_and_liquid_text_returns_B3", async () => {
+    authorStyles();
+    const moving = movingBackend();
+    const { rt, clock, atlas } = await start("webgpu", moving);
+    const frames = captureFrames(WebGPURenderer.prototype);
+    const el = button();
+    const id = rt.observe(el);
+    await flush();
+    clock.advance(1); // W74 review (I1): the first render uploads the atlas page ...
+    await flush(); // ... confirmed once its error scope resolves
+    moving.setRestAlpha(id, 0.4);
+    clock.advance(1);
+    expect(el.classList.contains(TEXT_CLASS)).toBe(true);
+    const built = atlas.canvases.length;
+    const uploads = gpu!.calls.externalCopies.length;
+    const version = frames.at(-1)?.textAtlas?.version ?? 0;
+
+    (el.firstChild as Text).data = "One";
+    clock.advance(1); // rebuild + staged upload; its error scope has not resolved yet
+    expect(atlas.canvases.length - built).toBe(1);
+    expect(gpu!.calls.externalCopies.length - uploads).toBe(1);
+    (el.firstChild as Text).data = "Two";
+    clock.advance(1); // no microtask in between: the staged page is still unconfirmed
+    (el.firstChild as Text).data = "Three";
+    clock.advance(1);
+    expect(atlas.canvases.length - built, "D75-1 B: a new rebuild waits while an upload is in flight").toBe(1);
+    expect(gpu!.calls.externalCopies.length - uploads, "one upload in flight").toBe(1);
+    expect(frames.at(-1)?.textAtlas?.version).toBe(version + 1);
+    expect(el.classList.contains(TEXT_CLASS), "the DOM text shows while the new text waits").toBe(false);
+
+    await flush(); // the staged upload is confirmed
+    clock.advance(1); // the waiting rebuild runs now, with the newest text
+    expect(atlas.canvases.length - built, "exactly one more build after the confirmation").toBe(2);
+    expect(gpu!.calls.externalCopies.length - uploads, "exactly one more upload").toBe(2);
+    expect(atlas.fills().map((f) => f.text)).toEqual(["Three"]);
+    expect(el.classList.contains(TEXT_CLASS), "the confirmed page is 'One', not the current text").toBe(false);
+    clock.advance(1);
+    expect(atlas.canvases.length - built, "nothing else is pending").toBe(2);
+
+    await flush(); // the second upload is confirmed
+    clock.advance(1);
+    expect(el.classList.contains(TEXT_CLASS), "liquid-text returns with the current text").toBe(true);
+    expect(atlas.canvases.length - built).toBe(2);
+    expect(gpu!.calls.externalCopies.length - uploads).toBe(2);
+  });
+});
+
+describe("W75 ward-review minors (M3, M4)", () => {
+  it("given_unobserve_and_observe_of_the_same_element_when_the_next_frame_runs_then_its_paint_owner_token_is_renewed_M3", async () => {
+    authorStyles();
+    const { rt, clock } = await start();
+    const frames = captureFrames(FluidCanvas2DRenderer.prototype);
+    const el = button();
+    const id = rt.observe(el);
+    await flush();
+    clock.advance(1);
+    const owner = frames.at(-1)?.paints[id]?.owner;
+    expect(owner).toBeDefined();
+    rt.unobserve(el);
+    const again = rt.observe(el); // same task: same slot, one redistribute
+    await flush();
+    clock.advance(1);
+    expect(again).toBe(id);
+    expect(frames.at(-1)?.paints[again]?.owner, "a confirmed page's record for the old observation must not match").not.toBe(owner);
+  });
+
+  it("given_a_detached_element_when_refresh_runs_manually_or_automatically_then_its_previous_colours_and_halo_rule_are_kept_and_re_read_after_re_attachment_M4", async () => {
+    authorStyles();
+    const { rt, clock } = await start();
+    const frames = captureFrames(FluidCanvas2DRenderer.prototype);
+    const el = button();
+    const id = rt.observe(el);
+    await flush();
+    clock.advance(1);
+    const key = el.getAttribute(HALO_ID_ATTR) ?? "";
+    const ruleOf = (): string =>
+      (document.getElementById(STYLE_ELEMENT_ID)?.textContent ?? "").split("\n").find((l) => l.includes(`"${key}"`)) ?? "";
+    expect(ruleOf()).toContain("rgba(47, 111, 222, 1)");
+
+    el.remove();
+    el.classList.add("alt"); // an automatic refresh is due ...
+    rt.refresh(el); // ... and a manual one
+    await flush();
+    clock.advance(1);
+    clock.advance(1);
+    expect(el.isConnected).toBe(false);
+    expect(frames.at(-1)?.paints[id]?.background, "no fallback colour for a detached element").toEqual([47, 111, 222, 1]);
+    expect(frames.at(-1)?.paints[id]?.text).toEqual([255, 255, 255, 1]);
+    expect(ruleOf(), "the halo rule keeps its colour").toContain("rgba(47, 111, 222, 1)");
+
+    document.body.appendChild(el); // re-attached: the pending re-read runs on the next frame
+    clock.advance(1);
+    expect(frames.at(-1)?.paints[id]?.background).toEqual([200, 30, 30, 1]);
+    expect(ruleOf()).toContain("rgba(200, 30, 30, 1)");
+  });
+});

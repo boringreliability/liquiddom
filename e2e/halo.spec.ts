@@ -161,3 +161,42 @@ test.describe("W75 – the Canvas2D halo and colour auto-refresh", () => {
     expect(rgbaDiffers(px, { r: 10, g: 10, b: 10, a: 255 }, 12), `pixel ${JSON.stringify(px)} ≈ rgb(10, 10, 10)`).toBe(false);
   });
 });
+
+test.describe("W75 amendment B – author transitions survive the colour re-read", () => {
+  test("D75-2 B1 – given a 400 ms transform transition started by an own class change on #split when a runtime frame runs then the transition keeps running, and after it ends the liquid paints the new colour", async ({ page }) => {
+    await openAtRest(page);
+    await page.addStyleTag({
+      content:
+        "#split { transition: transform 400ms linear !important; } #split.pressed { transform: scale(0.5); background: rgb(10, 120, 200); }",
+    });
+    // One task: the class change, a style flush (the transition starts), then one runtime frame,
+    // whose colour re-read used to write `transition: none !important` and cancel it.
+    await page.evaluate(() => {
+      const split = document.querySelector<HTMLElement>("#split")!;
+      split.classList.add("pressed");
+      void getComputedStyle(split).transform;
+      window.__liquidTest!.advance(1);
+    });
+    await page.waitForTimeout(150);
+    const mid = await page.locator("#split").evaluate((el) => ({
+      scale: new DOMMatrixReadOnly(getComputedStyle(el).transform).a,
+      running: el.getAnimations().length,
+      style: el.getAttribute("style"),
+    }));
+    expect(mid.scale, `scale ${mid.scale}: mid-transition, not jumped to its end`).toBeGreaterThan(0.5);
+    expect(mid.scale).toBeLessThan(1);
+    expect(mid.running, "the transform transition is still running").toBeGreaterThan(0);
+    expect(mid.style, "D66-3: no inline style").toBeNull();
+
+    await expect
+      .poll(() => page.locator("#split").evaluate((el) => el.getAnimations().length), { timeout: 2000 })
+      .toBe(0);
+    expect(await page.locator("#split").evaluate((el) => new DOMMatrixReadOnly(getComputedStyle(el).transform).a)).toBe(0.5);
+    // The frame after the transition ends re-reads the colours; the liquid then re-forms at the smaller rect.
+    await advance(page, IDLE_2S_FRAMES);
+    const box = await page.locator("#split").boundingBox();
+    if (!box) throw new Error("W75: #split has no box");
+    const px = await canvasPixelAt(page, box.x + box.width / 2, box.y + box.height / 2);
+    expect(rgbaDiffers(px, { r: 10, g: 120, b: 200, a: 255 }, 12), `pixel ${JSON.stringify(px)} ≈ rgb(10, 120, 200)`).toBe(false);
+  });
+});
