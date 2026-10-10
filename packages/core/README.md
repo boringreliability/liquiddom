@@ -45,7 +45,7 @@ Removed 0.2 options throw a `TypeError` that names the replacement.
 ```ts
 liquid.observe(el, { viscosity?, recovery? }); // returns the slot id
 liquid.unobserve(el);                            // restores the element exactly
-liquid.refresh(el);                              // re-read colours after a theme change
+liquid.refresh(el);                              // re-read colours after a change outside the element (e.g. a new stylesheet rule)
 liquid.pause(); liquid.resume(); liquid.destroy();
 liquid.autoDiscover(root?); liquid.stopAutoDiscover();
 await liquid.requestOrientationPermission();     // iOS, from a user gesture
@@ -95,7 +95,7 @@ The liquid follows the pointer's motion within 70 px; a resting pointer only dam
 
 ## Known limitations (alpha)
 
-- Colours are snapshotted at `observe()`. Call `refresh(el)` after changing them.
+- Colours are snapshotted at `observe()` and re-read automatically when the element's own `class`/`style` changes or a `color`/`background-color` transition on it ends. Call `refresh(el)` after a change elsewhere (a new stylesheet rule, an ancestor class).
 - Only uniform circular `border-radius` is honoured. Borders and box-shadows of observed elements are not drawn.
 - An observed element inside an ancestor with `transform`, `filter` or `overflow: hidden` can end up under other content.
 
