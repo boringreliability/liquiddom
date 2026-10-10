@@ -214,3 +214,5 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D75-1 | Per-element MutationObserver, atlas invalidate: AMENDED — a changed element is masked and drops liquid-text until the new page is confirmed (A); one atlas upload in flight (B) | W75 | dec_25b4cea6, dec_b2499bfc |
 | D75-2 | Colour auto-refresh: AMENDED (B) — own class/style only, deferred while the element animates; refresh(el) kept (was dec_86b58e7b) | W75 | dec_b2499bfc |
 | D75-3 | Canvas2D DOM-text halo (liquid-halo text-shadow rule per element) | W75 | dec_c537bf43 |
+| D76-1 | Whole picture after slice 4 in both renderers (W69 template, step 3b, live forced colours) | W76 | dec_7c523bfc |
+| D76-2 | One-screen landing page scene as a foreign test page (recorded, report section, canvas2d smoke) | W76 | dec_d2aca357 |
