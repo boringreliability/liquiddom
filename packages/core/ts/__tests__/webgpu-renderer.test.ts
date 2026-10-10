@@ -520,14 +520,17 @@ describe("W71: WebGPURenderer", () => {
     const f = gpu();
     const r = await ready();
     r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    expect(f.calls.passes, "W74 review: no text pass until the upload's error scope resolves").toHaveLength(2);
+    await flush();
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
     expect(f.calls.errors).toEqual([]);
     expect(f.calls.externalCopies).toHaveLength(1);
     const copy = f.calls.externalCopies[0]!;
     expect(copy.source).toBe(ATLAS.canvas);
     expect([copy.texture.label, copy.texture.format, copy.texture.width, copy.texture.height]).toEqual(["liquiddom atlas", "rgba8unorm", 320, 136]);
     expect([copy.width, copy.height, copy.premultipliedAlpha]).toEqual([320, 136, true]);
-    expect(f.calls.passes).toHaveLength(3);
-    const [splat, text, screen] = f.calls.passes;
+    expect(f.calls.passes).toHaveLength(5);
+    const [splat, text, screen] = f.calls.passes.slice(2);
     expect(splat!.draws.map((d) => [d.vertexCount, d.instanceCount])).toEqual([[6, CAP]]);
     expect(text!.attachments.map((a) => [a.view.texture.label, a.view.texture.format, a.view.texture.width, a.view.texture.height, a.loadOp])).toEqual([
       ["liquiddom T1", "rgba16float", 800, 600, "clear"],
@@ -570,18 +573,22 @@ describe("W71: WebGPURenderer", () => {
     const r = await ready();
     expect(r.textReady(0), "before the first frame").toBe(false);
     r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    await flush(); // W74 review: ready once the upload's error scope resolves
     expect([r.textReady(0), r.textReady(1), r.textReady(99), r.textReady(-1), r.textReady(0.5)]).toEqual([true, false, false, false, false]);
     r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 1 }));
     expect(r.textReady(0), "readiness does not depend on restAlpha (the toggle checks that)").toBe(true);
     r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: null, restAlpha: 0.5 }));
     expect(r.textReady(0), "no atlas").toBe(false);
     r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: { ...ATLAS, version: 5 }, restAlpha: 0.5 }));
+    expect(r.textReady(0), "a new version is pending").toBe(false);
+    await flush();
     expect(r.textReady(0)).toBe(true);
     f.loseDevice("gone");
     await flush();
     expect(r.textReady(0), "after a device loss").toBe(false);
     const r2 = await ready();
     r2.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    await flush();
     expect(r2.textReady(0)).toBe(true);
     r2.destroy();
     expect(r2.textReady(0), "after destroy").toBe(false);
@@ -610,20 +617,77 @@ describe("W71: WebGPURenderer", () => {
     const f = gpu(opts); // the fake reads opts.copyExternalError at call time
     const r = await ready();
     r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    await flush(); // W74 review: confirmed by the error scope
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
     expect(f.calls.externalCopies).toHaveLength(1);
     expect(r.textReady(0), "version 1 uploaded").toBe(true);
-    expect(f.calls.passes).toHaveLength(3);
+    expect(f.calls.passes).toHaveLength(5);
     opts.copyExternalError = new Error("detached source");
     r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: { ...ATLAS, version: 2 }, restAlpha: 0.5 }));
     expect(r.textReady(0), "the texture still holds version 1: not ready for version 2").toBe(false);
-    expect(f.calls.passes, "no text pass with the stale atlas").toHaveLength(5);
-    expect(f.calls.passes[4]!.draws.map((d) => [d.vertexCount, d.instanceCount]), "no text composite").toEqual([[3, 1], [6, 1]]);
+    expect(f.calls.passes, "no text pass with the stale atlas").toHaveLength(7);
+    expect(f.calls.passes[6]!.draws.map((d) => [d.vertexCount, d.instanceCount]), "no text composite").toEqual([[3, 1], [6, 1]]);
     expect(f.calls.errors).toEqual([]);
+  });
+
+  // W74 review
+  it("given_an_atlas_copy_that_raises_a_device_timeline_validation_error_when_rendering_then_textReady_stays_false_and_one_warn_review_focus_1", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const f = gpu({ copyExternalValidationError: "copyExternalImageToTexture: source is unusable (fake)" });
+      const r = await ready();
+      r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+      expect(f.calls.externalCopies).toHaveLength(1);
+      expect(r.textReady(0), "not ready before the error scope resolves").toBe(false);
+      await flush();
+      expect(r.textReady(0), "the scope reported an error: the version stays not ready").toBe(false);
+      r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+      expect(f.calls.externalCopies, "the same version is not retried").toHaveLength(1);
+      expect(r.textReady(0)).toBe(false);
+      expect(f.calls.passes.slice(-1)[0]!.draws.map((d) => [d.vertexCount, d.instanceCount]), "no text composite").toEqual([[3, 1], [6, 1]]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(error).not.toHaveBeenCalled();
+      expect(f.calls.errors).toEqual([]);
+    } finally {
+      warn.mockRestore();
+      error.mockRestore();
+    }
+  });
+
+  // W74 review
+  it("given_an_atlas_copy_without_a_validation_error_when_the_error_scope_resolves_then_textReady_turns_true_review_focus_1", async () => {
+    const f = gpu();
+    const r = await ready();
+    const before = f.calls.log.length;
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    expect(f.calls.log.slice(before), "the copy runs inside its own validation scope").toEqual(["pushErrorScope:validation", "popErrorScope"]);
+    expect(r.textReady(0), "pending until popErrorScope resolves").toBe(false);
+    await flush();
+    expect(r.textReady(0)).toBe(true);
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    expect(f.calls.passes.slice(-1)[0]!.draws.length, "text composite drawn once confirmed").toBe(3);
+    expect(f.calls.errors).toEqual([]);
+  });
+
+  // W74 review
+  it("given_version_1_pending_when_version_2_arrives_before_the_scope_resolves_then_only_version_2_becomes_ready_review_focus_1", async () => {
+    const f = gpu();
+    const r = await ready();
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: { ...ATLAS, version: 2 }, restAlpha: 0.5 }));
+    expect(f.calls.externalCopies).toHaveLength(2);
+    await flush();
+    expect(r.textReady(0)).toBe(true);
+    r.destroy();
+    expect(r.textReady(0)).toBe(false);
   });
 
   it("given_text_drawn_when_resized_then_T1_and_T1w_follow_the_backing_size_at_1x_clamped_to_the_device_limit", async () => {
     const f = gpu({ maxTextureDimension2D: 4096 });
     const r = await ready();
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    await flush(); // W74 review: the atlas is confirmed by its error scope
     r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
     expect(t1Textures(f).map((t) => `${t.label} ${t.width}x${t.height}`)).toEqual(["liquiddom T1 800x600", "liquiddom T1w 800x600"]);
     r.resize(1001, 703, 2);

@@ -34,6 +34,8 @@ export interface FakeGpuOptions {
   maxTextureDimension2D?: number;
   /** W74: thrown by `queue.copyExternalImageToTexture()` (a detached or unusable source). */
   copyExternalError?: Error;
+  /** W74 review: raised by `queue.copyExternalImageToTexture()` into the innermost open error scope (a device-timeline validation error: the call itself does not throw). */
+  copyExternalValidationError?: string;
 }
 
 export interface FakeBuffer {
@@ -254,6 +256,7 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
           size: number[] | GPUExtent3DDict,
         ) => {
           if (opts.copyExternalError) throw opts.copyExternalError;
+          if (opts.copyExternalValidationError) raise(opts.copyExternalValidationError);
           const [w, h] = Array.isArray(size) ? [size[0] ?? 0, size[1] ?? 1] : [size.width, size.height ?? 1];
           const t = dest.texture;
           const name = t.label ?? "";

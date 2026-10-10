@@ -81,6 +81,7 @@ async function observed(s: Setup, el: HTMLElement): Promise<number> {
   const id = s.rt.observe(el);
   await microtask();
   s.clock.advance(1);
+  await flush(); // W74 review: the atlas upload is ready once its error scope resolves
   return id;
 }
 
@@ -254,6 +255,7 @@ describe("W74 runtime: atlas and liquid-text (D74-5, D74-6)", () => {
     const ib = s.rt.observe(b);
     await microtask();
     s.clock.advance(1);
+    await flush(); // W74 review: atlas upload confirmed
     s.core.forceRestAlpha(ia, 0.4);
     s.core.forceRestAlpha(ib, 0.4);
     s.clock.advance(1);

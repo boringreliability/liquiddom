@@ -297,7 +297,10 @@ export class WebGPURenderer implements Renderer {
   private atlasWidth = 0;
   private atlasHeight = 0;
   private atlasVersion = Number.NaN;
+  /** True once the copy of `atlasVersion` is confirmed by its error scope (W74 review). */
   private atlasOk = false;
+  /** W74 review: bumped by every upload, drop and release, so a late error-scope result for an older upload is ignored. */
+  private atlasUploadSeq = 0;
   private t1: GPUTexture | null = null;
   private t1Weight: GPUTexture | null = null;
   private t1Width = 0;
@@ -669,14 +672,15 @@ export class WebGPURenderer implements Renderer {
       return false;
     }
     if (atlas.version !== this.atlasVersion) this.uploadAtlas(device, atlas);
-    const atlasView = this.atlasView;
-    if (!this.atlasOk || !atlasView) return false;
+    // Packed before the atlasOk check, so textReady() turns true as soon as the upload is confirmed.
     if (this.textInfoDirty || frame.paints !== this.textInfoPaints) {
       packTextInfo(frame, atlas, this.textInfoScratch, this.textOk);
       device.queue.writeBuffer(textInfoBuffer, 0, this.textInfoScratch);
       this.textInfoPaints = frame.paints;
       this.textInfoDirty = false;
     }
+    const atlasView = this.atlasView;
+    if (!this.atlasOk || !atlasView) return false;
     if (!hasMovingText(frame, this.textOk)) return false;
     this.allocateTextTargets();
     if (!this.textGroup) {
@@ -702,10 +706,17 @@ export class WebGPURenderer implements Renderer {
    * W74 (Review Focus 4): a page larger than maxTextureDimension2D, or a copy that throws (a
    * detached or unusable source), leaves no atlas: textReady stays false and the DOM text stays.
    * A same-size page reuses the texture.
+   *
+   * W74 review (Review Focus 1): a device-timeline validation error does not throw here, so the
+   * copy runs in its own validation scope and the version is marked ready only when
+   * `popErrorScope()` resolves without an error. Until then textReady stays false (no text pass,
+   * the DOM text stays); on an error the version stays not ready and one console.warn is logged
+   * (never console.error: a failed atlas is not a failed frame).
    */
   private uploadAtlas(device: GPUDevice, atlas: TextAtlasFrame): void {
     this.atlasVersion = atlas.version;
     this.atlasOk = false;
+    const seq = ++this.atlasUploadSeq;
     this.textInfoDirty = true;
     const { width: w, height: h } = atlas;
     const max = this.maxTextureDim;
@@ -725,12 +736,24 @@ export class WebGPURenderer implements Renderer {
       this.atlasWidth = w;
       this.atlasHeight = h;
     }
+    device.pushErrorScope("validation");
     try {
       device.queue.copyExternalImageToTexture({ source: atlas.canvas }, { texture: this.atlasTexture, premultipliedAlpha: true }, [w, h]);
-      this.atlasOk = true;
     } catch {
-      this.atlasOk = false; // Review Focus 1: no atlas text; the runtime keeps the DOM text
+      this.atlasUploadSeq += 1; // Review Focus 1: no atlas text; the runtime keeps the DOM text
     }
+    const confirm = (ok: boolean, why: string): void => {
+      if (seq !== this.atlasUploadSeq || this.device !== device) return; // superseded, dropped or destroyed
+      if (ok) {
+        this.atlasOk = true;
+        return;
+      }
+      console.warn(`liquiddom: text atlas upload failed (${why}); the DOM text stays`);
+    };
+    device.popErrorScope().then(
+      (err) => confirm(err === null, err?.message ?? ""),
+      (reason: unknown) => confirm(false, String(reason)),
+    );
   }
 
   /** W74: no atlas this frame (Canvas2D never gets here; WebGPU without OffscreenCanvas or after an atlas failure). */
@@ -738,6 +761,7 @@ export class WebGPURenderer implements Renderer {
     if (this.atlasTexture === null && !this.atlasOk) return;
     this.releaseAtlasTexture();
     this.atlasOk = false;
+    this.atlasUploadSeq += 1;
     this.atlasVersion = Number.NaN;
     this.textOk.fill(0);
   }
@@ -822,6 +846,7 @@ export class WebGPURenderer implements Renderer {
     this.atlasHeight = 0;
     this.atlasVersion = Number.NaN;
     this.atlasOk = false;
+    this.atlasUploadSeq += 1;
     this.t1 = null;
     this.t1Weight = null;
     this.t1Width = 0;
