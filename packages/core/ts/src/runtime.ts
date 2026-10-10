@@ -17,7 +17,7 @@ import type { ElementPaint, RenderFrame, Renderer, RenderViewport, TextAtlasFram
 import { ATLAS_MAX_SIZE_PX, TextAtlas, type AtlasCanvasFactory, type AtlasRect } from "./renderers/webgpu/text-atlas";
 import { clearTextClasses, releaseTextClass, syncTextClasses, type TextToggleArgs } from "./text-toggle";
 import { ElementObserver } from "./element-observer";
-import { clearHaloClasses, releaseHaloClass, syncHaloClasses } from "./halo-toggle";
+import { clearHaloClasses, releaseHaloClass, syncHaloClasses, type HaloSyncArgs } from "./halo-toggle";
 import { LoopController } from "./loop-control";
 import { PointerTracker } from "./pointer-tracker";
 import { acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas } from "./stylesheet";
@@ -370,15 +370,22 @@ function buildRuntime(
     transitionDirty.clear();
   };
   /** D75-3: after the render and W74's syncText(); reads only the state view. Runs while a device-lost rebuild is in flight too (activeRenderer is already "canvas2d"). */
+  // One args object and one restAlpha reader for the instance's life (W74 review M1's syncText pattern).
+  let haloStateView: Float32Array | null = null;
+  const haloArgs: { -readonly [K in keyof HaloSyncArgs]: HaloSyncArgs[K] } = {
+    entries: [],
+    restAlpha: (id) => haloStateView?.[id * STATE_STRIDE + St.REST_ALPHA] ?? Number.NaN,
+    activeRenderer,
+    reducedMotion: false, // set per call (declared further down)
+    held: haloHeld,
+  };
   const syncHalo = (): void => {
-    const sv = bridge.stateView();
-    syncHaloClasses({
-      entries: registry.entries(),
-      restAlpha: (id) => sv[id * STATE_STRIDE + St.REST_ALPHA] ?? Number.NaN,
-      activeRenderer,
-      reducedMotion,
-      held: haloHeld,
-    });
+    haloStateView = bridge.stateView();
+    haloArgs.entries = registry.entries();
+    haloArgs.activeRenderer = activeRenderer;
+    haloArgs.reducedMotion = reducedMotion;
+    syncHaloClasses(haloArgs);
+    haloStateView = null; // a fresh view every frame (WASM memory can grow)
   };
   // RF5: a DPR (zoom) change. The resolution query matches only the current DPR, so it is
   // re-armed for the new one on every change; resizeCanvas() decides whether the DPR changed.
@@ -798,8 +805,7 @@ function buildRuntime(
       const id = registry.idOf(el);
       if (id === undefined) return;
       registry.refresh(el);
-      paintsDirty = true;
-      invalidateText(id); // W75: the atlas colour follows
+      invalidateText(id); // W75: the atlas colour follows (and marks the paints dirty)
     },
     destroy() {
       if (destroyed) return;
