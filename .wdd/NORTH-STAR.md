@@ -204,3 +204,10 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D73-1 | Shake profile amplitude 0.8 → 0.5 (amends D70-1; W73 sweep) | W73 | dec_4772155d |
 | D73-2 | Shake stiffness cap 0.2 → 0.3, tension unchanged (amends D70-2) | W73 | dec_08c9b89c |
 | D73-3 | Blocking Canvas2D lace guard at f10/f20 (≤ 1.5 × measured, ≤ 50 % of today) | W73 | dec_81494c68 |
+| D74-1 | F update every substep (fallback every 2nd if p95 ratio > 1.2) | W74 | dec_020dbc51 |
+| D74-2 | Rest needs F ≈ I (max‖F−I‖ < 0.05) | W74 | dec_52b5d447 |
+| D74-3 | torn hysteresis (clear at σ ∈ [0.67, 1.5]) | W74 | dec_579f4895 |
+| D74-4 | Text pass: T1/T1w own pass at 1×, text after the SDF, T2 dropped | W74 | dec_a39f7e75 |
+| D74-5 | Text atlas (word-wise fillText, ≤ 4096², gutter 10 px) | W74 | dec_44a29006 |
+| D74-6 | liquid-text toggle with fail-safe (text-fill-color) | W74 | dec_8a76bea3 |
+| D74-7 | Splash ghost pill: damage() drops restAlpha to 0 at once | W74 | dec_f2bdd4d3 |
