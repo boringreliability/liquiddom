@@ -256,6 +256,7 @@ impl FluidCore {
                 let opts = SubstepOpts {
                     measure_dev: sub + 1 == SUBSTEPS,
                     reuse_bounds: step > 0 || sub > 0,
+                    f_dt: self.f_dt_for(sub, dt),
                 };
                 solver::substep_with(
                     &mut self.particles,
@@ -368,9 +369,10 @@ fn velocity_window_s(simulated_s: f32, wall_s: f64) -> f32 {
 }
 
 impl FluidCore {
-    /// Rest state of every slot from `scratch.max_dev`. With `measure`, maxDev is first
-    /// re-measured against the un-wobbled targets in `scratch.tgt_*` (reduced motion and
-    /// redistribute). Without it, it holds the G2P value of the last substep (D67-10).
+    /// Rest state of every slot from `scratch.max_dev` and (W74, D74-2) `scratch.max_fdev`.
+    /// With `measure`, both are first re-measured (against the un-wobbled targets in
+    /// `scratch.tgt_*` for maxDev): reduced motion and redistribute. Without it, they hold the
+    /// G2P values of the last substep (D67-10).
     fn refresh_rest_state(&mut self, reduced_motion: bool, dt: f32, measure: bool) {
         if measure {
             solver::measure_max_dev(
@@ -380,10 +382,30 @@ impl FluidCore {
                 &self.scratch.tgt_y,
                 &mut self.scratch.max_dev,
             );
+            solver::measure_max_f_dev(&self.particles, &mut self.scratch.max_fdev);
         }
         for id in 0..self.elements.cap {
             let dev = rd(&self.scratch.max_dev, id);
-            self.elements.update_rest_state(id, dev, dt, reduced_motion);
+            let fdev = rd(&self.scratch.max_fdev, id);
+            self.elements
+                .update_rest_state_with_f(id, dev, fdev, dt, reduced_motion);
+        }
+    }
+
+    /// D74-1: F is updated on every substep. Test builds can thin it to every n-th substep
+    /// (the `bench_f_update_cost` benchmark), with dt scaled so F integrates the same time.
+    #[cfg(not(test))]
+    #[inline]
+    fn f_dt_for(&self, _sub: u32, dt: f32) -> f32 {
+        dt
+    }
+
+    #[cfg(test)]
+    fn f_dt_for(&self, sub: u32, dt: f32) -> f32 {
+        match self.f_every {
+            0 => 0.0,
+            n if (sub + 1).is_multiple_of(n) => dt * n as f32,
+            _ => 0.0,
         }
     }
 }

@@ -20,11 +20,12 @@
 
 use super::access::{rd, rd_or, rd4, wr, wr4};
 use super::elements::Elements;
+use super::fmath::{f_dev, update_f};
 use super::grid::{Grid, cap_speed, norm_if_above};
 use super::interaction::{POINTER_RADIUS_PX, POINTER_VMAX_PX_S, pointer_accel_grid};
-use super::layout::{ST_REST_ALPHA, STATE_STRIDE};
+use super::layout::{FLAG_TORN, ST_REST_ALPHA, STATE_STRIDE};
 use super::material::{MaterialParams, map_viscosity};
-use super::particles::Particles;
+use super::particles::{IDENTITY, Particles};
 
 /// Home spring at full stiffness (1/s²), spike value.
 pub const SPRING_K: f32 = 220.0;
@@ -256,6 +257,8 @@ pub struct Scratch {
     pub tgt_y: Vec<f32>,
     /// Per element: max |x − target| in px.
     pub max_dev: Vec<f32>,
+    /// W74 (D74-2), per element: max ‖F − I‖_F (squared during G2P).
+    pub max_fdev: Vec<f32>,
     /// Perf round, per element: everything the particle loops need, built once per
     /// substep by `ElRow::build` (replaces W67's per-element `el_mu`).
     el: Vec<ElRow>,
@@ -280,6 +283,7 @@ impl Scratch {
             tgt_x: vec![f32::NAN; particles],
             tgt_y: vec![f32::NAN; particles],
             max_dev: vec![0.0; elements],
+            max_fdev: vec![0.0; elements],
             el: vec![ElRow::default(); elements],
             wob_key: vec![[f32::NAN; 2]; particles],
             wob_trig: vec![[0.0; 4]; particles],
@@ -311,6 +315,7 @@ impl Scratch {
             (self.tgt_x.capacity(), self.tgt_x.as_ptr() as usize),
             (self.tgt_y.capacity(), self.tgt_y.as_ptr() as usize),
             (self.max_dev.capacity(), self.max_dev.as_ptr() as usize),
+            (self.max_fdev.capacity(), self.max_fdev.as_ptr() as usize),
             (self.el.capacity(), self.el.as_ptr() as usize),
             (self.wob_key.capacity(), self.wob_key.as_ptr() as usize),
             (self.wob_trig.capacity(), self.wob_trig.as_ptr() as usize),
@@ -521,6 +526,9 @@ pub struct SubstepOpts {
     /// such path calls `Scratch::invalidate_bounds` (D68-10). The api sets it for every
     /// substep of a tick but the first.
     pub reuse_bounds: bool,
+    /// W74 (D74-1): dt for this substep's F update (`fmath::update_f`); 0 skips F. The api
+    /// passes the substep dt on every substep; the test-only benchmark thins it (`f_every`).
+    pub f_dt: f32,
 }
 
 /// One MLS-MPM substep over particles with a home. A particle whose home slot is
@@ -536,6 +544,7 @@ pub fn substep(
     let opts = SubstepOpts {
         measure_dev: true,
         reuse_bounds: false,
+        f_dt: inp.dt,
     };
     substep_with(p, g, e, m, inp, s, opts);
 }
@@ -574,8 +583,9 @@ pub fn substep_with(
         *row = ElRow::build(e, id, m, inv, inp.time_s);
     }
     if opts.measure_dev {
-        // Squared distances in cells² until the end of G2P (one sqrt per element).
+        // Squared distances in cells² (and W74's ‖F − I‖²) until the end of G2P (one sqrt per element).
         s.max_dev.fill(0.0);
+        s.max_fdev.fill(0.0);
     }
     let sound = SOUND_SPEED_PX_S * inv;
     let bulk = sound * sound;
@@ -691,6 +701,37 @@ pub fn substep_with(
         wr(&mut p.vy, i, vy);
         wr4(&mut p.c, i, c);
         wr(&mut p.j, i, nj);
+        if opts.f_dt > 0.0 {
+            // W74 (D74-1, D74-3): the render-only F (never in the stress), slipping towards I with
+            // the element's stiffness like the positions do; `torn` is sticky.
+            let stiff = s.el.get(h).map_or(1.0, |r| r.stiff);
+            let flags = p.flags.get(i).copied().unwrap_or(0);
+            let (nf, torn) = update_f(
+                rd4(&p.f, i, IDENTITY),
+                c,
+                opts.f_dt,
+                stiff,
+                flags & FLAG_TORN != 0,
+            );
+            wr4(&mut p.f, i, nf);
+            if let Some(slot) = p.flags.get_mut(i) {
+                *slot = if torn {
+                    flags | FLAG_TORN
+                } else {
+                    flags & !FLAG_TORN
+                };
+            }
+        }
+        if opts.measure_dev {
+            // W74 (D74-2): ‖F − I‖² per element, measured with maxDev on the last substep.
+            let [f00, f01, f10, f11] = rd4(&p.f, i, IDENTITY);
+            let fd2 = (f00 - 1.0) * (f00 - 1.0) + f01 * f01 + f10 * f10 + (f11 - 1.0) * (f11 - 1.0);
+            if let Some(m) = s.max_fdev.get_mut(h)
+                && fd2 > *m
+            {
+                *m = fd2;
+            }
+        }
         grow_bounds(&mut next_bounds, nx, ny);
         if opts.measure_dev && has_target {
             let (dx, dy) = (nx - tx, ny - ty);
@@ -705,6 +746,9 @@ pub fn substep_with(
     if opts.measure_dev {
         for md in s.max_dev.iter_mut() {
             *md = md.sqrt() * g.cell_px;
+        }
+        for fd in s.max_fdev.iter_mut() {
+            *fd = fd.sqrt();
         }
     }
     s.bounds = next_bounds;
@@ -740,6 +784,23 @@ pub fn measure_max_dev(p: &Particles, g: &Grid, tgt_x: &[f32], tgt_y: &[f32], ou
             continue;
         }
         let d = (rd(&p.x, i) - tx).hypot(rd(&p.y, i) - ty) * g.cell_px;
+        if let Some(m) = out.get_mut(h)
+            && d > *m
+        {
+            *m = d;
+        }
+    }
+}
+
+/// W74 (D74-2): per element, max ‖F − I‖_F over its particles, for the paths that re-measure
+/// outside a substep (reduced motion and redistribute, like `measure_max_dev`).
+pub fn measure_max_f_dev(p: &Particles, out: &mut [f32]) {
+    out.fill(0.0);
+    for i in 0..p.cap {
+        let Some(h) = p.home_of(i) else {
+            continue;
+        };
+        let d = f_dev(rd4(&p.f, i, IDENTITY));
         if let Some(m) = out.get_mut(h)
             && d > *m
         {
@@ -1141,6 +1202,7 @@ mod w67_tests {
                 let opts = SubstepOpts {
                     measure_dev: sub == 7,
                     reuse_bounds: step > 0 || sub > 0,
+                    f_dt: DT,
                 };
                 substep_with(&mut b.p, &mut b.g, &b.e, &b.m, &inp, &mut b.s, opts);
             }
@@ -1199,6 +1261,7 @@ mod w67_tests {
         let fresh = SubstepOpts {
             measure_dev: true,
             reuse_bounds: false,
+            f_dt: DT,
         };
         substep_with(&mut b.p, &mut b.g, &b.e, &b.m, &first, &mut b.s, fresh);
         assert!(b.s.bounds_valid, "precondition: G2P left a fused AABB");
@@ -1218,6 +1281,7 @@ mod w67_tests {
         let reuse = SubstepOpts {
             measure_dev: true,
             reuse_bounds: true,
+            f_dt: DT,
         };
         substep_with(&mut b.p, &mut b.g, &b.e, &b.m, &second, &mut b.s, reuse);
         assert_eq!(
@@ -1255,6 +1319,7 @@ mod w67_tests {
                 let opts = SubstepOpts {
                     measure_dev: sub == 7,
                     reuse_bounds: step > 0 || sub > 0,
+                    f_dt: DT,
                 };
                 substep_with(&mut b.p, &mut b.g, &b.e, &b.m, &inp, &mut b.s, opts);
                 let still = w68_input(k, PointerField::default(), &off.g);
@@ -1382,6 +1447,7 @@ mod w67_tests {
                     let opts = SubstepOpts {
                         measure_dev: sub == 7,
                         reuse_bounds: step > 0 || sub > 0,
+                        f_dt: DT,
                     };
                     let inp = StepInput {
                         dt: DT,
@@ -1430,6 +1496,7 @@ mod w67_tests {
                     let opts = SubstepOpts {
                         measure_dev: sub == 7,
                         reuse_bounds: step > 0 || sub > 0,
+                        f_dt: DT,
                     };
                     let inp = StepInput {
                         dt: DT,

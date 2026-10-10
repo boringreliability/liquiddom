@@ -2,6 +2,7 @@
 //! the Rust-written state view (item 4). Element id == slot index.
 
 use super::access::{finite_or, positive, rd, rd_or, wr};
+use super::fmath::F_REST_TOL;
 use super::layout::{
     EL_H, EL_HOME_DX, EL_HOME_DY, EL_INTERACTION, EL_RADIUS, EL_RECOVERY, EL_VISCOSITY, EL_W, EL_X,
     EL_Y, ELEMENT_STRIDE, HOVER_SWELL, INTERACTION_HOVER, ST_MAX_DEV, ST_MAX_F_DEV, ST_REST_ALPHA,
@@ -220,8 +221,10 @@ impl Elements {
         wr(&mut self.state, base + ST_MAX_F_DEV, 0.0);
     }
 
-    /// `s ← max(min(s, cap), S_FLOOR)` (spec §2 stiffness damage). Restarts the rest
-    /// hold and writes s to the state view. A NaN/±inf cap or an out-of-range id is a no-op.
+    /// `s ← max(min(s, cap), S_FLOOR)` (spec §2 stiffness damage). Restarts the rest hold,
+    /// writes s to the state view and (W74, D74-7) drops restAlpha to 0 at once: a splash or
+    /// shake empties the rect within a few frames, so the rest contour must not fade out over
+    /// the hole (the "ghost pill"). A NaN/±inf cap or an out-of-range id is a no-op.
     pub fn damage(&mut self, id: usize, cap: f32) {
         if !cap.is_finite() || id >= self.cap {
             return;
@@ -230,6 +233,7 @@ impl Elements {
         wr(&mut self.stiffness, id, s);
         wr(&mut self.rest_hold_s, id, 0.0);
         wr(&mut self.state, id * STATE_STRIDE + ST_S, s);
+        wr(&mut self.state, id * STATE_STRIDE + ST_REST_ALPHA, 0.0);
     }
 
     /// W67: exact integration of ds/dt = (1 − s)/recovery over `dt` for every active
@@ -252,11 +256,25 @@ impl Elements {
         }
     }
 
-    /// W67 rest state with hysteresis (spec §2). restAlpha rises (fade REST_FADE_S) only
-    /// once `s > REST_S_MIN && maxDev < REST_MAX_DEV_PX` has held for REST_HOLD_S, and
-    /// falls at once (same fade) when either breaks. Reduced motion: at rest
-    /// (stiffness 1, restAlpha 1, maxDev 0). Inactive slot: reset. Writes s, maxDev and restAlpha.
+    /// The W67 rest state without the F condition (`max_f_dev` = 0). Kept for the W67 tests;
+    /// the api calls `update_rest_state_with_f` (W74, D74-2).
     pub fn update_rest_state(&mut self, id: usize, max_dev: f32, dt: f32, reduced_motion: bool) {
+        self.update_rest_state_with_f(id, max_dev, 0.0, dt, reduced_motion);
+    }
+
+    /// W67 rest state with hysteresis (spec §2), W74 (D74-2): restAlpha rises (fade REST_FADE_S)
+    /// only once `s > REST_S_MIN ∧ maxDev < REST_MAX_DEV_PX ∧ maxFDev < F_REST_TOL` has held for
+    /// REST_HOLD_S, and falls at once (same fade) when any breaks. Reduced motion: at rest
+    /// (stiffness 1, restAlpha 1, maxDev 0, maxFDev 0). Inactive slot: reset. Writes s, maxDev,
+    /// restAlpha and maxFDev (slot 3; a non-finite maxFDev is written as f32::MAX).
+    pub fn update_rest_state_with_f(
+        &mut self,
+        id: usize,
+        max_dev: f32,
+        max_f_dev: f32,
+        dt: f32,
+        reduced_motion: bool,
+    ) {
         if id >= self.cap {
             return;
         }
@@ -282,8 +300,9 @@ impl Elements {
         }
         let s = rd_or(&self.stiffness, id, 1.0);
         let dev = finite_or(max_dev, f32::MAX).max(0.0);
+        let fdev = finite_or(max_f_dev, f32::MAX).max(0.0);
         let dt = if dt.is_finite() { dt.max(0.0) } else { 0.0 };
-        let holds = s > REST_S_MIN && dev < REST_MAX_DEV_PX;
+        let holds = s > REST_S_MIN && dev < REST_MAX_DEV_PX && fdev < F_REST_TOL;
         let hold = if holds {
             (rd(&self.rest_hold_s, id) + dt).min(REST_HOLD_S)
         } else {
@@ -302,26 +321,14 @@ impl Elements {
         wr(&mut self.state, base + ST_S, s);
         wr(&mut self.state, base + ST_MAX_DEV, dev);
         wr(&mut self.state, base + ST_REST_ALPHA, alpha);
-        wr(&mut self.state, base + ST_MAX_F_DEV, 0.0);
+        wr(&mut self.state, base + ST_MAX_F_DEV, fdev);
     }
 
-    /// W74 (D74-2): `update_rest_state` with the third rest condition, max ‖F − I‖ < F_REST_TOL.
-    /// W74.1 (red) stub: ignores `max_f_dev`; W74.3 implements it.
-    pub fn update_rest_state_with_f(
-        &mut self,
-        id: usize,
-        max_dev: f32,
-        _max_f_dev: f32,
-        dt: f32,
-        reduced_motion: bool,
-    ) {
-        self.update_rest_state(id, max_dev, dt, reduced_motion);
-    }
-
-    /// W67 (D67-12): an active element that is stiff (`s > REST_S_MIN`) and whose
-    /// particles already sit on target (state maxDev < REST_MAX_DEV_PX) is at rest
-    /// immediately: full hold, restAlpha 1. `FluidCore::redistribute` calls this after
-    /// refreshing the state, so freshly placed elements neither fade in nor wobble.
+    /// W67 (D67-12), W74 (D74-2): an active element that is stiff (`s > REST_S_MIN`), whose
+    /// particles already sit on target (state maxDev < REST_MAX_DEV_PX) and whose F is at rest
+    /// (state maxFDev < F_REST_TOL) is at rest immediately: full hold, restAlpha 1.
+    /// `FluidCore::redistribute` calls this after refreshing the state, so freshly placed
+    /// elements neither fade in nor wobble.
     pub fn settle_if_at_rest(&mut self, id: usize) {
         if !self.is_active(id) {
             return;
@@ -329,7 +336,8 @@ impl Elements {
         let base = id * STATE_STRIDE;
         let s = rd_or(&self.stiffness, id, 1.0);
         let dev = rd_or(&self.state, base + ST_MAX_DEV, f32::MAX);
-        if s > REST_S_MIN && dev < REST_MAX_DEV_PX {
+        let fdev = rd_or(&self.state, base + ST_MAX_F_DEV, f32::MAX);
+        if s > REST_S_MIN && dev < REST_MAX_DEV_PX && fdev < F_REST_TOL {
             wr(&mut self.rest_hold_s, id, REST_HOLD_S);
             wr(&mut self.state, base + ST_REST_ALPHA, 1.0);
         }
