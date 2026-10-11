@@ -707,7 +707,7 @@ function buildRuntime(
     } catch (err) {
       failed = true;
       clearTextClasses(textHeld); // W74: a stopped instance never leaves text hidden
-      dragTracker.cancel(); // W78: a stopped instance drags nothing
+      dragTracker.destroy(); // W78: a stopped instance takes no more drags
       loop.destroy();
       clearHaloClasses(haloHeld); // W75: a stopped instance leaves no halo behind
       console.error("[liquiddom] frame failed; the instance stopped. Call destroy() and create a new instance.", err);
@@ -736,6 +736,7 @@ function buildRuntime(
     clearHaloClasses(haloHeld); // W75: the halo may already apply while the Canvas2D rebuild was in flight
     if (destroyed || failed) return;
     failed = true;
+    dragTracker.destroy(); // W78: a stopped instance takes no more drags
     loop.destroy();
     console.error(
       "[liquiddom] the Canvas2D rebuild after a lost WebGPU device failed; the instance stopped. Call destroy() and create a new instance.",

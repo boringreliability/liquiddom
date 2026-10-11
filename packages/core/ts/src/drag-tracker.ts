@@ -53,6 +53,7 @@ export class DragTracker {
   private press: Press | null = null;
   private swallowEl: HTMLElement | null = null;
   private swallowTimer: ReturnType<typeof setTimeout> | null = null;
+  private cancelledPointerId = -1;
   private destroyed = false;
 
   constructor(
@@ -79,7 +80,10 @@ export class DragTracker {
     if (this.swallowEl === el) this.clearSwallow();
   }
 
-  /** The drag past the threshold, or null (a press below it is not a drag). Read it within the frame. */
+  /**
+   * The drag past the threshold, or null (a press below it is not a drag). Read it within the frame.
+   * Returns the live Press (no per-frame allocation): callers must treat it as read-only.
+   */
   get active(): ActiveDrag | null {
     const p = this.press;
     return p !== null && p.dragging ? p : null;
@@ -122,6 +126,7 @@ export class DragTracker {
     if (p === null || e.pointerId !== p.pointerId) return;
     if ((e.buttons & 1) === 0) {
       this.end("cancel"); // the release went elsewhere (design resolution 6)
+      if (this.swallowEl !== null) this.scheduleClear(); // the release already happened: no click follows
       return;
     }
     const dx = e.clientX - p.x0;
@@ -176,8 +181,13 @@ export class DragTracker {
     this.clearSwallow();
   };
 
-  private readonly onUpAfterCancel = (): void => {
-    this.scheduleClear();
+  private readonly onUpAfterCancel = (e: PointerEvent): void => {
+    if (e.pointerId === this.cancelledPointerId) this.scheduleClear();
+  };
+
+  /** A new press or any key means the swallow's gesture is over. */
+  private readonly onStale = (): void => {
+    this.clearSwallow();
   };
 
   /** Document and window listeners exist only while a press is live. */
@@ -214,6 +224,7 @@ export class DragTracker {
       this.scheduleClear(); // the click follows this pointerup in the same task
     } else {
       // The press goes on without us: the swallow lasts until its pointerup (or the next press).
+      this.cancelledPointerId = p.pointerId;
       this.doc.addEventListener("pointerup", this.onUpAfterCancel, true);
       if (typeof p.el.hasPointerCapture === "function" && p.el.hasPointerCapture(p.pointerId)) {
         try {
@@ -230,6 +241,8 @@ export class DragTracker {
     this.clearSwallow();
     this.swallowEl = el;
     this.win.addEventListener("click", this.onClickCapture, true);
+    this.win.addEventListener("pointerdown", this.onStale, true);
+    this.win.addEventListener("keydown", this.onStale, true);
   }
 
   private scheduleClear(): void {
@@ -248,6 +261,8 @@ export class DragTracker {
     if (this.swallowEl === null) return;
     this.swallowEl = null;
     this.win.removeEventListener("click", this.onClickCapture, true);
+    this.win.removeEventListener("pointerdown", this.onStale, true);
+    this.win.removeEventListener("keydown", this.onStale, true);
     this.doc.removeEventListener("pointerup", this.onUpAfterCancel, true);
   }
 }
