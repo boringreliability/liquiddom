@@ -14,9 +14,10 @@
  *
  * Changes are only recorded in the callback; the runtime drains them once per frame (coalescing).
  */
-import { ELEMENT_CLASS, HALO_CLASS, TEXT_CLASS } from "./stylesheet";
+import { AWAY_CLASS, ELEMENT_CLASS, HALO_CLASS, TEXT_CLASS } from "./stylesheet";
 
-export const OWN_CLASSES: ReadonlySet<string> = new Set([ELEMENT_CLASS, TEXT_CLASS, HALO_CLASS]);
+// W78 (D78-1): liquid-away is liquiddom's own too (no colour re-read or atlas re-render on a drag).
+export const OWN_CLASSES: ReadonlySet<string> = new Set([ELEMENT_CLASS, TEXT_CLASS, HALO_CLASS, AWAY_CLASS]);
 
 export const OBSERVER_INIT: MutationObserverInit = Object.freeze({
   childList: true,

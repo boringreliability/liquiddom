@@ -20,6 +20,8 @@ export interface HaloSyncArgs {
   readonly reducedMotion: boolean;
   /** This instance's halo holds (one per element; refcounted across instances in stylesheet.ts). */
   readonly held: Set<HTMLElement>;
+  /** W78 (D78-1): elements whose glyphs `liquid-away` hides; they get no halo. */
+  readonly suppressed?: ReadonlySet<HTMLElement>;
 }
 
 /** NaN (unknown) counts as not moving. */
@@ -34,7 +36,7 @@ export function syncHaloClasses(a: HaloSyncArgs): void {
   seen.clear();
   for (const { id, el } of a.entries) {
     seen.add(el);
-    const want = wantsHalo(a.activeRenderer, a.reducedMotion, a.restAlpha(id));
+    const want = a.suppressed?.has(el) !== true && wantsHalo(a.activeRenderer, a.reducedMotion, a.restAlpha(id));
     if (want && !a.held.has(el)) {
       a.held.add(el);
       addHaloClass(el);

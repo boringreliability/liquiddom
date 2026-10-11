@@ -9,6 +9,7 @@
  * the UA default, not the author background. Print and forced colours hide
  * the canvas.
  * W74 (D74-6): the text rule hides the glyphs of the element and its descendants with -webkit-text-fill-color, so `color` (read by the atlas, used by currentColor icons) is untouched.
+ * W78 (D78-1): `liquid-away` hides a dragged element's glyphs under Canvas2D with the same declarations; screen + forced-colors: none only.
  * W75 (D75-3): the sheet also holds one halo rule per observed element (`liquid-halo` + `data-liquid-id`), rewritten when an element is observed, re-coloured or unobserved; never per frame.
  */
 import type { RGBA } from "./color";
@@ -24,6 +25,8 @@ export const HALO_CLASS = "liquid-halo";
 export const HALO_ID_ATTR = "data-liquid-id";
 /** W75 (D75-3): blur radii of the halo's text-shadow layers, in px. */
 export const HALO_BLUR_PX: readonly number[] = Object.freeze([1, 2, 4, 8]);
+/** W78 (D78-1): the Canvas2D drag label class: the runtime hides a dragged element's DOM glyphs while its liquid is away. */
+export const AWAY_CLASS = "liquid-away";
 export type StackMode = "relative" | "z";
 
 export const LIQUID_CSS = [
@@ -36,6 +39,10 @@ export const LIQUID_CSS = [
   // Ward-review M7: a halo held by a Canvas2D instance (`.liquid-halo[data-liquid-id="…"]`, 0,2,0)
   // must never draw around glyphs a WebGPU instance hides; this override (0,3,0) wins over it.
   `    .${TEXT_CLASS}.${HALO_CLASS}[${HALO_ID_ATTR}], .${TEXT_CLASS} .${HALO_CLASS}[${HALO_ID_ATTR}] { text-shadow: none !important; }`,
+  // W78 (D78-1): the Canvas2D drag label, the liquid-text declarations under their own class (Canvas2D never sets liquid-text, D74-6).
+  `    .${AWAY_CLASS}, .${AWAY_CLASS} * { -webkit-text-fill-color: transparent !important; text-decoration-color: transparent !important; text-shadow: none !important; }`,
+  // A halo held by another Canvas2D instance (0,2,0) never draws around glyphs liquid-away hides (M7's pattern).
+  `    .${AWAY_CLASS}.${HALO_CLASS}[${HALO_ID_ATTR}], .${AWAY_CLASS} .${HALO_CLASS}[${HALO_ID_ATTR}] { text-shadow: none !important; }`,
   "  }",
   "  @media print, (forced-colors: active) {",
   "    canvas.liquid-canvas { display: none !important; }",
@@ -264,8 +271,8 @@ export function undecorateElement(el: HTMLElement): void {
 }
 
 /**
- * W74 (D74-6) / W75 (D75-3): the classes the runtime toggles per frame (`liquid-text`,
- * `liquid-halo`) are held per element across ALL instances, like decorations: the class stays
+ * W74 (D74-6) / W75 (D75-3) / W78 (D78-1): the classes the runtime toggles per frame (`liquid-text`,
+ * `liquid-halo`, `liquid-away`) are held per element across ALL instances, like decorations: the class stays
  * while any instance holds it, and the last release restores what the first hold found (an
  * author's own class is never removed). Each instance keeps its own `held` set (text-toggle.ts,
  * halo-toggle.ts), so one instance holds an element at most once.
@@ -295,6 +302,7 @@ function classHolds(cls: string): { add(el: HTMLElement): void; remove(el: HTMLE
 
 const textHolds = classHolds(TEXT_CLASS);
 const haloHolds = classHolds(HALO_CLASS);
+const awayHolds = classHolds(AWAY_CLASS);
 
 export function addTextClass(el: HTMLElement): void {
   textHolds.add(el);
@@ -312,4 +320,13 @@ export function addHaloClass(el: HTMLElement): void {
 /** Releases one add; an unbalanced release is a no-op. */
 export function removeHaloClass(el: HTMLElement): void {
   haloHolds.remove(el);
+}
+
+export function addAwayClass(el: HTMLElement): void {
+  awayHolds.add(el);
+}
+
+/** Releases one add; an unbalanced release is a no-op. */
+export function removeAwayClass(el: HTMLElement): void {
+  awayHolds.remove(el);
 }

@@ -17,6 +17,7 @@ import type { ElementPaint, RenderFrame, Renderer, RenderViewport, TextAtlasFram
 import { ATLAS_MAX_SIZE_PX, TextAtlas, type AtlasCanvasFactory, type AtlasRect } from "./renderers/webgpu/text-atlas";
 import { clearTextClasses, releaseTextClass, syncTextClasses, type TextToggleArgs } from "./text-toggle";
 import { ElementObserver } from "./element-observer";
+import { clearAwayClasses, releaseAwayClass, syncAwayClasses, type AwaySyncArgs } from "./away-toggle";
 import { clearHaloClasses, releaseHaloClass, syncHaloClasses, type HaloSyncArgs } from "./halo-toggle";
 import { LoopController } from "./loop-control";
 import { PointerTracker } from "./pointer-tracker";
@@ -373,6 +374,8 @@ function buildRuntime(
   let textInvalidations = 0;
   /** D75-3: this instance's halo holds (W74's `textHeld` pattern; refcounted across instances in stylesheet.ts). */
   const haloHeld = new Set<HTMLElement>();
+  /** W78 (D78-1): this instance's liquid-away holds (refcounted across instances in stylesheet.ts). */
+  const awayHeld = new Set<HTMLElement>();
 
   const onTransitionEnd = (e: Event): void => {
     const el = e.currentTarget as HTMLElement | null;
@@ -423,6 +426,7 @@ function buildRuntime(
     activeRenderer,
     reducedMotion: false, // set per call (declared further down)
     held: haloHeld,
+    suppressed: awayHeld, // W78 (D78-1): no halo around hidden glyphs
   };
   const syncHalo = (): void => {
     haloStateView = bridge.stateView();
@@ -431,6 +435,25 @@ function buildRuntime(
     haloArgs.reducedMotion = reducedMotion;
     syncHaloClasses(haloArgs);
     haloStateView = null; // a fresh view every frame (WASM memory can grow)
+  };
+  /** W78 (D78-1): after syncText(), before syncHalo() (a held element gets no halo). Reads the state view and the drag. */
+  let awayStateView: Float32Array | null = null;
+  const awayArgs: { -readonly [K in keyof AwaySyncArgs]: AwaySyncArgs[K] } = {
+    entries: [],
+    restAlpha: (id) => awayStateView?.[id * STATE_STRIDE + St.REST_ALPHA] ?? Number.NaN,
+    dragged: null,
+    activeRenderer,
+    reducedMotion: false, // set per call
+    held: awayHeld,
+  };
+  const syncAway = (): void => {
+    awayStateView = bridge.stateView();
+    awayArgs.entries = registry.entries();
+    awayArgs.dragged = dragTracker.active?.el ?? null; // `dragTracker` is declared below; only called from frameBody
+    awayArgs.activeRenderer = activeRenderer;
+    awayArgs.reducedMotion = reducedMotion;
+    syncAwayClasses(awayArgs);
+    awayStateView = null; // a fresh view every frame (WASM memory can grow)
   };
   // RF5: a DPR (zoom) change. The resolution query matches only the current DPR, so it is
   // re-armed for the new one on every change; resizeCanvas() decides whether the DPR changed.
@@ -485,6 +508,7 @@ function buildRuntime(
       dragTracker.cancel(); // W78: reduced motion ignores drag (spec §2)
       clearTextClasses(textHeld);
       clearHaloClasses(haloHeld); // W75 (D75-3): the halo goes at once as well
+      clearAwayClasses(awayHeld); // W78: the drag label goes at once as well
     }
   };
   mql?.addEventListener("change", onMotionChange);
@@ -496,7 +520,17 @@ function buildRuntime(
   const pointerDoc = container?.ownerDocument ?? document;
   const detachPointer = pointer.attach(pointerDoc, pointerDoc.defaultView ?? window);
   // W78 (D78-2, D78-6): the drag gesture on observed elements, on the pointer field's document and window.
-  const dragTracker = new DragTracker({ reducedMotion: () => reducedMotion }, pointerDoc, pointerDoc.defaultView ?? window);
+  // D78-1: a cancel shows the DOM label at once; a release keeps it hidden until the liquid is at rest.
+  const dragTracker = new DragTracker(
+    {
+      reducedMotion: () => reducedMotion,
+      onEnd: (el, how) => {
+        if (how === "cancel") releaseAwayClass(awayHeld, el);
+      },
+    },
+    pointerDoc,
+    pointerDoc.defaultView ?? window,
+  );
   // W75 (RF5): a web font that finishes after observe re-renders every atlas entry once (next frame).
   const fontSet = (pointerDoc as Document & { fonts?: EventTarget }).fonts ?? null;
   const onFontsDone = (): void => {
@@ -690,6 +724,7 @@ function buildRuntime(
       // W72 (D72-3): null only while a device-lost rebuild is in flight; the core keeps ticking.
       if (renderer !== null) renderer.render(buildFrame());
       syncText(); // W74 (D74-6)
+      syncAway(); // W78 (D78-1)
       syncHalo(); // W75 (D75-3)
     } finally {
       inFrame = false;
@@ -700,6 +735,15 @@ function buildRuntime(
   // after which the core's borrow is poisoned) stops the instance for good: one
   // console.error, the loop is destroyed so pause/resume/visibility cannot re-arm
   // it, and destroy() keeps working. Recovery is destroy() + create().
+  // W78.4: a stopped instance must not leave DRAGGED in the element buffer. The tracker has no active press any more, so one sync rewrites slots 5-7 as not dragged. Best effort: the frame already failed and reports exactly one console.error.
+  const resyncStopped = (): void => {
+    try {
+      registry.sync();
+    } catch {
+      /* the frame already failed; one console.error only */
+    }
+  };
+
   const frame = (nowMs: number): void => {
     if (destroyed || failed) return;
     try {
@@ -710,6 +754,8 @@ function buildRuntime(
       dragTracker.destroy(); // W78: a stopped instance takes no more drags
       loop.destroy();
       clearHaloClasses(haloHeld); // W75: a stopped instance leaves no halo behind
+      clearAwayClasses(awayHeld); // W78: a stopped instance hides no label
+      resyncStopped();
       console.error("[liquiddom] frame failed; the instance stopped. Call destroy() and create a new instance.", err);
     }
   };
@@ -734,10 +780,12 @@ function buildRuntime(
     settleRebuild(false);
     clearTextClasses(textHeld);
     clearHaloClasses(haloHeld); // W75: the halo may already apply while the Canvas2D rebuild was in flight
+    clearAwayClasses(awayHeld); // W78
     if (destroyed || failed) return;
     failed = true;
     dragTracker.destroy(); // W78: a stopped instance takes no more drags
     loop.destroy();
+    resyncStopped();
     console.error(
       "[liquiddom] the Canvas2D rebuild after a lost WebGPU device failed; the instance stopped. Call destroy() and create a new instance.",
       err,
@@ -752,6 +800,7 @@ function buildRuntime(
     rebuilding = true;
     activeRenderer = "canvas2d";
     dragTracker.cancel(); // W78 (slice design §4): a lost device cancels the drag
+    clearAwayClasses(awayHeld); // W78
     console.warn(`${DEVICE_LOST_WARNING} (${info.reason}: ${info.message}); continuing with the Canvas2D renderer.`);
     // W74 (D74-6, Review Focus 1): the atlas text is gone with the device; show the DOM text now,
     // before the asynchronous Canvas2D init, and drop the atlas (Canvas2D never draws text).
@@ -813,6 +862,7 @@ function buildRuntime(
     unobserve(el) {
       if (destroyed) return;
       dragTracker.detach(el); // W78: cancels a press or drag on el (README Review Focus 5)
+      releaseAwayClass(awayHeld, el); // W78: before the registry restores the element
       releaseTextClass(textHeld, el); // W74: before the registry restores the element
       if (registry.idOf(el) !== undefined) unwatchElement(el); // W75: observer, transitionend, halo hold
       registry.unobserve(el);
@@ -894,6 +944,7 @@ function buildRuntime(
       batcher.cancel();
       splashInput.destroy();
       dragTracker.destroy(); // W78
+      clearAwayClasses(awayHeld);
       clearTextClasses(textHeld); // W74
       // W75: release the halo holds and stop watching before the registry releases rules and decorations.
       clearHaloClasses(haloHeld);
