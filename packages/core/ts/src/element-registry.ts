@@ -1,5 +1,6 @@
 import { parseBorderRadius } from "./border-radius";
 import { snapshotColorsWithout, type RGBA } from "./color";
+import type { ActiveDrag } from "./drag-tracker";
 import type { FluidBridge } from "./fluid-bridge";
 import { ELEMENT_STRIDE, El, Interaction, roundedRectArea } from "./fluid-layout";
 import type { ElementOptions } from "./options";
@@ -27,6 +28,8 @@ export interface RegistryDeps {
   scheduleRedistribute(): void;
   /** W68: live reduced-motion state; interaction is written as IDLE while true (D68-5). */
   reducedMotion?(): boolean;
+  /** W78 (D78-4): the instance's active drag (drag-tracker.ts), read every sync(); null when none. */
+  drag?(): ActiveDrag | null;
 }
 
 export interface MicrotaskBatcher {
@@ -128,11 +131,13 @@ export class ElementRegistry {
   }
 
   /**
-   * D68-2 (amended again 2026-10-06, saga dec_e431420b): hover beats focus until slice 5, so the
-   * click that focuses a hovered button keeps its swell; D68-5: IDLE under reduced motion.
+   * W78 (D78-4): DRAGGED beats hover beats focus beats idle. D68-2 (amended again 2026-10-06, saga
+   * dec_e431420b): hover beats focus, so the click that focuses a hovered button keeps its swell;
+   * D68-5: IDLE under reduced motion.
    */
-  private interactionCode(rec: InternalRecord): number {
+  private interactionCode(rec: InternalRecord, dragged: boolean): number {
     if (this.deps.reducedMotion?.() === true) return Interaction.IDLE;
+    if (dragged) return Interaction.DRAGGED;
     if (rec.hovered) return Interaction.HOVER;
     if (rec.focused) return Interaction.FOCUSED;
     return Interaction.IDLE;
@@ -245,17 +250,26 @@ export class ElementRegistry {
     for (const el of [...this.byEl.keys()]) this.unobserve(el);
   }
 
-  /** Per frame: x, y, w, h (buffer space) and the radius for the current size. */
+  /**
+   * Per frame: x, y, w, h (buffer space), the radius for the current size, slot 5 and, W78 (D78-4),
+   * slots 6–7: the dragged element's offset, 0 for every other element and under reduced motion,
+   * so a release or cancel zeroes them in the same sync (no TS glide).
+   */
   sync(): void {
     if (this.byEl.size === 0) return;
     const v = this.bridge.elementView();
     const off = this.deps.coordOffset();
+    const drag = this.deps.reducedMotion?.() === true ? null : (this.deps.drag?.() ?? null);
     for (const rec of this.byEl.values()) {
       // Ward review: no pointerleave reaches a detached or disabled element, so hover would
       // stick. Checked only while hovered (usually one element), so the cost is one test a frame.
       if (rec.hovered && (!rec.el.isConnected || matchesDisabled(rec.el))) rec.hovered = false;
       this.writeRect(rec, v, off);
-      v[rec.id * ELEMENT_STRIDE + El.INTERACTION] = this.interactionCode(rec);
+      const o = rec.id * ELEMENT_STRIDE;
+      const dragged = drag !== null && drag.el === rec.el;
+      v[o + El.INTERACTION] = this.interactionCode(rec, dragged);
+      v[o + El.HOME_DX] = dragged ? drag.dx : 0;
+      v[o + El.HOME_DY] = dragged ? drag.dy : 0;
     }
   }
 

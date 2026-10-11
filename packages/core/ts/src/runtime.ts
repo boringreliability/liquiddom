@@ -20,6 +20,7 @@ import { ElementObserver } from "./element-observer";
 import { clearHaloClasses, releaseHaloClass, syncHaloClasses, type HaloSyncArgs } from "./halo-toggle";
 import { LoopController } from "./loop-control";
 import { PointerTracker } from "./pointer-tracker";
+import { DragTracker } from "./drag-tracker";
 import { acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas } from "./stylesheet";
 import { initCanvas2D, selectRenderer, type ActiveRenderer, type RendererChoice, type SelectedRenderer } from "./renderers/select";
 import type { FluidCanvas2DRenderer } from "./renderers/fluid-canvas2d";
@@ -354,6 +355,8 @@ function buildRuntime(
     scheduleRedistribute: () => batcher.schedule(),
     // W68 (D68-5): read live; `reducedMotion` is declared below and only read during sync().
     reducedMotion: () => reducedMotion,
+    // W78 (D78-4): the active drag, read during sync(); `dragTracker` is declared below.
+    drag: () => dragTracker.active,
   });
 
   // ---- W75: text that stays true ------------------------------------------------
@@ -479,6 +482,7 @@ function buildRuntime(
     core.set_reduced_motion(reducedMotion);
     // W74 (Review Focus 1): reduced motion switched on mid-splash shows the DOM text at once, without waiting for a frame.
     if (reducedMotion) {
+      dragTracker.cancel(); // W78: reduced motion ignores drag (spec §2)
       clearTextClasses(textHeld);
       clearHaloClasses(haloHeld); // W75 (D75-3): the halo goes at once as well
     }
@@ -491,6 +495,8 @@ function buildRuntime(
   const pointer = new PointerTracker();
   const pointerDoc = container?.ownerDocument ?? document;
   const detachPointer = pointer.attach(pointerDoc, pointerDoc.defaultView ?? window);
+  // W78 (D78-2, D78-6): the drag gesture on observed elements, on the pointer field's document and window.
+  const dragTracker = new DragTracker({ reducedMotion: () => reducedMotion }, pointerDoc, pointerDoc.defaultView ?? window);
   // W75 (RF5): a web font that finishes after observe re-renders every atlas entry once (next frame).
   const fontSet = (pointerDoc as Document & { fonts?: EventTarget }).fonts ?? null;
   const onFontsDone = (): void => {
@@ -655,6 +661,7 @@ function buildRuntime(
     inFrame = true;
     try {
       applyDomChanges(); // W75: coalesced DOM, colour, font and DPR changes, once per frame
+      dragTracker.frame(); // W78: a pressed element that left the document cancels
       registry.sync();
       // W68: soft pointer field input, gated by reduced motion (D68-5).
       const ptr = pointer.sample(nowMs, frameOffset);
@@ -700,6 +707,7 @@ function buildRuntime(
     } catch (err) {
       failed = true;
       clearTextClasses(textHeld); // W74: a stopped instance never leaves text hidden
+      dragTracker.cancel(); // W78: a stopped instance drags nothing
       loop.destroy();
       clearHaloClasses(haloHeld); // W75: a stopped instance leaves no halo behind
       console.error("[liquiddom] frame failed; the instance stopped. Call destroy() and create a new instance.", err);
@@ -742,6 +750,7 @@ function buildRuntime(
     if (rebuilding || activeRenderer !== "webgpu") return;
     rebuilding = true;
     activeRenderer = "canvas2d";
+    dragTracker.cancel(); // W78 (slice design §4): a lost device cancels the drag
     console.warn(`${DEVICE_LOST_WARNING} (${info.reason}: ${info.message}); continuing with the Canvas2D renderer.`);
     // W74 (D74-6, Review Focus 1): the atlas text is gone with the device; show the DOM text now,
     // before the asynchronous Canvas2D init, and drop the atlas (Canvas2D never draws text).
@@ -796,11 +805,13 @@ function buildRuntime(
         atlasOutdated.add(id);
       }
       splashInput.attach(el);
+      dragTracker.attach(el); // W78
       watchElement(el); // W75 (D75-1, D75-2)
       return id;
     },
     unobserve(el) {
       if (destroyed) return;
+      dragTracker.detach(el); // W78: cancels a press or drag on el (README Review Focus 5)
       releaseTextClass(textHeld, el); // W74: before the registry restores the element
       if (registry.idOf(el) !== undefined) unwatchElement(el); // W75: observer, transitionend, halo hold
       registry.unobserve(el);
@@ -881,6 +892,7 @@ function buildRuntime(
       loop.destroy();
       batcher.cancel();
       splashInput.destroy();
+      dragTracker.destroy(); // W78
       clearTextClasses(textHeld); // W74
       // W75: release the halo holds and stop watching before the registry releases rules and decorations.
       clearHaloClasses(haloHeld);
