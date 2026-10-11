@@ -83,6 +83,10 @@ Decision: APPROVED 2026-10-11 — the click that ends a drag is swallowed once a
 | vitest | 633 passed, 4 skipped (637), 61 files |
 | Playwright --list canvas2d / webgpu / webgpu-hw / perf | 58 / 33 / 68 / 3 |
 
+**W78.5 browser numbers (2026-10-11).** Re-form after the into-card drag: Canvas2D macOS 131 frames, Escape cancel 139; Linux (Docker) 131 / 139; WebGPU Metal 132. WebGPU canvas text px in Merge's displaced rect at hold f30: 202. Suites at W78.5: `e2e:canvas2d` 53 passed, `e2e:webgpu-hw` 47 passed, Docker canvas2d 62 passed. Baselines committed `f0067c0` (approved by Dennis 2026-10-11).
+
+**Known limitations.** While a press is live, `selectstart` is blocked document-wide, including drag-selecting inside an `<input>`/`<textarea>`/contenteditable in an observed element (accepted, D78-2). If `setPointerCapture` throws (Firefox edge), the ending click may target a common ancestor and is not swallowed. Any keydown while a click swallow is armed clears it (including modifiers and Escape repeat). During a pending Canvas2D rebuild (device lost) a new drag may hide the label before the Canvas2D renderer draws (same window as the halo). A per-element `recovery` above ≈ 1.1 s cannot re-form within 3 s after a drag (D78-5).
+
 ## Spike W78.0 result
 Run 2026-10-11 on a throwaway copy of `5978a88` in the session scratchpad (`w78spike/`, D2: nothing copied into the repo). The copy typed in W78.2 Steps 1–6 and W78.1 Step 2 (`drag_tests.rs`: 8 passed, `W78 drag re-form after release: Some(122) frames`, as the plan predicts) plus four thread-local knobs (dragged cap in `hold_dragged`; neighbour cap = `damage(n, cap_n)` for every other active element whose home rect overlaps the dragged home rect grown by 16 px; slip rate and max; the mechanism (b) owner-mass pass after P2G, stencil-weighted per cell, a particle is "foreign" when the other side's mass in its nearest cell exceeds 50 %). Wall time: well inside the half-day box; every cell below was measured except mechanism (a)'s cost, which the plan asks to estimate.
 
@@ -215,6 +219,7 @@ Notes on the Tests table:
 - Leave `liquid-away` on after a cancel, reduced motion, unobserve, destroy or a failed frame; set it under WebGPU; set `liquid-text` under Canvas2D.
 - Use a W79 value (neighbour cap, slip, D79-1).
 - Promise re-form within 3 s after a drag for a per-element `recovery` above ≈ 1.1 s: known limitation (as for splash; D78-5; Dennis 2026-10-11, saga dec_e09cbdf8).
+- Promise: drag-selecting text inside an `<input>`/`<textarea>`/contenteditable of an observed element while a press is live (`selectstart` is blocked document-wide, D78-2); a swallowed click when `setPointerCapture` throws (Firefox edge); that a keydown keeps an armed click swallow; a hidden-label-free first frame of a new drag during a pending Canvas2D rebuild. All known limitations, see Specification.
 
 ## Must DO
 - Run the spike before the gate and record its table here.

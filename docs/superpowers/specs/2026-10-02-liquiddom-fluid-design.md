@@ -168,7 +168,7 @@ F's cost (+4 floats of SoA plus an SVD per substep) is benchmarked in slice 4. I
 |---|---|
 | Pointer move | A soft velocity field: particles within a 70 px radius are pulled towards the pointer's velocity with weight `(1 − d/r)²`. This replaces the spike's hard radial push (`POINTER_PUSH_PX`), which caused the hole |
 | `click` on an observed element | `splash` at the pointer position. **If `event.detail === 0`** (a keyboard-triggered click from Enter or Space on a focusable element), the splash is at the rect centre instead. Native activation is never prevented, so there is never a double splash |
-| Drag (mouse or pen pointerdown with pointer capture + > 4 px movement) | `home_dx/dy` follow the pointer while the DOM stays put. After the threshold, the following click splash is suppressed (swallowed once). On release `home_dx/dy` → 0 and the liquid crawls home; `pointercancel`, blur, Escape, `unobserve`, `destroy` and reduced motion cancel the same way. No touch or keyboard drag in slice 5 (amended 2026-10-11, slice-5 design, D78-2, D78-6) |
+| Drag (mouse or pen pointerdown, primary button; pointer capture once the pointer is > 4 px away, W78 D78-2) | `home_dx/dy` follow the pointer while the DOM stays put. After the threshold, the following click splash is suppressed (swallowed once). On release `home_dx/dy` → 0 and the liquid crawls home; `pointercancel`, blur, Escape, `unobserve`, `destroy` and reduced motion cancel the same way. No touch or keyboard drag in slice 5 (amended 2026-10-11, slice-5 design, D78-2, D78-6) |
 | `shake(strength)` | Global impulse: a seeded direction `d` and phase `φ` per element, speed profile `1 + 0.35·sin(π·u + φ)` across the element (`u = (x − cx)/(w/2)`), no per-particle noise, no rotation (amended in W70, D70-1; amended in W73, D73-1; amended in W77, D77-2). Everything goes soft |
 | Gravity | `(gx, gy)` in the grid update. Clamped to 0 under reduced motion |
 | Droplets | Particles flung far away are ordinary liquid that crawls home. There is no separate entity type |
@@ -332,7 +332,7 @@ At rest, what you see is therefore pixel-exact the DOM text, with no atlas appro
   - **Accepted limitations:**
     - liquid flying over other content that has its own stacking context or an opaque background can disappear behind it,
     - an observed element inside an ancestor with `transform`, `filter` or `overflow: hidden` can end up visually under other content.
-- **Drag moves the liquid, not the DOM.** There is no layout jump, no `position: fixed`, and labels can't end up on top of each other. The label follows the liquid: WebGPU carries the atlas text; Canvas2D hides the dragged element's DOM glyphs (`-webkit-text-fill-color`, semantics untouched) until it is at rest again (amended 2026-10-11, slice-5 design, D78-1).
+- **Drag moves the liquid, not the DOM.** There is no layout jump, no `position: fixed`, and labels can't end up on top of each other. The label follows the liquid: WebGPU carries the atlas text; Canvas2D hides the dragged element's DOM glyphs with the class `liquid-away` (`-webkit-text-fill-color`, semantics untouched) until it is at rest again; a cancel shows them at once (W78, D78-1) (amended 2026-10-11, slice-5 design, D78-1).
 - **Keyboard:** see `click` with `event.detail === 0` in §2. It applies to focusable elements. Non-focusable elements (the card) can only be splashed with a pointer.
 - **Contrast:**
   - At rest the real DOM text is shown on an exact contour, so contrast is identical to the original.
