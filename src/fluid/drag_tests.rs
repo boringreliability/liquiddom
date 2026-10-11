@@ -291,19 +291,28 @@ fn given_merge_dragged_150px_up_when_ticking_then_its_liquid_follows_the_displac
     );
 }
 
-/// Split moved to 12 px below Merge's displaced home (D78-4 review fix): the pointer rests in the
-/// gap, within 70 px of both elements' liquid, so a global "pointer off while dragging" fails.
-const SPLIT_NEAR: Bx = (734.0, 170.0, 140.0, 48.0, 24.0);
+// W78: approved-test change (D78-4, approved by Dennis 2026-10-11, saga dec_af3cc882): the old
+// single test asked for the skip to be exact AND a neighbour to be pushed. Shared MPM liquid
+// couples a neighbour's push into the dragged element (a neighbour 12-32 px away still moved
+// Merge by several px), so it could not hold. The two tests below split it: the first proves
+// the skip alone, the second proves other elements still feel the pointer.
+
+type PosPair = (Vec<(f32, f32)>, Vec<(f32, f32)>);
+
 const SPLIT_ID: usize = 1;
+/// Zero width = inactive slot: no other element is near the pointer.
+const NO_ELEMENT: Bx = (0.0, 0.0, 0.0, 0.0, 0.0);
 
 /// 30 idle frames, Merge displaced 150 px up (as a held drag when `dragged`, else as a stray idle
-/// offset Rust still honours), 60 frames to settle, then 30 frames with the pointer in the gap
-/// between Merge's displaced home and Split, moving at 600 px/s (+x). Returns Merge's and Split's
-/// particle positions. The card (y 340) is outside the 70 px field.
-fn pointer_run(dragged: bool, pointer: bool) -> (Vec<(f32, f32)>, Vec<(f32, f32)>) {
+/// offset Rust still honours), 60 frames to settle, then 30 frames with the pointer at (`px`, `py`)
+/// moving at 600 px/s (+x). `split` replaces the Split element (its slot is redistributed).
+/// Returns Merge's and Split's particle positions. The card (y 340) is outside Merge's field.
+fn pointer_run(dragged: bool, pointer: bool, split: Option<Bx>, at: (f32, f32)) -> PosPair {
     let mut core = scene(1);
-    core.write_element(SPLIT_ID, element(SPLIT_NEAR, INTERACTION_IDLE, 0.0, 0.0));
-    core.redistribute();
+    if let Some(b) = split {
+        core.write_element(SPLIT_ID, element(b, INTERACTION_IDLE, 0.0, 0.0));
+        core.redistribute();
+    }
     idle(&mut core, 30);
     let interaction = if dragged {
         INTERACTION_DRAGGED
@@ -312,9 +321,8 @@ fn pointer_run(dragged: bool, pointer: bool) -> (Vec<(f32, f32)>, Vec<(f32, f32)
     };
     core.write_element(MERGE_ID, element(MERGE, interaction, 0.0, DRAG_DY_PX));
     idle(&mut core, 60);
-    let (px, py) = (MERGE.0 + MERGE.2 / 2.0, SPLIT_NEAR.1 - 6.0);
     for _ in 0..30 {
-        let _ = core.tick(DT, px, py, 600.0, 0.0, pointer, 0.0, 0.0);
+        let _ = core.tick(DT, at.0, at.1, 600.0, 0.0, pointer, 0.0, 0.0);
     }
     (positions(&core, MERGE_ID), positions(&core, SPLIT_ID))
 }
@@ -323,11 +331,15 @@ fn mean_dx(a: &[(f32, f32)], b: &[(f32, f32)]) -> f32 {
     a.iter().zip(b).map(|(p, q)| p.0 - q.0).sum::<f32>() / a.len().max(1) as f32
 }
 
+/// Pointer 6 px below Merge's displaced home (y 110..158), alone in the field.
+const MERGE_POINTER: (f32, f32) = (MERGE.0 + MERGE.2 / 2.0, 164.0);
+
+// W78: approved-test change (D78-4), first half of the split above.
 #[test]
-fn given_the_pointer_moving_over_dragged_merge_when_ticking_then_its_liquid_moves_as_without_the_pointer_and_an_idle_merge_is_pushed()
+fn given_the_pointer_moving_over_dragged_merge_alone_when_ticking_then_its_liquid_moves_as_without_the_pointer_and_an_idle_merge_is_pushed()
  {
-    let ((with, split_with), (without, split_without)) =
-        (pointer_run(true, true), pointer_run(true, false));
+    let (with, _) = pointer_run(true, true, Some(NO_ELEMENT), MERGE_POINTER);
+    let (without, _) = pointer_run(true, false, Some(NO_ELEMENT), MERGE_POINTER);
     let worst = with
         .iter()
         .zip(&without)
@@ -337,16 +349,27 @@ fn given_the_pointer_moving_over_dragged_merge_when_ticking_then_its_liquid_move
         worst < 1e-3,
         "the pointer field skips the dragged element's particles (D78-4): worst {worst} px"
     );
-    let split_dx = mean_dx(&split_with, &split_without);
-    assert!(
-        split_dx >= 0.5,
-        "other elements still feel the pointer while Merge is dragged (D78-4), Split mean dx {split_dx} px"
-    );
-    let ((idle_with, _), (idle_without, _)) = (pointer_run(false, true), pointer_run(false, false));
+    let (idle_with, _) = pointer_run(false, true, Some(NO_ELEMENT), MERGE_POINTER);
+    let (idle_without, _) = pointer_run(false, false, Some(NO_ELEMENT), MERGE_POINTER);
     let merge_dx = mean_dx(&idle_with, &idle_without);
     assert!(
         merge_dx >= 0.5,
         "control: the same pointer pushes an idle Merge's liquid (+x), mean dx {merge_dx} px"
+    );
+}
+
+// W78: approved-test change (D78-4), second half of the split above.
+#[test]
+fn given_merge_dragged_far_away_when_the_pointer_moves_over_split_then_split_is_still_pushed() {
+    // Merge's displaced home (734..874, 110..158) is >= 150 px from the pointer; Split keeps its
+    // layout slot (570, 260). A global "pointer off while any element is dragged" fails here.
+    let at = (640.0, 284.0);
+    let (_, split_with) = pointer_run(true, true, None, at);
+    let (_, split_without) = pointer_run(true, false, None, at);
+    let split_dx = mean_dx(&split_with, &split_without);
+    assert!(
+        split_dx >= 0.5,
+        "other elements still feel the pointer while Merge is dragged (D78-4), Split mean dx {split_dx} px"
     );
 }
 

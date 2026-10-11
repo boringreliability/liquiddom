@@ -6,7 +6,7 @@ epic: "fluid-engine"
 status: "approved"
 dependencies: [77]
 layer: "both"
-estimated_tests: 57
+estimated_tests: 58
 created: "2026-10-11"
 completed: null
 ---
@@ -146,7 +146,8 @@ Answer:
 | 4 | drag_tests.rs: given_d78_cap_when_hold_dragged_then_a_dragged_element_gets_s_at_most_0_5_and_rest_alpha_0_and_an_idle_one_is_untouched | D78-3/D78-5 hold | ❌ `hold_dragged` stub: stiffness stays 1, not 0.5 |
 | 5 | drag_tests.rs: given_merge_dragged_then_held_still_when_ticking_90_frames_then_its_s_never_exceeds_0_5_its_rest_alpha_stays_0_and_the_others_keep_s_1 | D78-3/D78-5 in the core | ❌ frame 1: s/restAlpha not held |
 | 6 | drag_tests.rs: given_merge_dragged_150px_up_when_ticking_then_its_liquid_follows_the_displaced_home | home_rect with the offset | ✅ passes (guard) |
-| 7 | drag_tests.rs: given_the_pointer_moving_over_dragged_merge_when_ticking_then_its_liquid_moves_as_without_the_pointer_and_an_idle_merge_is_pushed | D78-4 pointer skip | ❌ pointer field still moves the dragged element's liquid |
+| 7a | drag_tests.rs: given_the_pointer_moving_over_dragged_merge_alone_when_ticking_then_its_liquid_moves_as_without_the_pointer_and_an_idle_merge_is_pushed | D78-4 pointer skip is exact (only Merge in the field; idle Merge pushed as control) | ❌ pointer field still moves the dragged element's liquid |
+| 7b | drag_tests.rs: given_merge_dragged_far_away_when_the_pointer_moves_over_split_then_split_is_still_pushed | D78-4 other elements still feel the pointer (fails against a global "pointer off while any element is dragged") | ✅ passes at red (guard) |
 | 8 | drag_tests.rs: given_merge_dragged_150px_up_held_60_frames_and_released_when_ticking_then_it_never_rests_while_dragged_and_every_rest_alpha_is_1_within_180_frames | D78-5, re-form ≤ 180 | ❌ precondition: Merge reaches restAlpha 1 within 60 held frames at s = 1 |
 | 9 | drag-tracker.test: given_a_mouse_press_when_moved_up_to_4_px_then_no_drag_and_past_4_px_the_drag_starts_with_dx_dy_from_the_down_point_and_only_then_captures | D78-2 threshold, capture timing | ❌ not collected (module missing: drag-tracker.ts) |
 | 10 | drag-tracker.test: given_a_pen_press_when_moved_past_the_threshold_then_it_drags_and_a_touch_press_never_drags | D78-2 pointer types | ❌ not collected (module missing: drag-tracker.ts) |
@@ -200,7 +201,7 @@ Answer:
 | 58 | drag-tracker.test: given_a_released_drag_with_its_click_still_pending_when_the_element_is_detached_then_the_click_in_the_same_task_passes_through | D78-6 + README RF5 (red-review fix 4) | ❌ not collected (module missing: drag-tracker.ts) |
 
 Notes on the Tests table:
-- `estimated_tests` counts new tests: 58 rows, of which row 33 is a changed (approved-test change) test, so 57.
+- `estimated_tests` counts new tests: 59 rows, of which row 33 is a changed (approved-test change) test, so 58. Row 7 was split into 7a and 7b (approved-test change, D78-4, approved by Dennis 2026-10-11): a neighbour 12-32 px away couples into the dragged liquid through the shared MPM grid, so "skip exact" and "neighbour pushed" cannot hold in one scene.
 - Red-review fixes also strengthened existing rows: 7 (another element within 70 px of the pointer is still pushed while Merge is dragged and Merge stays bit-identical, so a global "pointer off while dragging" fails), 16 (the click after a cancelled drag's pointerup is swallowed, a click in a later task passes), 21 (`selectstart` on `document` and on a node outside the observed elements is prevented while a press is live, not after the release), 47 (a later click after the release reaches the document and splashes; the DOM box of `#merge` and `document.activeElement` do not change between the press and the hold).
 - The W78 acceptance blocks add list entries to the `webgpu` and `webgpu-hw` projects that are skipped-only (canvas2d block skips there; the webgpu-robust block runs only in `webgpu-hw`); the `--list` totals count them.
 - Minor 5 (accepted, no test): the s hold is observed at tick end only, so a once-per-tick hold would pass the tests; the physics difference is s ≈ 0.51.
