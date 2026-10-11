@@ -3,12 +3,12 @@ ward: 77
 revision: null
 name: "Closed liquid under shake and splash"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [76]
 layer: "both"
 estimated_tests: 10
 created: "2026-10-10"
-completed: null
+completed: "2026-10-11"
 ---
 # Ward 077: Closed liquid under shake and splash
 
@@ -180,3 +180,4 @@ Open http://localhost:3001/scenes/landing.html?renderer=auto and the acceptance 
 ## Verification
 npm run verify, npm run e2e:canvas2d, npm run e2e:webgpu-hw, Docker canvas2d baselines, vision on shake and splash in both renderers.
 
+**Resolved at gold (Dennis, 2026-10-11):** gold approved; step 6 (shake) ruled ✅ in both renderers. Open, not fixed in W77: Canvas2D stair-stepped edge at the 3.5 px cell, the dark landing card reaching past the viewport edge under shake, "Book a demo" drawn into a bead chain at f20, faint residual lace.

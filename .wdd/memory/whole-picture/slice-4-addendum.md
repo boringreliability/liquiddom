@@ -6,7 +6,7 @@ W77 changes the physics and the kernel, not the scene: default stretch yield `TE
 
 ## Step 6 (shake) per renderer
 
-**Status: pending Dennis' ruling at gold.** W76 rated it ❌ (lace on wide surfaces). Evidence below; Dennis rules.
+**Status: ✅ in both renderers (Dennis, W77 gold, 2026-10-11).** W76 rated it ❌ (lace on wide surfaces); W77 closes it. Evidence below.
 
 | Guard | Bound | macOS Canvas2D | Metal WebGPU | Linux Canvas2D | Before W77 |
 |---|---|---|---|---|---|
