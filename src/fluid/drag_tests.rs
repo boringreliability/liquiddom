@@ -7,7 +7,7 @@
 //! 150 px straight up into free space, so no neighbour is overlapped: the merge is W79.
 
 use super::api::FluidCore;
-use super::elements::Elements;
+use super::elements::{Elements, HOME_OFFSET_MAX_PX};
 use super::interaction::{DRAG_STIFFNESS_CAP, hold_dragged};
 use super::layout::{
     EL_HOME_DX, EL_HOME_DY, EL_INTERACTION, EL_X, ELEMENT_STRIDE, INTERACTION_DRAGGED,
@@ -409,6 +409,52 @@ fn given_nan_or_infinite_offsets_in_slots_6_7_on_a_dragged_element_when_ticking_
                 .iter()
                 .all(|p| p.0.is_finite() && p.1.is_finite()),
             "offset ({dx}, {dy}): every particle stays finite"
+        );
+    }
+}
+
+#[test]
+fn given_huge_finite_offsets_in_slots_6_7_on_a_dragged_element_when_ticking_then_velocity_is_finite_the_home_is_clamped_and_particles_stay_on_the_grid()
+ {
+    // W78 ward review M1: ±3e38 is finite, so the NaN/Inf guard passes it; unclamped, the offset
+    // delta overflows the home velocity to Inf and the home lands ~1e38 px away.
+    let mut e = elements_with(&[element(MERGE, INTERACTION_DRAGGED, 0.0, 0.0)]);
+    e.update_velocities(DT);
+    for (dx, dy) in [(3.0e38, -3.0e38), (-3.0e38, 3.0e38), (3.0e38, 3.0e38)] {
+        e.buf[EL_HOME_DX] = dx;
+        e.buf[EL_HOME_DY] = dy;
+        e.update_velocities(DT);
+        assert!(
+            e.vel_x[0].is_finite() && e.vel_y[0].is_finite(),
+            "offset ({dx}, {dy}): velocity ({}, {}) must be finite",
+            e.vel_x[0],
+            e.vel_y[0]
+        );
+        let home = e.home_rect(0, false).expect("active");
+        assert!(
+            (home.x - MERGE.0).abs() <= HOME_OFFSET_MAX_PX
+                && (home.y - MERGE.1).abs() <= HOME_OFFSET_MAX_PX,
+            "offset ({dx}, {dy}): home ({}, {}) is clamped to ±{HOME_OFFSET_MAX_PX} px",
+            home.x,
+            home.y
+        );
+    }
+    let mut core = scene(1);
+    idle(&mut core, 10);
+    let g = core.grid();
+    let (x0, y0) = (g.origin_x_px, g.origin_y_px);
+    let (x1, y1) = (x0 + g.w as f32 * g.cell_px, y0 + g.h as f32 * g.cell_px);
+    for (dx, dy) in [(3.0e38, 0.0), (0.0, -3.0e38), (-3.0e38, 3.0e38)] {
+        drag_merge(&mut core, dx, dy);
+        idle(&mut core, 5);
+        assert!(
+            positions(&core, MERGE_ID).iter().all(|p| p.0.is_finite()
+                && p.1.is_finite()
+                && p.0 >= x0
+                && p.0 <= x1
+                && p.1 >= y0
+                && p.1 <= y1),
+            "offset ({dx}, {dy}): every particle stays finite and on the grid"
         );
     }
 }

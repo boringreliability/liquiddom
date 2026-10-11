@@ -3,6 +3,7 @@
 
 use super::access::{finite_or, positive, rd, rd_or, wr};
 use super::fmath::F_REST_TOL;
+use super::grid::WORLD_MAX_PX;
 use super::layout::{
     EL_H, EL_HOME_DX, EL_HOME_DY, EL_INTERACTION, EL_RADIUS, EL_RECOVERY, EL_VISCOSITY, EL_W, EL_X,
     EL_Y, ELEMENT_STRIDE, HOVER_SWELL, INTERACTION_DRAGGED, INTERACTION_HOVER, ST_MAX_DEV,
@@ -16,6 +17,11 @@ pub const REST_S_MIN: f32 = 0.95; // W67 D67-1 option 1 (spec §2 amended; was 0
 pub const REST_MAX_DEV_PX: f32 = 0.75;
 pub const REST_HOLD_S: f32 = 0.150;
 pub const REST_FADE_S: f32 = 0.120;
+/// W78 ward review (M1): slots 6–7 (home / drag offset) are clamped to ±this many px where they
+/// are read. Any world is at most `WORLD_MAX_PX` wide and its grid margin at most `WORLD_MAX_PX`,
+/// so a home moved further is off the grid either way; the clamp keeps a huge finite offset
+/// (±3e38) from overflowing the home velocity to Inf or putting the home ~1e38 px away.
+pub const HOME_OFFSET_MAX_PX: f32 = 2.0 * WORLD_MAX_PX;
 /// W67: per-element wobble phases are spaced by the golden angle, so neighbours never wobble in step.
 pub const WOBBLE_PHASE_STEP_RAD: f32 = 2.399_963;
 
@@ -126,6 +132,13 @@ impl Elements {
         (self.field(id, EL_INTERACTION) - INTERACTION_DRAGGED).abs() < 0.5
     }
 
+    /// Slots 6–7 as read by the engine: NaN/Inf → 0, finite values clamped to
+    /// ±`HOME_OFFSET_MAX_PX` (W78 ward review M1).
+    fn home_offset(&self, id: usize) -> (f32, f32) {
+        let c = |v: f32| finite_or(v, 0.0).clamp(-HOME_OFFSET_MAX_PX, HOME_OFFSET_MAX_PX);
+        (c(self.field(id, EL_HOME_DX)), c(self.field(id, EL_HOME_DY)))
+    }
+
     /// The DOM rect with the radius clamped to `[0, min(w, h) / 2]`.
     pub fn rect(&self, id: usize) -> Option<Rect> {
         if !self.is_active(id) {
@@ -146,9 +159,10 @@ impl Elements {
     /// lives in TS as `homeRect()` in `fluid-layout.ts`.
     pub fn home_rect(&self, id: usize, reduced_motion: bool) -> Option<Rect> {
         let r = self.rect(id)?;
+        let (ox, oy) = self.home_offset(id);
         let moved = Rect {
-            x: r.x + finite_or(self.field(id, EL_HOME_DX), 0.0),
-            y: r.y + finite_or(self.field(id, EL_HOME_DY), 0.0),
+            x: r.x + ox,
+            y: r.y + oy,
             ..r
         };
         Some(swell_rect(
@@ -194,10 +208,7 @@ impl Elements {
             let had_prev = self.has_prev.get(id).copied().unwrap_or(false);
             let dragged = self.is_dragged(id);
             let (ox, oy) = if dragged {
-                (
-                    finite_or(self.field(id, EL_HOME_DX), 0.0),
-                    finite_or(self.field(id, EL_HOME_DY), 0.0),
-                )
+                self.home_offset(id)
             } else {
                 (0.0, 0.0)
             };
