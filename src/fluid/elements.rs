@@ -5,8 +5,8 @@ use super::access::{finite_or, positive, rd, rd_or, wr};
 use super::fmath::F_REST_TOL;
 use super::layout::{
     EL_H, EL_HOME_DX, EL_HOME_DY, EL_INTERACTION, EL_RADIUS, EL_RECOVERY, EL_VISCOSITY, EL_W, EL_X,
-    EL_Y, ELEMENT_STRIDE, HOVER_SWELL, INTERACTION_HOVER, ST_MAX_DEV, ST_MAX_F_DEV, ST_REST_ALPHA,
-    ST_S, STATE_STRIDE,
+    EL_Y, ELEMENT_STRIDE, HOVER_SWELL, INTERACTION_DRAGGED, INTERACTION_HOVER, ST_MAX_DEV,
+    ST_MAX_F_DEV, ST_REST_ALPHA, ST_S, STATE_STRIDE,
 };
 use super::material::sanitize_recovery;
 use super::sampling::clamp_radius;
@@ -40,6 +40,9 @@ pub struct Elements {
     /// Rect velocity in px/s (used by the W67 home spring).
     pub vel_x: Vec<f32>,
     pub vel_y: Vec<f32>,
+    /// W78 (D78-3): the drag offset (slots 6–7) at the last velocity sample; 0 unless dragged.
+    pub prev_off_x: Vec<f32>,
+    pub prev_off_y: Vec<f32>,
     pub stiffness: Vec<f32>,
     pub rest_w: Vec<f32>,
     pub rest_h: Vec<f32>,
@@ -86,6 +89,8 @@ impl Elements {
             has_prev: vec![false; cap],
             vel_x: vec![0.0; cap],
             vel_y: vec![0.0; cap],
+            prev_off_x: vec![0.0; cap],
+            prev_off_y: vec![0.0; cap],
             stiffness: vec![1.0; cap],
             rest_w: vec![0.0; cap],
             rest_h: vec![0.0; cap],
@@ -115,9 +120,10 @@ impl Elements {
             && positive(self.field(id, EL_H))
     }
 
-    /// W78.1 (red) stub: W78.2 reads slot 5 (D78-4).
-    pub fn is_dragged(&self, _id: usize) -> bool {
-        false
+    /// W78 (D78-4): slot 5 holds DRAGGED (within ±0.5, like HOVER in `swell_rect`). NaN, an
+    /// out-of-range id and every other code are not dragged.
+    pub fn is_dragged(&self, id: usize) -> bool {
+        (self.field(id, EL_INTERACTION) - INTERACTION_DRAGGED).abs() < 0.5
     }
 
     /// The DOM rect with the radius clamped to `[0, min(w, h) / 2]`.
@@ -176,25 +182,44 @@ impl Elements {
         }
     }
 
-    /// Rect velocity from the rect delta over `dt` (px/s). Inactive slots reset.
+    /// Home velocity in px/s: the rect delta over `dt` and, W78 (D78-3), while the element is
+    /// dragged, the drag offset's delta too, so the home spring damps relative to the moving home
+    /// (`ElRow::spring_accel`). The offset counts only while slot 5 is DRAGGED: on release TS
+    /// writes slot 5 → 0 and the offset → 0 in one frame, and that jump back is the anchor
+    /// returning to the DOM rect, not a velocity, so the release adds none (the saturated spring
+    /// gives the crawl home). An idle element's offset is ignored likewise. The non-dragged path
+    /// is W67's arithmetic, bit for bit. Inactive slots reset.
     pub fn update_velocities(&mut self, dt: f32) {
         for id in 0..self.cap {
             let had_prev = self.has_prev.get(id).copied().unwrap_or(false);
-            let (vx, vy, px, py, has) = match self.rect(id) {
-                Some(r) if had_prev && dt > 0.0 => (
-                    (r.x - rd(&self.prev_x, id)) / dt,
-                    (r.y - rd(&self.prev_y, id)) / dt,
-                    r.x,
-                    r.y,
-                    true,
-                ),
-                Some(r) => (0.0, 0.0, r.x, r.y, true),
-                None => (0.0, 0.0, 0.0, 0.0, false),
+            let dragged = self.is_dragged(id);
+            let (ox, oy) = if dragged {
+                (
+                    finite_or(self.field(id, EL_HOME_DX), 0.0),
+                    finite_or(self.field(id, EL_HOME_DY), 0.0),
+                )
+            } else {
+                (0.0, 0.0)
+            };
+            let (vx, vy, px, py, offx, offy, has) = match self.rect(id) {
+                Some(r) if had_prev && dt > 0.0 => {
+                    let mut dx = r.x - rd(&self.prev_x, id);
+                    let mut dy = r.y - rd(&self.prev_y, id);
+                    if dragged {
+                        dx += ox - rd(&self.prev_off_x, id);
+                        dy += oy - rd(&self.prev_off_y, id);
+                    }
+                    (dx / dt, dy / dt, r.x, r.y, ox, oy, true)
+                }
+                Some(r) => (0.0, 0.0, r.x, r.y, ox, oy, true),
+                None => (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, false),
             };
             wr(&mut self.vel_x, id, vx);
             wr(&mut self.vel_y, id, vy);
             wr(&mut self.prev_x, id, px);
             wr(&mut self.prev_y, id, py);
+            wr(&mut self.prev_off_x, id, offx);
+            wr(&mut self.prev_off_y, id, offy);
             if let Some(slot) = self.has_prev.get_mut(id) {
                 *slot = has;
             }
@@ -219,6 +244,8 @@ impl Elements {
         wr(&mut self.prev_y, id, 0.0);
         wr(&mut self.vel_x, id, 0.0);
         wr(&mut self.vel_y, id, 0.0);
+        wr(&mut self.prev_off_x, id, 0.0);
+        wr(&mut self.prev_off_y, id, 0.0);
         let base = id * STATE_STRIDE;
         wr(&mut self.state, base + ST_S, 1.0);
         wr(&mut self.state, base + ST_MAX_DEV, 0.0);

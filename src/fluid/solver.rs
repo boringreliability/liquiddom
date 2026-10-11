@@ -200,6 +200,8 @@ struct ElRow {
     hvy: f32,
     /// Kinematic viscosity in cells²/s.
     mu: f32,
+    /// W78 (D78-4): slot 5 is DRAGGED; the soft pointer field skips this element's particles.
+    dragged: bool,
 }
 
 impl ElRow {
@@ -228,6 +230,7 @@ impl ElRow {
             hvx: rd(&e.vel_x, id) * inv,
             hvy: rd(&e.vel_y, id) * inv,
             mu: element_viscosity_px2_s(e, id, m) * inv * inv,
+            dragged: e.is_dragged(id),
         }
     }
 
@@ -629,8 +632,8 @@ pub fn substep_with(
         // spring's acceleration cap never clips the pointer coupling. Applies to
         // every homed particle; no radial term; a resting pointer only damps moving
         // liquid (−v·k). Skipped when the disc misses the AABB (the term would be
-        // (0, 0); see `PointerGrid::reaches`).
-        if pointer_on {
+        // (0, 0); see `PointerGrid::reaches`). W78: skipped for a dragged element (D78-4).
+        if pointer_on && !row.is_some_and(|r| r.dragged) {
             let (pax, pay) = pointer_accel_grid(x, y, vx, vy, pointer);
             vx += pax * dt;
             vy += pay * dt;

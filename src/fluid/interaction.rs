@@ -7,6 +7,7 @@
 //! (D73-1) and cap 0.3 (D73-2) so the card no longer tears into a lace.
 //! W77 lowers the amplitude to 0.35 (D77-2) together with a higher stretch yield, so the sheet
 //! thins instead of tearing.
+//! W78 holds a dragged element at s ≤ 0.5 every substep (D78-3).
 
 use std::f32::consts::{PI, TAU};
 
@@ -34,8 +35,19 @@ pub const SHAKE_STIFFNESS_CAP: f32 = 0.3;
 /// W78 (D78-3, spec §2 damage rules): drag sets `s ← min(s, 0.5)` while dragging.
 pub const DRAG_STIFFNESS_CAP: f32 = 0.5;
 
-/// W78.1 (red) stub: W78.2 holds every dragged element at `DRAG_STIFFNESS_CAP`.
-pub fn hold_dragged(_e: &mut Elements) {}
+/// W78 (D78-3, D78-5; spec §2 damage rules): `damage(id, DRAG_STIFFNESS_CAP)` for every active
+/// element whose slot 5 is DRAGGED. The api calls it in every substep right after
+/// `update_stiffness`, so no substep sees a dragged element stiffer than the cap, its rest hold
+/// restarts and its restAlpha stays 0 (a dragged element never rests). Every other element is
+/// untouched (W79 adds the neighbours under the dragged home). Reduced motion never reaches it:
+/// `FluidCore::tick` returns before the substeps.
+pub fn hold_dragged(e: &mut Elements) {
+    for id in 0..e.cap {
+        if e.is_active(id) && e.is_dragged(id) {
+            e.damage(id, DRAG_STIFFNESS_CAP);
+        }
+    }
+}
 pub const STRENGTH_MAX: f32 = 2.0;
 
 /// The scalars of `FluidCore::splash` (buffer-space px).

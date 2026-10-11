@@ -244,6 +244,9 @@ impl FluidCore {
                 .push((rd(&self.elements.vel_x, 0), rd(&self.elements.vel_y, 0)));
             for sub in 0..SUBSTEPS {
                 self.elements.update_stiffness(dt, params.recovery_s);
+                // W78 (D78-3, D78-5): after the recovery, so no substep sees a dragged element
+                // stiffer than DRAG_STIFFNESS_CAP; its restAlpha stays 0.
+                interaction::hold_dragged(&mut self.elements);
                 let input = StepInput {
                     dt,
                     time_s: solver::wobble_time_s(self.time_s),
