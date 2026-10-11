@@ -3,7 +3,7 @@ ward: 77
 revision: null
 name: "Closed liquid under shake and splash"
 epic: "fluid-engine"
-status: "approved"
+status: "gold"
 dependencies: [76]
 layer: "both"
 estimated_tests: 10
@@ -126,41 +126,43 @@ Red review fixes (2026-10-11, after `.superpowers/sdd/W77/red-review.md`): four 
 
 Known approved-test change after red (D77-3, named at the red STOP): W77.3 updates the honey pin in `material-api.test.ts` (`presets.honey` and the `setMaterial.mock.calls` line) to the values the D77-3 procedure finds.
 
-| # | Test Name | Verifies | Red outcome |
-|---|-----------|----------|-------------|
-| 1 | material.rs: given_cohesion_0_5_when_mapped_then_0_46_and_bounds_0_02_0_90 | D77-2 cohesion map (approved-test change of W67's 0.16/0.30) | ❌ `TENSION_MAX_MAX` is 0.3, not 0.9 |
-| 2 | material.rs: given_default_material_when_mapped_then_params_match_spec_defaults | D77-2 default yield 0.46 (approved-test change) | ❌ tension_max 0.16 |
-| 3 | api.rs: given_set_material_when_called_then_cohesion_applies_globally_only | D77-2 cohesion 1 → 0.90, NaN → 0.46 (approved-test change) | ❌ cohesion 1 gives 0.30 |
-| 4 | interaction.rs: given_d67_3_and_d70_constants_when_read_then_splash_and_shake_values_pinned | D77-2 amplitude 0.35 (approved-test change of D73-1's pin) | ❌ amplitude 0.5 |
-| 5 | interaction.rs: given_shake_gain_when_evaluated_across_u_then_it_is_1_plus_0_35_sin_pi_u_plus_phase_within_0_65_and_1_35 | D77-2 gain range (approved-test change) | ❌ gain at u −0.5 is 0.5, not 0.65 |
-| 6 | interaction.rs: given_shake_when_applied_then_each_element_moves_along_one_seeded_direction_with_a_coherent_sine_profile_across_u_and_no_particle_noise | D77-2 profile fit 0.35 (approved-test change) | ❌ fitted amplitude 0.5 |
-| 7 | scenario_tests.rs: given_shake_strength_1_when_ticking_30_frames_then_the_rigid_fit_residual_rms_reaches_24px_on_the_card_and_12px_on_each_pill | W70 slosh floors 24/12 → 20/10 (consequence of D77-2; approved by Dennis 2026-10-11, saga dec_a99cad59) | ✅ passes (guard; at D77-2's constants Split 11.52 px would fail the old 12 px floor) |
-| 8 | kernel-params.test: given_kernel_params_when_read_then_spec_values_and_density_grid_re_exports_them_instead_of_defining_its_own | D77-1 cap 16 (approved-test change) | ❌ cap 8 |
-| 9 | kernel-params.test: given_a_spacing_when_kernelRadiusPx_then_min_of_the_cap_and_2_3_spacing_and_the_cap_for_non_finite_or_non_positive | D77-1 R = 2.3 × spacing up to 16 px (approved-test change) | ❌ kernelRadiusPx(4) = 8, not 9.2 |
-| 10 | kernel-params.test: given_the_largest_kernel_radius_when_densityCellPx_then_max_of_2px_and_ceil_R_over_4_with_bad_or_oversized_radii_taking_the_cap | D77-1 grid rule | ❌ `DENSITY_CELLS_PER_RADIUS` undefined |
-| 11 | kernel-params.test: given_a_splat_at_R_on_the_densityCellPx_R_grid_when_counting_touched_cells_then_at_most_1_15x_a_splat_at_8px_on_the_2px_grid | D77-1 flat splat cost | ❌ `densityCellPx is not a function` |
-| 12 | kernel-params.test: given_paints_whose_largest_kernel_radius_changes_when_rendering_then_the_grid_cell_follows_densityCellPx_and_the_buffer_is_reallocated_only_on_a_change | D77-1 renderer cell, no per-frame reallocation | ❌ `renderer.densityCellPx` undefined |
-| 13 | density-grid.test: given_kernel_constants_when_read_then_pinned_to_spec_values | D77-1 cap pin (approved-test change) | ❌ cap 8 |
-| 14 | density-grid.test: given_radius_request_above_16px_when_splatting_then_capped_at_16px | D77-1 cap in the grid (approved-test change of "capped at 8 px") | ❌ density 14 px away is 0 |
-| 15 | webgpu-shaders.test: given_SPLAT_WGSL_when_read_then_it_embeds_the_shared_kernel_cap… | D77-1 WGSL cap 16.0 (approved-test change) | ❌ `8.0` |
-| 16 | webgpu-shaders.test: given_TEXT_WGSL_when_read_then_it_splats_t1_and_t1w_with_the_liquids_kernel… | D77-1 WGSL cap 16.0 (approved-test change) | ❌ `8.0` |
-| 17 | wdd-docs: given_demo_index_when_read_then_its_heading_says_slice_4_and_it_links_the_landing_scene | D77-4 landing link with `?renderer=auto` (approved-test change of the W76 pin) | ❌ href is `scenes/landing.html` |
-| 18 | wdd-docs: given_demo_index_when_read_then_acceptance_landing_splash_and_playground_are_linked_with_renderer_auto | D77-4 four links, scene default canvas2d | ❌ `scenes/acceptance.html?renderer=auto` missing |
-| 19 | e2e acceptance (canvas2d): step 6 – … the card shows no lace: tear pixels at f10 and f20 within the D77-2 bounds | D77-2 acceptance lace ≤ 300 (approved-test change of D73-3's 1699 / 915) | ❌ 1175 / 831 |
-| 20 | e2e acceptance (canvas2d): D77-3 – given the water / honey / jelly preset when Splash is splashed … within the NORTH-STAR step-3 budget (3 tests) | D77-3 splash re-form ≤ 180 | ❌ honey −1 (285 at W77.0); water 135 and jelly 123 ✅ (guards) |
-| 21 | e2e acceptance (canvas2d): D77-2 – given the water / honey / jelly preset when the instance shakes … within the NORTH-STAR step-6 budget (3 tests) | D77-2/D77-3 shake re-form ≤ 180 after the remap | ❌ honey −1 (279); water 131 and jelly 111 ✅ (guards) |
-| 22 | e2e acceptance (canvas2d): D77-3 – given honey and water when Splash is splashed then honey re-forms at least 1.15× as slowly as water | D77-3 honey still thicker (red review: ≥ 1.15×, was `>`) | ✅ passes (guard: 285 vs 135, ratio 2.11) |
-| 23 | e2e landing (canvas2d): D77-2 – … the dark card shows no lace: region tear pixels at f10 and f20 within the W77 bound | D77-2 landing lace ≤ 400 | ❌ 5232 / 1805 |
-| 24 | e2e landing (canvas2d): D77-1 – given a splash on Start free when ticking then Book a demo shows no specks | D77-1 specks ≤ 16 px | ❌ peak 307 px (f20) |
-| 25 | e2e webgpu-robust (webgpu-hw): W77 D77-2 step 6 – … acceptance card shows no lace | D77-2 in WebGPU | ❌ 972 / 573 |
-| 26 | e2e webgpu-robust (webgpu-hw): W77 D77-2 – … landing … dark card shows no lace | D77-2 in WebGPU | ❌ 3938 / 1316 |
-| 27 | e2e webgpu-robust (webgpu-hw): W77 D77-1 – … Book a demo shows no specks | D77-1 in WebGPU; the splash softened "Start free" at f2 (red review) | ❌ peak 238 px |
-| 28 | e2e webgpu-robust (webgpu-hw): W77 D77-3 – given renderer webgpu and the water / honey / jelly preset when Splash is splashed, and from rest the instance shakes, then each re-forms within the NORTH-STAR budgets (3 tests) | D77-2/D77-3 in WebGPU; the shake starts from rest on a fresh scene (red review) | ❌ honey −1 / −1; water 135 / 131 and jelly 123 / 111 ✅ |
-| 29 | e2e perf (perf): perf – W77 D77-1: the Canvas2D frame on the landing shake costs at most the W77.0 baseline + 15 % | D77-1 grid scaling keeps Canvas2D cost flat (ratio ≤ 1.29) | ✅ passes (guard, ratio 1.119; skips in webgpu-hw) |
-| 30 | kernel-params.test: given_the_largest_and_smallest_kernel_radius_when_densityCellPx_then_the_cell_is_never_coarser_than_the_finest_spacing | D77-1 grid rule bounded by the smallest kernel radius (red review finding 2; D71-5) | ❌ `cell is not a function` |
-| 31 | kernel-params.test: given_a_paint_without_particles_or_with_a_non_positive_spacing_when_rendering_then_it_does_not_coarsen_the_grid | D77-1 `fitCell` skips zero-particle and bad-spacing paints (red review finding 1) | ❌ `renderer.densityCellPx` undefined |
-| 32 | kernel-params.test: given_paints_with_mixed_spacings_when_rendering_then_the_cell_is_bounded_by_the_smallest_kernel_radius_and_each_splat_keeps_its_own_radius | D77-1 mixed spacings: cell 2.5 px, not 3.75 (red review finding 2) | ❌ `renderer.densityCellPx` undefined |
-| 33 | density-grid.test: given_a_spacing_8_lattice_whose_radius_18_4_is_capped_at_16px_when_splatted_then_the_interior_still_integrates_to_1 | D77-1 capped lattice still integrates to ≈ 1 (red review finding 9) | ❌ cap 8 |
+Gold run (2026-10-11, at 17739d2): `npm run verify` green — cargo `170 passed; 0 failed; 2 ignored`, vitest `633 passed | 4 skipped (637)`, clippy clean; `npm run e2e:canvas2d` `49 passed | 9 skipped`; `npm run e2e:webgpu-hw` `45 passed | 23 skipped`; Docker Linux canvas2d `56 passed | 2 skipped`; perf W77 ratio 0.833 (1.501 with the cell forced to 2 px, Step 1b). Guards (macOS Canvas2D / Metal WebGPU / Linux Canvas2D): acceptance lace f10/f20 103/161, 53/79, 103/161 (≤ 300); landing lace 10/42, 0/1, 8/40 (≤ 400); specks 0/0/0 (≤ 16); splash re-form water/honey/jelly 130/155/115, shake 118/152/106 (≤ 180; honey 1.19× water). Baselines moved and approved by Dennis 2026-10-11 (9770e37): acceptance step 2, 3, 4, 6 Canvas2D Linux; step 1, a11y-focus-split and both reduced-motion baselines unchanged. Manual smoke: the demo index's five links on Metal render with a clean console and no fallback info (auto → WebGPU). Ward review (opus, 9de5607..dc53980): ready for gold; Important 1 (atlas gutter claim vs R 16) and Minor 2–4 fixed in 17739d2, Minor 5 (honey margin 1.19 vs 1.15) left for the gold vision check.
+
+| # | Test Name | Verifies | Red outcome | Gold outcome |
+|---|-----------|----------|-------------|--------------|
+| 1 | material.rs: given_cohesion_0_5_when_mapped_then_0_46_and_bounds_0_02_0_90 | D77-2 cohesion map (approved-test change of W67's 0.16/0.30) | ❌ `TENSION_MAX_MAX` is 0.3, not 0.9 | ✅ |
+| 2 | material.rs: given_default_material_when_mapped_then_params_match_spec_defaults | D77-2 default yield 0.46 (approved-test change) | ❌ tension_max 0.16 | ✅ |
+| 3 | api.rs: given_set_material_when_called_then_cohesion_applies_globally_only | D77-2 cohesion 1 → 0.90, NaN → 0.46 (approved-test change) | ❌ cohesion 1 gives 0.30 | ✅ |
+| 4 | interaction.rs: given_d67_3_and_d70_constants_when_read_then_splash_and_shake_values_pinned | D77-2 amplitude 0.35 (approved-test change of D73-1's pin) | ❌ amplitude 0.5 | ✅ |
+| 5 | interaction.rs: given_shake_gain_when_evaluated_across_u_then_it_is_1_plus_0_35_sin_pi_u_plus_phase_within_0_65_and_1_35 | D77-2 gain range (approved-test change) | ❌ gain at u −0.5 is 0.5, not 0.65 | ✅ |
+| 6 | interaction.rs: given_shake_when_applied_then_each_element_moves_along_one_seeded_direction_with_a_coherent_sine_profile_across_u_and_no_particle_noise | D77-2 profile fit 0.35 (approved-test change) | ❌ fitted amplitude 0.5 | ✅ |
+| 7 | scenario_tests.rs: given_shake_strength_1_when_ticking_30_frames_then_the_rigid_fit_residual_rms_reaches_24px_on_the_card_and_12px_on_each_pill | W70 slosh floors 24/12 → 20/10 (consequence of D77-2; approved by Dennis 2026-10-11, saga dec_a99cad59) | ✅ passes (guard; at D77-2's constants Split 11.52 px would fail the old 12 px floor) | ✅ |
+| 8 | kernel-params.test: given_kernel_params_when_read_then_spec_values_and_density_grid_re_exports_them_instead_of_defining_its_own | D77-1 cap 16 (approved-test change) | ❌ cap 8 | ✅ |
+| 9 | kernel-params.test: given_a_spacing_when_kernelRadiusPx_then_min_of_the_cap_and_2_3_spacing_and_the_cap_for_non_finite_or_non_positive | D77-1 R = 2.3 × spacing up to 16 px (approved-test change) | ❌ kernelRadiusPx(4) = 8, not 9.2 | ✅ |
+| 10 | kernel-params.test: given_the_largest_kernel_radius_when_densityCellPx_then_max_of_2px_and_ceil_R_over_4_with_bad_or_oversized_radii_taking_the_cap | D77-1 grid rule | ❌ `DENSITY_CELLS_PER_RADIUS` undefined | ✅ |
+| 11 | kernel-params.test: given_a_splat_at_R_on_the_densityCellPx_R_grid_when_counting_touched_cells_then_at_most_1_15x_a_splat_at_8px_on_the_2px_grid | D77-1 flat splat cost | ❌ `densityCellPx is not a function` | ✅ |
+| 12 | kernel-params.test: given_paints_whose_largest_kernel_radius_changes_when_rendering_then_the_grid_cell_follows_densityCellPx_and_the_buffer_is_reallocated_only_on_a_change | D77-1 renderer cell, no per-frame reallocation | ❌ `renderer.densityCellPx` undefined | ✅ |
+| 13 | density-grid.test: given_kernel_constants_when_read_then_pinned_to_spec_values | D77-1 cap pin (approved-test change) | ❌ cap 8 | ✅ |
+| 14 | density-grid.test: given_radius_request_above_16px_when_splatting_then_capped_at_16px | D77-1 cap in the grid (approved-test change of "capped at 8 px") | ❌ density 14 px away is 0 | ✅ |
+| 15 | webgpu-shaders.test: given_SPLAT_WGSL_when_read_then_it_embeds_the_shared_kernel_cap… | D77-1 WGSL cap 16.0 (approved-test change) | ❌ `8.0` | ✅ |
+| 16 | webgpu-shaders.test: given_TEXT_WGSL_when_read_then_it_splats_t1_and_t1w_with_the_liquids_kernel… | D77-1 WGSL cap 16.0 (approved-test change) | ❌ `8.0` | ✅ |
+| 17 | wdd-docs: given_demo_index_when_read_then_its_heading_says_slice_4_and_it_links_the_landing_scene | D77-4 landing link with `?renderer=auto` (approved-test change of the W76 pin) | ❌ href is `scenes/landing.html` | ✅ |
+| 18 | wdd-docs: given_demo_index_when_read_then_acceptance_landing_splash_and_playground_are_linked_with_renderer_auto | D77-4 four links, scene default canvas2d | ❌ `scenes/acceptance.html?renderer=auto` missing | ✅ |
+| 19 | e2e acceptance (canvas2d): step 6 – … the card shows no lace: tear pixels at f10 and f20 within the D77-2 bounds | D77-2 acceptance lace ≤ 300 (approved-test change of D73-3's 1699 / 915) | ❌ 1175 / 831 | ✅ |
+| 20 | e2e acceptance (canvas2d): D77-3 – given the water / honey / jelly preset when Splash is splashed … within the NORTH-STAR step-3 budget (3 tests) | D77-3 splash re-form ≤ 180 | ❌ honey −1 (285 at W77.0); water 135 and jelly 123 ✅ (guards) | ✅ |
+| 21 | e2e acceptance (canvas2d): D77-2 – given the water / honey / jelly preset when the instance shakes … within the NORTH-STAR step-6 budget (3 tests) | D77-2/D77-3 shake re-form ≤ 180 after the remap | ❌ honey −1 (279); water 131 and jelly 111 ✅ (guards) | ✅ |
+| 22 | e2e acceptance (canvas2d): D77-3 – given honey and water when Splash is splashed then honey re-forms at least 1.15× as slowly as water | D77-3 honey still thicker (red review: ≥ 1.15×, was `>`) | ✅ passes (guard: 285 vs 135, ratio 2.11) | ✅ |
+| 23 | e2e landing (canvas2d): D77-2 – … the dark card shows no lace: region tear pixels at f10 and f20 within the W77 bound | D77-2 landing lace ≤ 400 | ❌ 5232 / 1805 | ✅ |
+| 24 | e2e landing (canvas2d): D77-1 – given a splash on Start free when ticking then Book a demo shows no specks | D77-1 specks ≤ 16 px | ❌ peak 307 px (f20) | ✅ |
+| 25 | e2e webgpu-robust (webgpu-hw): W77 D77-2 step 6 – … acceptance card shows no lace | D77-2 in WebGPU | ❌ 972 / 573 | ✅ |
+| 26 | e2e webgpu-robust (webgpu-hw): W77 D77-2 – … landing … dark card shows no lace | D77-2 in WebGPU | ❌ 3938 / 1316 | ✅ |
+| 27 | e2e webgpu-robust (webgpu-hw): W77 D77-1 – … Book a demo shows no specks | D77-1 in WebGPU; the splash softened "Start free" at f2 (red review) | ❌ peak 238 px | ✅ |
+| 28 | e2e webgpu-robust (webgpu-hw): W77 D77-3 – given renderer webgpu and the water / honey / jelly preset when Splash is splashed, and from rest the instance shakes, then each re-forms within the NORTH-STAR budgets (3 tests) | D77-2/D77-3 in WebGPU; the shake starts from rest on a fresh scene (red review) | ❌ honey −1 / −1; water 135 / 131 and jelly 123 / 111 ✅ | ✅ |
+| 29 | e2e perf (perf): perf – W77 D77-1: the Canvas2D frame on the landing shake costs at most the W77.0 baseline + 15 % | D77-1 grid scaling keeps Canvas2D cost flat (ratio ≤ 1.29) | ✅ passes (guard, ratio 1.119; skips in webgpu-hw) | ✅ |
+| 30 | kernel-params.test: given_the_largest_and_smallest_kernel_radius_when_densityCellPx_then_the_cell_is_never_coarser_than_the_finest_spacing | D77-1 grid rule bounded by the smallest kernel radius (red review finding 2; D71-5) | ❌ `cell is not a function` | ✅ |
+| 31 | kernel-params.test: given_a_paint_without_particles_or_with_a_non_positive_spacing_when_rendering_then_it_does_not_coarsen_the_grid | D77-1 `fitCell` skips zero-particle and bad-spacing paints (red review finding 1) | ❌ `renderer.densityCellPx` undefined | ✅ |
+| 32 | kernel-params.test: given_paints_with_mixed_spacings_when_rendering_then_the_cell_is_bounded_by_the_smallest_kernel_radius_and_each_splat_keeps_its_own_radius | D77-1 mixed spacings: cell 2.5 px, not 3.75 (red review finding 2) | ❌ `renderer.densityCellPx` undefined | ✅ |
+| 33 | density-grid.test: given_a_spacing_8_lattice_whose_radius_18_4_is_capped_at_16px_when_splatted_then_the_interior_still_integrates_to_1 | D77-1 capped lattice still integrates to ≈ 1 (red review finding 9) | ❌ cap 8 | ✅ |
 
 ## Must NOT
 - Change any resting frame (step 1, a11y focus, reduced-motion baselines) or the exact rounded rect at rest.
