@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-75 of 77 Wards complete · 1102 estimated tests · 1 blocked
+76 of 78 Wards complete · 1160 estimated tests · 1 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -83,6 +83,7 @@
 | 075 | Text that stays true | 54 | ✅ Complete | 2026-10-10 |
 | 076 | Whole picture after slice 4 | 8 | ✅ Complete | 2026-10-10 |
 | 077 | Closed liquid under shake and splash | 10 | ✅ Complete | 2026-10-11 |
+| 078 | Drag the liquid | 58 | ✅ Complete | 2026-10-11 |
 
 ## Test Summary
-- Estimated total: 1102
+- Estimated total: 1160

@@ -3,12 +3,12 @@ ward: 78
 revision: null
 name: "Drag the liquid"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [77]
 layer: "both"
 estimated_tests: 58
 created: "2026-10-11"
-completed: null
+completed: "2026-10-11"
 ---
 # Ward 078: Drag the liquid
 
@@ -247,3 +247,5 @@ Notes on the Tests table:
 
 ## Verification
 `npm run verify`, `npm run e2e:canvas2d`, `npm run e2e:webgpu-hw`, Docker canvas2d baselines (two new, eight unchanged), vision on the drag in both renderers.
+
+**Resolved at gold (Dennis, 2026-10-11):** gold approved. Step 5's first half (drag away, the label follows, crawl home within 3 s) works in both renderers; the merge look and step 5 ✅ are W79.

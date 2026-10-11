@@ -1,7 +1,7 @@
 # Context — liquiddom
 
 ## Last Updated
-Ward 78 — 2026-10-11 (drag the liquid, slice 5; W77: closed liquid, kernel cap 16, yield 0.46, shake 0.35). Next: W79.
+Ward 78 — 2026-10-11 (drag the liquid; label follows). Next: W79 merge and separate.
 
 ## Current State
 Epic 15 (Fluid Engine): slices 1–4 closed. `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. The soft-body engine is the tag `softbody-final`. Packages `0.3.0-alpha.x` (pre mode `alpha`), nothing published; `site/` frozen until slice 6. Test totals: `.wdd/PROGRESS.md` and the ward gold notes.
