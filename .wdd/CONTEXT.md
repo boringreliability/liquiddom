@@ -63,6 +63,7 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 - Hover swell with liquid text (W74): particles swell 2 % while the DOM text does not (≈ 1 px glyph shift at the edges on the switch); a pointer resting on a moving card can smear its text.
 - `activeRenderer` can change mid-session (W72): a lost WebGPU device switches it to `'canvas2d'`; a frame or two draw nothing.
 - Canvas2D still splats the particles of a hidden (w == 0) element; WebGPU hides them through flags. Parking (slice 6) resolves it.
+- Canvas2D cell (W77): one fine-spaced element holds the whole page on the 2 px grid, where R up to 16 px costs ≈1.5× (perf guard covers the landing page only).
 
 ## What Comes Next
 - Slice 2 closed: `.wdd/memory/whole-picture/slice-2.md` + addendum (steps 1–4, 6, 8 ✅; 5/7 ⏳).

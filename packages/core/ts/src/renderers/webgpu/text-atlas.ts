@@ -24,7 +24,11 @@ export interface AtlasRect {
 /** Creates the atlas page; null when the environment has no OffscreenCanvas. */
 export type AtlasCanvasFactory = (w: number, h: number) => OffscreenCanvas | null;
 
-/** CSS px of empty page around each element (≥ one kernel radius, spec §3): `ceil(10·dpr)` atlas px. */
+/**
+ * CSS px of empty page around each element, `ceil(10·dpr)` atlas px, for bilinear filtering (spec §3).
+ * Since W77 (D77-1) R reaches 16 px, past the gutter: the text shader's uv clamp and coverage 0
+ * outside [0,1]² keep the kernel off neighbouring entries, not this gutter.
+ */
 export const ATLAS_GUTTER_PX = 10;
 /** Page edge in atlas px; within WebGPU's guaranteed maxTextureDimension2D (8192). */
 export const ATLAS_MAX_SIZE_PX = 4096;

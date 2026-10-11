@@ -264,7 +264,7 @@ uv = rest_uv_p + diag(1/w_rest, 1/h_rest) · F_p⁻¹ · (frag_px − x_p_px)
 ```
 - `w_rest, h_rest` come from the rect at redistribution, not the live rect.
 - `uv` is mapped into the atlas as `atlas_origin + uv · atlas_size`.
-- Coverage is 0 when `uv ∉ [0,1]²`. Atlas entries get a gutter of at least 1 kernel radius (10 px, (amended 2026-10-10, slice-4 design, D74-5).
+- Coverage is 0 when `uv ∉ [0,1]²`, and `uv` is clamped to the entry, so the kernel's reach never samples a neighbouring entry. Atlas entries get a 10 px gutter (amended 2026-10-10, slice-4 design, D74-5) for bilinear filtering; since the kernel cap rose to 16 px it no longer spans a kernel radius, and the clamp, not the gutter, is the guarantee (amended in W77, D77-1).
 - `F⁻¹` is computed once per instance in the vertex shader, and its norm is clamped (to 2, (amended 2026-10-10, slice-4 design, D74-4) so compression does not cause minification.
 - Coverage is 0 when `|det F| < ε` or `torn` is set.
 

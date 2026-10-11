@@ -40,7 +40,7 @@ import { estimateSplatFragments } from "./overdraw";
 export const T0_SCALE_DEFAULT = 0.5;
 /**
  * W72 (W71 ward-review M2): the smallest accepted T0 scale. Far below 0.5 a T0 texel grows past
- * the kernel radius (R ≤ 8 CSS px) and the thresholded edge turns blocky; D71-4 compared 0.5 and
+ * the kernel radius (R = 2.3 × spacing, ≤ 16 CSS px since W77) and the thresholded edge turns blocky; D71-4 compared 0.5 and
  * 0.75 only. The options validate the same range (`webgpuT0Scale`, options.ts).
  */
 export const T0_SCALE_MIN = 0.25;

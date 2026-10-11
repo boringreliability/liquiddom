@@ -31,6 +31,7 @@ export class FluidCanvas2DRenderer implements Renderer {
   private readonly fillPaint: Array<ElementPaint | undefined> = [];
   private readonly fillStyles: string[] = [];
 
+  /** `scalePx` is the cell until the first frame with particles; `fitCell` sets it from then on (W77, D77-1). */
   constructor(scalePx: number = DEFAULT_SCALE_PX) {
     this.grid = new DensityGrid(scalePx);
   }
