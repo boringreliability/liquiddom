@@ -3,7 +3,7 @@ ward: 79
 revision: null
 name: "Merge and separate"
 epic: "fluid-engine"
-status: "red"
+status: "approved"
 dependencies: [78]
 layer: "both"
 estimated_tests: 26
