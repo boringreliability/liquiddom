@@ -31,6 +31,10 @@ export interface TextIdReport {
   textPx: number;
   /** Every slot id seen, ascending. */
   ids: number[];
+  /** W79 red review (I3): the distinct mixed (smallest, largest) id pairs, ascending. */
+  pairs: Array<[number, number]>;
+  /** W79 red review (M1): canvas text pixels on texels where smallest == largest == id (one element only), by id. */
+  textPxById: Record<number, number>;
 }
 
 /** IEEE 754 half (as its 16 bits) → number. */
@@ -45,8 +49,9 @@ export function halfToFloat(h: number): number {
 
 /** One frame's ids against the same frame's pixels (same size: T1 is at 1× the backing). */
 export function summarizeTextIds(c: TextIdCaptureLike, px: PixelsLike, textMin: number): TextIdReport {
-  const report: TextIdReport = { textPass: c.textPass, mixed: 0, mixedTextPx: 0, textPx: 0, ids: [] };
+  const report: TextIdReport = { textPass: c.textPass, mixed: 0, mixedTextPx: 0, textPx: 0, ids: [], pairs: [], textPxById: {} };
   if (!c.textPass) return report;
+  const pairSeen = new Map<number, [number, number]>();
   if (c.width !== px.width || c.height !== px.height) {
     throw new Error(`text-id-report: capture ${c.width}x${c.height} vs pixels ${px.width}x${px.height}`);
   }
@@ -66,9 +71,13 @@ export function summarizeTextIds(c: TextIdCaptureLike, px: PixelsLike, textMin: 
       if (lo + 0.5 < hi) {
         report.mixed++;
         if (text) report.mixedTextPx++;
+        pairSeen.set(lo * 4096 + hi, [lo, hi]);
+      } else if (text) {
+        report.textPxById[lo] = (report.textPxById[lo] ?? 0) + 1;
       }
     }
   }
   report.ids = [...seen].sort((a, b) => a - b);
+  report.pairs = [...pairSeen.values()].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   return report;
 }

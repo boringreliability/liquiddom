@@ -1092,7 +1092,18 @@ const W79_AFTER_RELEASE_FRAMES = 60;
 const W79_MERGE_INDEX = 2;
 const W79_CARD_INDEX = 3;
 
-type W79TextIds = { textPass: boolean; mixed: number; mixedTextPx: number; textPx: number; ids: number[]; elements: number[] };
+type W79TextIds = {
+  textPass: boolean;
+  mixed: number;
+  mixedTextPx: number;
+  textPx: number;
+  ids: number[];
+  elements: number[];
+  pairs: Array<[number, number]>;
+  textPxByElement: Record<number, number>;
+};
+/** W79 red review (I3): at least this many of the 90 hold frames (half) must hold a mixed Merge|card texel. */
+const W79_MIN_MEET_HOLD_FRAMES = W79_HOLD_FRAMES / 2;
 
 /** One manual frame with the text id capture armed (the hook advances it). */
 async function w79TextIds(page: Page): Promise<W79TextIds> {
@@ -1121,7 +1132,9 @@ test.describe("W79 – labels never overlap (webgpu)", () => {
       frames.push(await w79TextIds(page));
     }
     for (let f = 0; f < W79_HOLD_FRAMES; f++) frames.push(await w79TextIds(page));
-    const cardText = await canvasTextPixelsIn(page, "#card"); // the hold's last frame
+    const holdFrames = frames.slice(10, 10 + W79_HOLD_FRAMES);
+    // M1: the card's own text only, on texels where no other element's text splat reached (smallest == largest == card).
+    const cardText = holdFrames.at(-1)!.textPxByElement[W79_CARD_INDEX] ?? 0;
     await page.screenshot({ path: testInfo.outputPath("w79-webgpu-merge-hold-f90.png") });
     await page.mouse.up();
     for (let f = 1; f <= W79_AFTER_RELEASE_FRAMES; f++) {
@@ -1130,14 +1143,15 @@ test.describe("W79 – labels never overlap (webgpu)", () => {
     }
     const worst = frames.reduce((m, r) => Math.max(m, r.mixedTextPx), 0);
     const mixedMax = frames.reduce((m, r) => Math.max(m, r.mixed), 0);
-    const met = frames.some((r) => r.mixed > 0 && r.elements.includes(W79_MERGE_INDEX) && r.elements.includes(W79_CARD_INDEX));
+    // I3: the pair (Merge, card) itself must be mixed (Merge x Split alone proves nothing), in >= half of the hold frames.
+    const meetFrames = holdFrames.filter((r) => r.pairs.some(([a, b]) => a === W79_MERGE_INDEX && b === W79_CARD_INDEX)).length;
     console.log(
-      `W79 text ids (webgpu): ${frames.length} frames, max mixed texels ${mixedMax}, max text px on mixed texels ${worst}, card-rect text px at hold f90 ${cardText}`,
+      `W79 text ids (webgpu): ${frames.length} frames, max mixed texels ${mixedMax}, max text px on mixed texels ${worst}, card-only text px at hold f90 ${cardText}, hold frames with the Merge|card pair ${meetFrames}/${W79_HOLD_FRAMES}`,
     );
     expect(frames.every((r) => r.textPass), "every frame of the flow draws liquid text").toBe(true);
-    expect(met, "Merge's and the card's text splats do meet (the check is not vacuous)").toBe(true);
+    expect(meetFrames, `Merge's and the card's text splats meet (the pair ${W79_MERGE_INDEX}|${W79_CARD_INDEX}) in >= ${W79_MIN_MEET_HOLD_FRAMES} of the ${W79_HOLD_FRAMES} hold frames (the check is not vacuous)`).toBeGreaterThanOrEqual(W79_MIN_MEET_HOLD_FRAMES);
     expect(worst, "no pixel carries text where two elements' text splats meet (D79-1)").toBe(0);
-    expect(cardText, "text still shows in the card where the liquids do not mix").toBeGreaterThan(TEXT_MIN_PX);
+    expect(cardText, "the card's own text still shows where the liquids do not mix").toBeGreaterThan(TEXT_MIN_PX);
     const rest = await framesUntilAllRest(page, REFORM_BUDGET_FRAMES - W79_AFTER_RELEASE_FRAMES);
     const total = rest > 0 ? rest + W79_AFTER_RELEASE_FRAMES : -1;
     console.log(`W79 step 5 (webgpu): every restAlpha 1 after ${total} frames`);

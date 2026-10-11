@@ -326,6 +326,22 @@ fn given_the_drag_released_after_the_merge_when_ticking_then_the_damage_stops_th
     }
     assert!(rested, "the card rests again");
     assert!(!core.merge_slip_of(CARD_ID), "at rest the merge slip ends");
+    // W79 red review (M3): the dragged element's own flag ends too, once it rests after the release.
+    assert!(
+        core.merge_slip_of(MERGE_ID) || rest_alpha(&core, MERGE_ID) >= 1.0,
+        "precondition: Merge keeps its flag until it rests"
+    );
+    for _ in 0..REFORM_FRAMES {
+        if all_at_rest(&core) {
+            break;
+        }
+        idle(&mut core, 1);
+    }
+    assert!(all_at_rest(&core), "every element rests again");
+    assert!(
+        !core.merge_slip_of(MERGE_ID),
+        "at rest Merge's merge slip ends too"
+    );
 }
 
 #[test]
@@ -393,6 +409,88 @@ fn given_merge_slip_set_when_the_element_comes_to_rest_its_slot_resets_or_reduce
     );
     e.set_merge_slip(7, true);
     assert!(!e.merge_slip(7), "out of range: no-op, false");
+    // W79 red review (M3): an inactive slot (w = 0) carries no flag after the next tick.
+    let mut core = scene(1);
+    idle(&mut core, 5);
+    core.set_merge_slip_of(CARD_ID, true);
+    assert!(
+        core.merge_slip_of(CARD_ID),
+        "precondition: flag set on the core"
+    );
+    let mut gone = element(CARD, INTERACTION_IDLE, 0.0, 0.0);
+    gone[2] = 0.0;
+    core.write_element(CARD_ID, gone);
+    idle(&mut core, 1);
+    assert!(!core.merge_slip_of(CARD_ID), "cleared for an inactive slot");
+}
+
+/// W79 red review (I1): G2P must slip a flagged element's particles at the merge rate. Two identical
+/// seed-1 cores get the same splash on Splash; one flags Splash with the merge slip right after.
+/// After 40 frames the flagged liquid sits closer to its targets (4.5/s pulls harder than 3/s).
+#[test]
+fn given_two_identical_cores_and_one_flagged_with_the_merge_slip_when_the_same_splash_runs_then_the_flagged_elements_particles_end_strictly_closer_to_their_targets()
+ {
+    const FRAMES: u32 = 40;
+    let mean_dev = |core: &FluidCore| {
+        let idx = core.particle_indices_of(SPLASH_ID as u32);
+        let sum: f32 = idx
+            .iter()
+            .filter_map(|&i| {
+                let t = core.target_px(i)?;
+                let p = core.particle_px(i);
+                Some(((t.0 - p.0).powi(2) + (t.1 - p.1).powi(2)).sqrt())
+            })
+            .sum();
+        sum / idx.len().max(1) as f32
+    };
+    let (mut plain, mut flagged) = (scene(1), scene(1));
+    for core in [&mut plain, &mut flagged] {
+        idle(core, 30);
+        core.splash(SPLASH_ID as u32, 476.0, 284.0, 1.0);
+    }
+    flagged.set_merge_slip_of(SPLASH_ID, true);
+    idle(&mut plain, FRAMES);
+    idle(&mut flagged, FRAMES);
+    let (a, b) = (mean_dev(&plain), mean_dev(&flagged));
+    println!("W79 I1: mean target deviation after {FRAMES} frames: plain {a:.4}, flagged {b:.4}");
+    assert!(
+        a > 0.0 && b < a,
+        "G2P slips the flagged element at the merge rate: plain {a}, flagged {b}"
+    );
+}
+
+/// W79 red review (I2): without a drag W79 changes nothing. Seed 1, acceptance layout, a splash on
+/// Splash then a shake: the frames each element needs to rest again are asserted (±1 frame, because
+/// CI runs `cargo test` on Linux, whose libm can differ from the macOS run these were measured on;
+/// a changed mechanism moves them by many frames). Measured at red (W78 code), macOS.
+#[test]
+fn given_a_splash_then_a_shake_and_no_drag_when_ticking_then_every_element_re_forms_in_the_frames_measured_on_w78()
+ {
+    /// Splash, Split, Merge, card: frames after the shake until restAlpha is 1 (W78 code, seed 1).
+    const MEASURED: [u32; 4] = [136, 136, 126, 136];
+    let mut core = scene(1);
+    idle(&mut core, 30);
+    core.splash(SPLASH_ID as u32, 476.0, 284.0, 1.0);
+    idle(&mut core, 20);
+    core.shake(1.0);
+    let mut rest_at = [0u32; 4];
+    for f in 1..=400u32 {
+        idle(&mut core, 1);
+        for (id, at) in rest_at.iter_mut().enumerate() {
+            if *at == 0 && rest_alpha(&core, id) >= 1.0 {
+                *at = f;
+            }
+        }
+    }
+    println!("W79 I2: frames to rest after the shake {rest_at:?}");
+    for id in 0..LAYOUT.len() {
+        assert!(
+            rest_at[id].abs_diff(MEASURED[id]) <= 1,
+            "element {id}: rests after {} frames, measured {} on W78 (±1)",
+            rest_at[id],
+            MEASURED[id]
+        );
+    }
 }
 
 #[test]

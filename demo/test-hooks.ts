@@ -56,6 +56,10 @@ export interface SceneTextIds {
   ids: number[];
   /** The same as DOM indices of [data-liquid] (#splash 0, #split 1, #merge 2, #card 3). */
   elements: number[];
+  /** W79 red review (I3): the mixed (smallest, largest) pairs as DOM indices, each sorted ascending, pairs ascending. */
+  pairs: Array<[number, number]>;
+  /** W79 red review (M1): canvas text pixels where one element's text is alone (smallest == largest), by DOM index. */
+  textPxByElement: Record<number, number>;
 }
 
 export interface LiquidTestHook {

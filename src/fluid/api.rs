@@ -718,6 +718,11 @@ impl FluidCore {
         self.elements.merge_slip(id)
     }
 
+    /// W79 red review (I1): sets the element's merge-slip flag, so a test can prove G2P reads it.
+    pub(crate) fn set_merge_slip_of(&mut self, id: usize, on: bool) {
+        self.elements.set_merge_slip(id, on);
+    }
+
     pub(crate) fn stiffness_of(&self, id: usize) -> f32 {
         self.elements.stiffness[id]
     }

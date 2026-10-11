@@ -990,4 +990,23 @@ describe("W79: the text id target (D79-1)", () => {
     expect(await r2.captureTextIds(), "after a loss").toBeNull();
     expect(f.calls.errors).toEqual([]);
   });
+
+  // W79 red review (M3). Decision: a second captureTextIds() while one is armed rejects at once with
+  // "already armed"; the first is untouched. No hang, one copy, one buffer, and a later capture works.
+  it("given_a_capture_already_armed_when_captureTextIds_is_called_again_before_a_frame_then_the_second_rejects_clearly_the_first_resolves_with_one_copy_and_a_later_capture_works", async () => {
+    const f = gpu();
+    const r = await textReadyRenderer();
+    const first = r.captureTextIds();
+    await expect(r.captureTextIds()).rejects.toThrow(/already armed/);
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    const c = await first;
+    expect(c?.textPass).toBe(true);
+    expect(f.calls.bufferCopies, "one copy for the one armed capture").toHaveLength(1);
+    expect(f.calls.bufferCopies[0]!.buffer.destroyed, "its buffer is released").toBe(true);
+    const later = r.captureTextIds();
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    expect((await later)?.textPass, "a capture after the first resolved works again").toBe(true);
+    expect(f.calls.bufferCopies).toHaveLength(2);
+    expect(f.calls.errors).toEqual([]);
+  });
 });

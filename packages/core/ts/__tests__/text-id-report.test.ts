@@ -38,12 +38,19 @@ describe("W79: demo/text-id-report.ts (D79-1)", () => {
       [[H.three, H.minusThree], [H.one, H.minusThree], [H.empty, H.empty]],
     ]);
     const r = summarizeTextIds(c, pixels([[1, 0], [2, 0]]), 200);
-    expect(r).toEqual({ textPass: true, mixed: 2, mixedTextPx: 1, textPx: 2, ids: [1, 2, 3] });
+    // W79 red review (I3, M1): the mixed (smallest, largest) pairs, and text counted per element only where one element's text is alone.
+    expect(r).toEqual({ textPass: true, mixed: 2, mixedTextPx: 1, textPx: 2, ids: [1, 2, 3], pairs: [[1, 3], [2, 3]], textPxById: { 2: 1 } });
+    const r2 = summarizeTextIds(c, pixels([[1, 0], [2, 0], [0, 1], [1, 1]]), 200);
+    expect(r2.pairs, "texels (2,0) and (1,1) mix 2|3 and 1|3; a single element's texels (lo == hi) are no pair").toEqual([[1, 3], [2, 3]]);
+    expect(r2.textPxById, "text on (1,0) is element 2 alone, on (0,1) element 3 alone; the mixed texels count for neither").toEqual({ 2: 1, 3: 1 });
+    expect([r2.mixed, r2.mixedTextPx, r2.textPx]).toEqual([2, 2, 4]);
+    const same = capture([[[H.two, H.minusTwo], [H.three, H.minusThree], [H.empty, H.empty]], [[H.empty, H.empty], [H.empty, H.empty], [H.empty, H.empty]]]);
+    expect(summarizeTextIds(same, pixels([[0, 0], [1, 0]]), 200).pairs, "no mixed texel: no pair, even with two elements in the frame").toEqual([]);
   });
 
   it("given_no_text_pass_or_a_size_mismatch_when_summarized_then_an_empty_report_or_a_throw", () => {
     const none: TextIdCaptureLike = { textPass: false, width: 0, height: 0, bytesPerRow: 0, empty: 4096, data: new Uint16Array(0) };
-    expect(summarizeTextIds(none, pixels([]), 200)).toEqual({ textPass: false, mixed: 0, mixedTextPx: 0, textPx: 0, ids: [] });
+    expect(summarizeTextIds(none, pixels([]), 200)).toEqual({ textPass: false, mixed: 0, mixedTextPx: 0, textPx: 0, ids: [], pairs: [], textPxById: {} });
     const c = capture([[[H.two, H.minusTwo], [H.empty, H.empty], [H.empty, H.empty]], [[H.empty, H.empty], [H.empty, H.empty], [H.empty, H.empty]]]);
     expect(() => summarizeTextIds(c, { width: 6, height: 4, data: new Uint8ClampedArray(96) }, 200)).toThrow(/capture 3x2 vs pixels 6x4/);
   });

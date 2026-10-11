@@ -22,6 +22,8 @@ import { summarizeTextIds, type TextIdCaptureLike } from "../text-id-report";
 const PARTICLES = 8000;
 /** W79: a canvas text pixel has every channel and alpha ≥ this (webgpu-robust.spec.ts CANVAS_TEXT_MIN). */
 const TEXT_ID_TEXT_MIN = 200;
+/** W79 red review (M2): the id readback must resolve within this many ms of the frame. */
+const TEXT_ID_TIMEOUT_MS = 2000;
 const MAX_ELEMENTS = 32;
 
 const parsed = parseSceneParams(window.location.search);
@@ -228,10 +230,30 @@ const hook: LiquidTestHook = {
     if (!rt?.captureTextIds) throw new Error("[acceptance] textIds(): FluidRuntime.captureTextIds is missing (W79.3)");
     const pending = rt.captureTextIds();
     hook.advance(1);
-    const capture = await pending;
+    // W79 red review (M2): a capture that never resolves (device stall, no frame rendered) must fail loudly, not hang the e2e.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`[acceptance] textIds(): the id readback did not resolve within ${TEXT_ID_TIMEOUT_MS} ms`)), TEXT_ID_TIMEOUT_MS);
+    });
+    let capture: TextIdCaptureLike | null;
+    try {
+      capture = await Promise.race([pending, timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
     if (!capture) throw new Error(`[acceptance] textIds(): no capture (renderer ${rt.activeRenderer})`);
     const report = summarizeTextIds(capture, hook.pixels(), TEXT_ID_TEXT_MIN);
-    return { ...report, elements: report.ids.map((id) => slotIds.indexOf(id)).filter((i) => i >= 0) };
+    const dom = (id: number): number => slotIds.indexOf(id);
+    const textPxByElement: Record<number, number> = {};
+    for (const [id, n] of Object.entries(report.textPxById)) {
+      const i = dom(Number(id));
+      if (i >= 0) textPxByElement[i] = n;
+    }
+    const pairs = report.pairs
+      .map(([lo, hi]) => [dom(lo), dom(hi)].sort((a, b) => a - b) as [number, number])
+      .filter(([a]) => a >= 0)
+      .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    return { ...report, elements: report.ids.map(dom).filter((i) => i >= 0), pairs, textPxByElement };
   },
 };
 
