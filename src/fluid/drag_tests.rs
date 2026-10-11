@@ -291,12 +291,19 @@ fn given_merge_dragged_150px_up_when_ticking_then_its_liquid_follows_the_displac
     );
 }
 
+/// Split moved to 12 px below Merge's displaced home (D78-4 review fix): the pointer rests in the
+/// gap, within 70 px of both elements' liquid, so a global "pointer off while dragging" fails.
+const SPLIT_NEAR: Bx = (734.0, 170.0, 140.0, 48.0, 24.0);
+const SPLIT_ID: usize = 1;
+
 /// 30 idle frames, Merge displaced 150 px up (as a held drag when `dragged`, else as a stray idle
-/// offset Rust still honours), 60 frames to settle, then 30 frames with the pointer resting at the
-/// displaced centre while moving at 600 px/s (+x). Split (94 px away) and the card (206 px) are
-/// outside the 70 px field.
-fn pointer_run(dragged: bool, pointer: bool) -> Vec<(f32, f32)> {
+/// offset Rust still honours), 60 frames to settle, then 30 frames with the pointer in the gap
+/// between Merge's displaced home and Split, moving at 600 px/s (+x). Returns Merge's and Split's
+/// particle positions. The card (y 340) is outside the 70 px field.
+fn pointer_run(dragged: bool, pointer: bool) -> (Vec<(f32, f32)>, Vec<(f32, f32)>) {
     let mut core = scene(1);
+    core.write_element(SPLIT_ID, element(SPLIT_NEAR, INTERACTION_IDLE, 0.0, 0.0));
+    core.redistribute();
     idle(&mut core, 30);
     let interaction = if dragged {
         INTERACTION_DRAGGED
@@ -305,20 +312,22 @@ fn pointer_run(dragged: bool, pointer: bool) -> Vec<(f32, f32)> {
     };
     core.write_element(MERGE_ID, element(MERGE, interaction, 0.0, DRAG_DY_PX));
     idle(&mut core, 60);
-    let (px, py) = (
-        MERGE.0 + MERGE.2 / 2.0,
-        MERGE.1 + MERGE.3 / 2.0 + DRAG_DY_PX,
-    );
+    let (px, py) = (MERGE.0 + MERGE.2 / 2.0, SPLIT_NEAR.1 - 6.0);
     for _ in 0..30 {
         let _ = core.tick(DT, px, py, 600.0, 0.0, pointer, 0.0, 0.0);
     }
-    positions(&core, MERGE_ID)
+    (positions(&core, MERGE_ID), positions(&core, SPLIT_ID))
+}
+
+fn mean_dx(a: &[(f32, f32)], b: &[(f32, f32)]) -> f32 {
+    a.iter().zip(b).map(|(p, q)| p.0 - q.0).sum::<f32>() / a.len().max(1) as f32
 }
 
 #[test]
 fn given_the_pointer_moving_over_dragged_merge_when_ticking_then_its_liquid_moves_as_without_the_pointer_and_an_idle_merge_is_pushed()
  {
-    let (with, without) = (pointer_run(true, true), pointer_run(true, false));
+    let ((with, split_with), (without, split_without)) =
+        (pointer_run(true, true), pointer_run(true, false));
     let worst = with
         .iter()
         .zip(&without)
@@ -328,17 +337,57 @@ fn given_the_pointer_moving_over_dragged_merge_when_ticking_then_its_liquid_move
         worst < 1e-3,
         "the pointer field skips the dragged element's particles (D78-4): worst {worst} px"
     );
-    let (idle_with, idle_without) = (pointer_run(false, true), pointer_run(false, false));
-    let mean_dx = idle_with
-        .iter()
-        .zip(&idle_without)
-        .map(|(a, b)| a.0 - b.0)
-        .sum::<f32>()
-        / idle_with.len().max(1) as f32;
+    let split_dx = mean_dx(&split_with, &split_without);
     assert!(
-        mean_dx >= 0.5,
-        "control: the same pointer pushes an idle Merge's liquid (+x), mean dx {mean_dx} px"
+        split_dx >= 0.5,
+        "other elements still feel the pointer while Merge is dragged (D78-4), Split mean dx {split_dx} px"
     );
+    let ((idle_with, _), (idle_without, _)) = (pointer_run(false, true), pointer_run(false, false));
+    let merge_dx = mean_dx(&idle_with, &idle_without);
+    assert!(
+        merge_dx >= 0.5,
+        "control: the same pointer pushes an idle Merge's liquid (+x), mean dx {merge_dx} px"
+    );
+}
+
+#[test]
+fn given_nan_or_infinite_offsets_in_slots_6_7_on_a_dragged_element_when_ticking_then_velocity_and_particles_stay_finite_and_nothing_panics()
+ {
+    // May pass at red (guard): D78-3 must keep it passing once the offset enters the velocity.
+    let mut e = elements_with(&[element(MERGE, INTERACTION_DRAGGED, 0.0, 0.0)]);
+    e.update_velocities(DT);
+    for (dx, dy) in [
+        (f32::NAN, 4.0),
+        (3.0, f32::INFINITY),
+        (f32::NEG_INFINITY, f32::NAN),
+        (5.0, 5.0),
+    ] {
+        e.buf[EL_HOME_DX] = dx;
+        e.buf[EL_HOME_DY] = dy;
+        e.update_velocities(DT);
+        assert!(
+            e.vel_x[0].is_finite() && e.vel_y[0].is_finite(),
+            "offset ({dx}, {dy}): velocity ({}, {}) must be finite",
+            e.vel_x[0],
+            e.vel_y[0]
+        );
+    }
+    let mut core = scene(1);
+    idle(&mut core, 10);
+    for (dx, dy) in [
+        (f32::NAN, 0.0),
+        (0.0, f32::INFINITY),
+        (f32::NEG_INFINITY, f32::NAN),
+    ] {
+        drag_merge(&mut core, dx, dy);
+        idle(&mut core, 5);
+        assert!(
+            positions(&core, MERGE_ID)
+                .iter()
+                .all(|p| p.0.is_finite() && p.1.is_finite()),
+            "offset ({dx}, {dy}): every particle stays finite"
+        );
+    }
 }
 
 #[test]

@@ -175,7 +175,7 @@ describe("W78: DragTracker (D78-2, D78-6)", () => {
   });
 
   // 8 (README Review Focus 2)
-  it("given_an_active_drag_when_pointercancel_blur_escape_or_lostpointercapture_then_it_cancels_and_later_moves_do_not_restart_it", () => {
+  it("given_an_active_drag_when_pointercancel_blur_escape_or_lostpointercapture_then_it_cancels_and_later_moves_do_not_restart_it", async () => {
     const el = observed();
     tracker.attach(el);
     const cancels: Array<[string, () => void]> = [
@@ -195,6 +195,10 @@ describe("W78: DragTracker (D78-2, D78-6)", () => {
       move(0, 40);
       expect(tracker.active, `${name}: no restart without a new press`).toBeNull();
       up(el, 0, 40);
+      // D78-6: the swallow outlives the cancel and lasts until that press's pointerup (the click follows it).
+      expect(click(el).defaultPrevented, `${name}: the click after the cancelled drag's pointerup is swallowed`).toBe(true);
+      await nextTask();
+      expect(click(el).defaultPrevented, `${name}: a click in a later task passes`).toBe(false);
     }
   });
 
@@ -281,17 +285,38 @@ describe("W78: DragTracker (D78-2, D78-6)", () => {
   it("given_a_live_press_when_selectstart_or_dragstart_fires_then_its_default_is_prevented_and_without_a_press_it_is_not", () => {
     const el = observed();
     tracker.attach(el);
-    const fire = (type: string): boolean => {
+    const outside = document.body.appendChild(document.createElement("p"));
+    const fire = (type: string, target: EventTarget = el): boolean => {
       const ev = new Event(type, { bubbles: true, cancelable: true });
-      el.dispatchEvent(ev);
+      target.dispatchEvent(ev);
       return ev.defaultPrevented;
     };
     expect(fire("selectstart"), "no press: untouched").toBe(false);
     down(el, 0, 0);
     expect(fire("selectstart"), "a press on an observed element starts no text selection (D78-2)").toBe(true);
     expect(fire("dragstart"), "nor a native drag").toBe(true);
+    expect(fire("selectstart", document), "a selection starting on the document while the press is live").toBe(true);
+    expect(fire("selectstart", outside), "a selection starting outside the observed elements while the press is live").toBe(true);
     up(el, 0, 0);
     expect(fire("selectstart"), "the press ended: untouched").toBe(false);
+    expect(fire("selectstart", document), "the press ended: the document is untouched").toBe(false);
+    expect(fire("selectstart", outside), "the press ended: outside is untouched").toBe(false);
+  });
+
+  // 15 (README Review Focus 5, red-review fix)
+  it("given_a_released_drag_with_its_click_still_pending_when_the_element_is_detached_then_the_click_in_the_same_task_passes_through", () => {
+    const el = observed();
+    tracker.attach(el);
+    const seen = vi.fn();
+    el.addEventListener("click", seen);
+    down(el, 0, 0);
+    move(20, 0);
+    up(el, 20, 0);
+    expect(ends).toEqual([[el, "release"]]);
+    tracker.detach(el); // unobserve() between pointerup and the click
+    const ev = click(el);
+    expect(ev.defaultPrevented, "a detached element's click is no longer swallowed").toBe(false);
+    expect(seen).toHaveBeenCalledTimes(1);
   });
 
   // 14

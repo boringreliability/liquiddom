@@ -379,6 +379,47 @@ describe("W78 runtime: drag the liquid (D78-1 … D78-6)", () => {
     expect(away(el), "the cancelled drag leaves no label class under Canvas2D").toBe(false);
   });
 
+  // 14 (red-review fix)
+  it("given_a_canvas2d_drag_with_liquid_away_when_a_frame_throws_then_the_drag_cancels_liquid_away_is_gone_and_a_later_move_does_not_drag_and_exactly_one_console_error", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { rt, clock, moving, sb } = await start("canvas2d");
+    const el = button();
+    const id = rt.observe(el);
+    await flush();
+    press(el, 804, 284, 0, -60);
+    moving.setRestAlpha(id, 0);
+    clock.advance(1);
+    expect(away(el), "precondition: dragged under Canvas2D").toBe(true);
+    (sb.cores[0] as unknown as { tick: () => never }).tick = () => {
+      throw new Error("tick failed");
+    };
+    clock.advance(1); // the first frame that throws stops the instance for good
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(away(el), "a failed frame clears the label class").toBe(false);
+    el.dispatchEvent(new PointerEvent("pointermove", { ...PTR, buttons: 1, clientX: 804, clientY: 150 }));
+    clock.advance(1);
+    expect(slots(rt, id)[0], "the cancelled press does not resume").not.toBe(Interaction.DRAGGED);
+    expect(away(el)).toBe(false);
+    expect(error, "still exactly one console.error").toHaveBeenCalledTimes(1);
+  });
+
+  // 15 (README Review Focus 5, red-review fix; guard at red: no tracker, nothing is swallowed)
+  it("given_a_released_drag_whose_click_is_still_pending_when_the_element_is_unobserved_then_the_click_in_the_same_task_passes_through", async () => {
+    const { rt } = await start();
+    const el = button();
+    rt.observe(el);
+    await flush();
+    press(el, 804, 284, 0, 20);
+    el.dispatchEvent(new PointerEvent("pointerup", { ...PTR, button: 0, buttons: 0, clientX: 804, clientY: 304 }));
+    rt.unobserve(el);
+    const seen = vi.fn();
+    document.addEventListener("click", seen, { once: true });
+    const ev = new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1, clientX: 804, clientY: 304 });
+    el.dispatchEvent(ev);
+    expect(ev.defaultPrevented, "unobserve drops the pending swallow").toBe(false);
+    expect(seen).toHaveBeenCalledTimes(1);
+  });
+
   // 13
   it("given_a_drag_when_the_dragged_element_leaves_the_document_then_the_next_frame_cancels_it_and_zeroes_its_slots", async () => {
     const { rt, clock, moving } = await start();

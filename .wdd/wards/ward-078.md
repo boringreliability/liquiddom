@@ -6,7 +6,7 @@ epic: "fluid-engine"
 status: "red"
 dependencies: [77]
 layer: "both"
-estimated_tests: 53
+estimated_tests: 57
 created: "2026-10-11"
 completed: null
 ---
@@ -194,6 +194,17 @@ Answer:
 | 52 | e2e acceptance (canvas2d, Linux): step 5 – given the drag released when every restAlpha is 1 then it matches the baseline | baseline `acceptance-step5-drag-reformed` | ⏭ skipped (Linux only) |
 | 53 | e2e webgpu-robust (webgpu-hw): W78 step 5 – given Merge dragged 150 px up into free space and held then it carries liquid-text, never liquid-away, and the canvas shows its white text inside the displaced rect | D78-1 WebGPU text follows | ❌ `liquidText` false (no text rides the dragged liquid) |
 | 54 | e2e webgpu-robust (webgpu-hw): W78 step 5 – given Merge dragged into the card and released then it carries liquid-text while away and, once every restAlpha is 1, no element carries liquid-text and Merge's DOM text is opaque | step 5 drag in WebGPU | ❌ 'liquid text while away': liquidText false |
+| 55 | drag_tests.rs: given_nan_or_infinite_offsets_in_slots_6_7_on_a_dragged_element_when_ticking_then_velocity_and_particles_stay_finite_and_nothing_panics | D78-3 non-finite offsets (red-review fix 9) | ✅ passes (guard) |
+| 56 | drag-runtime.test: given_a_canvas2d_drag_with_liquid_away_when_a_frame_throws_then_the_drag_cancels_liquid_away_is_gone_and_a_later_move_does_not_drag_and_exactly_one_console_error | failed frame cancels a drag, README RF5 (red-review fix 2) | ❌ no drag tracker: no liquid-away at the precondition |
+| 57 | drag-runtime.test: given_a_released_drag_whose_click_is_still_pending_when_the_element_is_unobserved_then_the_click_in_the_same_task_passes_through | D78-6 + README RF5: unobserve drops the pending swallow (red-review fix 4) | ✅ passes (guard: nothing is swallowed yet) |
+| 58 | drag-tracker.test: given_a_released_drag_with_its_click_still_pending_when_the_element_is_detached_then_the_click_in_the_same_task_passes_through | D78-6 + README RF5 (red-review fix 4) | ❌ not collected (module missing: drag-tracker.ts) |
+
+Notes on the Tests table:
+- `estimated_tests` counts new tests: 58 rows, of which row 33 is a changed (approved-test change) test, so 57.
+- Red-review fixes also strengthened existing rows: 7 (another element within 70 px of the pointer is still pushed while Merge is dragged and Merge stays bit-identical, so a global "pointer off while dragging" fails), 16 (the click after a cancelled drag's pointerup is swallowed, a click in a later task passes), 21 (`selectstart` on `document` and on a node outside the observed elements is prevented while a press is live, not after the release), 47 (a later click after the release reaches the document and splashes; the DOM box of `#merge` and `document.activeElement` do not change between the press and the hold).
+- The W78 acceptance blocks add list entries to the `webgpu` and `webgpu-hw` projects that are skipped-only (canvas2d block skips there; the webgpu-robust block runs only in `webgpu-hw`); the `--list` totals count them.
+- Minor 5 (accepted, no test): the s hold is observed at tick end only, so a once-per-tick hold would pass the tests; the physics difference is s ≈ 0.51.
+- Minor 8 (no test): the Canvas2D "liquid follows the drag" is covered by baseline 51 and by the vision check at gold.
 
 ## Must NOT
 - Move the DOM, focus or hit areas during a drag; write any inline style.

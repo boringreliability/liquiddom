@@ -930,17 +930,26 @@ async function w78Centre(page: Page, selector: string): Promise<{ x: number; y: 
 }
 
 /** Mouse press on Merge's centre, 10 moves to the card's centre (one frame each), then `hold` frames; the button stays down. */
-async function w78DragMergeToCard(page: Page, hold = W78_HOLD_FRAMES, button: "left" | "right" = "left"): Promise<{ dx: number; dy: number }> {
+async function w78DragMergeToCard(page: Page, hold = W78_HOLD_FRAMES, button: "left" | "right" = "left"): Promise<{ dx: number; dy: number; activeAtDown: string }> {
   const from = await w78Centre(page, "#merge");
   const to = await w78Centre(page, "#card");
   await page.mouse.move(from.x, from.y);
   await page.mouse.down({ button });
+  const activeAtDown = await w78Active(page); // the press itself may focus the button
   for (let k = 1; k <= 10; k++) {
     await page.mouse.move(from.x + ((to.x - from.x) * k) / 10, from.y + ((to.y - from.y) * k) / 10);
     await w67Advance(page, 1);
   }
   await w67Advance(page, hold);
-  return { dx: to.x - from.x, dy: to.y - from.y };
+  return { dx: to.x - from.x, dy: to.y - from.y, activeAtDown };
+}
+
+/** The focused element as tag#id, for "focus never moves during a drag". */
+async function w78Active(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const a = document.activeElement;
+    return a ? `${a.tagName.toLowerCase()}#${a.id}` : "none";
+  });
 }
 
 /** Merge's own label state: liquid-away and the computed text fill. */
@@ -974,7 +983,10 @@ test.describe("W78 – drag the liquid (step 5 without the merge)", () => {
   test("step 5 – given Merge dragged into the card and held 30 frames when released then slots follow the drag, the click does not splash, Merge's DOM label hides while away and every restAlpha is 1 within 180 frames", async ({ page }, testInfo) => {
     await w67Open(page);
     await w78CountClicks(page);
-    const { dx, dy } = await w78DragMergeToCard(page);
+    const boxBefore = await page.locator("#merge").boundingBox();
+    const { dx, dy, activeAtDown } = await w78DragMergeToCard(page);
+    expect(await page.locator("#merge").boundingBox(), "the DOM box (and so the hit area) never moves during a drag").toEqual(boxBefore);
+    expect(await w78Active(page), "focus does not move between pointerdown and the hold").toBe(activeAtDown);
     const held = await w78Slots(page);
     expect(held[MERGE_INDEX].interaction, "Merge is DRAGGED (D78-4)").toBe(3);
     expect(held[MERGE_INDEX].homeDx, "slot 6 = dx").toBeCloseTo(dx, 0);
@@ -1000,6 +1012,13 @@ test.describe("W78 – drag the liquid (step 5 without the merge)", () => {
     expect(rest.away, "the DOM label is back at rest").toBe(false);
     expect(cssAlpha(rest.fill), `Merge's text fill ${rest.fill} is opaque`).toBeGreaterThan(0);
     await page.screenshot({ path: testInfo.outputPath("w78-canvas2d-reformed.png") });
+
+    // Positive control: swallowing is once per drag; a click in a later task reaches the document and splashes.
+    await page.evaluate(() => new Promise((r) => setTimeout(r)));
+    const c = await w78Centre(page, "#merge");
+    await page.mouse.click(c.x, c.y);
+    expect(await w78Clicks(page), "a later click reaches the document").toBe(1);
+    expect((await w78Slots(page))[MERGE_INDEX].s, "and splashes Merge (s ≤ 0.25)").toBeLessThanOrEqual(W78_SPLASH_S_MAX + 1e-6);
   });
 
   test("step 5 – given a press on Merge that moves 2 px when released then it stays a click splash and nothing drags", async ({ page }) => {
