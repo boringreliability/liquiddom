@@ -3,7 +3,7 @@ ward: 78
 revision: null
 name: "Drag the liquid"
 epic: "fluid-engine"
-status: "red"
+status: "approved"
 dependencies: [77]
 layer: "both"
 estimated_tests: 57
