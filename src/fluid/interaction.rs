@@ -7,12 +7,13 @@
 //! (D73-1) and cap 0.3 (D73-2) so the card no longer tears into a lace.
 //! W77 lowers the amplitude to 0.35 (D77-2) together with a higher stretch yield, so the sheet
 //! thins instead of tearing.
-//! W78 holds a dragged element at s ≤ 0.5 every substep (D78-3).
+//! W78 holds a dragged element at s ≤ 0.5 every substep (D78-3); W79 softens the neighbours
+//! under the dragged home to s ≤ 0.2 and gives the elements of a merge the merge slip (D79-2).
 
 use std::f32::consts::{PI, TAU};
 
 use super::access::{add, rd, rd_u32, wr};
-use super::elements::{Elements, S_FLOOR};
+use super::elements::{Elements, S_FLOOR, rects_overlap};
 use super::grid::Grid;
 use super::particles::Particles;
 use super::rng::Rng;
@@ -44,15 +45,36 @@ pub const NEIGHBOUR_MARGIN_PX: f32 = 16.0;
 pub const NEIGHBOUR_STIFFNESS_CAP: f32 = 0.2;
 
 /// W78 (D78-3, D78-5; spec §2 damage rules): `damage(id, DRAG_STIFFNESS_CAP)` for every active
-/// element whose slot 5 is DRAGGED. The api calls it in every substep right after
-/// `update_stiffness`, so no substep sees a dragged element stiffer than the cap, its rest hold
-/// restarts and its restAlpha stays 0 (a dragged element never rests). Every other element is
-/// untouched (W79 adds the neighbours under the dragged home). Reduced motion never reaches it:
-/// `FluidCore::tick` returns before the substeps.
+/// element whose slot 5 is DRAGGED. W79 (D79-2): every other active, non-dragged element whose
+/// home rect overlaps that dragged home rect grown by `NEIGHBOUR_MARGIN_PX` (`rects_overlap`;
+/// both rects as the engine holds them, offset and hover swell included) gets
+/// `damage(n, NEIGHBOUR_STIFFNESS_CAP)`, and the dragged element and those neighbours get the
+/// merge slip until they rest again. The api calls it in every substep right after
+/// `update_stiffness`, so no substep sees a dragged element stiffer than 0.5 or an overlapped
+/// neighbour stiffer than 0.2; the damage stops in the first substep without the overlap
+/// (release, or the drag moved on) and `s` recovers as after a splash. Reduced motion never
+/// reaches it: `FluidCore::tick` returns before the substeps. O(dragged x slots) per substep,
+/// no allocation.
 pub fn hold_dragged(e: &mut Elements) {
-    for id in 0..e.cap {
-        if e.is_active(id) && e.is_dragged(id) {
-            e.damage(id, DRAG_STIFFNESS_CAP);
+    for d in 0..e.cap {
+        if !(e.is_active(d) && e.is_dragged(d)) {
+            continue;
+        }
+        e.damage(d, DRAG_STIFFNESS_CAP);
+        e.set_merge_slip(d, true);
+        let Some(home) = e.home_rect(d, false) else {
+            continue;
+        };
+        for n in 0..e.cap {
+            if n == d || e.is_dragged(n) {
+                continue;
+            }
+            if let Some(r) = e.home_rect(n, false)
+                && rects_overlap(&home, &r, NEIGHBOUR_MARGIN_PX)
+            {
+                e.damage(n, NEIGHBOUR_STIFFNESS_CAP);
+                e.set_merge_slip(n, true);
+            }
         }
     }
 }

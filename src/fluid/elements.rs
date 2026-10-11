@@ -49,6 +49,9 @@ pub struct Elements {
     /// W78 (D78-3): the drag offset (slots 6–7) at the last velocity sample; 0 unless dragged.
     pub prev_off_x: Vec<f32>,
     pub prev_off_y: Vec<f32>,
+    /// W79 (D79-2): set while the element is dragged or a neighbour under the drag, and kept
+    /// until its restAlpha is 1 again; its particles slip at the merge rate meanwhile.
+    pub merge_slip: Vec<bool>,
     pub stiffness: Vec<f32>,
     pub rest_w: Vec<f32>,
     pub rest_h: Vec<f32>,
@@ -80,9 +83,12 @@ pub fn swell_rect(r: &Rect, interaction: f32, reduced_motion: bool) -> Rect {
     }
 }
 
-/// W79.1 (red) stub: W79.2 tests `b` against `a` grown by `margin` (D79-2).
-pub fn rects_overlap(_a: &Rect, _b: &Rect, _margin: f32) -> bool {
-    false
+/// W79 (D79-2): true when `b` overlaps `a` grown by `margin` px on every side. Open intervals:
+/// rects exactly `margin` apart do not overlap. Any NaN coordinate gives false.
+pub fn rects_overlap(a: &Rect, b: &Rect, margin: f32) -> bool {
+    let (ax0, ay0) = (a.x - margin, a.y - margin);
+    let (ax1, ay1) = (a.x + a.w + margin, a.y + a.h + margin);
+    ax0 < b.x + b.w && b.x < ax1 && ay0 < b.y + b.h && b.y < ay1
 }
 
 impl Elements {
@@ -102,6 +108,7 @@ impl Elements {
             vel_y: vec![0.0; cap],
             prev_off_x: vec![0.0; cap],
             prev_off_y: vec![0.0; cap],
+            merge_slip: vec![false; cap],
             stiffness: vec![1.0; cap],
             rest_w: vec![0.0; cap],
             rest_h: vec![0.0; cap],
@@ -131,13 +138,18 @@ impl Elements {
             && positive(self.field(id, EL_H))
     }
 
-    /// W79.1 (red) stub: W79.2 keeps a merge-slip flag per element (D79-2).
-    pub fn merge_slip(&self, _id: usize) -> bool {
-        false
+    /// W79 (D79-2): the element takes part in a merge (dragged, or a neighbour under the drag)
+    /// and has not been at rest since. Out of range gives false.
+    pub fn merge_slip(&self, id: usize) -> bool {
+        self.merge_slip.get(id).copied().unwrap_or(false)
     }
 
-    /// W79.1 (red) stub: W79.2 sets or clears the merge-slip flag (D79-2).
-    pub fn set_merge_slip(&mut self, _id: usize, _on: bool) {}
+    /// W79 (D79-2): sets or clears `merge_slip`; out of range is a no-op.
+    pub fn set_merge_slip(&mut self, id: usize, on: bool) {
+        if let Some(slot) = self.merge_slip.get_mut(id) {
+            *slot = on;
+        }
+    }
 
     /// W78 (D78-4): slot 5 holds DRAGGED (within ±0.5, like HOVER in `swell_rect`). NaN, an
     /// out-of-range id and every other code are not dragged.
@@ -272,6 +284,7 @@ impl Elements {
         wr(&mut self.vel_y, id, 0.0);
         wr(&mut self.prev_off_x, id, 0.0);
         wr(&mut self.prev_off_y, id, 0.0);
+        self.set_merge_slip(id, false);
         let base = id * STATE_STRIDE;
         wr(&mut self.state, base + ST_S, 1.0);
         wr(&mut self.state, base + ST_MAX_DEV, 0.0);
@@ -338,6 +351,7 @@ impl Elements {
         }
         let base = id * STATE_STRIDE;
         if !self.is_active(id) {
+            self.set_merge_slip(id, false);
             wr(&mut self.rest_hold_s, id, 0.0);
             wr(&mut self.state, base + ST_S, 1.0);
             wr(&mut self.state, base + ST_MAX_DEV, 0.0);
@@ -349,6 +363,7 @@ impl Elements {
             // W67 ward-review fix: under reduced motion the element is at rest (spec §2),
             // so pending damage is dropped instead of frozen until motion returns.
             wr(&mut self.stiffness, id, 1.0);
+            self.set_merge_slip(id, false);
             wr(&mut self.rest_hold_s, id, REST_HOLD_S);
             wr(&mut self.state, base + ST_S, 1.0);
             wr(&mut self.state, base + ST_MAX_DEV, 0.0);
@@ -380,6 +395,10 @@ impl Elements {
         wr(&mut self.state, base + ST_MAX_DEV, dev);
         wr(&mut self.state, base + ST_REST_ALPHA, alpha);
         wr(&mut self.state, base + ST_MAX_F_DEV, fdev);
+        if alpha >= 1.0 {
+            // W79 (D79-2): back at rest, the merge slip ends.
+            self.set_merge_slip(id, false);
+        }
     }
 
     /// W67 (D67-12), W74 (D74-2): an active element that is stiff (`s > REST_S_MIN`), whose

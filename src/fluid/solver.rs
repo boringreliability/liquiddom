@@ -208,6 +208,10 @@ struct ElRow {
     mu: f32,
     /// W78 (D78-4): slot 5 is DRAGGED; the soft pointer field skips this element's particles.
     dragged: bool,
+    /// W79 (D79-2): slip rate at s = 1 (1/s) and slip cap (cells/s): the merge slip while
+    /// `Elements::merge_slip` is set, else SLIP_RATE_PER_S and SLIP_MAX_PX_S.
+    slip_rate: f32,
+    slip_max: f32,
 }
 
 impl ElRow {
@@ -222,6 +226,11 @@ impl ElRow {
             1.0
         };
         let k = SPRING_K * s;
+        let (slip_rate, slip_max_px_s) = if e.merge_slip(id) {
+            (MERGE_SLIP_RATE_PER_S, MERGE_SLIP_MAX_PX_S)
+        } else {
+            (SLIP_RATE_PER_S, SLIP_MAX_PX_S)
+        };
         ElRow {
             active: true,
             x: rect.x,
@@ -237,13 +246,15 @@ impl ElRow {
             hvy: rd(&e.vel_y, id) * inv,
             mu: element_viscosity_px2_s(e, id, m) * inv * inv,
             dragged: e.is_dragged(id),
+            slip_rate,
+            slip_max: slip_max_px_s * inv,
         }
     }
 
-    /// W79.1 (red) stub: W79.2 slips at the row's own rate and cap and calls it from G2P (D79-2).
-    #[allow(dead_code)]
+    /// W79 (D79-2): the slip towards the target at this row's rate and cap (cells/s).
+    #[inline]
     fn slip(&self, offset: (f32, f32)) -> (f32, f32) {
-        slip_velocity(offset, self.stiff, f32::INFINITY)
+        slip_velocity_at(offset, self.stiff, self.slip_rate, self.slip_max)
     }
 
     /// `home_spring_accel` with this row's precomputed k, damping and a_max.
@@ -431,17 +442,18 @@ pub fn home_spring_accel(
 
 /// Grid-independent drift towards the target: offset × 3/s × s², capped at `max`.
 pub fn slip_velocity(offset: (f32, f32), s: f32, max: f32) -> (f32, f32) {
-    let rate = SLIP_RATE_PER_S * s * s;
+    slip_velocity_at(offset, s, SLIP_RATE_PER_S, max)
+}
+
+/// W79 (D79-2): `slip_velocity` with the rate as a parameter: offset × `rate_per_s` × s², capped
+/// at `max`. With SLIP_RATE_PER_S it is W67's arithmetic, bit for bit.
+pub fn slip_velocity_at(offset: (f32, f32), s: f32, rate_per_s: f32, max: f32) -> (f32, f32) {
+    let rate = rate_per_s * s * s;
     let (sx, sy) = (offset.0 * rate, offset.1 * rate);
     match norm_if_above(sx, sy, max) {
         Some(m) => (sx * max / m, sy * max / m),
         None => (sx, sy),
     }
-}
-
-/// W79.1 (red) stub: W79.2 uses `rate_per_s` instead of SLIP_RATE_PER_S (D79-2).
-pub fn slip_velocity_at(offset: (f32, f32), s: f32, _rate_per_s: f32, max: f32) -> (f32, f32) {
-    slip_velocity(offset, s, max)
 }
 
 /// Subtle wobble of the target (px) at local rest position (lx, ly), × (1 − restAlpha).
@@ -687,7 +699,6 @@ pub fn substep_with(
     g.update_velocities(dt, vmax);
 
     // ---- G2P ----
-    let slip_max = SLIP_MAX_PX_S * inv;
     // The AABB of the positions G2P leaves behind, i.e. what `particle_bounds` would
     // find at the start of the next substep (fused into this pass).
     let mut next_bounds: Option<(f32, f32, f32, f32)> = None;
@@ -707,8 +718,8 @@ pub fn substep_with(
         let (tx, ty) = (rd_or(&s.tgt_x, i, f32::NAN), rd_or(&s.tgt_y, i, f32::NAN));
         let has_target = tx.is_finite() && ty.is_finite();
         let (sx, sy) = if has_target {
-            let stiff = s.el.get(h).map_or(1.0, |r| r.stiff);
-            slip_velocity((tx - x, ty - y), stiff, slip_max)
+            // W79 (D79-2): the row's own slip (a finite target implies an active row).
+            s.el.get(h).map_or((0.0, 0.0), |r| r.slip((tx - x, ty - y)))
         } else {
             (0.0, 0.0)
         };
