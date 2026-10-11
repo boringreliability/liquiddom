@@ -903,3 +903,158 @@ test.describe("vision captures (W71 gold, VISION=1)", () => {
     }
   });
 });
+
+// =============================================================================
+// W78 (slice 5) – drag the liquid: step 5 without the merge (D78-1 … D78-6). The merge, the
+// closed-region check and step 5 ✅ are W79 (slice design §6).
+// =============================================================================
+/** Slice design §6: hold 30 frames before the release. */
+const W78_HOLD_FRAMES = 30;
+/** NORTH-STAR step 5: both re-form within 3 s. */
+const W78_REFORM_FRAMES = 180;
+/** Spec §2: a strength-1 splash sets s ≤ 0.25; a drag only ever holds s at 0.5. */
+const W78_SPLASH_S_MAX = 0.25;
+const MERGE_INDEX = 2;
+
+type W78Slot = { interaction: number; homeDx: number; homeDy: number; s: number };
+type W78Hook = W67Hook & { slots(): W78Slot[] };
+
+async function w78Slots(page: Page): Promise<W78Slot[]> {
+  return page.evaluate(() => (window as unknown as { __liquidTest: W78Hook }).__liquidTest.slots());
+}
+
+async function w78Centre(page: Page, selector: string): Promise<{ x: number; y: number }> {
+  const b = await page.locator(selector).boundingBox();
+  if (!b) throw new Error(`W78: ${selector} has no box`);
+  return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+}
+
+/** Mouse press on Merge's centre, 10 moves to the card's centre (one frame each), then `hold` frames; the button stays down. */
+async function w78DragMergeToCard(page: Page, hold = W78_HOLD_FRAMES, button: "left" | "right" = "left"): Promise<{ dx: number; dy: number }> {
+  const from = await w78Centre(page, "#merge");
+  const to = await w78Centre(page, "#card");
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down({ button });
+  for (let k = 1; k <= 10; k++) {
+    await page.mouse.move(from.x + ((to.x - from.x) * k) / 10, from.y + ((to.y - from.y) * k) / 10);
+    await w67Advance(page, 1);
+  }
+  await w67Advance(page, hold);
+  return { dx: to.x - from.x, dy: to.y - from.y };
+}
+
+/** Merge's own label state: liquid-away and the computed text fill. */
+async function w78MergeFill(page: Page): Promise<{ away: boolean; fill: string }> {
+  return page.locator("#merge").evaluate((el) => ({
+    away: el.classList.contains("liquid-away"),
+    fill: getComputedStyle(el).getPropertyValue("-webkit-text-fill-color"),
+  }));
+}
+
+/** Counts the click events that reach the document's bubble phase from now on. */
+async function w78CountClicks(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as { __w78Clicks: number };
+    w.__w78Clicks = 0;
+    document.addEventListener("click", () => {
+      w.__w78Clicks += 1;
+    });
+  });
+}
+
+async function w78Clicks(page: Page): Promise<number> {
+  return page.evaluate(() => (window as unknown as { __w78Clicks: number }).__w78Clicks);
+}
+
+test.describe("W78 – drag the liquid (step 5 without the merge)", () => {
+  test.beforeEach(() => {
+    test.skip(projectRenderer() !== "canvas2d", "W78: canvas2d project (webgpu-hw: the webgpu-robust.spec.ts W78 block)");
+  });
+
+  test("step 5 – given Merge dragged into the card and held 30 frames when released then slots follow the drag, the click does not splash, Merge's DOM label hides while away and every restAlpha is 1 within 180 frames", async ({ page }, testInfo) => {
+    await w67Open(page);
+    await w78CountClicks(page);
+    const { dx, dy } = await w78DragMergeToCard(page);
+    const held = await w78Slots(page);
+    expect(held[MERGE_INDEX].interaction, "Merge is DRAGGED (D78-4)").toBe(3);
+    expect(held[MERGE_INDEX].homeDx, "slot 6 = dx").toBeCloseTo(dx, 0);
+    expect(held[MERGE_INDEX].homeDy, "slot 7 = dy").toBeCloseTo(dy, 0);
+    for (const i of [0, 1, 3]) expect([held[i].homeDx, held[i].homeDy], `element ${i} has no offset`).toEqual([0, 0]);
+    expect(held[MERGE_INDEX].s, "s ≤ 0.5 while dragged (D78-3)").toBeLessThanOrEqual(0.5 + 1e-6);
+    expect((await w67RestAlphas(page))[MERGE_INDEX], "a dragged element never rests (D78-5)").toBe(0);
+    expect(await w78MergeFill(page), "Canvas2D hides Merge's DOM glyphs while away (D78-1)").toEqual({ away: true, fill: "rgba(0, 0, 0, 0)" });
+    await page.screenshot({ path: testInfo.outputPath("w78-canvas2d-drag-hold-f30.png") });
+
+    await page.mouse.up();
+    expect(await w78Clicks(page), "the click that ends a drag is swallowed (D78-6)").toBe(0);
+    expect((await w78Slots(page))[MERGE_INDEX].s, "no splash: s is the drag's 0.5, not a splash's ≤ 0.25").toBeGreaterThan(W78_SPLASH_S_MAX);
+    await w67Advance(page, 1);
+    const next = (await w78Slots(page))[MERGE_INDEX];
+    expect(next.interaction, "released: not DRAGGED").not.toBe(3);
+    expect([next.homeDx, next.homeDy], "offset 0 in the next frame (no TS glide)").toEqual([0, 0]);
+
+    const frames = await w67FramesUntilAllRest(page, W78_REFORM_FRAMES);
+    console.log(`W78 step 5 (canvas2d): every restAlpha 1 after ${frames} frames (budget ${W78_REFORM_FRAMES})`);
+    expect(frames, `every restAlpha back to 1 within ${W78_REFORM_FRAMES} frames after the release`).toBeGreaterThan(0);
+    const rest = await w78MergeFill(page);
+    expect(rest.away, "the DOM label is back at rest").toBe(false);
+    expect(cssAlpha(rest.fill), `Merge's text fill ${rest.fill} is opaque`).toBeGreaterThan(0);
+    await page.screenshot({ path: testInfo.outputPath("w78-canvas2d-reformed.png") });
+  });
+
+  test("step 5 – given a press on Merge that moves 2 px when released then it stays a click splash and nothing drags", async ({ page }) => {
+    await w67Open(page);
+    const c = await w78Centre(page, "#merge");
+    await page.mouse.move(c.x, c.y);
+    await page.mouse.down();
+    await page.mouse.move(c.x + 2, c.y);
+    await w67Advance(page, 1);
+    expect((await w78Slots(page))[MERGE_INDEX].interaction, "below the threshold: not DRAGGED (D78-2)").not.toBe(3);
+    await page.mouse.up();
+    expect((await w78Slots(page))[MERGE_INDEX].s, "the click splashed Merge (s ≤ 0.25)").toBeLessThanOrEqual(W78_SPLASH_S_MAX + 1e-6);
+    expect((await w78MergeFill(page)).away).toBe(false);
+  });
+
+  test("step 5 – given Merge dragged into the card when Escape is pressed then the drag cancels: the label shows at once, slots are 0 in the next frame and every restAlpha is 1 within 180 frames", async ({ page }) => {
+    await w67Open(page);
+    await w78DragMergeToCard(page, 10);
+    expect((await w78Slots(page))[MERGE_INDEX].interaction, "precondition: dragging").toBe(3);
+    await page.keyboard.press("Escape");
+    expect((await w78MergeFill(page)).away, "a cancel shows the DOM label at once (slice design §4)").toBe(false);
+    await w67Advance(page, 1);
+    const s = (await w78Slots(page))[MERGE_INDEX];
+    expect([s.interaction === 3, s.homeDx, s.homeDy]).toEqual([false, 0, 0]);
+    await page.mouse.up();
+    const frames = await w67FramesUntilAllRest(page, W78_REFORM_FRAMES);
+    console.log(`W78 Escape cancel (canvas2d): every restAlpha 1 after ${frames} frames`);
+    expect(frames, "every restAlpha back to 1 within 180 frames after the cancel").toBeGreaterThan(0);
+  });
+
+  test("step 5 – given a right-button drag on Merge into the card when moved then nothing drags (primary button only)", async ({ page }) => {
+    await w67Open(page);
+    await w78DragMergeToCard(page, 5, "right");
+    const s = await w78Slots(page);
+    expect(s.map((x) => x.interaction === 3), "no element is DRAGGED (D78-2)").toEqual([false, false, false, false]);
+    expect(s.map((x) => [x.homeDx, x.homeDy])).toEqual([[0, 0], [0, 0], [0, 0], [0, 0]]);
+    expect((await w78MergeFill(page)).away).toBe(false);
+    await page.mouse.up({ button: "right" });
+  });
+
+  test("step 5 – given Merge dragged into the card and held 30 frames when screenshotted then it matches the baseline", async ({ page }) => {
+    test.skip(!VISUAL_ENABLED, VISUAL_SKIP_REASON);
+    await w67Open(page);
+    await w78DragMergeToCard(page);
+    await expect(page).toHaveScreenshot("acceptance-step5-drag-mid.png", { maxDiffPixelRatio: 0.01 });
+    await page.mouse.up();
+  });
+
+  test("step 5 – given the drag released when every restAlpha is 1 then it matches the baseline", async ({ page }) => {
+    test.skip(!VISUAL_ENABLED, VISUAL_SKIP_REASON);
+    await w67Open(page);
+    await w78DragMergeToCard(page);
+    await page.mouse.up();
+    expect(await w67FramesUntilAllRest(page, W78_REFORM_FRAMES), "re-formed").toBeGreaterThan(0);
+    // The pointer still rests on the card, so the card shows its hover swell (deterministic on the manual clock).
+    await expect(page).toHaveScreenshot("acceptance-step5-drag-reformed.png", { maxDiffPixelRatio: 0.01 });
+  });
+});

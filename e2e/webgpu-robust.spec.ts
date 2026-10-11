@@ -454,15 +454,17 @@ const TEXT_MIN_PX = 40;
 const SOFT_SPLASH = 0.3;
 const W74_VISION_DIR = "test-results/vision-w74";
 
-async function canvasTextPixelsIn(page: Page, selector: string): Promise<number> {
+/** Canvas text pixels (every channel and alpha ≥ CANVAS_TEXT_MIN) inside `selector`'s client rect, shifted by `offset` (W78: a dragged home). */
+async function canvasTextPixelsIn(page: Page, selector: string, offset: { dx: number; dy: number } = { dx: 0, dy: 0 }): Promise<number> {
   return page.evaluate(
-    ([sel, min]) => {
+    ([sel, min, dx, dy]) => {
       const img = window.__liquidTest!.pixels();
       const c = document.querySelector<HTMLCanvasElement>("canvas.liquid-canvas");
       const el = document.querySelector(sel);
       if (!c || !el) throw new Error(`W74: canvas or ${sel} missing`);
       const cr = c.getBoundingClientRect();
-      const b = el.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
+      const b = { left: r.left + dx, right: r.right + dx, top: r.top + dy, bottom: r.bottom + dy };
       const sx = img.width / cr.width;
       const sy = img.height / cr.height;
       let n = 0;
@@ -475,7 +477,7 @@ async function canvasTextPixelsIn(page: Page, selector: string): Promise<number>
       }
       return n;
     },
-    [selector, CANVAS_TEXT_MIN] as const,
+    [selector, CANVAS_TEXT_MIN, offset.dx, offset.dy] as const,
   );
 }
 
@@ -1012,4 +1014,67 @@ test.describe("W77 – closed liquid under shake and splash (webgpu)", () => {
       expect(shake, `${preset}: re-formed within ${W77_SHAKE_BUDGET_FRAMES} frames after the shake`).toBeGreaterThan(0);
     });
   }
+});
+
+// =============================================================================
+// W78 (slice 5): the label follows the dragged liquid in WebGPU (D78-1). Local webgpu-hw only
+// (fallback B). Test 53 drags into free space so the displaced rect holds only Merge's text;
+// attributing text pixels inside the card needs W79's per-element coverage (D79-1).
+// =============================================================================
+const W78_HW_ONLY = "W78: liquid text needs WebGPU on the hardware adapter; local webgpu-hw project only";
+const W78_HOLD_FRAMES = 30;
+
+async function w78Centre(page: Page, selector: string): Promise<{ x: number; y: number }> {
+  const b = await page.locator(selector).boundingBox();
+  if (!b) throw new Error(`W78: ${selector} has no box`);
+  return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+}
+
+/** Mouse press at `from`, 10 moves to `to` (one frame each), then `hold` frames; the button stays down. */
+async function w78Drag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }, hold = W78_HOLD_FRAMES): Promise<{ dx: number; dy: number }> {
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  for (let k = 1; k <= 10; k++) {
+    await page.mouse.move(from.x + ((to.x - from.x) * k) / 10, from.y + ((to.y - from.y) * k) / 10);
+    await advanceFrames(page, 1);
+  }
+  await advanceFrames(page, hold);
+  return { dx: to.x - from.x, dy: to.y - from.y };
+}
+
+test.describe("W78 – the label follows the dragged liquid (webgpu)", () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== HW_PROJECT, W78_HW_ONLY);
+  });
+
+  test("W78 step 5 – given Merge dragged 150 px up into free space and held then it carries liquid-text, never liquid-away, and the canvas shows its white text inside the displaced rect", async ({ page }, testInfo) => {
+    await openAtRest(page);
+    const from = await w78Centre(page, "#merge");
+    const offset = await w78Drag(page, from, { x: from.x, y: from.y - 150 });
+    const merge = (await textState(page)).find((s) => s.id === "merge");
+    expect(merge, "the atlas text stands in for the DOM text").toEqual({ id: "merge", liquidText: true, fill: "rgba(0, 0, 0, 0)" });
+    expect(await page.locator(".liquid-away").count(), "WebGPU never sets liquid-away (D78-1)").toBe(0);
+    const white = await canvasTextPixelsIn(page, "#merge", offset);
+    console.log(`W78 canvas text px in Merge's displaced rect at hold f30: ${white}`);
+    expect(white, "the atlas text rides the dragged liquid").toBeGreaterThan(TEXT_MIN_PX);
+    await page.screenshot({ path: testInfo.outputPath("w78-webgpu-drag-up-hold-f30.png") });
+    await page.mouse.up();
+  });
+
+  test("W78 step 5 – given Merge dragged into the card and released then it carries liquid-text while away and, once every restAlpha is 1, no element carries liquid-text and Merge's DOM text is opaque", async ({ page }, testInfo) => {
+    await openAtRest(page);
+    await w78Drag(page, await w78Centre(page, "#merge"), await w78Centre(page, "#card"));
+    expect((await textState(page)).find((s) => s.id === "merge")?.liquidText, "liquid text while away").toBe(true);
+    expect(await page.locator(".liquid-away").count()).toBe(0);
+    await page.screenshot({ path: testInfo.outputPath("w78-webgpu-drag-card-hold-f30.png") });
+    await page.mouse.up();
+    const frames = await framesUntilAllRest(page, REFORM_BUDGET_FRAMES);
+    console.log(`W78 step 5 (webgpu): every restAlpha 1 after ${frames} frames`);
+    expect(frames, "re-form within 3 s").toBeGreaterThan(0);
+    for (const s of await textState(page)) {
+      expect(s.liquidText, `${s.id} has no liquid-text at rest`).toBe(false);
+      expect(cssAlpha(s.fill), `${s.id} text fill ${s.fill} is opaque`).toBeGreaterThan(0);
+    }
+    await page.screenshot({ path: testInfo.outputPath("w78-webgpu-reformed.png") });
+  });
 });

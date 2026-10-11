@@ -3,7 +3,7 @@ ward: 78
 revision: null
 name: "Drag the liquid"
 epic: "fluid-engine"
-status: "planned"
+status: "red"
 dependencies: [77]
 layer: "both"
 estimated_tests: 53
@@ -138,62 +138,62 @@ Answer:
 
 ## Tests
 
-| # | Test Name | Verifies |
-|---|-----------|----------|
-| 1 | drag_tests.rs: given_slot_5_values_when_is_dragged_then_true_only_within_half_of_dragged | D78-4 slot 5 reading |
-| 2 | drag_tests.rs: given_a_dragged_element_whose_offset_grows_when_update_velocities_then_the_home_velocity_includes_the_offset_delta | D78-3 home velocity |
-| 3 | drag_tests.rs: given_a_drag_released_or_a_stray_offset_on_an_idle_element_when_update_velocities_then_the_offset_adds_no_velocity | D78-3 no release spike |
-| 4 | drag_tests.rs: given_d78_cap_when_hold_dragged_then_a_dragged_element_gets_s_at_most_0_5_and_rest_alpha_0_and_an_idle_one_is_untouched | D78-3/D78-5 hold |
-| 5 | drag_tests.rs: given_merge_dragged_then_held_still_when_ticking_90_frames_then_its_s_never_exceeds_0_5_its_rest_alpha_stays_0_and_the_others_keep_s_1 | D78-3/D78-5 in the core |
-| 6 | drag_tests.rs: given_merge_dragged_150px_up_when_ticking_then_its_liquid_follows_the_displaced_home | home_rect with the offset |
-| 7 | drag_tests.rs: given_the_pointer_moving_over_dragged_merge_when_ticking_then_its_liquid_moves_as_without_the_pointer_and_an_idle_merge_is_pushed | D78-4 pointer skip |
-| 8 | drag_tests.rs: given_merge_dragged_150px_up_held_60_frames_and_released_when_ticking_then_it_never_rests_while_dragged_and_every_rest_alpha_is_1_within_180_frames | D78-5, re-form ≤ 180 |
-| 9 | drag-tracker.test: given_a_mouse_press_when_moved_up_to_4_px_then_no_drag_and_past_4_px_the_drag_starts_with_dx_dy_from_the_down_point_and_only_then_captures | D78-2 threshold, capture timing |
-| 10 | drag-tracker.test: given_a_pen_press_when_moved_past_the_threshold_then_it_drags_and_a_touch_press_never_drags | D78-2 pointer types |
-| 11 | drag-tracker.test: given_the_right_or_middle_button_or_a_non_primary_pointer_when_pressed_and_moved_then_no_drag | D78-2, README RF3 |
-| 12 | drag-tracker.test: given_a_press_on_a_child_of_the_observed_element_when_moved_past_the_threshold_then_the_observed_element_is_dragged_and_captured | README RF1 |
-| 13 | drag-tracker.test: given_nested_observed_elements_when_the_inner_one_is_pressed_then_only_the_inner_one_drags | README RF1 |
-| 14 | drag-tracker.test: given_a_drag_past_the_threshold_when_released_then_the_next_click_is_swallowed_once_and_a_click_in_a_later_task_passes | D78-6 |
-| 15 | drag-tracker.test: given_a_press_that_never_crosses_the_threshold_when_released_then_its_click_passes_and_nothing_is_captured_or_ended | D78-2/D78-6 plain click |
-| 16 | drag-tracker.test: given_an_active_drag_when_pointercancel_blur_escape_or_lostpointercapture_then_it_cancels_and_later_moves_do_not_restart_it | D78-2 cancel paths, README RF2 |
-| 17 | drag-tracker.test: given_an_active_drag_when_the_pointer_is_released_outside_the_window_then_the_document_pointerup_releases_it_and_a_lost_release_cancels | README RF2 |
-| 18 | drag-tracker.test: given_reduced_motion_when_pressed_and_moved_then_no_drag_no_capture_and_the_click_passes | reduced motion ignores drag |
-| 19 | drag-tracker.test: given_an_active_drag_when_detach_cancel_or_destroy_then_it_cancels_and_a_detached_or_destroyed_tracker_ignores_presses | README RF5 |
-| 20 | drag-tracker.test: given_an_active_drag_when_the_element_leaves_the_document_then_frame_cancels_it | detached element |
-| 21 | drag-tracker.test: given_a_live_press_when_selectstart_or_dragstart_fires_then_its_default_is_prevented_and_without_a_press_it_is_not | D78-2 selection guard |
-| 22 | drag-tracker.test: given_an_active_drag_when_a_second_pointer_presses_another_element_then_the_first_drag_is_unchanged | one drag per instance |
-| 23 | hover-focus.test: given_a_hovered_and_focused_element_when_it_is_dragged_then_slot_5_is_dragged_3 | D78-4 priority |
-| 24 | hover-focus.test: given_a_drag_when_synced_then_only_the_dragged_element_carries_the_offset | slots 6–7 |
-| 25 | hover-focus.test: given_a_released_drag_when_the_next_sync_runs_then_slot_5_falls_back_to_hover_and_slots_6_7_are_0_in_that_same_sync | release in one sync |
-| 26 | hover-focus.test: given_reduced_motion_and_a_drag_when_synced_then_slots_5_7_are_0 | reduced motion |
-| 27 | away-toggle.test: given_canvas2d_and_a_dragged_element_when_synced_then_liquid_away_once_kept_after_release_while_restAlpha_below_1_and_removed_at_rest | D78-1 lifecycle |
-| 28 | away-toggle.test: given_webgpu_reduced_motion_or_nan_when_synced_then_no_liquid_away_and_an_existing_hold_is_withdrawn | D78-1 gates |
-| 29 | away-toggle.test: given_two_instances_holding_one_element_when_one_releases_then_liquid_away_stays_until_both_release_and_an_authors_own_class_is_kept | README RF4 |
-| 30 | away-toggle.test: given_clearAwayClasses_or_a_missed_release_when_called_then_this_instance_lets_go | fail-safe |
-| 31 | away-toggle.test: given_an_element_held_by_liquid_away_when_the_halo_syncs_with_it_suppressed_then_it_gets_no_halo_and_an_unsuppressed_one_does | D78-1 no halo, README RF4 |
-| 32 | stylesheet.test: given_css_text_when_read_then_liquid_away_hides_glyphs_with_the_liquid_text_declarations_inside_the_screen_block_and_beats_a_halo_W78 | D78-1 CSS |
-| 33 | element-observer.test: given_only_liquiddom_class_toggles_when_drained_then_no_entry_and_authorClasses_drops_own_classes_RF2 | approved-test change (D78-1): OWN_CLASSES gains liquid-away |
-| 34 | drag-runtime.test: given_a_mouse_drag_on_an_observed_element_when_frames_run_then_slots_5_7_carry_dragged_and_the_offset_and_the_release_zeroes_them_in_the_next_frame | runtime wiring |
-| 35 | drag-runtime.test: given_a_drag_released_on_its_element_when_the_click_follows_then_the_core_does_not_splash_and_a_click_in_a_later_task_splashes | D78-6 in the runtime |
-| 36 | drag-runtime.test: given_a_press_that_moves_3_px_when_released_then_its_click_splashes_once_and_no_slot_changes | plain click (guard) |
-| 37 | drag-runtime.test: given_canvas2d_and_a_drag_when_frames_run_then_liquid_away_is_on_while_dragged_kept_after_release_until_restAlpha_1_with_no_halo_meanwhile | D78-1 in the runtime |
-| 38 | drag-runtime.test: given_webgpu_and_a_drag_when_frames_run_then_no_liquid_away_is_ever_set | D78-1 WebGPU (guard) |
-| 39 | drag-runtime.test: given_a_drag_when_the_element_is_unobserved_mid_drag_then_its_slots_are_zeroed_liquid_away_is_gone_and_it_does_not_resume_after_re_observe | README RF5 |
-| 40 | drag-runtime.test: given_a_drag_when_destroyed_then_liquid_away_is_gone_and_later_pointer_events_are_ignored | destroy |
-| 41 | drag-runtime.test: given_a_drag_when_reduced_motion_switches_on_then_the_drag_cancels_liquid_away_goes_at_once_and_slots_are_0_next_frame | reduced motion switch |
-| 42 | drag-runtime.test: given_two_instances_observing_one_element_when_it_is_dragged_and_released_then_both_write_dragged_the_click_never_splashes_and_liquid_away_stays_until_both_let_go | README RF4 |
-| 43 | drag-runtime.test: given_a_drag_cancelled_by_escape_when_frames_run_then_liquid_away_goes_at_once_and_the_halo_takes_over_while_the_liquid_crawls_home | cancel vs release |
-| 44 | drag-runtime.test: given_reduced_motion_when_an_element_is_pressed_and_moved_then_slots_stay_0_nothing_is_captured_and_the_click_reaches_the_gated_splash_path | reduced motion (guard) |
-| 45 | drag-runtime.test: given_a_drag_under_webgpu_when_the_device_is_lost_then_the_drag_cancels_and_the_canvas2d_rebuild_shows_no_liquid_away | lost device |
-| 46 | drag-runtime.test: given_a_drag_when_the_dragged_element_leaves_the_document_then_the_next_frame_cancels_it_and_zeroes_its_slots | detached element |
-| 47 | e2e acceptance (canvas2d): step 5 – given Merge dragged into the card and held 30 frames when released then slots follow the drag, the click does not splash, Merge's DOM label hides while away and every restAlpha is 1 within 180 frames | step 5 drag in Canvas2D |
-| 48 | e2e acceptance (canvas2d): step 5 – given a press on Merge that moves 2 px when released then it stays a click splash and nothing drags | plain click in the browser |
-| 49 | e2e acceptance (canvas2d): step 5 – given Merge dragged into the card when Escape is pressed then the drag cancels … | Escape in the browser |
-| 50 | e2e acceptance (canvas2d): step 5 – given a right-button drag on Merge into the card when moved then nothing drags | README RF3 |
-| 51 | e2e acceptance (canvas2d, Linux): step 5 – given Merge dragged into the card and held 30 frames when screenshotted then it matches the baseline | baseline `acceptance-step5-drag-mid` |
-| 52 | e2e acceptance (canvas2d, Linux): step 5 – given the drag released when every restAlpha is 1 then it matches the baseline | baseline `acceptance-step5-drag-reformed` |
-| 53 | e2e webgpu-robust (webgpu-hw): W78 step 5 – given Merge dragged 150 px up into free space and held then it carries liquid-text, never liquid-away, and the canvas shows its white text inside the displaced rect | D78-1 WebGPU text follows |
-| 54 | e2e webgpu-robust (webgpu-hw): W78 step 5 – given Merge dragged into the card and released then it carries liquid-text while away and, once every restAlpha is 1, no element carries liquid-text and Merge's DOM text is opaque | step 5 drag in WebGPU |
+| # | Test Name | Verifies | Red outcome |
+|---|-----------|----------|-------------|
+| 1 | drag_tests.rs: given_slot_5_values_when_is_dragged_then_true_only_within_half_of_dragged | D78-4 slot 5 reading | ❌ `is_dragged` stub returns false |
+| 2 | drag_tests.rs: given_a_dragged_element_whose_offset_grows_when_update_velocities_then_the_home_velocity_includes_the_offset_delta | D78-3 home velocity | ❌ velocity ignores the offset delta (−0, not −360) |
+| 3 | drag_tests.rs: given_a_drag_released_or_a_stray_offset_on_an_idle_element_when_update_velocities_then_the_offset_adds_no_velocity | D78-3 no release spike | ✅ passes (guard) |
+| 4 | drag_tests.rs: given_d78_cap_when_hold_dragged_then_a_dragged_element_gets_s_at_most_0_5_and_rest_alpha_0_and_an_idle_one_is_untouched | D78-3/D78-5 hold | ❌ `hold_dragged` stub: stiffness stays 1, not 0.5 |
+| 5 | drag_tests.rs: given_merge_dragged_then_held_still_when_ticking_90_frames_then_its_s_never_exceeds_0_5_its_rest_alpha_stays_0_and_the_others_keep_s_1 | D78-3/D78-5 in the core | ❌ frame 1: s/restAlpha not held |
+| 6 | drag_tests.rs: given_merge_dragged_150px_up_when_ticking_then_its_liquid_follows_the_displaced_home | home_rect with the offset | ✅ passes (guard) |
+| 7 | drag_tests.rs: given_the_pointer_moving_over_dragged_merge_when_ticking_then_its_liquid_moves_as_without_the_pointer_and_an_idle_merge_is_pushed | D78-4 pointer skip | ❌ pointer field still moves the dragged element's liquid |
+| 8 | drag_tests.rs: given_merge_dragged_150px_up_held_60_frames_and_released_when_ticking_then_it_never_rests_while_dragged_and_every_rest_alpha_is_1_within_180_frames | D78-5, re-form ≤ 180 | ❌ precondition: Merge reaches restAlpha 1 within 60 held frames at s = 1 |
+| 9 | drag-tracker.test: given_a_mouse_press_when_moved_up_to_4_px_then_no_drag_and_past_4_px_the_drag_starts_with_dx_dy_from_the_down_point_and_only_then_captures | D78-2 threshold, capture timing | ❌ not collected (module missing: drag-tracker.ts) |
+| 10 | drag-tracker.test: given_a_pen_press_when_moved_past_the_threshold_then_it_drags_and_a_touch_press_never_drags | D78-2 pointer types | ❌ not collected (module missing: drag-tracker.ts) |
+| 11 | drag-tracker.test: given_the_right_or_middle_button_or_a_non_primary_pointer_when_pressed_and_moved_then_no_drag | D78-2, README RF3 | ❌ not collected (module missing: drag-tracker.ts) |
+| 12 | drag-tracker.test: given_a_press_on_a_child_of_the_observed_element_when_moved_past_the_threshold_then_the_observed_element_is_dragged_and_captured | README RF1 | ❌ not collected (module missing: drag-tracker.ts) |
+| 13 | drag-tracker.test: given_nested_observed_elements_when_the_inner_one_is_pressed_then_only_the_inner_one_drags | README RF1 | ❌ not collected (module missing: drag-tracker.ts) |
+| 14 | drag-tracker.test: given_a_drag_past_the_threshold_when_released_then_the_next_click_is_swallowed_once_and_a_click_in_a_later_task_passes | D78-6 | ❌ not collected (module missing: drag-tracker.ts) |
+| 15 | drag-tracker.test: given_a_press_that_never_crosses_the_threshold_when_released_then_its_click_passes_and_nothing_is_captured_or_ended | D78-2/D78-6 plain click | ❌ not collected (module missing: drag-tracker.ts) |
+| 16 | drag-tracker.test: given_an_active_drag_when_pointercancel_blur_escape_or_lostpointercapture_then_it_cancels_and_later_moves_do_not_restart_it | D78-2 cancel paths, README RF2 | ❌ not collected (module missing: drag-tracker.ts) |
+| 17 | drag-tracker.test: given_an_active_drag_when_the_pointer_is_released_outside_the_window_then_the_document_pointerup_releases_it_and_a_lost_release_cancels | README RF2 | ❌ not collected (module missing: drag-tracker.ts) |
+| 18 | drag-tracker.test: given_reduced_motion_when_pressed_and_moved_then_no_drag_no_capture_and_the_click_passes | reduced motion ignores drag | ❌ not collected (module missing: drag-tracker.ts) |
+| 19 | drag-tracker.test: given_an_active_drag_when_detach_cancel_or_destroy_then_it_cancels_and_a_detached_or_destroyed_tracker_ignores_presses | README RF5 | ❌ not collected (module missing: drag-tracker.ts) |
+| 20 | drag-tracker.test: given_an_active_drag_when_the_element_leaves_the_document_then_frame_cancels_it | detached element | ❌ not collected (module missing: drag-tracker.ts) |
+| 21 | drag-tracker.test: given_a_live_press_when_selectstart_or_dragstart_fires_then_its_default_is_prevented_and_without_a_press_it_is_not | D78-2 selection guard | ❌ not collected (module missing: drag-tracker.ts) |
+| 22 | drag-tracker.test: given_an_active_drag_when_a_second_pointer_presses_another_element_then_the_first_drag_is_unchanged | one drag per instance | ❌ not collected (module missing: drag-tracker.ts) |
+| 23 | hover-focus.test: given_a_hovered_and_focused_element_when_it_is_dragged_then_slot_5_is_dragged_3 | D78-4 priority | ❌ slot 5 is HOVER, offset not written |
+| 24 | hover-focus.test: given_a_drag_when_synced_then_only_the_dragged_element_carries_the_offset | slots 6–7 | ❌ slot 5 is HOVER, offset not written |
+| 25 | hover-focus.test: given_a_released_drag_when_the_next_sync_runs_then_slot_5_falls_back_to_hover_and_slots_6_7_are_0_in_that_same_sync | release in one sync | ❌ slot 5 is HOVER, offset not written |
+| 26 | hover-focus.test: given_reduced_motion_and_a_drag_when_synced_then_slots_5_7_are_0 | reduced motion | ✅ passes (guard) |
+| 27 | away-toggle.test: given_canvas2d_and_a_dragged_element_when_synced_then_liquid_away_once_kept_after_release_while_restAlpha_below_1_and_removed_at_rest | D78-1 lifecycle | ❌ not collected (module missing: away-toggle.ts) |
+| 28 | away-toggle.test: given_webgpu_reduced_motion_or_nan_when_synced_then_no_liquid_away_and_an_existing_hold_is_withdrawn | D78-1 gates | ❌ not collected (module missing: away-toggle.ts) |
+| 29 | away-toggle.test: given_two_instances_holding_one_element_when_one_releases_then_liquid_away_stays_until_both_release_and_an_authors_own_class_is_kept | README RF4 | ❌ not collected (module missing: away-toggle.ts) |
+| 30 | away-toggle.test: given_clearAwayClasses_or_a_missed_release_when_called_then_this_instance_lets_go | fail-safe | ❌ not collected (module missing: away-toggle.ts) |
+| 31 | away-toggle.test: given_an_element_held_by_liquid_away_when_the_halo_syncs_with_it_suppressed_then_it_gets_no_halo_and_an_unsuppressed_one_does | D78-1 no halo, README RF4 | ❌ not collected (module missing: away-toggle.ts) |
+| 32 | stylesheet.test: given_css_text_when_read_then_liquid_away_hides_glyphs_with_the_liquid_text_declarations_inside_the_screen_block_and_beats_a_halo_W78 | D78-1 CSS | ❌ `AWAY_CLASS` undefined |
+| 33 | element-observer.test: given_only_liquiddom_class_toggles_when_drained_then_no_entry_and_authorClasses_drops_own_classes_RF2 | approved-test change (D78-1): OWN_CLASSES gains liquid-away | ❌ `OWN_CLASSES` has three classes, not four |
+| 34 | drag-runtime.test: given_a_mouse_drag_on_an_observed_element_when_frames_run_then_slots_5_7_carry_dragged_and_the_offset_and_the_release_zeroes_them_in_the_next_frame | runtime wiring | ❌ no drag tracker: slots stay idle / no liquid-away |
+| 35 | drag-runtime.test: given_a_drag_released_on_its_element_when_the_click_follows_then_the_core_does_not_splash_and_a_click_in_a_later_task_splashes | D78-6 in the runtime | ❌ no drag tracker: slots stay idle / no liquid-away |
+| 36 | drag-runtime.test: given_a_press_that_moves_3_px_when_released_then_its_click_splashes_once_and_no_slot_changes | plain click (guard) | ✅ passes (guard) |
+| 37 | drag-runtime.test: given_canvas2d_and_a_drag_when_frames_run_then_liquid_away_is_on_while_dragged_kept_after_release_until_restAlpha_1_with_no_halo_meanwhile | D78-1 in the runtime | ❌ no drag tracker: slots stay idle / no liquid-away |
+| 38 | drag-runtime.test: given_webgpu_and_a_drag_when_frames_run_then_no_liquid_away_is_ever_set | D78-1 WebGPU (guard) | ✅ passes (guard) |
+| 39 | drag-runtime.test: given_a_drag_when_the_element_is_unobserved_mid_drag_then_its_slots_are_zeroed_liquid_away_is_gone_and_it_does_not_resume_after_re_observe | README RF5 | ❌ no drag tracker: slots stay idle / no liquid-away |
+| 40 | drag-runtime.test: given_a_drag_when_destroyed_then_liquid_away_is_gone_and_later_pointer_events_are_ignored | destroy | ❌ no drag tracker: slots stay idle / no liquid-away |
+| 41 | drag-runtime.test: given_a_drag_when_reduced_motion_switches_on_then_the_drag_cancels_liquid_away_goes_at_once_and_slots_are_0_next_frame | reduced motion switch | ❌ no drag tracker: slots stay idle / no liquid-away |
+| 42 | drag-runtime.test: given_two_instances_observing_one_element_when_it_is_dragged_and_released_then_both_write_dragged_the_click_never_splashes_and_liquid_away_stays_until_both_let_go | README RF4 | ❌ no drag tracker: slots stay idle / no liquid-away |
+| 43 | drag-runtime.test: given_a_drag_cancelled_by_escape_when_frames_run_then_liquid_away_goes_at_once_and_the_halo_takes_over_while_the_liquid_crawls_home | cancel vs release | ❌ no drag tracker: slots stay idle / no liquid-away |
+| 44 | drag-runtime.test: given_reduced_motion_when_an_element_is_pressed_and_moved_then_slots_stay_0_nothing_is_captured_and_the_click_reaches_the_gated_splash_path | reduced motion (guard) | ✅ passes (guard) |
+| 45 | drag-runtime.test: given_a_drag_under_webgpu_when_the_device_is_lost_then_the_drag_cancels_and_the_canvas2d_rebuild_shows_no_liquid_away | lost device | ❌ no drag tracker: slots stay idle / no liquid-away |
+| 46 | drag-runtime.test: given_a_drag_when_the_dragged_element_leaves_the_document_then_the_next_frame_cancels_it_and_zeroes_its_slots | detached element | ❌ no drag tracker: slots stay idle / no liquid-away |
+| 47 | e2e acceptance (canvas2d): step 5 – given Merge dragged into the card and held 30 frames when released then slots follow the drag, the click does not splash, Merge's DOM label hides while away and every restAlpha is 1 within 180 frames | step 5 drag in Canvas2D | ❌ 'Merge is DRAGGED': slot 5 is 2 (focused) |
+| 48 | e2e acceptance (canvas2d): step 5 – given a press on Merge that moves 2 px when released then it stays a click splash and nothing drags | plain click in the browser | ✅ passes (guard) |
+| 49 | e2e acceptance (canvas2d): step 5 – given Merge dragged into the card when Escape is pressed then the drag cancels … | Escape in the browser | ❌ 'precondition: dragging': slot 5 is 2 (focused) |
+| 50 | e2e acceptance (canvas2d): step 5 – given a right-button drag on Merge into the card when moved then nothing drags | README RF3 | ✅ passes (guard) |
+| 51 | e2e acceptance (canvas2d, Linux): step 5 – given Merge dragged into the card and held 30 frames when screenshotted then it matches the baseline | baseline `acceptance-step5-drag-mid` | ⏭ skipped (Linux only) |
+| 52 | e2e acceptance (canvas2d, Linux): step 5 – given the drag released when every restAlpha is 1 then it matches the baseline | baseline `acceptance-step5-drag-reformed` | ⏭ skipped (Linux only) |
+| 53 | e2e webgpu-robust (webgpu-hw): W78 step 5 – given Merge dragged 150 px up into free space and held then it carries liquid-text, never liquid-away, and the canvas shows its white text inside the displaced rect | D78-1 WebGPU text follows | ❌ `liquidText` false (no text rides the dragged liquid) |
+| 54 | e2e webgpu-robust (webgpu-hw): W78 step 5 – given Merge dragged into the card and released then it carries liquid-text while away and, once every restAlpha is 1, no element carries liquid-text and Merge's DOM text is opaque | step 5 drag in WebGPU | ❌ 'liquid text while away': liquidText false |
 
 ## Must NOT
 - Move the DOM, focus or hit areas during a drag; write any inline style.

@@ -30,6 +30,8 @@ pub mod solver;
 pub mod views;
 
 #[cfg(test)]
+mod drag_tests;
+#[cfg(test)]
 mod pointer_hover_tests;
 #[cfg(test)]
 mod scenario_tests;

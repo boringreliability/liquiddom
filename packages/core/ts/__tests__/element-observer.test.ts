@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ElementObserver, authorClasses, OBSERVER_INIT, OWN_CLASSES } from "../src/element-observer";
 import { snapshotColorsWithout } from "../src/color";
-import { ELEMENT_CLASS, HALO_CLASS, HALO_ID_ATTR, STACK_ATTR, TEXT_CLASS } from "../src/stylesheet";
+import { AWAY_CLASS, ELEMENT_CLASS, HALO_CLASS, HALO_ID_ATTR, STACK_ATTR, TEXT_CLASS } from "../src/stylesheet";
 
 const flush = (): Promise<void> => new Promise<void>((r) => setTimeout(r, 0));
 let obs: ElementObserver;
@@ -48,9 +48,11 @@ describe("W75: ElementObserver (D75-1)", () => {
     expect(changes.get(el)).toEqual({ colour: true, text: true });
   });
 
+  // W78 red: approved-test change (D78-1, see ward-078.md): liquiddom's own classes include liquid-away,
+  // so the drag label's toggles never re-snapshot colours or re-render the atlas (W75 RF2).
   it("given_only_liquiddom_class_toggles_when_drained_then_no_entry_and_authorClasses_drops_own_classes_RF2", async () => {
-    expect([...OWN_CLASSES].sort()).toEqual([ELEMENT_CLASS, HALO_CLASS, TEXT_CLASS].sort());
-    expect(authorClasses(`b a ${ELEMENT_CLASS}  ${TEXT_CLASS} ${HALO_CLASS}`)).toBe("a b");
+    expect([...OWN_CLASSES].sort()).toEqual([AWAY_CLASS, ELEMENT_CLASS, HALO_CLASS, TEXT_CLASS].sort());
+    expect(authorClasses(`b a ${ELEMENT_CLASS}  ${TEXT_CLASS} ${HALO_CLASS} ${AWAY_CLASS}`)).toBe("a b");
     expect(authorClasses(null)).toBe("");
     const el = element();
     obs.observe(el);
@@ -59,6 +61,8 @@ describe("W75: ElementObserver (D75-1)", () => {
     el.classList.remove(TEXT_CLASS);
     el.classList.remove(HALO_CLASS);
     el.classList.add(TEXT_CLASS);
+    el.classList.add(AWAY_CLASS);
+    el.classList.remove(AWAY_CLASS);
     await flush();
     expect(obs.drain().size).toBe(0);
   });

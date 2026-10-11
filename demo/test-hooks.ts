@@ -34,6 +34,14 @@ export interface ScenePerfProbe {
   stop(): ScenePerfSnapshot;
 }
 
+/** W78: slots 5–7 and the stiffness s of one observed element (acceptance scene). NaN when unknown. */
+export interface SceneSlot {
+  interaction: number;
+  homeDx: number;
+  homeDy: number;
+  s: number;
+}
+
 export interface LiquidTestHook {
   /** Resolves when the runtime exists, all [data-liquid] elements are observed and the first redistribute ran. */
   readonly ready: Promise<void>;
@@ -70,6 +78,11 @@ export interface LiquidTestHook {
    * never add to it.
    */
   readonly textInvalidations: number;
+  /**
+   * W78 (acceptance scene only): slot 5 (interaction), slots 6–7 (home_dx, home_dy) and the state
+   * view's s per [data-liquid] element, DOM order (#splash, #split, #merge, #card).
+   */
+  slots?(): SceneSlot[];
 }
 
 export interface StressElementState {

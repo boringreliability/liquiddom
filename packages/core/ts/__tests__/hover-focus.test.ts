@@ -6,6 +6,7 @@ import { ElementRegistry } from "../src/element-registry";
 import { FluidBridge } from "../src/fluid-bridge";
 import { ELEMENT_STRIDE, El, Interaction } from "../src/fluid-layout";
 import { createTestBackend } from "./_fluid-test-backend";
+import type { ActiveDrag } from "../src/drag-tracker";
 
 function stubRect(el: Element, x: number, y: number, w: number, h: number): void {
   el.getBoundingClientRect = () =>
@@ -14,6 +15,8 @@ function stubRect(el: Element, x: number, y: number, w: number, h: number): void
 
 function setup() {
   const rm = { on: false };
+  // W78 (D78-4): the active drag the registry reads in sync(); null = none.
+  const drag: { cur: ActiveDrag | null } = { cur: null };
   const backend = createTestBackend();
   // W64 ctor: particles, maxElements, worldW, worldH, areaHint (0 → 8 px cell), maxElementH (0 → 200 px margin), seed.
   const core = new backend.FluidCore(256, 4, 1280, 800, 0, 0, 1);
@@ -22,9 +25,16 @@ function setup() {
     coordOffset: () => ({ x: 0, y: 0 }),
     scheduleRedistribute: () => {},
     reducedMotion: () => rm.on,
+    drag: () => drag.cur,
   });
   const interaction = (id: number): number => bridge.elementView()[id * ELEMENT_STRIDE + El.INTERACTION];
-  return { registry, interaction, rm };
+  /** Slots 5–7 of `id`: interaction, home_dx, home_dy. */
+  const slots = (id: number): number[] => {
+    const v = bridge.elementView();
+    const o = id * ELEMENT_STRIDE;
+    return [v[o + El.INTERACTION], v[o + El.HOME_DX], v[o + El.HOME_DY]];
+  };
+  return { registry, interaction, rm, drag, slots };
 }
 
 function button(label = "Split"): HTMLButtonElement {
@@ -296,5 +306,58 @@ describe("hover and focus → interaction slot (W68, D68-2, D68-5)", () => {
       registry.sync();
       expect(interaction(id), `(hover: ${canHover ? "hover" : "none"})`).toBe(expected);
     }
+  });
+});
+
+describe("W78: drag → slots 5–7 (D78-4)", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("given_a_hovered_and_focused_element_when_it_is_dragged_then_slot_5_is_dragged_3", () => {
+    const { registry, drag, slots } = setup();
+    const b = button();
+    const id = registry.observe(b);
+    enter(b);
+    b.focus();
+    drag.cur = { el: b, dx: 12, dy: -7 };
+    registry.sync();
+    expect(slots(id), "DRAGGED beats hover and focus; the offset in slots 6–7").toEqual([Interaction.DRAGGED, 12, -7]);
+  });
+
+  it("given_a_drag_when_synced_then_only_the_dragged_element_carries_the_offset", () => {
+    const { registry, drag, slots } = setup();
+    const a = button("Split");
+    const c = button("Merge");
+    const ia = registry.observe(a);
+    const ic = registry.observe(c);
+    enter(a);
+    drag.cur = { el: c, dx: -164, dy: 146 };
+    registry.sync();
+    expect(slots(ic)).toEqual([Interaction.DRAGGED, -164, 146]);
+    expect(slots(ia), "another element: its own interaction, no offset").toEqual([Interaction.HOVER, 0, 0]);
+  });
+
+  it("given_a_released_drag_when_the_next_sync_runs_then_slot_5_falls_back_to_hover_and_slots_6_7_are_0_in_that_same_sync", () => {
+    const { registry, drag, slots } = setup();
+    const b = button();
+    const id = registry.observe(b);
+    enter(b);
+    drag.cur = { el: b, dx: 30, dy: 5 };
+    registry.sync();
+    expect(slots(id), "dragged").toEqual([Interaction.DRAGGED, 30, 5]);
+    drag.cur = null;
+    registry.sync();
+    expect(slots(id), "one sync later: hover again and no offset (no TS glide)").toEqual([Interaction.HOVER, 0, 0]);
+  });
+
+  it("given_reduced_motion_and_a_drag_when_synced_then_slots_5_7_are_0", () => {
+    const { registry, drag, slots, rm } = setup();
+    const b = button();
+    const id = registry.observe(b);
+    rm.on = true;
+    drag.cur = { el: b, dx: 30, dy: 5 };
+    registry.sync();
+    expect(slots(id), "reduced motion ignores drag (spec §2, D68-5)").toEqual([Interaction.IDLE, 0, 0]);
   });
 });

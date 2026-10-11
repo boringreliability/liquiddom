@@ -115,6 +115,11 @@ impl Elements {
             && positive(self.field(id, EL_H))
     }
 
+    /// W78.1 (red) stub: W78.2 reads slot 5 (D78-4).
+    pub fn is_dragged(&self, _id: usize) -> bool {
+        false
+    }
+
     /// The DOM rect with the radius clamped to `[0, min(w, h) / 2]`.
     pub fn rect(&self, id: usize) -> Option<Rect> {
         if !self.is_active(id) {

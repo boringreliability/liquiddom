@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { LiquidDOM } from "../src/index";
 import {
-  TEXT_CLASS, addTextClass, removeTextClass,
+  TEXT_CLASS, addTextClass, removeTextClass, AWAY_CLASS,
   HALO_CLASS, HALO_ID_ATTR, HALO_BLUR_PX, haloRule, acquireHaloRule, updateHaloRule, releaseHaloRule, addHaloClass, removeHaloClass,
   CANVAS_CLASS, ELEMENT_CLASS, LIQUID_CSS, STACK_ATTR, STYLE_ELEMENT_ID,
   acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas, stackingFor,
@@ -115,6 +115,24 @@ describe("W66 T2: injected stylesheet", () => {
     const hideAt = LIQUID_CSS.indexOf("@media print, (forced-colors: active) {");
     expect(hideAt).toBeGreaterThan(0);
     expect(LIQUID_CSS.slice(hideAt)).toMatch(/canvas\.liquid-canvas \{ display: none !important; \}/);
+  });
+
+  it("given_css_text_when_read_then_liquid_away_hides_glyphs_with_the_liquid_text_declarations_inside_the_screen_block_and_beats_a_halo_W78", () => {
+    // W78 (D78-1): Canvas2D hides the dragged element's DOM glyphs; never `color`, never in print or forced colors.
+    expect(AWAY_CLASS).toBe("liquid-away");
+    const screenOpen = "@media screen and (forced-colors: none) {";
+    const at = LIQUID_CSS.indexOf(screenOpen);
+    const rest = LIQUID_CSS.slice(at + screenOpen.length);
+    const end = rest.indexOf("\n  }");
+    const screen = rest.slice(0, end);
+    expect(screen).toContain(
+      ".liquid-away, .liquid-away * { -webkit-text-fill-color: transparent !important; text-decoration-color: transparent !important; text-shadow: none !important; }",
+    );
+    // Another Canvas2D instance's halo (0,2,0) must not draw around glyphs liquid-away hides.
+    expect(screen).toContain(
+      ".liquid-away.liquid-halo[data-liquid-id], .liquid-away .liquid-halo[data-liquid-id] { text-shadow: none !important; }",
+    );
+    expect(LIQUID_CSS.slice(0, at) + rest.slice(end), "print and forced colors never hide the label").not.toMatch(/liquid-away/);
   });
 
   it("given_two_holders_when_addTextClass_twice_and_removeTextClass_once_then_the_class_stays_until_the_last_release_and_a_pre_existing_class_is_kept", () => {

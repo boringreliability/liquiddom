@@ -31,6 +31,11 @@ pub const SHAKE_SPEED_PX_S: f32 = 520.0;
 pub const SHAKE_PROFILE_AMPLITUDE: f32 = 0.35;
 /// D73-2 (amends D70-2's 0.2, which amended spec §2's 0.4): shake sets s ← min(s, 0.3).
 pub const SHAKE_STIFFNESS_CAP: f32 = 0.3;
+/// W78 (D78-3, spec §2 damage rules): drag sets `s ← min(s, 0.5)` while dragging.
+pub const DRAG_STIFFNESS_CAP: f32 = 0.5;
+
+/// W78.1 (red) stub: W78.2 holds every dragged element at `DRAG_STIFFNESS_CAP`.
+pub fn hold_dragged(_e: &mut Elements) {}
 pub const STRENGTH_MAX: f32 = 2.0;
 
 /// The scalars of `FluidCore::splash` (buffer-space px).

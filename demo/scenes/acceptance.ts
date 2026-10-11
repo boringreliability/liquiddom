@@ -13,6 +13,7 @@ import { LiquidDOM, type LiquidDOMInstance } from "liquiddom";
 import { runtimeOf } from "../../packages/core/ts/src/internal";
 import type { FluidRuntime, FluidRuntimeOptions } from "../../packages/core/ts/src/runtime";
 import { createManualClock, rafClock, type FrameClock } from "../../packages/core/ts/src/clock";
+import { El, ELEMENT_STRIDE } from "../../packages/core/ts/src/fluid-layout";
 import { createRenderCountingClock, type RenderCountingClock } from "../render-counting-clock";
 import type { LiquidTestHook, ScenePerfProbe, ScenePerfSnapshot } from "../test-hooks";
 import { parseSceneParams } from "./scene-params";
@@ -53,6 +54,7 @@ const timingClock: FrameClock = {
 
 const clock: FrameClock = manual ?? (params.perf ? timingClock : rafClock);
 let runtime: FluidRuntime | null = null;
+let slotIds: number[] = [];
 
 /** Wraps core.tick so each call's wall time is divided by the fixed steps it ran. */
 function installTickProbe(rt: FluidRuntime): void {
@@ -110,7 +112,7 @@ async function start(): Promise<FluidRuntime> {
     renderer: params.renderer,
     webgpuT0Scale: params.t0Scale,
   });
-  for (const el of elements) rt.observe(el);
+  slotIds = elements.map((el) => rt.observe(el));
   await new Promise<void>((resolve) => queueMicrotask(resolve)); // let the batched redistribute run
   if (params.perf) installTickProbe(rt);
   runtime = rt;
@@ -206,6 +208,16 @@ const hook: LiquidTestHook = {
   get textInvalidations(): number {
     return runtime?.textInvalidations ?? 0;
   },
+  // W78: slots 5–7 and s per [data-liquid] element, read back from the element and state views.
+  slots: () =>
+    elements.map((el, i) => {
+      const id = slotIds[i];
+      const st = runtime?.elementState(el);
+      if (!runtime || id === undefined || !st) return { interaction: Number.NaN, homeDx: Number.NaN, homeDy: Number.NaN, s: Number.NaN };
+      const v = runtime.bridge.elementView();
+      const o = id * ELEMENT_STRIDE;
+      return { interaction: v[o + El.INTERACTION], homeDx: v[o + El.HOME_DX], homeDy: v[o + El.HOME_DY], s: st.s };
+    }),
 };
 
 started.catch((err: unknown) => {
