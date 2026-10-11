@@ -60,7 +60,7 @@ What a person sees and feels. Every ward moves at least one of these closer, or 
 | 2 | Liquid that reacts | W67 splash and shake · W68 pointer, hover and material · W69 playground + whole-picture check | 2, 3 (C, no text), 4, 6 |
 | 3 | WebGPU liquid | planned after the slice-2 whole-picture check | 1–3 in W, `device.lost` |
 | 4 | Liquid text | planned later | 3 with text, forced colours |
-| 5 | Drag and merge | planned later | 5 |
+| 5 | Drag and merge | W78 drag the liquid (spike W78.0 first) · W79 merge and separate (design `2026-10-11-liquiddom-slice-5-drag-merge-design.md`) | 5 |
 | 6 | The world | planned later | 7, adapters, site |
 
 ## How wards use this file

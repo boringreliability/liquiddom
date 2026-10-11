@@ -118,12 +118,12 @@ The elements **are** liquid, and so is their text. They splash, split, merge wit
 - **Target** = `rest_uv` mapped into the element's **current home rect** (slots 0–3 plus `home_dx/dy`, see the FFI section). A resize therefore changes the targets and the liquid gently follows the new shape. Scroll and drag become something the liquid follows.
 - **Stiffness:**
   - Each element has a stiffness `s ∈ [s_floor, 1]`, with `s_floor = 0.015`.
-  - Damage rules: `splash` sets `s ← min(s, 0.25·(2 − strength))` clamped to ≥ `s_floor`, `shake` sets `s ← min(s, 0.3)` (amended in W70, D70-2; amended in W73, D73-2), and drag sets `s ← min(s, 0.5)` while dragging. Splash and shake also set `restAlpha ← 0` at once, so the rest contour never fades over the hole they open (amended 2026-10-10, W74, D74-7).
+  - Damage rules: `splash` sets `s ← min(s, 0.25·(2 − strength))` clamped to ≥ `s_floor`, `shake` sets `s ← min(s, 0.3)` (amended in W70, D70-2; amended in W73, D73-2), and drag sets `s ← min(s, 0.5)` while dragging; elements whose home rect overlaps the dragged home are softened too, and a dragged element never reaches `restAlpha = 1` (amended 2026-10-11, slice-5 design, D78-5, D79-2). Splash and shake also set `restAlpha ← 0` at once, so the rest contour never fades over the hole they open (amended 2026-10-10, W74, D74-7).
   - Recovery: `ds/dt = (1 − s)/recovery`, with `recovery` defaulting to 0.7 s.
   - These are internal constants. Only `recovery` is a parameter.
 - **Slip drift** is kept: a grid-independent drift towards the target, scaled by `s²`, at rate 3/s, max 160 px/s. It is **documented as non-physical** (it does not conserve momentum). Without it, merged liquids never separate.
 - **Wobble** (1.1 px in the spike) is scaled by `(1 − restAlpha)`, so it is 0 at rest.
-- **Hover:** the home rect swells by 2% around its centre, a gentle bulge. Focus has no extra engine effect; the focus ring belongs to the DOM.
+- **Hover:** the home rect swells by 2% around its centre, a gentle bulge. Focus has no extra engine effect; the focus ring belongs to the DOM. Dragged beats hover, with no swell while dragged (amended 2026-10-11, slice-5 design, D78-4).
 
 ### Per-element rest state
 
@@ -168,7 +168,7 @@ F's cost (+4 floats of SoA plus an SVD per substep) is benchmarked in slice 4. I
 |---|---|
 | Pointer move | A soft velocity field: particles within a 70 px radius are pulled towards the pointer's velocity with weight `(1 − d/r)²`. This replaces the spike's hard radial push (`POINTER_PUSH_PX`), which caused the hole |
 | `click` on an observed element | `splash` at the pointer position. **If `event.detail === 0`** (a keyboard-triggered click from Enter or Space on a focusable element), the splash is at the rect centre instead. Native activation is never prevented, so there is never a double splash |
-| Drag (pointerdown + > 4 px movement) | `home_dx/dy` follow the pointer while the DOM stays put. After the threshold, the following click splash is suppressed. On release `home_dx/dy` → 0 and the liquid crawls home |
+| Drag (mouse or pen pointerdown with pointer capture + > 4 px movement) | `home_dx/dy` follow the pointer while the DOM stays put. After the threshold, the following click splash is suppressed (swallowed once). On release `home_dx/dy` → 0 and the liquid crawls home; `pointercancel`, blur, Escape, `unobserve`, `destroy` and reduced motion cancel the same way. No touch or keyboard drag in slice 5 (amended 2026-10-11, slice-5 design, D78-2, D78-6) |
 | `shake(strength)` | Global impulse: a seeded direction `d` and phase `φ` per element, speed profile `1 + 0.35·sin(π·u + φ)` across the element (`u = (x − cx)/(w/2)`), no per-particle noise, no rotation (amended in W70, D70-1; amended in W73, D73-1; amended in W77, D77-2). Everything goes soft |
 | Gravity | `(gx, gy)` in the grid update. Clamped to 0 under reduced motion |
 | Droplets | Particles flung far away are ordinary liquid that crawls home. There is no separate entity type |
@@ -332,7 +332,7 @@ At rest, what you see is therefore pixel-exact the DOM text, with no atlas appro
   - **Accepted limitations:**
     - liquid flying over other content that has its own stacking context or an opaque background can disappear behind it,
     - an observed element inside an ancestor with `transform`, `filter` or `overflow: hidden` can end up visually under other content.
-- **Drag moves the liquid, not the DOM.** There is no layout jump, no `position: fixed`, and labels can't end up on top of each other.
+- **Drag moves the liquid, not the DOM.** There is no layout jump, no `position: fixed`, and labels can't end up on top of each other. The label follows the liquid: WebGPU carries the atlas text; Canvas2D hides the dragged element's DOM glyphs (`-webkit-text-fill-color`, semantics untouched) until it is at rest again (amended 2026-10-11, slice-5 design, D78-1).
 - **Keyboard:** see `click` with `event.detail === 0` in §2. It applies to focusable elements. Non-focusable elements (the card) can only be splashed with a pointer.
 - **Contrast:**
   - At rest the real DOM text is shown on an exact contour, so contrast is identical to the original.
@@ -487,7 +487,7 @@ Slices 1–2 are detailed in the plan. Slices 3–6 are re-planned after each wh
 | 2 | **Liquid that reacts** | Full MPM dynamics, pointer field, click/keyboard splash, shake, stiffness/re-form/restAlpha, playground on material, splash scene. Followed by a **whole-picture check** |
 | 3 | **WebGPU liquid** | Splat/composite (T0), rest SDF overlay, blended colour, `device.lost`, overdraw logging (amended 2026-10-06: T2 deferred to slice 4; design `2026-10-06-liquiddom-slice-3-webgpu-design.md`) |
 | 4 | **Liquid text** | F with clamp/torn, text atlas + T1 (own pass, T2 dropped), the `liquid-text` toggle, extended MutationObserver, forced-colors, Canvas2D halo. Followed by a **whole-picture check** (amended 2026-10-10; design `2026-10-10-liquiddom-slice-4-liquid-text-design.md`) |
-| 5 | **Drag and merge** | `home_dx/dy`, drag threshold, displacement merge, slip separation |
+| 5 | **Drag and merge** | `home_dx/dy`, drag threshold, displacement merge, slip separation (amended 2026-10-11: W78 drag the liquid incl. spike W78.0, W79 merge and separate; design `2026-10-11-liquiddom-slice-5-drag-merge-design.md`) |
 | 6 | **The world** | Scroll (incl. the 1-frame risk), resize, container, parking, gravity/tilt scene, adapters, site rebuilt and re-enabled. Followed by a **whole-picture check** |
 
 **Interim state for kept features in slices 1–5:**
