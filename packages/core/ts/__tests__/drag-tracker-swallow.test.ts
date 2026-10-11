@@ -56,4 +56,11 @@ describe("W78.3 review: a stale click swallow clears", () => {
     await nextTask();
     expect(click(el).defaultPrevented, "another pointer's pointerup does not end it").toBe(true);
   });
+
+  it("given_a_blur_cancel_when_a_press_of_another_pointer_lands_outside_any_observed_element_then_the_following_click_passes_through", () => {
+    startDrag();
+    window.dispatchEvent(new Event("blur"));
+    document.body.dispatchEvent(new PointerEvent("pointerdown", { ...PTR, pointerId: 9, button: 0, buttons: 1, clientX: 500, clientY: 500 }));
+    expect(click(el).defaultPrevented, "any press clears an armed swallow").toBe(false);
+  });
 });

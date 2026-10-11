@@ -446,15 +446,6 @@ function buildRuntime(
     reducedMotion: false, // set per call
     held: awayHeld,
   };
-  const syncAway = (): void => {
-    awayStateView = bridge.stateView();
-    awayArgs.entries = registry.entries();
-    awayArgs.dragged = dragTracker.active?.el ?? null; // `dragTracker` is declared below; only called from frameBody
-    awayArgs.activeRenderer = activeRenderer;
-    awayArgs.reducedMotion = reducedMotion;
-    syncAwayClasses(awayArgs);
-    awayStateView = null; // a fresh view every frame (WASM memory can grow)
-  };
   // RF5: a DPR (zoom) change. The resolution query matches only the current DPR, so it is
   // re-armed for the new one on every change; resizeCanvas() decides whether the DPR changed.
   let dprQuery: MediaQueryList | null = null;
@@ -531,6 +522,15 @@ function buildRuntime(
     pointerDoc,
     pointerDoc.defaultView ?? window,
   );
+  const syncAway = (): void => {
+    awayStateView = bridge.stateView();
+    awayArgs.entries = registry.entries();
+    awayArgs.dragged = dragTracker.active?.el ?? null;
+    awayArgs.activeRenderer = activeRenderer;
+    awayArgs.reducedMotion = reducedMotion;
+    syncAwayClasses(awayArgs);
+    awayStateView = null; // a fresh view every frame (WASM memory can grow)
+  };
   // W75 (RF5): a web font that finishes after observe re-renders every atlas entry once (next frame).
   const fontSet = (pointerDoc as Document & { fonts?: EventTarget }).fonts ?? null;
   const onFontsDone = (): void => {
