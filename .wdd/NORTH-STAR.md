@@ -220,3 +220,9 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D77-2 | Sheet thins instead of tearing: tension 0.46, shake amplitude 0.35 (amends D73-1); W70 slosh floors 20/10 (2026-10-11) | W77 | dec_3ba590a1, dec_a99cad59 |
 | D77-3 | Honey re-forms within 3 s | W77 | dec_f68c0534 |
 | D77-4 | Demo index opens scenes with ?renderer=auto | W77 | dec_eab87afb |
+| D78-1 | Label follows the liquid: WebGPU atlas text, Canvas2D hides the DOM glyphs (`liquid-away`) until rest | W78 | dec_ef69b009 |
+| D78-2 | Mouse/pen drag, primary button, capture past 4 px; no touch or keyboard drag | W78 | dec_4ee820b6 |
+| D78-3 | Spec physics: s ≤ 0.5 every substep, home velocity with the offset; spike W78.0 first | W78 | dec_b42edab8 |
+| D78-4 | DRAGGED > hover > focus > idle; pointer field skips the dragged liquid | W78 | dec_c999105a |
+| D78-5 | A dragged element never rests | W78 | dec_a7ad4b5d |
+| D78-6 | The click that ends a drag is swallowed once | W78 | dec_38ad086a |
