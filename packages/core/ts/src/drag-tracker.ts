@@ -13,7 +13,7 @@
  * tells the runtime which one it was. The click that ends a drag is swallowed once at the window's
  * capture phase (before every other listener, so the splash, the author's handlers and another
  * instance's listeners all miss it); the swallow clears in the task after the pointerup, or at the
- * next press. While a press is live, `selectstart` and `dragstart` are prevented on the document.
+ * next press. Only a pointer's click (detail >= 1) is swallowed: an AT or programmatic click passes. While a press is live, `selectstart` and `dragstart` are prevented on the document.
  * The DOM, focus and hit areas never move: drag is decoration. Touch and keyboard never drag.
  */
 export const DRAG_THRESHOLD_PX = 4;
@@ -173,6 +173,10 @@ export class DragTracker {
   };
 
   private readonly onClickCapture = (e: MouseEvent): void => {
+    // W78 ward review I1: only a click a pointer release produced (detail >= 1) ends a drag. An
+    // assistive-tech default action or `el.click()` has detail 0 and always passes, so a swallow
+    // left armed by a cancel whose pointerup never reaches this document cannot eat it.
+    if (e.detail === 0) return;
     const el = this.swallowEl;
     const target = e.target as Node | null;
     if (el === null || target === null || typeof target.nodeType !== "number" || !el.contains(target)) return;
@@ -197,7 +201,7 @@ export class DragTracker {
       d.addEventListener("pointermove", this.onMove);
       d.addEventListener("pointerup", this.onUp);
       d.addEventListener("pointercancel", this.onPointerCancel);
-      d.addEventListener("keydown", this.onKey);
+      d.addEventListener("keydown", this.onKey, true); // capture: a stopPropagation cannot keep the drag alive
       d.addEventListener("selectstart", this.onSelect);
       d.addEventListener("dragstart", this.onSelect);
       this.win.addEventListener("blur", this.onBlur);
@@ -205,7 +209,7 @@ export class DragTracker {
       d.removeEventListener("pointermove", this.onMove);
       d.removeEventListener("pointerup", this.onUp);
       d.removeEventListener("pointercancel", this.onPointerCancel);
-      d.removeEventListener("keydown", this.onKey);
+      d.removeEventListener("keydown", this.onKey, true);
       d.removeEventListener("selectstart", this.onSelect);
       d.removeEventListener("dragstart", this.onSelect);
       this.win.removeEventListener("blur", this.onBlur);
