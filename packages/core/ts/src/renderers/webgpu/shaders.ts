@@ -246,6 +246,9 @@ export const TEXT_DET_EPS = 1e-4;
  * uv = rest_uv + diag(1/w_rest, 1/h_rest)·F⁻¹·(frag − x_p), ‖F⁻¹‖ clamped to FINV_NORM_CLAMP;
  * coverage 0 when torn, |det F| < TEXT_DET_EPS or uv ∉ [0,1]². Such particles still add Σw, so
  * their neighbours' text fades there instead of spreading into a tear.
+ * W79 (D79-1): every covered fragment also writes (id, −id) of its element into the id target
+ * (rg16float, min blending), so per texel r is the smallest and −g the largest element id whose
+ * liquid carries text there.
  */
 export const TEXT_WGSL = /* wgsl */ `
 ${VIEW_WGSL}
@@ -281,6 +284,7 @@ struct TextVarying {
   @location(4) @interpolate(flat) size: vec2f,
   @location(5) @interpolate(flat) arect: vec4f,
   @location(6) @interpolate(flat) valid: f32,
+  @location(7) @interpolate(flat) id: f32,
 }
 
 // Smallest singular value of F = (f00, f01, f10, f11) by the closed form (fmath.rs).
@@ -303,6 +307,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> TextV
   out.size = vec2f(1.0, 1.0);
   out.arect = vec4f(0.0, 0.0, 0.0, 0.0);
   out.valid = 0.0;
+  out.id = 0.0;
   let home = homes[ii];
   if (home < 0 || u32(home) >= arrayLength(&elements) || u32(home) >= arrayLength(&text_info)) {
     return out;
@@ -341,12 +346,14 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> TextV
   out.size = max(info.size.xy, vec2f(1e-3, 1e-3));
   out.arect = info.atlas;
   out.valid = valid;
+  out.id = f32(home);
   return out;
 }
 
 struct TextTargets {
   @location(0) acc: vec4f,
   @location(1) acc_w: f32,
+  @location(2) id: vec2f,
 }
 
 @fragment
@@ -364,6 +371,7 @@ fn fs(in: TextVarying) -> TextTargets {
   var out: TextTargets;
   out.acc = texel * (w * coverage);
   out.acc_w = w;
+  out.id = vec2f(in.id, -in.id);
   return out;
 }
 `;
@@ -372,6 +380,9 @@ fn fs(in: TextVarying) -> TextTargets {
  * Pass 2c (text composite, W74, D74-4): drawn after the rest SDF so the text never blinks at the
  * cross-fade. T1/T1w thresholded at 0.5 with the liquid's fwidth edge; colour T1/T1w (the
  * atlas is premultiplied, so the result is too), blended over.
+ * W79 (D79-1): coverage 0 wherever the id target's bilinear footprint holds two element ids
+ * (smallest < largest): where two elements' liquids meet, neither shows text, so no pixel ever
+ * carries the text of both. textureGather reads the four texels the bilinear T1 sample mixes.
  */
 export const TEXT_COMPOSITE_WGSL = /* wgsl */ `
 ${VIEW_WGSL}
@@ -384,6 +395,7 @@ const SUM_W_EPS: f32 = 1e-4;
 @group(0) @binding(1) var t1: texture_2d<f32>;
 @group(0) @binding(2) var t1_weight: texture_2d<f32>;
 @group(0) @binding(3) var t1_sampler: sampler;
+@group(0) @binding(4) var t1_id: texture_2d<f32>;
 
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
@@ -397,7 +409,13 @@ fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let acc = textureSample(t1, t1_sampler, uv);
   let sum_w = textureSample(t1_weight, t1_sampler, uv).r;
   let soft = clamp(0.75 * fwidth(sum_w), EDGE_SOFTNESS, EDGE_SOFTNESS_MAX);
-  let coverage = smoothstep(DENSITY_THRESHOLD - soft, DENSITY_THRESHOLD + soft, sum_w);
+  // W79 (D79-1): r = smallest, −g = largest element id per texel (TEXT_ID_EMPTY where no text splat).
+  let lo4 = textureGather(0, t1_id, t1_sampler, uv);
+  let nhi4 = textureGather(1, t1_id, t1_sampler, uv);
+  let lo = min(min(lo4.x, lo4.y), min(lo4.z, lo4.w));
+  let hi = -min(min(nhi4.x, nhi4.y), min(nhi4.z, nhi4.w));
+  let mixed = lo + 0.5 < hi;
+  let coverage = select(smoothstep(DENSITY_THRESHOLD - soft, DENSITY_THRESHOLD + soft, sum_w), 0.0, mixed);
   let text = clamp(acc / max(sum_w, SUM_W_EPS), vec4f(0.0), vec4f(1.0));
   return text * coverage;
 }

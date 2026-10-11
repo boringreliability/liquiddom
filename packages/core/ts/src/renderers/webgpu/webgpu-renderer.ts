@@ -13,6 +13,10 @@
  * pass, because every attachment of a pass shares one size and T0 is at `t0Scale` — and the screen
  * pass draws the text composite after the rest SDF. T2 is dropped. The atlas page is uploaded
  * once per version; `textReady(id)` tells the runtime whose text is drawn (D74-6).
+ * W79 (D79-1): the text pass has a third target, T1id (`rg16float`, min blending, cleared to
+ * TEXT_ID_EMPTY): per texel the smallest (r) and minus the largest (g) element id whose text splat
+ * reached it; the text composite drops the text where they differ, so no pixel carries two
+ * elements' text. `captureTextIds()` reads T1id back for the acceptance hook only.
  * W74 ward-review (I1): once a page is confirmed, a new version goes into a staging texture and
  * the confirmed page keeps drawing with its own text records until the new upload's error scope
  * resolves; the swap then copies the staging page into the drawn texture and switches the records
@@ -50,6 +54,38 @@ export const T0_ALPHA_FORMAT: GPUTextureFormat = "r16float";
 export const T1_FORMAT: GPUTextureFormat = "rgba16float";
 export const T1_WEIGHT_FORMAT: GPUTextureFormat = "r16float";
 export const ATLAS_FORMAT: GPUTextureFormat = "rgba8unorm";
+/**
+ * W79 (D79-1): the text pass's id target. Per texel, r = the smallest and g = minus the largest
+ * element id of every text splat that reached it; both blend with `min`. rg16float is renderable
+ * and blendable in core WebGPU (r32float would need the float32-blendable feature).
+ */
+export const T1_ID_FORMAT: GPUTextureFormat = "rg16float";
+/** W79 (D79-1): the clear value of both id channels: no text splat. Exact in f16, above every slot id (maxElements ≤ 256). */
+export const TEXT_ID_EMPTY = 4096;
+/** W79 (D79-1): min blending; WebGPU requires both factors to be "one" for min and max. */
+export const MIN_BLEND: GPUBlendState = {
+  color: { srcFactor: "one", dstFactor: "one", operation: "min" },
+  alpha: { srcFactor: "one", dstFactor: "one", operation: "min" },
+};
+const TEXT_ID_CLEAR: GPUColorDict = { r: TEXT_ID_EMPTY, g: TEXT_ID_EMPTY, b: 0, a: 0 };
+/** Bytes per T1id texel (two f16). */
+const TEXT_ID_TEXEL_BYTES = 4;
+/** WebGPU: bytesPerRow of a texture-to-buffer copy is a multiple of this. */
+const COPY_ROW_ALIGN = 256;
+
+/** @internal W79 (D79-1): one frame's T1id, read back for the acceptance hook (`captureTextIds`). */
+export interface TextIdCapture {
+  /** False when that frame ran no text pass; width, height and bytesPerRow are then 0. */
+  readonly textPass: boolean;
+  readonly width: number;
+  readonly height: number;
+  /** Bytes per row of `data` (a multiple of 256). */
+  readonly bytesPerRow: number;
+  /** TEXT_ID_EMPTY: the value of a texel no text splat reached. */
+  readonly empty: number;
+  /** Raw rg16float texels row by row: r, g as IEEE half bits. */
+  readonly data: Uint16Array;
+}
 /** WGSL `struct View`: size_css (2), size_px (2), dpr, t0_scale, 2 × pad. */
 export const VIEW_UNIFORM_FLOATS = 8;
 /** WebGPU rejects zero-size storage bindings; no buffer is smaller than this (bytes). */
@@ -160,6 +196,7 @@ export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat
       { binding: 1, visibility: F, texture: { sampleType: "float" } },
       { binding: 2, visibility: F, texture: { sampleType: "float" } },
       { binding: 3, visibility: F, sampler: { type: "filtering" } },
+      { binding: 4, visibility: F, texture: { sampleType: "float" } }, // W79 (D79-1): T1id
     ],
   });
   const splat = device.createRenderPipeline({
@@ -200,6 +237,7 @@ export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat
       targets: [
         { format: T1_FORMAT, blend: ADDITIVE_BLEND },
         { format: T1_WEIGHT_FORMAT, blend: ADDITIVE_BLEND },
+        { format: T1_ID_FORMAT, blend: MIN_BLEND }, // W79 (D79-1)
       ],
     },
     primitive: { topology: "triangle-list" },
@@ -333,13 +371,21 @@ export class WebGPURenderer implements Renderer {
   private readonly swapSubmitList: GPUCommandBuffer[] = [];
   private t1: GPUTexture | null = null;
   private t1Weight: GPUTexture | null = null;
+  /** W79 (D79-1): the id target, same size as T1. */
+  private t1Id: GPUTexture | null = null;
   private t1Width = 0;
   private t1Height = 0;
   private textGroup: GPUBindGroup | null = null;
   private textCompositeGroup: GPUBindGroup | null = null;
   private readonly t1Attachment: GPURenderPassColorAttachment = { view: PLACEHOLDER_VIEW, clearValue: CLEAR, loadOp: "clear", storeOp: "store" };
   private readonly t1WeightAttachment: GPURenderPassColorAttachment = { view: PLACEHOLDER_VIEW, clearValue: CLEAR, loadOp: "clear", storeOp: "store" };
-  private readonly textPass: GPURenderPassDescriptor = { label: "liquiddom text", colorAttachments: [this.t1Attachment, this.t1WeightAttachment] };
+  private readonly t1IdAttachment: GPURenderPassColorAttachment = { view: PLACEHOLDER_VIEW, clearValue: TEXT_ID_CLEAR, loadOp: "clear", storeOp: "store" };
+  private readonly textPass: GPURenderPassDescriptor = {
+    label: "liquiddom text",
+    colorAttachments: [this.t1Attachment, this.t1WeightAttachment, this.t1IdAttachment],
+  };
+  /** @internal W79: the armed captureTextIds() resolver; settled by the next render(), a loss or destroy(). */
+  private textIdWaiter: ((capture: TextIdCapture | null) => void) | null = null;
 
   constructor(opts: WebGPURendererOptions = {}) {
     const s = opts.t0Scale ?? T0_SCALE_DEFAULT;
@@ -543,6 +589,7 @@ export class WebGPURenderer implements Renderer {
       splat.draw(6, count);
     }
     splat.end();
+    const textRan = drawText && this.textGroup !== null;
     if (drawText && this.textGroup) {
       // W74 (D74-4): its own pass — T1/T1w are at 1×, and all attachments of a pass share one size.
       const text = encoder.beginRenderPass(this.textPass);
@@ -568,8 +615,69 @@ export class WebGPURenderer implements Renderer {
       screen.draw(3);
     }
     screen.end();
+    // W79: only while the acceptance hook armed a capture (never in a normal frame).
+    const readback = this.textIdWaiter !== null ? this.encodeTextIdCopy(encoder, textRan) : null;
     this.submitList[0] = encoder.finish();
     queue.submit(this.submitList);
+    readback?.();
+  }
+
+  /**
+   * @internal W79 (D79-1) scene test hook: resolves with the next rendered frame's T1id (copied
+   * into a mappable buffer in that frame's own submit), `textPass` false when that frame drew no
+   * text, and null without a device, after a loss or destroy(). A second call while one is armed
+   * rejects at once with "already armed" and leaves the first untouched (W79 red review M3).
+   * Reached only through FluidRuntime.captureTextIds() (the acceptance hook); the readback buffer
+   * exists only for an armed capture, never in a normal frame.
+   */
+  captureTextIds(): Promise<TextIdCapture | null> {
+    if (!this.device || this.lost) return Promise.resolve(null);
+    if (this.textIdWaiter !== null) {
+      return Promise.reject(new Error("[liquiddom] captureTextIds(): a capture is already armed for the next frame"));
+    }
+    return new Promise<TextIdCapture | null>((resolve) => {
+      this.textIdWaiter = resolve;
+    });
+  }
+
+  private settleTextIds(capture: TextIdCapture | null): void {
+    const waiter = this.textIdWaiter;
+    this.textIdWaiter = null;
+    waiter?.(capture);
+  }
+
+  /** W79: encodes the T1id copy for an armed capture; returns what to run after the submit. */
+  private encodeTextIdCopy(encoder: GPUCommandEncoder, textRan: boolean): () => void {
+    const resolve = this.textIdWaiter ?? (() => {});
+    this.textIdWaiter = null;
+    const { device, t1Id } = this;
+    if (!textRan || !device || !t1Id) {
+      const none: TextIdCapture = { textPass: false, width: 0, height: 0, bytesPerRow: 0, empty: TEXT_ID_EMPTY, data: new Uint16Array(0) };
+      return () => resolve(none);
+    }
+    const width = this.t1Width;
+    const height = this.t1Height;
+    const bytesPerRow = Math.ceil((width * TEXT_ID_TEXEL_BYTES) / COPY_ROW_ALIGN) * COPY_ROW_ALIGN;
+    const buffer = device.createBuffer({
+      label: "liquiddom text id readback",
+      size: bytesPerRow * height,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+    encoder.copyTextureToBuffer({ texture: t1Id }, { buffer, bytesPerRow, rowsPerImage: height }, [width, height]);
+    return () => {
+      buffer.mapAsync(GPUMapMode.READ).then(
+        () => {
+          const data = new Uint16Array(buffer.getMappedRange().slice(0));
+          buffer.unmap();
+          buffer.destroy();
+          resolve({ textPass: true, width, height, bytesPerRow, empty: TEXT_ID_EMPTY, data });
+        },
+        () => {
+          buffer.destroy(); // a loss or destroy() during the map: no capture
+          resolve(null);
+        },
+      );
+    };
   }
 
   /**
@@ -962,13 +1070,18 @@ export class WebGPURenderer implements Renderer {
     if (this.t1 && w === this.t1Width && h === this.t1Height) return;
     this.t1?.destroy();
     this.t1Weight?.destroy();
+    this.t1Id?.destroy();
     const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
     this.t1 = device.createTexture({ label: "liquiddom T1", size: [w, h], format: T1_FORMAT, usage });
     this.t1Weight = device.createTexture({ label: "liquiddom T1w", size: [w, h], format: T1_WEIGHT_FORMAT, usage });
+    // W79 (D79-1): COPY_SRC for captureTextIds() (the acceptance hook's readback).
+    this.t1Id = device.createTexture({ label: "liquiddom T1id", size: [w, h], format: T1_ID_FORMAT, usage: usage | GPUTextureUsage.COPY_SRC });
     const t1View = this.t1.createView();
     const t1WeightView = this.t1Weight.createView();
+    const t1IdView = this.t1Id.createView();
     this.t1Attachment.view = t1View;
     this.t1WeightAttachment.view = t1WeightView;
+    this.t1IdAttachment.view = t1IdView;
     this.t1Width = w;
     this.t1Height = h;
     this.textCompositeGroup = device.createBindGroup({
@@ -979,6 +1092,7 @@ export class WebGPURenderer implements Renderer {
         { binding: 1, resource: t1View },
         { binding: 2, resource: t1WeightView },
         { binding: 3, resource: sampler },
+        { binding: 4, resource: t1IdView },
       ],
     });
   }
@@ -996,7 +1110,9 @@ export class WebGPURenderer implements Renderer {
     this.stagingTexture?.destroy();
     this.t1?.destroy();
     this.t1Weight?.destroy();
+    this.t1Id?.destroy();
     this.viewBuffer?.destroy();
+    this.settleTextIds(null); // W79: a pending capture never hangs
     this.device = null;
     this.ctx = null;
     this.pipelines = null;
@@ -1040,12 +1156,14 @@ export class WebGPURenderer implements Renderer {
     this.swapSubmitList.length = 0;
     this.t1 = null;
     this.t1Weight = null;
+    this.t1Id = null;
     this.t1Width = 0;
     this.t1Height = 0;
     this.textGroup = null;
     this.textCompositeGroup = null;
     this.t1Attachment.view = PLACEHOLDER_VIEW;
     this.t1WeightAttachment.view = PLACEHOLDER_VIEW;
+    this.t1IdAttachment.view = PLACEHOLDER_VIEW;
     this.bufferCapacity = -1;
     this.bufferSlots = -1;
     this.t0Width = 0;
@@ -1076,6 +1194,7 @@ export class WebGPURenderer implements Renderer {
       // reason; a crashed GPU process reports "destroyed" too. Our own destroy() returned above.
       this.lost = true;
       this.fragmentEstimate = 0;
+      this.settleTextIds(null); // W79
       // The renderer never warns: the runtime owns the one console.warn (D72-3).
       this.deviceLostCallback?.(simulated ? simulatedLossInfo() : info);
     });

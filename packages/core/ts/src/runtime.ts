@@ -25,7 +25,7 @@ import { DragTracker } from "./drag-tracker";
 import { acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas } from "./stylesheet";
 import { initCanvas2D, selectRenderer, type ActiveRenderer, type RendererChoice, type SelectedRenderer } from "./renderers/select";
 import type { FluidCanvas2DRenderer } from "./renderers/fluid-canvas2d";
-import { WebGPURenderer } from "./renderers/webgpu/webgpu-renderer";
+import { WebGPURenderer, type TextIdCapture } from "./renderers/webgpu/webgpu-renderer";
 import { loadFluidWasm, type FluidBackend, type FluidCoreLike } from "./wasm-loader";
 
 export const LIQUID_CANVAS_CLASS = "liquid-canvas";
@@ -102,6 +102,11 @@ export interface FluidRuntime {
   readonly t0Size: readonly [number, number] | null;
   /** @internal W75 (Review Focus 3, 5): atlas re-render requests issued so far; the scene hook reads it. */
   readonly textInvalidations: number;
+  /**
+   * @internal W79 (D79-1) scene test hook: the text id target of the next rendered frame (WebGPU);
+   * null under Canvas2D, after a lost device or destroy(). Only the acceptance hook calls it.
+   */
+  captureTextIds(): Promise<TextIdCapture | null>;
   /** Re-snapshot colours of an observed element (no-op otherwise). W75: also re-colours the halo rule and re-renders the atlas entry. */
   refresh(el: HTMLElement): void;
   /**
@@ -922,6 +927,9 @@ function buildRuntime(
     },
     get textInvalidations() {
       return textInvalidations;
+    },
+    captureTextIds() {
+      return renderer instanceof WebGPURenderer ? renderer.captureTextIds() : Promise.resolve(null);
     },
     refresh(el: HTMLElement) {
       if (destroyed) return;
