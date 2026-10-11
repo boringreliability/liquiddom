@@ -35,6 +35,14 @@ pub const SHAKE_STIFFNESS_CAP: f32 = 0.3;
 /// W78 (D78-3, spec §2 damage rules): drag sets `s ← min(s, 0.5)` while dragging.
 pub const DRAG_STIFFNESS_CAP: f32 = 0.5;
 
+/// W79 (D79-2): an element whose home rect overlaps the dragged home rect grown by this margin
+/// on every side is a neighbour under the drag. 16 px is the renderers' kernel cap (W77, D77-1):
+/// liquid closer than that already blends with the dragged liquid on screen.
+pub const NEIGHBOUR_MARGIN_PX: f32 = 16.0;
+/// W79 (D79-2, spike W78.0 answer 1): a neighbour under the drag is held at `s ≤ 0.2`, so it
+/// makes room (a displacement merge) instead of pushing the dragged liquid back.
+pub const NEIGHBOUR_STIFFNESS_CAP: f32 = 0.2;
+
 /// W78 (D78-3, D78-5; spec §2 damage rules): `damage(id, DRAG_STIFFNESS_CAP)` for every active
 /// element whose slot 5 is DRAGGED. The api calls it in every substep right after
 /// `update_stiffness`, so no substep sees a dragged element stiffer than the cap, its rest hold

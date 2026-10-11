@@ -3,7 +3,7 @@ import { test, expect } from "./fixtures";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { presets } from "../packages/core/ts/src/material";
-import { W77_CARD_LACE_MAX_TEAR, cardTearPixels } from "./lace";
+import { W77_CARD_LACE_MAX_TEAR, cardTearPixels, clientRectOf, regionHolePixels } from "./lace";
 import { NORTH_STAR_PATH, reformBudgetMs } from "./north-star";
 import { SWIFTSHADER_RUNS_LIQUID } from "./projects";
 import { IDLE_2S_FRAMES, VISUAL_ENABLED, VISUAL_SKIP_REASON, advance, cssAlpha, gotoScene, projectRenderer, restAlpha } from "./scene";
@@ -1075,5 +1075,62 @@ test.describe("W78 – drag the liquid (step 5 without the merge)", () => {
     expect(await w67FramesUntilAllRest(page, W78_REFORM_FRAMES), "re-formed").toBeGreaterThan(0);
     // The pointer still rests on the card, so the card shows its hover swell (deterministic on the manual clock).
     await expect(page).toHaveScreenshot("acceptance-step5-drag-reformed.png", { maxDiffPixelRatio: 0.01 });
+  });
+});
+
+// =============================================================================
+// W79 (slice 5) – merge and separate: step 5 ✅ in Canvas2D (D79-2, D79-4). WebGPU's "labels
+// never overlap" is the webgpu-robust.spec.ts W79 block (webgpu-hw); Canvas2D draws no liquid
+// text and hides Merge's DOM label while away (W78, D78-1), so its labels cannot overlap.
+// =============================================================================
+/** D79-4: the merge is held 90 frames (spike W78.0: a 30-frame hold is only a partial merge). */
+const W79_HOLD_FRAMES = 90;
+/** D79-2: a neighbour under the dragged home is held at s ≤ 0.2. */
+const W79_NEIGHBOUR_S_MAX = 0.2;
+const CARD_INDEX = 3;
+/** Frames read after the release before waiting for rest (the stills at rel f30). */
+const W79_AFTER_RELEASE_FRAMES = 30;
+/**
+ * W79.0 Step 4 (ward-079.md "W79.0 measurements"; seed 1, canvas2d, macOS, hold f90):
+ * `regionHolePixels` around the card with W78 alone (HEAD) and with the W79 scratch copy.
+ */
+const W79_0_HOLES = { w78: 6, w79: 55 } as const;
+/** One closed region: at most 1.5 × the W79 copy's value, at least 20 px, rounded up to 10. */
+const W79_MERGE_HOLES_MAX = Math.max(20, Math.ceil((1.5 * W79_0_HOLES.w79) / 10) * 10);
+
+test.describe("W79 – merge and separate (step 5, canvas2d)", () => {
+  test.beforeEach(() => {
+    test.skip(projectRenderer() !== "canvas2d", "W79: canvas2d project (webgpu-hw: the webgpu-robust.spec.ts W79 block)");
+  });
+
+  test("step 5 – given Merge dragged into the card and held 90 frames when released then the card is softened while overlapped, the two liquids form one closed region and every restAlpha is 1 within 180 frames", async ({ page }, testInfo) => {
+    await w67Open(page);
+    await w78DragMergeToCard(page, W79_HOLD_FRAMES);
+    // Logged before any assertion, so W79.0 reads the same line from a W78-alone (red) copy.
+    const holes = await regionHolePixels(page, await clientRectOf(page, "#card"));
+    console.log(`W79 merge holes (canvas2d, hold f${W79_HOLD_FRAMES}): ${holes} (bound ${W79_MERGE_HOLES_MAX}; W79.0: W78 alone ${W79_0_HOLES.w78}, W79 ${W79_0_HOLES.w79})`);
+    const held = await w78Slots(page);
+    expect(held[MERGE_INDEX].interaction, "precondition: Merge is DRAGGED").toBe(3);
+    expect(held[CARD_INDEX].s, "the card under the dragged home is held at s ≤ 0.2 (D79-2)").toBeLessThanOrEqual(W79_NEIGHBOUR_S_MAX + 1e-6);
+    expect(held[0].s, "Splash is never under the drag").toBe(1);
+    expect(holes, "one closed region: no seam between the two liquids").toBeLessThanOrEqual(W79_MERGE_HOLES_MAX);
+    await page.screenshot({ path: testInfo.outputPath("w79-canvas2d-merge-hold-f90.png") });
+    await page.mouse.up();
+    await w67Advance(page, W79_AFTER_RELEASE_FRAMES);
+    await page.screenshot({ path: testInfo.outputPath("w79-canvas2d-merge-rel-f30.png") });
+    const rest = await w67FramesUntilAllRest(page, W78_REFORM_FRAMES - W79_AFTER_RELEASE_FRAMES);
+    const frames = rest > 0 ? rest + W79_AFTER_RELEASE_FRAMES : -1;
+    console.log(`W79 step 5 (canvas2d): every restAlpha 1 after ${frames} frames (budget ${W78_REFORM_FRAMES})`);
+    expect(frames, `both re-form within ${W78_REFORM_FRAMES} frames after the release`).toBeGreaterThan(0);
+    expect((await w78MergeFill(page)).away, "Merge's DOM label is back at rest").toBe(false);
+    await page.screenshot({ path: testInfo.outputPath("w79-canvas2d-merge-reformed.png") });
+  });
+
+  test("step 5 – given Merge dragged into the card and held 90 frames when screenshotted then it matches the baseline", async ({ page }) => {
+    test.skip(!VISUAL_ENABLED, VISUAL_SKIP_REASON);
+    await w67Open(page);
+    await w78DragMergeToCard(page, W79_HOLD_FRAMES);
+    await expect(page).toHaveScreenshot("acceptance-step5-merge-mid.png", { maxDiffPixelRatio: 0.01 });
+    await page.mouse.up();
   });
 });

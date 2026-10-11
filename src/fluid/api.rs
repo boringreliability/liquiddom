@@ -713,6 +713,11 @@ impl FluidCore {
             .collect()
     }
 
+    /// W79 (D79-2): the element's merge-slip flag.
+    pub(crate) fn merge_slip_of(&self, id: usize) -> bool {
+        self.elements.merge_slip(id)
+    }
+
     pub(crate) fn stiffness_of(&self, id: usize) -> f32 {
         self.elements.stiffness[id]
     }

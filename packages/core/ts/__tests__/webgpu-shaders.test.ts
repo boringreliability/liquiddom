@@ -81,3 +81,27 @@ describe("W71 WGSL sources", () => {
     expect(TEXT_COMPOSITE_WGSL).toContain("return text * coverage;");
   });
 });
+
+describe("W79 WGSL: labels never overlap (D79-1)", () => {
+  it("given_TEXT_WGSL_when_read_then_every_covered_text_fragment_writes_its_element_id_and_minus_id_to_location_2", () => {
+    expect(TEXT_WGSL).toMatch(/@location\(7\) @interpolate\(flat\) id: f32,/);
+    expect(TEXT_WGSL).toContain("out.id = f32(home);");
+    expect(TEXT_WGSL).toMatch(/@location\(0\) acc: vec4f,\s*@location\(1\) acc_w: f32,\s*@location\(2\) id: vec2f,/);
+    expect(TEXT_WGSL).toContain("out.id = vec2f(in.id, -in.id);");
+    // After the kernel discard, for every covered fragment, torn or not: the id marks the liquid, not the glyphs.
+    expect(TEXT_WGSL.indexOf("out.id = vec2f(in.id, -in.id);")).toBeGreaterThan(TEXT_WGSL.lastIndexOf("discard;"));
+  });
+
+  it("given_TEXT_COMPOSITE_WGSL_when_read_then_it_gathers_the_ids_over_the_bilinear_footprint_and_gives_the_text_coverage_0_where_two_elements_meet", () => {
+    expect(TEXT_COMPOSITE_WGSL).toContain("@group(0) @binding(4) var t1_id: texture_2d<f32>;");
+    expect(TEXT_COMPOSITE_WGSL).toContain("let lo4 = textureGather(0, t1_id, t1_sampler, uv);");
+    expect(TEXT_COMPOSITE_WGSL).toContain("let nhi4 = textureGather(1, t1_id, t1_sampler, uv);");
+    expect(TEXT_COMPOSITE_WGSL).toContain("let lo = min(min(lo4.x, lo4.y), min(lo4.z, lo4.w));");
+    expect(TEXT_COMPOSITE_WGSL).toContain("let hi = -min(min(nhi4.x, nhi4.y), min(nhi4.z, nhi4.w));");
+    expect(TEXT_COMPOSITE_WGSL).toContain("let mixed = lo + 0.5 < hi;");
+    expect(TEXT_COMPOSITE_WGSL).toContain(
+      "let coverage = select(smoothstep(DENSITY_THRESHOLD - soft, DENSITY_THRESHOLD + soft, sum_w), 0.0, mixed);",
+    );
+    expect(TEXT_COMPOSITE_WGSL).toContain("return text * coverage;");
+  });
+});

@@ -80,6 +80,11 @@ pub fn swell_rect(r: &Rect, interaction: f32, reduced_motion: bool) -> Rect {
     }
 }
 
+/// W79.1 (red) stub: W79.2 tests `b` against `a` grown by `margin` (D79-2).
+pub fn rects_overlap(_a: &Rect, _b: &Rect, _margin: f32) -> bool {
+    false
+}
+
 impl Elements {
     pub fn new(cap: usize) -> Elements {
         let mut state = vec![0.0; cap * STATE_STRIDE];
@@ -125,6 +130,14 @@ impl Elements {
             && positive(self.field(id, EL_W))
             && positive(self.field(id, EL_H))
     }
+
+    /// W79.1 (red) stub: W79.2 keeps a merge-slip flag per element (D79-2).
+    pub fn merge_slip(&self, _id: usize) -> bool {
+        false
+    }
+
+    /// W79.1 (red) stub: W79.2 sets or clears the merge-slip flag (D79-2).
+    pub fn set_merge_slip(&mut self, _id: usize, _on: bool) {}
 
     /// W78 (D78-4): slot 5 holds DRAGGED (within ±0.5, like HOVER in `swell_rect`). NaN, an
     /// out-of-range id and every other code are not dragged.

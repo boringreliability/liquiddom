@@ -167,3 +167,79 @@ test("perf – W77 D77-1: the Canvas2D frame on the landing shake costs at most 
   );
   expect(ratio, "landing / acceptance Canvas2D shake frame cost (D77-1: ≤ baseline + 15 %)").toBeLessThanOrEqual(W77_FRAME_RATIO_MAX);
 });
+
+// W79 (D79-3): the Canvas2D frame during the merge costs at most 1.15 × a frame after a splash on the
+// card. Both move the card's liquid (its density splat dominates the Canvas2D frame), so the ratio
+// isolates what the merge adds per frame: the neighbour hold, the merge slip and the dragged home.
+// Median of W79_COST_FRAMES frames each (seed 1, manual clock), median of W79_COST_RUNS runs.
+const W79_MERGE_OVER_SPLASH_MAX = 1.15;
+const W79_COST_FRAMES = 40;
+const W79_COST_RUNS = 3;
+
+async function w79OpenCostScene(page: Page): Promise<void> {
+  await page.goto("/scenes/acceptance.html?seed=1&renderer=canvas2d&clock=manual&test=1");
+  await page.waitForFunction(() => window.__liquidTest !== undefined, undefined, { timeout: 15_000 });
+  await page.evaluate(() => window.__liquidTest!.ready);
+  await page.evaluate(() => window.__liquidTest!.advance(120));
+}
+
+/** Median wall ms of `advance(1)` over the first W79_COST_FRAMES frames after `splash()` on #card (strength 1). */
+async function cardSplashFrameMedianMs(page: Page): Promise<number> {
+  await w79OpenCostScene(page);
+  await page.mouse.move(1279, 799);
+  const ms = await page.evaluate((n) => {
+    (window.__liquidTest!.instance as { splash(el: Element): void }).splash(document.getElementById("card")!);
+    const out: number[] = [];
+    for (let f = 0; f < n; f++) {
+      const t = performance.now();
+      window.__liquidTest!.advance(1);
+      out.push(performance.now() - t);
+    }
+    return out;
+  }, W79_COST_FRAMES);
+  return median(ms);
+}
+
+/** Median wall ms of `advance(1)` over W79_COST_FRAMES frames of Merge dragged into the card (10 moves, then held). */
+async function mergeFrameMedianMs(page: Page): Promise<number> {
+  await w79OpenCostScene(page);
+  const centre = async (sel: string): Promise<{ x: number; y: number }> => {
+    const b = await page.locator(sel).boundingBox();
+    if (!b) throw new Error(`W79: ${sel} has no box`);
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  };
+  const from = await centre("#merge");
+  const to = await centre("#card");
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  const ms: number[] = [];
+  for (let k = 1; k <= W79_COST_FRAMES; k++) {
+    if (k <= 10) await page.mouse.move(from.x + ((to.x - from.x) * k) / 10, from.y + ((to.y - from.y) * k) / 10);
+    ms.push(
+      await page.evaluate(() => {
+        const t = performance.now();
+        window.__liquidTest!.advance(1);
+        return performance.now() - t;
+      }),
+    );
+  }
+  await page.mouse.up();
+  return median(ms);
+}
+
+test("perf – W79 D79-3: the Canvas2D frame during the merge costs at most 1.15 × a frame after a splash on the card", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "perf", "the canvas2d frame-cost guard runs in the perf project");
+  test.setTimeout(180_000);
+  const splash: number[] = [];
+  const merge: number[] = [];
+  for (let k = 0; k < W79_COST_RUNS; k++) {
+    splash.push(await cardSplashFrameMedianMs(page));
+    merge.push(await mergeFrameMedianMs(page));
+  }
+  const ratio = median(merge) / median(splash);
+  console.log(
+    `[perf W79] canvas2d frame median: card splash ${median(splash).toFixed(2)} ms, merge ${median(merge).toFixed(2)} ms, ` +
+      `ratio ${ratio.toFixed(3)} (bound ${W79_MERGE_OVER_SPLASH_MAX})`,
+  );
+  expect(ratio, "merge / card-splash Canvas2D frame cost (D79-3)").toBeLessThanOrEqual(W79_MERGE_OVER_SPLASH_MAX);
+});

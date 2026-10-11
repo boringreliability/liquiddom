@@ -158,13 +158,13 @@ export async function clientRectOf(page: Page, selector: string): Promise<Client
  */
 export async function regionTearPixels(
   page: Page,
-  rgb: readonly [number, number, number],
+  rgb: readonly [number, number, number] | null,
   rect: ClientRect,
   margin: number = LACE_REGION_MARGIN_PX,
   r: number = LACE_CLOSING_RADIUS_PX,
 ): Promise<number> {
   return page.evaluate(
-    ([[cr, cg, cb], box, m, rad]) => {
+    ([colour, box, m, rad]) => {
       const img = window.__liquidTest!.pixels();
       const { width: W, height: H, data } = img;
       const canvas = document.querySelector<HTMLCanvasElement>("canvas.liquid-canvas");
@@ -180,7 +180,8 @@ export async function regionTearPixels(
       const isC = (x: number, y: number): boolean => {
         const o = (y * W + x) * 4;
         if (data[o + 3] <= 128) return false;
-        return Math.abs(data[o] - cr) + Math.abs(data[o + 1] - cg) + Math.abs(data[o + 2] - cb) < 60;
+        if (colour === null) return true; // W79: any opaque liquid (regionHolePixels)
+        return Math.abs(data[o] - colour[0]) + Math.abs(data[o + 1] - colour[1]) + Math.abs(data[o + 2] - colour[2]) < 60;
       };
       const bx = X0 - rad - 1;
       const by = Y0 - rad - 1;
@@ -259,4 +260,26 @@ export async function specksInside(page: Page, rect: ClientRect, inset: number =
     },
     [rect, inset] as const,
   );
+}
+
+// =============================================================================
+// W79 (step 5): one closed region where "Merge" is dragged into the card.
+// =============================================================================
+
+/** W79: the region is the card's client rect grown by this many px ("Merge"'s dragged home lies inside it). */
+export const MERGE_REGION_MARGIN_PX = 16;
+
+/**
+ * W79: `regionTearPixels` with every opaque pixel as the mask, whatever its colour: non-opaque
+ * canvas pixels inside `rect` grown by `margin` that closing(opaque, disk r) fills, i.e. gaps at
+ * most 2r wide between or inside liquids. A drag that only presses "Merge" against the card leaves
+ * a seam between the two liquids; a displacement merge leaves none.
+ */
+export async function regionHolePixels(
+  page: Page,
+  rect: ClientRect,
+  margin: number = MERGE_REGION_MARGIN_PX,
+  r: number = LACE_CLOSING_RADIUS_PX,
+): Promise<number> {
+  return regionTearPixels(page, null, rect, margin, r);
 }

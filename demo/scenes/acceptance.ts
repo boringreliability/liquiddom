@@ -17,8 +17,11 @@ import { El, ELEMENT_STRIDE } from "../../packages/core/ts/src/fluid-layout";
 import { createRenderCountingClock, type RenderCountingClock } from "../render-counting-clock";
 import type { LiquidTestHook, ScenePerfProbe, ScenePerfSnapshot } from "../test-hooks";
 import { parseSceneParams } from "./scene-params";
+import { summarizeTextIds, type TextIdCaptureLike } from "../text-id-report";
 
 const PARTICLES = 8000;
+/** W79: a canvas text pixel has every channel and alpha ≥ this (webgpu-robust.spec.ts CANVAS_TEXT_MIN). */
+const TEXT_ID_TEXT_MIN = 200;
 const MAX_ELEMENTS = 32;
 
 const parsed = parseSceneParams(window.location.search);
@@ -218,6 +221,18 @@ const hook: LiquidTestHook = {
       const o = id * ELEMENT_STRIDE;
       return { interaction: v[o + El.INTERACTION], homeDx: v[o + El.HOME_DX], homeDy: v[o + El.HOME_DY], s: st.s };
     }),
+  // W79 (D79-1): arm the capture, run one frame (its pixels are snapshotted in that task), read both.
+  textIds: async () => {
+    if (!manual) throw new Error("[acceptance] textIds() needs ?clock=manual");
+    const rt = runtime as (FluidRuntime & { captureTextIds?: () => Promise<TextIdCaptureLike | null> }) | null;
+    if (!rt?.captureTextIds) throw new Error("[acceptance] textIds(): FluidRuntime.captureTextIds is missing (W79.3)");
+    const pending = rt.captureTextIds();
+    hook.advance(1);
+    const capture = await pending;
+    if (!capture) throw new Error(`[acceptance] textIds(): no capture (renderer ${rt.activeRenderer})`);
+    const report = summarizeTextIds(capture, hook.pixels(), TEXT_ID_TEXT_MIN);
+    return { ...report, elements: report.ids.map((id) => slotIds.indexOf(id)).filter((i) => i >= 0) };
+  },
 };
 
 started.catch((err: unknown) => {

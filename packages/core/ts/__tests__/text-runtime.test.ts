@@ -419,3 +419,22 @@ describe("W74 review: atlas build timing and size cap", () => {
     expect(textPasses()).toBe(0);
   });
 });
+
+describe("W79: captureTextIds through the runtime (D79-1)", () => {
+  it("given_webgpu_and_moving_text_when_captureTextIds_then_the_next_frame_copies_the_id_target_and_under_canvas2d_it_resolves_null", async () => {
+    const s = await setup();
+    const id = await observed(s, button());
+    s.core.forceRestAlpha(id, 0.4);
+    s.clock.advance(1);
+    expect(textPasses(), "precondition: the text pass runs").toBe(1);
+    const pending = s.rt.captureTextIds();
+    s.clock.advance(1);
+    const c = await pending;
+    expect(c?.textPass).toBe(true);
+    expect(gpu.calls.bufferCopies.map((b) => b.texture.label)).toEqual(["liquiddom T1id"]);
+    const c2d = await setup({ renderer: "canvas2d" });
+    expect(await c2d.rt.captureTextIds()).toBeNull();
+    expect(gpu.calls.errors).toEqual([]);
+    expect(error).not.toHaveBeenCalled();
+  });
+});

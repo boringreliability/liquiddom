@@ -49,6 +49,12 @@ pub const WOBBLE_PX: f32 = 1.1;
 pub const SLIP_RATE_PER_S: f32 = 3.0;
 /// Slip drift cap (px/s).
 pub const SLIP_MAX_PX_S: f32 = 160.0;
+/// W79 (D79-2, spike W78.0 answer 1): the merge slip, rate at s = 1 (1/s) and cap (px/s), for
+/// the particles of an element with `Elements::merge_slip` set (dragged, or a neighbour under
+/// the drag, until it rests again), so merged liquids separate within 3 s. Every other element
+/// keeps SLIP_RATE_PER_S / SLIP_MAX_PX_S, so splash, shake and the pointer field are unchanged.
+pub const MERGE_SLIP_RATE_PER_S: f32 = 4.5;
+pub const MERGE_SLIP_MAX_PX_S: f32 = 240.0;
 
 /// The wobble's common period (s): 2.1·T = 42π and 1.7·T = 34π for T = 20π, so
 /// `wobble_offset_px(t)` repeats exactly every T.
@@ -232,6 +238,12 @@ impl ElRow {
             mu: element_viscosity_px2_s(e, id, m) * inv * inv,
             dragged: e.is_dragged(id),
         }
+    }
+
+    /// W79.1 (red) stub: W79.2 slips at the row's own rate and cap and calls it from G2P (D79-2).
+    #[allow(dead_code)]
+    fn slip(&self, offset: (f32, f32)) -> (f32, f32) {
+        slip_velocity(offset, self.stiff, f32::INFINITY)
     }
 
     /// `home_spring_accel` with this row's precomputed k, damping and a_max.
@@ -425,6 +437,11 @@ pub fn slip_velocity(offset: (f32, f32), s: f32, max: f32) -> (f32, f32) {
         Some(m) => (sx * max / m, sy * max / m),
         None => (sx, sy),
     }
+}
+
+/// W79.1 (red) stub: W79.2 uses `rate_per_s` instead of SLIP_RATE_PER_S (D79-2).
+pub fn slip_velocity_at(offset: (f32, f32), s: f32, _rate_per_s: f32, max: f32) -> (f32, f32) {
+    slip_velocity(offset, s, max)
 }
 
 /// Subtle wobble of the target (px) at local rest position (lx, ly), × (1 − restAlpha).
@@ -1636,5 +1653,67 @@ mod w67_tests {
         );
         // NaN keeps the field on (the per-particle checks decide).
         assert!(pg.reaches(f32::NAN, -1.0, 1.0, 1.0));
+    }
+}
+
+#[cfg(test)]
+mod w79_tests {
+    use super::*;
+    use crate::fluid::elements::Elements;
+    use crate::fluid::layout::ELEMENT_STRIDE;
+    use crate::fluid::material::Material;
+
+    const CELL: f32 = 6.0;
+
+    #[test]
+    fn given_one_element_with_the_merge_slip_and_one_without_when_their_rows_are_built_then_only_the_first_slips_at_4_5_per_s_capped_at_240_px_s()
+     {
+        let inv = 1.0 / CELL;
+        let mut e = Elements::new(2);
+        for (id, x) in [(0usize, 100.0f32), (1, 300.0)] {
+            let slot = [
+                x,
+                100.0,
+                140.0,
+                48.0,
+                24.0,
+                0.0,
+                0.0,
+                0.0,
+                f32::NAN,
+                f32::NAN,
+            ];
+            e.buf[id * ELEMENT_STRIDE..(id + 1) * ELEMENT_STRIDE].copy_from_slice(&slot);
+        }
+        e.set_merge_slip(0, true);
+        let m = Material::default().params();
+        let merge = ElRow::build(&e, 0, &m, inv, 0.0);
+        let plain = ElRow::build(&e, 1, &m, inv, 0.0);
+        let px = |r: &ElRow, d: f32| r.slip((d * inv, 0.0)).0 * CELL;
+        assert!(
+            (px(&merge, 10.0) - 45.0).abs() < 1e-3,
+            "4.5/s × 10 px: {}",
+            px(&merge, 10.0)
+        );
+        assert!(
+            (px(&merge, 100.0) - 240.0).abs() < 1e-3,
+            "capped at 240 px/s: {}",
+            px(&merge, 100.0)
+        );
+        assert!(
+            (px(&plain, 10.0) - 30.0).abs() < 1e-3,
+            "3/s × 10 px: {}",
+            px(&plain, 10.0)
+        );
+        assert!(
+            (px(&plain, 100.0) - 160.0).abs() < 1e-3,
+            "capped at 160 px/s: {}",
+            px(&plain, 100.0)
+        );
+        assert_eq!(
+            plain.slip((10.0 * inv, -2.0 * inv)),
+            slip_velocity((10.0 * inv, -2.0 * inv), 1.0, SLIP_MAX_PX_S * inv),
+            "an element without the merge slip keeps W67's arithmetic, bit for bit"
+        );
     }
 }

@@ -105,6 +105,8 @@ const writesTo = (label: string, writes: readonly FakeWrite[]): FakeWrite[] => w
 const t0Textures = (f: FakeGpu) => f.calls.textures.filter((t) => t.format === "rgba16float");
 const textureSizes = (f: FakeGpu) => f.calls.textures.map((t) => `${t.format} ${t.width}x${t.height}`);
 const ADDITIVE = { color: { srcFactor: "one", dstFactor: "one", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one", operation: "add" } };
+/** W79 (D79-1): min blending, both factors "one" (WebGPU requires them for min/max). */
+const MIN = { color: { srcFactor: "one", dstFactor: "one", operation: "min" }, alpha: { srcFactor: "one", dstFactor: "one", operation: "min" } };
 const OVER = {
   color: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
   alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
@@ -183,9 +185,11 @@ describe("W71: WebGPURenderer", () => {
     ]);
     expect(composite!.fragment!.targets).toEqual([{ format: "bgra8unorm" }]);
     expect(rest!.fragment!.targets).toEqual([{ format: "bgra8unorm", blend: OVER }]);
+    // W79 red: approved-test change (D79-1, see ward-079.md): the text pass gains the rg16float id target with min blending.
     expect(text!.fragment!.targets).toEqual([
       { format: "rgba16float", blend: ADDITIVE },
       { format: "r16float", blend: ADDITIVE },
+      { format: "rg16float", blend: MIN },
     ]);
     expect(textComposite!.fragment!.targets).toEqual([{ format: "bgra8unorm", blend: OVER }]);
     const buffers = f.calls.bindGroupLayouts.flatMap((l) => Array.from(l.entries)).filter((e) => e.buffer !== undefined);
@@ -532,10 +536,13 @@ describe("W71: WebGPURenderer", () => {
     expect(f.calls.passes).toHaveLength(5);
     const [splat, text, screen] = f.calls.passes.slice(2);
     expect(splat!.draws.map((d) => [d.vertexCount, d.instanceCount])).toEqual([[6, CAP]]);
+    // W79 red: approved-test change (D79-1, see ward-079.md): the text pass also clears the id target to the empty id 4096.
     expect(text!.attachments.map((a) => [a.view.texture.label, a.view.texture.format, a.view.texture.width, a.view.texture.height, a.loadOp])).toEqual([
       ["liquiddom T1", "rgba16float", 800, 600, "clear"],
       ["liquiddom T1w", "r16float", 800, 600, "clear"],
+      ["liquiddom T1id", "rg16float", 800, 600, "clear"],
     ]);
+    expect(text!.attachments[2]!.clearValue).toEqual({ r: 4096, g: 4096, b: 0, a: 0 });
     const [, , , textPipe, textCompositePipe] = f.calls.pipelines;
     expect(text!.draws.map((d) => [d.pipeline, d.vertexCount, d.instanceCount])).toEqual([[textPipe, 6, CAP]]);
     expect(screen!.draws.map((d) => [d.vertexCount, d.instanceCount])).toEqual([[3, 1], [6, 1], [3, 1]]);
@@ -899,6 +906,88 @@ describe("W74 ward-review: particle F only while text moves (M1)", () => {
     await flush();
     r.render(withF({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
     expect(particles().at(-1)!.values.slice(0, 8), "the text pass reads this frame's F").toEqual([110, 120, 2, 0, 0, 0.5, 0, 0]);
+    expect(f.calls.errors).toEqual([]);
+  });
+});
+
+// =============================================================================
+// W79 (D79-1): the text id target. The text pass writes, per texel, the smallest element id (r)
+// and minus the largest (g) of every text splat that reaches it (rg16float, min blending, cleared
+// to 4096); the text composite drops the text where they differ; captureTextIds() reads it back
+// for the acceptance hook only.
+// =============================================================================
+describe("W79: the text id target (D79-1)", () => {
+  const t1IdTextures = (f: FakeGpu) => f.calls.textures.filter((t) => t.label === "liquiddom T1id");
+  /** One text frame whose atlas upload is confirmed, so the next render draws the text pass. */
+  async function textReadyRenderer(): Promise<WebGPURenderer> {
+    const r = await ready();
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    await flush();
+    return r;
+  }
+
+  it("given_text_drawn_when_resized_or_destroyed_then_the_T1id_target_follows_T1_is_copyable_is_bound_to_the_text_composite_and_is_released", async () => {
+    const f = gpu({ maxTextureDimension2D: 4096 });
+    const r = await textReadyRenderer();
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    const [first] = t1IdTextures(f);
+    expect([first!.format, first!.width, first!.height]).toEqual(["rg16float", 800, 600]);
+    expect(first!.usage & 0x1, "COPY_SRC, for captureTextIds()").toBe(0x1);
+    expect(first!.usage & 0x14, "RENDER_ATTACHMENT | TEXTURE_BINDING").toBe(0x14);
+    const layout = f.calls.bindGroupLayouts.find((l) => l.label === "liquiddom text composite")!;
+    expect(Array.from(layout.entries).find((e) => e.binding === 4)).toEqual({ binding: 4, visibility: 0x2, texture: { sampleType: "float" } });
+    const group = f.calls.bindGroups.filter((g) => g.label === "liquiddom text composite").at(-1)!;
+    const entry = Array.from(group.entries as Iterable<GPUBindGroupEntry>).find((e) => e.binding === 4)!;
+    expect((entry.resource as unknown as { texture: unknown }).texture, "the composite reads the id target").toBe(first);
+    r.resize(5000, 300, 2);
+    expect(first!.destroyed).toBe(true);
+    expect(t1IdTextures(f).slice(1).map((t) => `${t.width}x${t.height}`), "clamped like T1").toEqual(["4096x300"]);
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    r.destroy();
+    expect(t1IdTextures(f).every((t) => t.destroyed)).toBe(true);
+    expect(f.calls.errors).toEqual([]);
+  });
+
+  it("given_captureTextIds_when_the_next_frame_draws_text_then_the_T1id_texture_is_copied_after_that_frames_passes_into_a_map_read_buffer_and_resolves_with_256_aligned_rows", async () => {
+    const f = gpu();
+    const r = await textReadyRenderer();
+    const pending = r.captureTextIds();
+    expect(f.calls.bufferCopies, "nothing is copied before a frame renders").toHaveLength(0);
+    const submits = f.calls.submits;
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    expect(f.calls.submits, "the copy rides in the frame's own submit").toBe(submits + 1);
+    expect(f.calls.bufferCopies).toHaveLength(1);
+    const copy = f.calls.bufferCopies[0]!;
+    expect(copy.texture.label).toBe("liquiddom T1id");
+    expect(copy.passIndex, "encoded after the frame's splat, text and screen passes").toBe(f.calls.passes.length);
+    expect([copy.width, copy.height, copy.bytesPerRow, copy.rowsPerImage]).toEqual([800, 600, 3328, 600]);
+    expect(copy.buffer.usage, "MAP_READ | COPY_DST").toBe(0x1 | 0x8);
+    const c = await pending;
+    expect(c).not.toBeNull();
+    expect([c!.textPass, c!.width, c!.height, c!.bytesPerRow, c!.empty, c!.data.length]).toEqual([true, 800, 600, 3328, 4096, (3328 / 2) * 600]);
+    expect(copy.buffer.destroyed, "the readback buffer is released once read").toBe(true);
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    expect(f.calls.bufferCopies, "one capture, one copy: a normal frame copies nothing").toHaveLength(1);
+    expect(f.calls.errors).toEqual([]);
+  });
+
+  it("given_captureTextIds_when_the_next_frame_has_no_text_pass_then_it_resolves_textPass_false_without_a_copy_and_on_destroy_or_a_loss_it_resolves_null", async () => {
+    const f = gpu();
+    const r = await ready();
+    const idle = r.captureTextIds();
+    r.render(sceneFrame({ paints: PAINTS, restAlpha: 0.5 })); // moving, but no atlas text
+    expect(await idle).toEqual({ textPass: false, width: 0, height: 0, bytesPerRow: 0, empty: 4096, data: new Uint16Array(0) });
+    expect(f.calls.bufferCopies).toHaveLength(0);
+    const beforeDestroy = r.captureTextIds();
+    r.destroy();
+    expect(await beforeDestroy, "destroy() settles a pending capture").toBeNull();
+    expect(await r.captureTextIds(), "no device").toBeNull();
+    const r2 = await ready();
+    const beforeLoss = r2.captureTextIds();
+    f.loseDevice("gone");
+    await flush();
+    expect(await beforeLoss, "a loss settles a pending capture").toBeNull();
+    expect(await r2.captureTextIds(), "after a loss").toBeNull();
     expect(f.calls.errors).toEqual([]);
   });
 });

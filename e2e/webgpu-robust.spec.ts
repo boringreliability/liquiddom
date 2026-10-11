@@ -1078,3 +1078,70 @@ test.describe("W78 – the label follows the dragged liquid (webgpu)", () => {
     await page.screenshot({ path: testInfo.outputPath("w78-webgpu-reformed.png") });
   });
 });
+
+// =============================================================================
+// W79 (slice 5): labels never overlap in WebGPU (D79-1). Local webgpu-hw only (fallback B).
+// Every frame of the merge is read through __liquidTest.textIds(): that frame's text id target
+// (which elements' text splats reached each texel) against the same frame's canvas pixels.
+// =============================================================================
+const W79_HW_ONLY = "W79: liquid text needs WebGPU on the hardware adapter; local webgpu-hw project only";
+/** D79-4: the merge is held 90 frames. */
+const W79_HOLD_FRAMES = 90;
+/** Spike W78.0: the softened card leaves torn glyph fragments ≈ 30 frames after the release; read 60. */
+const W79_AFTER_RELEASE_FRAMES = 60;
+const W79_MERGE_INDEX = 2;
+const W79_CARD_INDEX = 3;
+
+type W79TextIds = { textPass: boolean; mixed: number; mixedTextPx: number; textPx: number; ids: number[]; elements: number[] };
+
+/** One manual frame with the text id capture armed (the hook advances it). */
+async function w79TextIds(page: Page): Promise<W79TextIds> {
+  return page.evaluate(async () => {
+    const hook = window.__liquidTest!;
+    if (!hook.textIds) throw new Error("W79: __liquidTest.textIds is missing");
+    return hook.textIds();
+  });
+}
+
+test.describe("W79 – labels never overlap (webgpu)", () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== HW_PROJECT, W79_HW_ONLY);
+  });
+
+  test("W79 step 5 – given Merge dragged into the card, held 90 frames and released then no frame has a text pixel where two elements' text splats meet, they do meet, text still shows in the card and every restAlpha is 1 within 180 frames", async ({ page }, testInfo) => {
+    test.setTimeout(180_000);
+    await openAtRest(page);
+    const from = await w78Centre(page, "#merge");
+    const to = await w78Centre(page, "#card");
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    const frames: W79TextIds[] = [];
+    for (let k = 1; k <= 10; k++) {
+      await page.mouse.move(from.x + ((to.x - from.x) * k) / 10, from.y + ((to.y - from.y) * k) / 10);
+      frames.push(await w79TextIds(page));
+    }
+    for (let f = 0; f < W79_HOLD_FRAMES; f++) frames.push(await w79TextIds(page));
+    const cardText = await canvasTextPixelsIn(page, "#card"); // the hold's last frame
+    await page.screenshot({ path: testInfo.outputPath("w79-webgpu-merge-hold-f90.png") });
+    await page.mouse.up();
+    for (let f = 1; f <= W79_AFTER_RELEASE_FRAMES; f++) {
+      frames.push(await w79TextIds(page));
+      if (f === 30) await page.screenshot({ path: testInfo.outputPath("w79-webgpu-merge-rel-f30.png") });
+    }
+    const worst = frames.reduce((m, r) => Math.max(m, r.mixedTextPx), 0);
+    const mixedMax = frames.reduce((m, r) => Math.max(m, r.mixed), 0);
+    const met = frames.some((r) => r.mixed > 0 && r.elements.includes(W79_MERGE_INDEX) && r.elements.includes(W79_CARD_INDEX));
+    console.log(
+      `W79 text ids (webgpu): ${frames.length} frames, max mixed texels ${mixedMax}, max text px on mixed texels ${worst}, card-rect text px at hold f90 ${cardText}`,
+    );
+    expect(frames.every((r) => r.textPass), "every frame of the flow draws liquid text").toBe(true);
+    expect(met, "Merge's and the card's text splats do meet (the check is not vacuous)").toBe(true);
+    expect(worst, "no pixel carries text where two elements' text splats meet (D79-1)").toBe(0);
+    expect(cardText, "text still shows in the card where the liquids do not mix").toBeGreaterThan(TEXT_MIN_PX);
+    const rest = await framesUntilAllRest(page, REFORM_BUDGET_FRAMES - W79_AFTER_RELEASE_FRAMES);
+    const total = rest > 0 ? rest + W79_AFTER_RELEASE_FRAMES : -1;
+    console.log(`W79 step 5 (webgpu): every restAlpha 1 after ${total} frames`);
+    expect(total, "re-form within 3 s").toBeGreaterThan(0);
+    await page.screenshot({ path: testInfo.outputPath("w79-webgpu-merge-reformed.png") });
+  });
+});

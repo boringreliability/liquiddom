@@ -42,6 +42,22 @@ export interface SceneSlot {
   s: number;
 }
 
+/** W79 (D79-1): one frame's text id target read against the same frame's pixels (acceptance scene, WebGPU). */
+export interface SceneTextIds {
+  /** False when that frame drew no liquid text (no text pass); every count is then 0. */
+  textPass: boolean;
+  /** Texels where the text splats of two or more elements met (smallest id < largest id). */
+  mixed: number;
+  /** Canvas text pixels (every channel and alpha ≥ 200) on mixed texels: 0 is D79-1. */
+  mixedTextPx: number;
+  /** Canvas text pixels anywhere. */
+  textPx: number;
+  /** Slot ids seen in the id target, ascending. */
+  ids: number[];
+  /** The same as DOM indices of [data-liquid] (#splash 0, #split 1, #merge 2, #card 3). */
+  elements: number[];
+}
+
 export interface LiquidTestHook {
   /** Resolves when the runtime exists, all [data-liquid] elements are observed and the first redistribute ran. */
   readonly ready: Promise<void>;
@@ -83,6 +99,11 @@ export interface LiquidTestHook {
    * view's s per [data-liquid] element, DOM order (#splash, #split, #merge, #card).
    */
   slots?(): SceneSlot[];
+  /**
+   * W79 (D79-1, acceptance scene, WebGPU): runs one manual frame with the text id capture armed and
+   * reads that frame's id target against its pixels. Rejects under Canvas2D or without the capture.
+   */
+  textIds?(): Promise<SceneTextIds>;
 }
 
 export interface StressElementState {

@@ -3,7 +3,7 @@ ward: 79
 revision: null
 name: "Merge and separate"
 epic: "fluid-engine"
-status: "planned"
+status: "red"
 dependencies: [78]
 layer: "both"
 estimated_tests: 23
@@ -105,33 +105,33 @@ Confirmation measurement, 2026-10-11, ≈ 15 min of the 2 h box: two throwaway c
 
 ## Tests
 
-| # | Test Name | Verifies |
-|---|-----------|----------|
-| 1 | merge_tests.rs: given_rects_15_or_17_px_apart_when_rects_overlap_with_the_16px_margin_then_only_the_15px_pairs_overlap_on_every_side_and_nan_never_does | D79-2 overlap rule (open intervals, NaN) |
-| 2 | merge_tests.rs: given_merge_dragged_onto_the_card_when_hold_dragged_then_the_card_gets_s_at_most_0_2_rest_alpha_0_and_the_merge_slip_and_splash_and_split_are_untouched | D79-2 hold on Elements |
-| 3 | merge_tests.rs: given_neighbours_15_and_17_px_from_the_dragged_home_when_hold_dragged_then_only_the_15px_one_is_softened_and_a_second_dragged_element_keeps_its_own_cap | D79-2 margin, dragged never capped at 0.2 |
-| 4 | merge_tests.rs: given_merge_dragged_into_the_card_when_ticking_then_the_cards_s_stays_at_most_0_2_every_held_frame_splash_keeps_s_1_and_split_is_softened_only_while_the_drag_passes_it | D79-2 in the core, Review Focus 1 |
-| 5 | merge_tests.rs: given_the_drag_released_after_the_merge_when_ticking_then_the_damage_stops_the_cards_s_rises_every_frame_and_its_merge_slip_ends_at_rest | release, Review Focus 1–2 |
-| 6 | merge_tests.rs: given_slip_velocity_at_when_called_with_the_merge_rate_then_4_5_per_s_capped_at_240_px_s_and_with_the_base_rate_bit_identical_to_slip_velocity | D79-2 slip values, Review Focus 2 |
-| 7 | merge_tests.rs: given_merge_slip_set_when_the_element_comes_to_rest_its_slot_resets_or_reduced_motion_pins_it_then_it_clears | merge-slip lifecycle, Review Focus 2 |
-| 8 | merge_tests.rs: given_merge_dragged_into_the_card_held_90_frames_and_released_when_ticking_then_the_card_made_room_merge_sits_inside_they_separate_and_every_rest_alpha_is_1_within_180_frames | step 5 in Rust (D79-2, D79-4) |
-| 9 | merge_tests.rs: given_reduced_motion_and_merge_dragged_over_the_card_when_ticking_then_no_element_is_softened | reduced motion (guard) |
-| 10 | solver.rs w79_tests: given_one_element_with_the_merge_slip_and_one_without_when_their_rows_are_built_then_only_the_first_slips_at_4_5_per_s_capped_at_240_px_s | per-row slip, W67 bit-identity, Review Focus 2 |
-| 11 | webgpu-renderer.test: given_text_drawn_when_resized_or_destroyed_then_the_T1id_target_follows_T1_is_copyable_is_bound_to_the_text_composite_and_is_released | D79-1 target lifecycle, Review Focus 4 |
-| 12 | webgpu-renderer.test: given_captureTextIds_when_the_next_frame_draws_text_then_the_T1id_texture_is_copied_after_that_frames_passes_into_a_map_read_buffer_and_resolves_with_256_aligned_rows | D79-6 readback |
-| 13 | webgpu-renderer.test: given_captureTextIds_when_the_next_frame_has_no_text_pass_then_it_resolves_textPass_false_without_a_copy_and_on_destroy_or_a_loss_it_resolves_null | D79-6, Review Focus 5 |
-| 14 | webgpu-shaders.test: given_TEXT_WGSL_when_read_then_every_covered_text_fragment_writes_its_element_id_and_minus_id_to_location_2 | D79-1 id write |
-| 15 | webgpu-shaders.test: given_TEXT_COMPOSITE_WGSL_when_read_then_it_gathers_the_ids_over_the_bilinear_footprint_and_gives_the_text_coverage_0_where_two_elements_meet | D79-1 drop rule |
-| 16 | text-runtime.test: given_webgpu_and_moving_text_when_captureTextIds_then_the_next_frame_copies_the_id_target_and_under_canvas2d_it_resolves_null | D79-6 runtime passthrough |
-| 17 | text-id-report.test: given_half_float_bits_when_decoded_then_ids_their_negatives_the_empty_value_and_the_specials_round_trip | test scaffolding (f16 decode) |
-| 18 | text-id-report.test: given_a_capture_and_its_pixels_when_summarized_then_mixed_texels_are_those_with_min_below_max_and_text_on_them_is_counted | test scaffolding (the e2e oracle) |
-| 19 | text-id-report.test: given_no_text_pass_or_a_size_mismatch_when_summarized_then_an_empty_report_or_a_throw | test scaffolding |
-| 20 | e2e acceptance (canvas2d): step 5 – given Merge dragged into the card and held 90 frames when released then the card is softened while overlapped, the two liquids form one closed region and every restAlpha is 1 within 180 frames | step 5 ✅ in Canvas2D |
-| 21 | e2e acceptance (canvas2d, Linux): step 5 – given Merge dragged into the card and held 90 frames when screenshotted then it matches the baseline | baseline `acceptance-step5-merge-mid` |
-| 22 | e2e webgpu-robust (webgpu-hw): W79 step 5 – given Merge dragged into the card, held 90 frames and released then no frame has a text pixel where two elements' text splats meet, they do meet, text still shows in the card and every restAlpha is 1 within 180 frames | step 5 ✅ in WebGPU, D79-1, Review Focus 3 |
-| 23 | e2e perf (perf): perf – W79 D79-3: the Canvas2D frame during the merge costs at most 1.15 × a frame after a splash on the card | D79-3 |
-| 24 | webgpu-renderer.test: given_successful_init_when_built_then_five_pipelines_with_explicit_layouts_inside_one_validation_error_scope_D71_3_D74_4 | approved-test change (D79-1): the text pipeline's third target `rg16float` with min blending |
-| 25 | webgpu-renderer.test: given_a_text_atlas_and_a_moving_element_with_an_atlas_rect_when_rendering_then_the_atlas_is_uploaded_once_per_version_the_1x_text_pass_writes_T1_and_T1w_and_the_text_composite_follows_the_rest_quads_d74_4 | approved-test change (D79-1): the text pass's T1id attachment cleared to 4096 |
+| # | Test Name | Verifies | Red outcome |
+|---|-----------|----------|-------------|
+| 1 | merge_tests.rs: given_rects_15_or_17_px_apart_when_rects_overlap_with_the_16px_margin_then_only_the_15px_pairs_overlap_on_every_side_and_nan_never_does | D79-2 overlap rule (open intervals, NaN) | ❌ `15 px right` (stub returns false) |
+| 2 | merge_tests.rs: given_merge_dragged_onto_the_card_when_hold_dragged_then_the_card_gets_s_at_most_0_2_rest_alpha_0_and_the_merge_slip_and_splash_and_split_are_untouched | D79-2 hold on Elements | ❌ `D79-2: the overlapped card is held at 0.2, got 1` |
+| 3 | merge_tests.rs: given_neighbours_15_and_17_px_from_the_dragged_home_when_hold_dragged_then_only_the_15px_one_is_softened_and_a_second_dragged_element_keeps_its_own_cap | D79-2 margin, dragged never capped at 0.2 | ❌ `15 px: softened` |
+| 4 | merge_tests.rs: given_merge_dragged_into_the_card_when_ticking_then_the_cards_s_stays_at_most_0_2_every_held_frame_splash_keeps_s_1_and_split_is_softened_only_while_the_drag_passes_it | D79-2 in the core, Review Focus 1 | ❌ `frame 11: the card is held at s ≤ 0.2 (D79-2), got 1` |
+| 5 | merge_tests.rs: given_the_drag_released_after_the_merge_when_ticking_then_the_damage_stops_the_cards_s_rises_every_frame_and_its_merge_slip_ends_at_rest | release, Review Focus 1–2 | ❌ `precondition: the card is softened at the release, s 1` |
+| 6 | merge_tests.rs: given_slip_velocity_at_when_called_with_the_merge_rate_then_4_5_per_s_capped_at_240_px_s_and_with_the_base_rate_bit_identical_to_slip_velocity | D79-2 slip values, Review Focus 2 | ❌ `4.5/s × 10 px = 45 px/s: 30` |
+| 7 | merge_tests.rs: given_merge_slip_set_when_the_element_comes_to_rest_its_slot_resets_or_reduced_motion_pins_it_then_it_clears | merge-slip lifecycle, Review Focus 2 | ❌ `set` (stub flag is always false) |
+| 8 | merge_tests.rs: given_merge_dragged_into_the_card_held_90_frames_and_released_when_ticking_then_the_card_made_room_merge_sits_inside_they_separate_and_every_rest_alpha_is_1_within_180_frames | step 5 in Rust (D79-2, D79-4) | ❌ `the card made room for Merge (displacement merge): 0.0226…` (room 0.023, Merge in 0.479, 142 frames) |
+| 9 | merge_tests.rs: given_reduced_motion_and_merge_dragged_over_the_card_when_ticking_then_no_element_is_softened | reduced motion (guard) | ✅ passes (guard) |
+| 10 | solver.rs w79_tests: given_one_element_with_the_merge_slip_and_one_without_when_their_rows_are_built_then_only_the_first_slips_at_4_5_per_s_capped_at_240_px_s | per-row slip, W67 bit-identity, Review Focus 2 | ❌ `4.5/s × 10 px: 30` |
+| 11 | webgpu-renderer.test: given_text_drawn_when_resized_or_destroyed_then_the_T1id_target_follows_T1_is_copyable_is_bound_to_the_text_composite_and_is_released | D79-1 target lifecycle, Review Focus 4 | ❌ `Cannot read properties of undefined (reading 'format')` (no T1id) |
+| 12 | webgpu-renderer.test: given_captureTextIds_when_the_next_frame_draws_text_then_the_T1id_texture_is_copied_after_that_frames_passes_into_a_map_read_buffer_and_resolves_with_256_aligned_rows | D79-6 readback | ❌ `r.captureTextIds is not a function` |
+| 13 | webgpu-renderer.test: given_captureTextIds_when_the_next_frame_has_no_text_pass_then_it_resolves_textPass_false_without_a_copy_and_on_destroy_or_a_loss_it_resolves_null | D79-6, Review Focus 5 | ❌ `r.captureTextIds is not a function` |
+| 14 | webgpu-shaders.test: given_TEXT_WGSL_when_read_then_every_covered_text_fragment_writes_its_element_id_and_minus_id_to_location_2 | D79-1 id write | ❌ no `@location(7)` id varying |
+| 15 | webgpu-shaders.test: given_TEXT_COMPOSITE_WGSL_when_read_then_it_gathers_the_ids_over_the_bilinear_footprint_and_gives_the_text_coverage_0_where_two_elements_meet | D79-1 drop rule | ❌ no `@binding(4)` t1_id |
+| 16 | text-runtime.test: given_webgpu_and_moving_text_when_captureTextIds_then_the_next_frame_copies_the_id_target_and_under_canvas2d_it_resolves_null | D79-6 runtime passthrough | ❌ `s.rt.captureTextIds is not a function` |
+| 17 | text-id-report.test: given_half_float_bits_when_decoded_then_ids_their_negatives_the_empty_value_and_the_specials_round_trip | test scaffolding (f16 decode) | ✅ passes (scaffolding) |
+| 18 | text-id-report.test: given_a_capture_and_its_pixels_when_summarized_then_mixed_texels_are_those_with_min_below_max_and_text_on_them_is_counted | test scaffolding (the e2e oracle) | ✅ passes (scaffolding) |
+| 19 | text-id-report.test: given_no_text_pass_or_a_size_mismatch_when_summarized_then_an_empty_report_or_a_throw | test scaffolding | ✅ passes (scaffolding) |
+| 20 | e2e acceptance (canvas2d): step 5 – given Merge dragged into the card and held 90 frames when released then the card is softened while overlapped, the two liquids form one closed region and every restAlpha is 1 within 180 frames | step 5 ✅ in Canvas2D | ❌ `the card under the dragged home is held at s ≤ 0.2 (D79-2)` (s 1); the hole assertion is a seam guard (6 ≤ 90, passes on W78) |
+| 21 | e2e acceptance (canvas2d, Linux): step 5 – given Merge dragged into the card and held 90 frames when screenshotted then it matches the baseline | baseline `acceptance-step5-merge-mid` | ⏭ skipped (Linux only) |
+| 22 | e2e webgpu-robust (webgpu-hw): W79 step 5 – given Merge dragged into the card, held 90 frames and released then no frame has a text pixel where two elements' text splats meet, they do meet, text still shows in the card and every restAlpha is 1 within 180 frames | step 5 ✅ in WebGPU, D79-1, Review Focus 3 | ❌ `FluidRuntime.captureTextIds is missing (W79.3)` (webgpu-hw, local) |
+| 23 | e2e perf (perf): perf – W79 D79-3: the Canvas2D frame during the merge costs at most 1.15 × a frame after a splash on the card | D79-3 | ✅ passes (guard): ratio 0.980 ≤ 1.15 |
+| 24 | webgpu-renderer.test: given_successful_init_when_built_then_five_pipelines_with_explicit_layouts_inside_one_validation_error_scope_D71_3_D74_4 | approved-test change (D79-1): the text pipeline's third target `rg16float` with min blending | ❌ 2 targets vs 3 (no `rg16float` / `MIN`) |
+| 25 | webgpu-renderer.test: given_a_text_atlas_and_a_moving_element_with_an_atlas_rect_when_rendering_then_the_atlas_is_uploaded_once_per_version_the_1x_text_pass_writes_T1_and_T1w_and_the_text_composite_follows_the_rest_quads_d74_4 | approved-test change (D79-1): the text pass's T1id attachment cleared to 4096 | ❌ 2 attachments vs 3 (no `liquiddom T1id`) |
 
 Notes: `estimated_tests` counts new tests (rows 1–23); rows 24–25 are changed tests. Rows 17–19 test e2e scaffolding and pass at red.
 
