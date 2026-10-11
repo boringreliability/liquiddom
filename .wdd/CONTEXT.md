@@ -49,14 +49,14 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 - Pointer drag 12/s (W70): a fast sweep lets a trailing edge recede ~8 px; holes start at drag ≥ 18.
 - Shake (W77): `1 + 0.35·sin(π·u + φ)`, cap 0.3, default yield J ≤ 1.46; x-only profile.
 - Drag (W78): mouse/pen only, no opt-out; re-form ≥ ≈113 frames; per-element `recovery` > ≈1.1 s cannot re-form in 3 s (D78-5).
-- Drag press: `selectstart` blocked document-wide (no drag-select in `<input>`/contenteditable in observed elements, D78-2); if `setPointerCapture` throws (Firefox) the ending click may hit an ancestor, unswallowed; any keydown clears an armed swallow; in a pending Canvas2D rebuild a new drag may hide the label early.
+- Drag press: `selectstart` blocked document-wide (no drag-select in observed `<input>`/contenteditable, D78-2); if `setPointerCapture` throws (Firefox) the ending click may hit an ancestor, unswallowed; any keydown clears an armed swallow; in a pending Canvas2D rebuild a new drag may hide the label early. Two instances on nested elements: one press drags both. A mid-drag scroll carries the liquid (slice 6).
 - Container mode needs a positioned container (`console.warn` if static; never restyled).
-- Gravity is validated but has no effect until slice 6; scroll is verified only in slice 6.
+- Gravity is validated but has no effect until slice 6; scroll is verified in slice 6.
 - A large scroll can lock particles across elements (W67 slip, slice-6 parking).
 - Edge ring (D67-13): spacing cell/2 from the area hint, so a far-off hint makes it denser or sparser.
 - The first frame that throws stops the instance; adapters do not yet react to it.
-- WebGPU e2e runs only locally (`e2e:webgpu`, `e2e:webgpu-hw` on Metal); CI runs the soft smoke (W71.0: SwiftShader loses the device in CI). No webgpu Linux baselines (W72).
-- A WebGPU canvas is readable only in the task that rendered it; e2e reads `__liquidTest.pixels()`.
+- WebGPU e2e is local only (`e2e:webgpu`, `e2e:webgpu-hw` on Metal); CI runs the soft smoke (W71.0). No webgpu Linux baselines (W72).
+- A WebGPU canvas reads only in its render task; e2e uses `__liquidTest.pixels()`.
 - Text while the liquid is away: WebGPU carries it on its liquid (W74); Canvas2D adds a 1–8 px halo in the background colour (W75), not a solid backdrop for thin glyphs.
 - Colour re-read (W75 B): own class/style or a `color` transitionend only, after the element's CSS transitions end; ancestor/stylesheet/`:hover` changes and `@keyframes` colours need `refresh(el)`, which runs at once (it cuts a running transition). Text can run one atlas upload behind.
 - An author rewriting an observed element's inline style every frame costs one colour snapshot and one atlas re-render per frame (W75); its DOM text shows meanwhile.
