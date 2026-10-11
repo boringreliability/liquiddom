@@ -156,7 +156,9 @@ impl Elements {
 
     /// B1: DOM rect + `(home_dx, home_dy)`, swelled by `HOVER_SWELL` around
     /// its centre while hovered and not under reduced motion. The same rule
-    /// lives in TS as `homeRect()` in `fluid-layout.ts`.
+    /// lives in TS as `homeRect()` in `fluid-layout.ts`, except the
+    /// ±`HOME_OFFSET_MAX_PX` clamp: TS only writes real pointer deltas, far
+    /// inside it (W78 ward review M1).
     pub fn home_rect(&self, id: usize, reduced_motion: bool) -> Option<Rect> {
         let r = self.rect(id)?;
         let (ox, oy) = self.home_offset(id);
