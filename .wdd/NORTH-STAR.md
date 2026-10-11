@@ -226,3 +226,9 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D78-4 | DRAGGED > hover > focus > idle; pointer field skips the dragged liquid | W78 | dec_c999105a |
 | D78-5 | A dragged element never rests | W78 | dec_a7ad4b5d |
 | D78-6 | The click that ends a drag is swallowed once | W78 | dec_38ad086a |
+| D79-1 | Labels never overlap: per-texel element-id target, no text where ids differ | W79 | dec_62c643f9 |
+| D79-2 | Neighbours under the drag at s ≤ 0.2; merge slip only for elements in a merge | W79 | dec_3209c60d |
+| D79-3 | Merge perf ≤ 1.15 × a card-splash frame | W79 | dec_3209c60d |
+| D79-4 | Merge checks hold the drag 90 frames | W79 | dec_3209c60d |
+| D79-5 | Torn card text after release: no extra mechanism, vision at gold | W79 | dec_3209c60d |
+| D79-6 | @internal id-target readback for the e2e | W79 | dec_3209c60d |
