@@ -3,12 +3,12 @@ ward: 79
 revision: null
 name: "Merge and separate"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [78]
 layer: "both"
 estimated_tests: 26
 created: "2026-10-11"
-completed: null
+completed: "2026-10-12"
 ---
 # Ward 079: Merge and separate
 
@@ -173,3 +173,5 @@ Notes: `estimated_tests` counts new tests (rows 1–23 and 26–28); rows 24–2
 
 ## Verification
 `npm run verify`, `npm run e2e:canvas2d`, `npm run e2e:webgpu-hw`, the perf project (W77 and W79 guards), Docker canvas2d baselines (one new, one moved, nine unchanged), vision on the merge in both renderers.
+
+**Resolved at gold (Dennis, 2026-10-12):** gold approved; step 5 ✅ in both renderers (saga dec_71a3b0b4), so slice 5 is closed. The parked message wording was changed with his approval: the closed-region test's assertion message now reads as a seam guard (text only, bound and logic unchanged). The parked @internal capture after a failed frame stays parked (the hook's 2 s timeout covers it).

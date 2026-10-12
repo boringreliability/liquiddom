@@ -1095,7 +1095,7 @@ const W79_AFTER_RELEASE_FRAMES = 30;
  * `regionHolePixels` around the card with W78 alone (HEAD) and with the W79 scratch copy.
  */
 const W79_0_HOLES = { w78: 6, w79: 55 } as const;
-/** One closed region: at most 1.5 × the W79 copy's value, at least 20 px, rounded up to 10. */
+/** Seam guard: at most 1.5 × the W79 copy's value, at least 20 px, rounded up to 10. */
 const W79_MERGE_HOLES_MAX = Math.max(20, Math.ceil((1.5 * W79_0_HOLES.w79) / 10) * 10);
 
 test.describe("W79 – merge and separate (step 5, canvas2d)", () => {
@@ -1113,7 +1113,7 @@ test.describe("W79 – merge and separate (step 5, canvas2d)", () => {
     expect(held[MERGE_INDEX].interaction, "precondition: Merge is DRAGGED").toBe(3);
     expect(held[CARD_INDEX].s, "the card under the dragged home is held at s ≤ 0.2 (D79-2)").toBeLessThanOrEqual(W79_NEIGHBOUR_S_MAX + 1e-6);
     expect(held[0].s, "Splash is never under the drag").toBe(1);
-    expect(holes, "one closed region: no seam between the two liquids").toBeLessThanOrEqual(W79_MERGE_HOLES_MAX);
+    expect(holes, "guard: no seam between the two liquids (hole pixels in the card region)").toBeLessThanOrEqual(W79_MERGE_HOLES_MAX);
     await page.screenshot({ path: testInfo.outputPath("w79-canvas2d-merge-hold-f90.png") });
     await page.mouse.up();
     await w67Advance(page, W79_AFTER_RELEASE_FRAMES);

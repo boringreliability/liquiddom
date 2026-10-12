@@ -263,7 +263,7 @@ export async function specksInside(page: Page, rect: ClientRect, inset: number =
 }
 
 // =============================================================================
-// W79 (step 5): one closed region where "Merge" is dragged into the card.
+// W79 (step 5): seam guard where "Merge" is dragged into the card.
 // =============================================================================
 
 /** W79: the region is the card's client rect grown by this many px ("Merge"'s dragged home lies inside it). */
