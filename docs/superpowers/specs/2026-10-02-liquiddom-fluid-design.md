@@ -253,7 +253,7 @@ The `Renderer` keeps its method shape. The new `RenderFrame` contains:
 2. **Composite.**
    - Density is thresholded into a silhouette with an anti-aliased edge (`fwidth`).
    - Colour is normalised (`Σw·rgb / Σw`), which **blends at boundaries** (no speckle, and the card no longer "swallows" the button).
-   - Text is composited from T1 / T1w in the text colour, **after** the rest SDF overlay so it never blinks at the cross-fade (amended 2026-10-10, slice-4 design, D74-4). Where the text splats of two elements meet, no text is drawn: the text pass also writes, per texel, the smallest and the largest element id (`T1id rg16float`, `min` blending on `(id, −id)`), and the composite gives the text coverage 0 where they differ over its bilinear footprint, so no pixel carries two labels; the text-free band is up to one kernel radius (≤ 16 px) where two moving text liquids' kernels overlap (amended in W79, D79-1).
+   - Text is composited from T1 / T1w in the text colour, **after** the rest SDF overlay so it never blinks at the cross-fade (amended 2026-10-10, slice-4 design, D74-4). Where the text splats of two elements meet, no text is drawn: the text pass also writes, per texel, the smallest and the largest element id (`T1id rg16float`, `min` blending on `(id, −id)`), and the composite gives the text coverage 0 where they differ over its bilinear footprint, so no canvas pixel carries two elements' liquid text; the text-free band is up to one kernel radius (≤ 16 px) where two moving text liquids' kernels overlap (amended in W79, D79-1).
    - The context is configured with `alphaMode: 'premultiplied'`.
 
 ### Liquid text: the formula
