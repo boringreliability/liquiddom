@@ -617,9 +617,14 @@ export class WebGPURenderer implements Renderer {
     screen.end();
     // W79: only while the acceptance hook armed a capture (never in a normal frame).
     const readback = this.textIdWaiter !== null ? this.encodeTextIdCopy(encoder, textRan) : null;
-    this.submitList[0] = encoder.finish();
-    queue.submit(this.submitList);
-    readback?.();
+    try {
+      this.submitList[0] = encoder.finish();
+      queue.submit(this.submitList);
+    } catch (err) {
+      readback?.abort(); // W79.3 review M2: the capture settles with null and its buffer is released
+      throw err;
+    }
+    readback?.run();
   }
 
   /**
@@ -646,14 +651,17 @@ export class WebGPURenderer implements Renderer {
     waiter?.(capture);
   }
 
-  /** W79: encodes the T1id copy for an armed capture; returns what to run after the submit. */
-  private encodeTextIdCopy(encoder: GPUCommandEncoder, textRan: boolean): () => void {
+  /**
+   * W79: encodes the T1id copy for an armed capture; returns `run` (after the submit) and `abort`
+   * (when finish or submit threw: settles the capture with null and releases the buffer).
+   */
+  private encodeTextIdCopy(encoder: GPUCommandEncoder, textRan: boolean): { run: () => void; abort: () => void } {
     const resolve = this.textIdWaiter ?? (() => {});
     this.textIdWaiter = null;
     const { device, t1Id } = this;
     if (!textRan || !device || !t1Id) {
       const none: TextIdCapture = { textPass: false, width: 0, height: 0, bytesPerRow: 0, empty: TEXT_ID_EMPTY, data: new Uint16Array(0) };
-      return () => resolve(none);
+      return { run: () => resolve(none), abort: () => resolve(null) };
     }
     const width = this.t1Width;
     const height = this.t1Height;
@@ -664,19 +672,25 @@ export class WebGPURenderer implements Renderer {
       usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
     encoder.copyTextureToBuffer({ texture: t1Id }, { buffer, bytesPerRow, rowsPerImage: height }, [width, height]);
-    return () => {
-      buffer.mapAsync(GPUMapMode.READ).then(
-        () => {
-          const data = new Uint16Array(buffer.getMappedRange().slice(0));
-          buffer.unmap();
-          buffer.destroy();
-          resolve({ textPass: true, width, height, bytesPerRow, empty: TEXT_ID_EMPTY, data });
-        },
-        () => {
-          buffer.destroy(); // a loss or destroy() during the map: no capture
-          resolve(null);
-        },
-      );
+    return {
+      run: () => {
+        buffer.mapAsync(GPUMapMode.READ).then(
+          () => {
+            const data = new Uint16Array(buffer.getMappedRange().slice(0));
+            buffer.unmap();
+            buffer.destroy();
+            resolve({ textPass: true, width, height, bytesPerRow, empty: TEXT_ID_EMPTY, data });
+          },
+          () => {
+            buffer.destroy(); // a loss or destroy() during the map: no capture
+            resolve(null);
+          },
+        );
+      },
+      abort: () => {
+        buffer.destroy();
+        resolve(null);
+      },
     };
   }
 

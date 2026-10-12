@@ -382,7 +382,7 @@ fn fs(in: TextVarying) -> TextTargets {
  * atlas is premultiplied, so the result is too), blended over.
  * W79 (D79-1): coverage 0 wherever the id target's bilinear footprint holds two element ids
  * (smallest < largest): where two elements' liquids meet, neither shows text, so no pixel ever
- * carries the text of both. textureGather reads the four texels the bilinear T1 sample mixes.
+ * carries the text of both. textureGather reads the 2×2 neighbourhood around the sample.
  */
 export const TEXT_COMPOSITE_WGSL = /* wgsl */ `
 ${VIEW_WGSL}

@@ -1009,4 +1009,36 @@ describe("W79: the text id target (D79-1)", () => {
     expect(f.calls.bufferCopies).toHaveLength(2);
     expect(f.calls.errors).toEqual([]);
   });
+
+  // W79.3 review M2: finish() or submit() throwing must not leave an armed capture hanging.
+  it("given_an_armed_capture_when_queue_submit_throws_then_the_capture_resolves_null_and_the_readback_buffer_is_destroyed", async () => {
+    const f = gpu();
+    let failing = false;
+    const requestAdapter = navigator.gpu.requestAdapter.bind(navigator.gpu);
+    vi.spyOn(navigator.gpu, "requestAdapter").mockImplementation(async (o) => {
+      const adapter = (await requestAdapter(o))!;
+      const requestDevice = adapter.requestDevice.bind(adapter);
+      adapter.requestDevice = async (d) => {
+        const device = await requestDevice(d);
+        const submit = device.queue.submit.bind(device.queue);
+        device.queue.submit = (list) => {
+          if (failing) throw new Error("submit exploded");
+          submit(list);
+        };
+        return device;
+      };
+      return adapter;
+    });
+    const r = await textReadyRenderer();
+    const pending = r.captureTextIds();
+    failing = true;
+    expect(() => r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }))).toThrow(/submit exploded/);
+    expect(await pending, "the capture settles with null").toBeNull();
+    expect(f.calls.bufferCopies).toHaveLength(1);
+    expect(f.calls.bufferCopies[0]!.buffer.destroyed, "the readback buffer is released").toBe(true);
+    failing = false;
+    const later = r.captureTextIds();
+    r.render(sceneFrame({ paints: TEXT_PAINTS, textAtlas: ATLAS, restAlpha: 0.5 }));
+    expect((await later)?.textPass, "a later capture works").toBe(true);
+  });
 });
