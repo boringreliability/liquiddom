@@ -61,13 +61,13 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 - Colour re-read (W75 B): own class/style or a `color` transitionend only, after the element's CSS transitions end; ancestor/stylesheet/`:hover` changes and `@keyframes` colours need `refresh(el)`, which runs at once (it cuts a running transition). Text can run one atlas upload behind.
 - An author rewriting an observed element's inline style every frame costs one colour snapshot and one atlas re-render per frame (W75); its DOM text shows meanwhile.
 - Liquid text v1 (W74, D74-5): text nodes only; underline, text-shadow, icons, images, SVG, form values/placeholders and `::before`/`::after` text hide while the text moves; `capitalize` is per word; atlas ≤ 4096² px (else the DOM text stays); words are clipped to the border box (overflow vanishes while moving).
-- Liquid text costs: the whole atlas page is re-rendered on any generation, paints or text change (v1); two pages on the GPU (one staged); T1/T1w stay allocated.
-- Hover swell with liquid text (W74): particles swell 2 % while the DOM text does not (≈ 1 px glyph shift at the edges on the switch); a resting pointer can smear a moving card's text.
+- Liquid text costs: the whole atlas page is re-rendered on any generation, paints or text change (v1); two pages on the GPU (one staged); T1/T1w/T1id stay allocated. W79: no text where text liquids meet.
+- Hover swell with liquid text (W74): particles swell 2 % while the DOM text does not (≈ 1 px glyph shift at the edges on the switch); a resting pointer can smear moving text.
 - `activeRenderer` can change mid-session (W72): a lost WebGPU device switches it to `'canvas2d'`; a frame or two draw nothing.
 - Canvas2D still splats the particles of a hidden (w == 0) element; WebGPU hides them through flags. Parking (slice 6) resolves it.
 - Canvas2D cell (W77): one fine-spaced element holds the whole page on the 2 px grid, where R up to 16 px costs ≈1.5×.
 
 ## What Comes Next
 - Slice 2 closed: `.wdd/memory/whole-picture/slice-2.md` + addendum (steps 1–4, 6, 8 ✅; 5/7 ⏳).
-- Slice 4 closed (W74–W77). Slice 5: W78 drag; next W79 (merge and separate).
+- Slice 4 closed. Slice 5: W78 drag, W79 merge (at gold). Next: slice 6.
 - Open: fate of the published `0.2.0-rc.0` (spec §7); publishing `0.3.0-alpha.x` is Dennis' call (`changeset version`, commit, tag `v*`).

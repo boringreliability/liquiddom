@@ -118,10 +118,10 @@ The elements **are** liquid, and so is their text. They splash, split, merge wit
 - **Target** = `rest_uv` mapped into the element's **current home rect** (slots 0–3 plus `home_dx/dy`, see the FFI section). A resize therefore changes the targets and the liquid gently follows the new shape. Scroll and drag become something the liquid follows.
 - **Stiffness:**
   - Each element has a stiffness `s ∈ [s_floor, 1]`, with `s_floor = 0.015`.
-  - Damage rules: `splash` sets `s ← min(s, 0.25·(2 − strength))` clamped to ≥ `s_floor`, `shake` sets `s ← min(s, 0.3)` (amended in W70, D70-2; amended in W73, D73-2), and drag sets `s ← min(s, 0.5)` while dragging; elements whose home rect overlaps the dragged home are softened too, and a dragged element never reaches `restAlpha = 1` (amended 2026-10-11, slice-5 design, D78-5, D79-2). Splash and shake also set `restAlpha ← 0` at once, so the rest contour never fades over the hole they open (amended 2026-10-10, W74, D74-7).
+  - Damage rules: `splash` sets `s ← min(s, 0.25·(2 − strength))` clamped to ≥ `s_floor`, `shake` sets `s ← min(s, 0.3)` (amended in W70, D70-2; amended in W73, D73-2), and drag sets `s ← min(s, 0.5)` while dragging; elements whose home rect overlaps the dragged home rect grown by 16 px (the kernel cap) are held at `s ≤ 0.2` every substep (W79, D79-2), and a dragged element never reaches `restAlpha = 1` (amended 2026-10-11, slice-5 design, D78-5, D79-2). Splash and shake also set `restAlpha ← 0` at once, so the rest contour never fades over the hole they open (amended 2026-10-10, W74, D74-7).
   - Recovery: `ds/dt = (1 − s)/recovery`, with `recovery` defaulting to 0.7 s.
   - These are internal constants. Only `recovery` is a parameter.
-- **Slip drift** is kept: a grid-independent drift towards the target, scaled by `s²`, at rate 3/s, max 160 px/s. It is **documented as non-physical** (it does not conserve momentum). Without it, merged liquids never separate.
+- **Slip drift** is kept: a grid-independent drift towards the target, scaled by `s²`, at rate 3/s, max 160 px/s. It is **documented as non-physical** (it does not conserve momentum). Without it, merged liquids never separate. The elements of a merge (the dragged element and the neighbours softened under it, each until its restAlpha is 1 again) slip at 4.5/s, max 240 px/s; every other element keeps 3/s and 160 px/s, and F's slip stays 4.5/s (amended in W79, D79-2).
 - **Wobble** (1.1 px in the spike) is scaled by `(1 − restAlpha)`, so it is 0 at rest.
 - **Hover:** the home rect swells by 2% around its centre, a gentle bulge. Focus has no extra engine effect; the focus ring belongs to the DOM. Dragged beats hover, with no swell while dragged (amended 2026-10-11, slice-5 design, D78-4).
 
@@ -253,7 +253,7 @@ The `Renderer` keeps its method shape. The new `RenderFrame` contains:
 2. **Composite.**
    - Density is thresholded into a silhouette with an anti-aliased edge (`fwidth`).
    - Colour is normalised (`Σw·rgb / Σw`), which **blends at boundaries** (no speckle, and the card no longer "swallows" the button).
-   - Text is composited from T1 / T1w in the text colour, **after** the rest SDF overlay so it never blinks at the cross-fade (amended 2026-10-10, slice-4 design, D74-4).
+   - Text is composited from T1 / T1w in the text colour, **after** the rest SDF overlay so it never blinks at the cross-fade (amended 2026-10-10, slice-4 design, D74-4). Where the text splats of two elements meet, no text is drawn: the text pass also writes, per texel, the smallest and the largest element id (`T1id rg16float`, `min` blending on `(id, −id)`), and the composite gives the text coverage 0 where they differ over its bilinear footprint, so no pixel carries two labels; the text-free band is up to one kernel radius (≤ 16 px) where two moving text liquids' kernels overlap (amended in W79, D79-1).
    - The context is configured with `alphaMode: 'premultiplied'`.
 
 ### Liquid text: the formula
