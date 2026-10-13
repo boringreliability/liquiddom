@@ -104,13 +104,14 @@ The elements **are** liquid, and so is their text. They splash, split, merge wit
 **Grid:**
 - The cell size is decided **once** at `create()` from the particle density, clamped to 4–8 px. It is independent of the viewport, so the numerical behaviour (and visual regression) does not depend on window size.
 - The grid is pre-allocated to cover `max(screen.width, innerWidth) × max(screen.height, innerHeight)` plus a margin (or the container's maximum in container mode).
-- A resize beyond that is clamped to the walls in slices 1–5. One explicit, logged reallocation is added in slice 6 (resize). *(Amended 2026-10-03 after plan verification.)*
+- A resize beyond that is clamped to the walls in slices 1–5. One explicit, logged reallocation is added in slice 6 (resize). *(Amended 2026-10-03 after plan verification.)* It is `resize_world(w, h)`, called outside `tick` when the viewport outgrows the world, logged once, never shrinking, particles kept (amended 2026-10-13, slice-6 design, D81-2).
 - Each grid substep only touches a dirty region: the particle AABB plus 2 cells.
 
 **Walls and off-screen elements:**
 - The grid covers the viewport plus a margin of 1 element height, at least 200 px. Walls sit at the grid edges.
 - An element whose rect lies entirely outside viewport + margin is **parked**: its particles are not simulated.
 - When it re-enters the margin, its particles are placed at `rest` instantly. This is invisible because it happens off-screen.
+- Parked particles carry a `PARKED` flag that both renderers skip; re-entry needs the rect ≥ 64 px inside the bound (hysteresis); a dragged element is never parked (amended 2026-10-13, slice-6 design, D81-1).
 
 ### T-1000 re-form
 
@@ -168,9 +169,10 @@ F's cost (+4 floats of SoA plus an SVD per substep) is benchmarked in slice 4. I
 |---|---|
 | Pointer move | A soft velocity field: particles within a 70 px radius are pulled towards the pointer's velocity with weight `(1 − d/r)²`. This replaces the spike's hard radial push (`POINTER_PUSH_PX`), which caused the hole |
 | `click` on an observed element | `splash` at the pointer position. **If `event.detail === 0`** (a keyboard-triggered click from Enter or Space on a focusable element), the splash is at the rect centre instead. Native activation is never prevented, so there is never a double splash |
-| Drag (mouse or pen pointerdown, primary button; pointer capture once the pointer is > 4 px away, W78 D78-2) | `home_dx/dy` follow the pointer while the DOM stays put. After the threshold, the following click splash is suppressed (swallowed once). On release `home_dx/dy` → 0 and the liquid crawls home; `pointercancel`, blur, Escape, `unobserve`, `destroy` and reduced motion cancel the same way. No touch or keyboard drag in slice 5 (amended 2026-10-11, slice-5 design, D78-2, D78-6) |
+| Drag (mouse or pen pointerdown, primary button; pointer capture once the pointer is > 4 px away, W78 D78-2) | `home_dx/dy` follow the pointer while the DOM stays put. After the threshold, the following click splash is suppressed (swallowed once). On release `home_dx/dy` → 0 and the liquid crawls home; `pointercancel`, blur, Escape, `unobserve`, `destroy` and reduced motion cancel the same way. No touch or keyboard drag in slice 5 (amended 2026-10-11, slice-5 design, D78-2, D78-6). Slice 6: touch drags after a 350 ms long-press (movement > 8 px cancels it and the page scrolls); `observe(el, { drag: false })` opts an element out (amended 2026-10-13, slice-6 design, D84-1, D84-2) |
 | `shake(strength)` | Global impulse: a seeded direction `d` and phase `φ` per element, speed profile `1 + 0.35·sin(π·u + φ)` across the element (`u = (x − cx)/(w/2)`), no per-particle noise, no rotation (amended in W70, D70-1; amended in W73, D73-1; amended in W77, D77-2). Everything goes soft |
-| Gravity | `(gx, gy)` in the grid update. Clamped to 0 under reduced motion |
+| Gravity | `(gx, gy)` in the grid update. Clamped to 0 under reduced motion. Only changes act (a high-pass): a tilt sloshes the liquid, which then rests at home; scaled so the liquid never leaves its element (amended 2026-10-13, slice-6 design, D83-1) |
+| Scroll | The scroll delta moves particles and previous home rects rigidly (`scroll_shift`), so a scroll does not excite the liquid; a light, capped share of the scroll speed is added as inertia (amended 2026-10-13, slice-6 design, D80-1) |
 | Droplets | Particles flung far away are ordinary liquid that crawls home. There is no separate entity type |
 
 ### Reduced motion
@@ -324,7 +326,7 @@ At rest, what you see is therefore pixel-exact the DOM text, with no atlas appro
   - `@media (forced-colors: active)` and `@media print`: canvas `display: none`, and both classes neutralised with `!important`.
   - `unobserve` removes the classes. The element is then exactly as it was.
 - **Canvas:**
-  - `aria-hidden="true"` (new), `pointer-events: none`, `position: fixed`, `z-index: 0`.
+  - `aria-hidden="true"` (new), `pointer-events: none`, `position: fixed`, `z-index: 0`; slice 6 moves it to `z-index: -1` so escaped liquid goes under all page content; in container mode the container must be a stacking context (documented, warned, never restyled) (amended 2026-10-13, slice-6 design, D82-1).
   - It is a sibling at the end of `body`, or inside the container in container mode.
   - Observed elements sit above it because of the injected stacking rule (D7). This is the mechanism W57 assumed but never guaranteed.
   - The `canvasZIndex` option is **removed**.
@@ -346,7 +348,7 @@ At rest, what you see is therefore pixel-exact the DOM text, with no atlas appro
 | `device.lost` | Canvas2D rebuild. `liquid-text` removed |
 | `@media print` | Canvas hidden. DOM unchanged |
 | Zoom, font or text change | Text atlas re-rendered |
-| Scroll | The canvas is `fixed` and is redrawn in RAF. **Known risk:** the liquid can lag one frame behind native scroll. At rest the real DOM text means the text never lags. Measured in slice 6 |
+| Scroll | The canvas is `fixed` and is redrawn in RAF. **Known risk:** the liquid can lag one frame behind native scroll. At rest the real DOM text means the text never lags. Measured in slice 6 (W80.0, D80-4) |
 
 ## 5. API and integration
 
@@ -363,7 +365,7 @@ const liquid = await LiquidDOM.create({
   forceReducedMotion: false,
   silentFallback: false,
 });
-liquid.observe(el, { viscosity?, recovery? });
+liquid.observe(el, { viscosity?, recovery?, drag? /* slice 6, D84-2 */ });
 liquid.unobserve(el);
 liquid.splash(el, { strength?: number /* 0–2, default 1 */, at?: { x: number, y: number } /* client px, default rect centre */ });
 liquid.shake(strength? /* 0–2, default 1 */);
@@ -488,7 +490,7 @@ Slices 1–2 are detailed in the plan. Slices 3–6 are re-planned after each wh
 | 3 | **WebGPU liquid** | Splat/composite (T0), rest SDF overlay, blended colour, `device.lost`, overdraw logging (amended 2026-10-06: T2 deferred to slice 4; design `2026-10-06-liquiddom-slice-3-webgpu-design.md`) |
 | 4 | **Liquid text** | F with clamp/torn, text atlas + T1 (own pass, T2 dropped), the `liquid-text` toggle, extended MutationObserver, forced-colors, Canvas2D halo. Followed by a **whole-picture check** (amended 2026-10-10; design `2026-10-10-liquiddom-slice-4-liquid-text-design.md`) |
 | 5 | **Drag and merge** | `home_dx/dy`, drag threshold, displacement merge, slip separation (amended 2026-10-11: W78 drag the liquid incl. spike W78.0, W79 merge and separate; design `2026-10-11-liquiddom-slice-5-drag-merge-design.md`) |
-| 6 | **The world** | Scroll (incl. the 1-frame risk), resize, container, parking, gravity/tilt scene, adapters, site rebuilt and re-enabled. Followed by a **whole-picture check** |
+| 6 | **The world** | Scroll (incl. the 1-frame risk), resize, container, parking, gravity/tilt scene, adapters, site rebuilt and re-enabled. Followed by a **whole-picture check** (amended 2026-10-13: W80 scroll follows, W81 parking and resize, W82 under the page, W83 gravity and tilt, W84 touch and opt-out, W85 adapters, W86 the site, W87 whole picture; design `2026-10-13-liquiddom-slice-6-world-design.md`) |
 
 **Interim state for kept features in slices 1–5:**
 - **Gravity:** the option is accepted and validated, but has no effect until slice 6. Its tests are marked `skip` with a reference to the slice-6 ward.

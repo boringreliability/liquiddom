@@ -61,7 +61,7 @@ What a person sees and feels. Every ward moves at least one of these closer, or 
 | 3 | WebGPU liquid | planned after the slice-2 whole-picture check | 1–3 in W, `device.lost` |
 | 4 | Liquid text | planned later | 3 with text, forced colours |
 | 5 | Drag and merge | W78 drag the liquid (spike W78.0 first) · W79 merge and separate (step 5 ✅ by Dennis at W79 gold 2026-10-12; design `2026-10-11-liquiddom-slice-5-drag-merge-design.md`) | 5 |
-| 6 | The world | planned later | 7, adapters, site |
+| 6 | The world | W80 scroll follows (spike W80.0 first) · W81 parking and resize · W82 under the page · W83 gravity and tilt · W84 touch and opt-out · W85 adapters · W86 the site · W87 whole picture (design `2026-10-13-liquiddom-slice-6-world-design.md`) | 7, adapters, site |
 
 ## How wards use this file
 1. Every ward spec has a line `North star: <scene steps this ward moves>` directly under its title.
@@ -77,7 +77,7 @@ What a person sees and feels. Every ward moves at least one of these closer, or 
 |---|---|---|---|
 | Slice 2 | W69 | The acceptance scene, steps 1–4, 6 and 8, recorded with the RAF clock in canvas2d only (no WebGPU fluid renderer exists before slice 3), plus status per scene step against the matrix | `.wdd/memory/whole-picture/slice-2.md`, `docs/superpowers/whole-picture/slice-2-canvas2d.gif` |
 | Slice 4 | W76 | The acceptance scene, steps 1–4, 6 and 8 plus a card-text splash (3b) and forced colours switched on live mid-splash, recorded with the RAF clock in canvas2d and webgpu (Metal), plus status per scene step and renderer against the matrix | `.wdd/memory/whole-picture/slice-4.md`, `docs/superpowers/whole-picture/slice-4-canvas2d.gif`, `docs/superpowers/whole-picture/slice-4-webgpu.gif` |
-| Slice 6 | (planned later) | Every renderer, all 8 steps | `.wdd/memory/whole-picture/slice-6.md` |
+| Slice 6 | W87 | Every renderer, all 8 steps | `.wdd/memory/whole-picture/slice-6.md` |
 
 The recording is inspected with vision before the status is written. Each status is ✅, ⏳ or ❌ per step, measured against that slice's column.
 
