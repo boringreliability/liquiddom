@@ -3,12 +3,12 @@ ward: 80
 revision: null
 name: "Scroll follows"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [79]
 layer: "both"
 estimated_tests: 60
 created: "2026-10-13"
-completed: null
+completed: "2026-10-14"
 ---
 # Ward 080: Scroll follows
 
@@ -301,7 +301,7 @@ Gold run (2026-10-14, at 39c8455; code identical to 36dfccc, only the Linux base
 - Parked minors: an element with its own motion of at least half the scroll, or a layout shift during a scroll frame, reads as fixed for that frame (bounded); a fixed element observed during a scroll frame gets one wrong frame; at 120 Hz the Rust and TS reference rects can disagree in rare frames; the paused container remount uses the current container scroll (m1); a wall-clamped follower loses displacement (W81 parks first); the translated container canvas keeps its scroll range after the content shrinks; test 39 samples only about 8 frames; `ScrollShift::NONE` is unused outside tests and `reset()` is unused in production.
 - Manual smoke: by Dennis at gold (both renderers).
 
-Step 7 status: pending Dennis' ruling (✅ in S6 is claimed at W87 per the North star line).
+Step 7 status: follows the scroll in both renderers (Dennis, gold 2026-10-14); ✅ in S6 is claimed at W87 per the North star line, after W81's parking.
 
 ## Manual Smoke Test
 ### Setup
@@ -321,3 +321,5 @@ Step 7 status: pending Dennis' ruling (✅ in S6 is claimed at W87 per the North
 
 ## Verification
 `npm run verify`, `npm run e2e:canvas2d`, `npm run e2e:webgpu-hw`, the perf project's W80 guard, Docker canvas2d baselines (two new, eleven unchanged), vision on the scroll in both renderers.
+
+**Resolved at gold (Dennis, 2026-10-14):** gold approved after a live smoke test (saga dec_a3ce89fb). At the smoke the scroll scenes showed no liquid: they ran only on the manual clock; fixed in c35197c (RAF by default, `?clock=manual` for e2e; approved fixture change). Carried: the Canvas2D scroll-frame cost (21.7 ms vs 3.7 ms idle in headless Chromium, density draw once inertia un-rests the elements) to W82; the manual-only clock of `demo/smoke/webgpu-liquid.ts` and `webgpu-modes.ts` to W81; parked minors in the ward-review notes (own motion ≥ half the scroll read as fixed for a frame; a fixed element observed in a scroll frame; 120 Hz Rust/TS reference rects; a paused remount uses the current container scroll).
