@@ -4,15 +4,17 @@
  * well), observing #c1 (a pill) and #c2 (a card); `<body data-scene="container">` makes a missing
  * #box throw. scroll-fixed.html (W80 ward review I1): `data-scene="body"`, no #box,
  * so body mode, observing a `position: fixed` pill, a `position: sticky` pill and a normal card.
- * Every `[data-liquid]` element with an id is observed, in document order. Manual render-counting
- * clock; `?renderer=canvas2d|webgpu|auto` (default canvas2d). `window.__scrollContainer`
+ * Every `[data-liquid]` element with an id is observed, in document order. RAF clock by default
+ * (so the scene runs live in a browser); `?clock=manual` switches to the manual render-counting
+ * clock that e2e/scroll.spec.ts needs (frames run only via `advance(n)`, which throws without it).
+ * `?renderer=canvas2d|webgpu|auto` (default canvas2d). `window.__scrollContainer`
  * (demo/test-hooks.ts ScrollContainerHook).
  */
 import { LiquidDOM, type LiquidDOMInstance } from "liquiddom";
-import { createManualClock } from "../../packages/core/ts/src/clock";
+import { createManualClock, rafClock, type FrameClock } from "../../packages/core/ts/src/clock";
 import { runtimeOf } from "../../packages/core/ts/src/internal";
 import type { FluidRuntime } from "../../packages/core/ts/src/runtime";
-import { createRenderCountingClock } from "../render-counting-clock";
+import { createRenderCountingClock, type RenderCountingClock } from "../render-counting-clock";
 import type { ScrollContainerHook } from "../test-hooks";
 
 const rendererRaw = new URLSearchParams(window.location.search).get("renderer") ?? "canvas2d";
@@ -20,7 +22,9 @@ if (rendererRaw !== "canvas2d" && rendererRaw !== "webgpu" && rendererRaw !== "a
   throw new TypeError(`[scroll-container] ?renderer must be canvas2d, webgpu or auto, got "${rendererRaw}"`);
 }
 const renderer: "canvas2d" | "webgpu" | "auto" = rendererRaw;
-const clock = createRenderCountingClock(createManualClock(0));
+const manual: RenderCountingClock | null =
+  new URLSearchParams(window.location.search).get("clock") === "manual" ? createRenderCountingClock(createManualClock(0)) : null;
+const clock: FrameClock = manual ?? rafClock;
 const IDS = Array.from(document.querySelectorAll<HTMLElement>("[data-liquid][id]"), (el) => el.id);
 let instance: LiquidDOMInstance | null = null;
 let snapshot: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null = null;
@@ -81,8 +85,9 @@ ready.catch((err: unknown) => {
 const hook: ScrollContainerHook = {
   ready,
   advance(frames) {
+    if (!manual) throw new Error("[scroll-container] advance() needs ?clock=manual");
     // No frame rendered in this task: keep the previous snapshot (W71 ward-review M3).
-    if (clock.advance(frames) === 0) return;
+    if (manual.advance(frames) === 0) return;
     capture();
   },
   pixels() {

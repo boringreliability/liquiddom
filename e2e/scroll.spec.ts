@@ -31,7 +31,7 @@ const FIXED_FILL: FillSpec = {
 };
 
 async function openScene(page: Page, scene = "scroll-container", elements = 2): Promise<void> {
-  await page.goto(`/scenes/${scene}.html?renderer=canvas2d`);
+  await page.goto(`/scenes/${scene}.html?renderer=canvas2d&clock=manual`);
   await page.waitForFunction(() => window.__scrollContainer !== undefined, undefined, { timeout: 15_000 });
   await page.evaluate(() => window.__scrollContainer!.ready);
   await page.evaluate(() => window.__scrollContainer!.advance(120));
