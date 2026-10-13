@@ -166,6 +166,11 @@ impl Grid {
         }
     }
 
+    /// W80.1 (red) stub: W80.2 splits a scroll delta into whole cells and moves the origin.
+    pub fn scroll_origin(&mut self, _dx_px: f32, _dy_px: f32) -> (f32, f32) {
+        (0.0, 0.0)
+    }
+
     #[inline]
     pub fn to_grid(&self, x_px: f32, y_px: f32) -> (f32, f32) {
         (

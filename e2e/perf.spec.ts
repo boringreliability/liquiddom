@@ -243,3 +243,54 @@ test("perf – W79 D79-3: the Canvas2D frame during the merge costs at most 1.15
   );
   expect(ratio, "merge / card-splash Canvas2D frame cost (D79-3)").toBeLessThanOrEqual(W79_MERGE_OVER_SPLASH_MAX);
 });
+
+// W80 (slice design §11): a scroll frame costs at most 1.15 × the same frame without the scroll.
+// Both runs shake first, so both draw the density field: the ratio isolates what the scroll adds
+// per frame (the scroll read, the canvas placement, the rect re-layout after scrollTo,
+// scroll_shift). The at-rest ratio (scroll vs idle, where the inertia un-rests elements and Canvas2D
+// switches from rounded rects to the density) is logged, not gated.
+const W80_SCROLL_OVER_IDLE_MAX = 1.15;
+const W80_COST_FRAMES = 30;
+const W80_COST_RUNS = 3;
+
+/** Median wall ms of `advance(1)` over W80_COST_FRAMES frames, scrolling 10 px per frame or not, after a shake or at rest. */
+async function w80FrameMedianMs(page: Page, scroll: boolean, shake: boolean): Promise<number> {
+  await w79OpenCostScene(page);
+  await page.mouse.move(1279, 799);
+  return page.evaluate(
+    ([n, withScroll, withShake]) => {
+      if (withShake) (window.__liquidTest!.instance as { shake(): void }).shake();
+      const out: number[] = [];
+      for (let f = 1; f <= n; f++) {
+        if (withScroll) window.scrollTo({ top: f * 10, behavior: "instant" });
+        const t = performance.now();
+        window.__liquidTest!.advance(1);
+        out.push(performance.now() - t);
+      }
+      out.sort((a, b) => a - b);
+      return out[Math.floor(out.length / 2)];
+    },
+    [W80_COST_FRAMES, scroll, shake] as const,
+  );
+}
+
+test("perf – W80: a Canvas2D frame that scrolls 10 px costs at most 1.15 × the same frame without the scroll (both after a shake)", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "perf", "the canvas2d frame-cost guard runs in the perf project");
+  test.setTimeout(180_000);
+  const still: number[] = [];
+  const scrolled: number[] = [];
+  const idle: number[] = [];
+  const restScroll: number[] = [];
+  for (let k = 0; k < W80_COST_RUNS; k++) {
+    still.push(await w80FrameMedianMs(page, false, true));
+    scrolled.push(await w80FrameMedianMs(page, true, true));
+    idle.push(await w80FrameMedianMs(page, false, false));
+    restScroll.push(await w80FrameMedianMs(page, true, false));
+  }
+  const ratio = median(scrolled) / median(still);
+  console.log(
+    `[perf W80] canvas2d frame median after a shake: still ${median(still).toFixed(2)} ms, scrolling ${median(scrolled).toFixed(2)} ms, ratio ${ratio.toFixed(3)} (bound ${W80_SCROLL_OVER_IDLE_MAX}); ` +
+      `at rest: idle ${median(idle).toFixed(2)} ms, scrolling ${median(restScroll).toFixed(2)} ms, ratio ${(median(restScroll) / median(idle)).toFixed(3)} (logged)`,
+  );
+  expect(ratio, "scroll / still Canvas2D frame cost after a shake (W80)").toBeLessThanOrEqual(W80_SCROLL_OVER_IDLE_MAX);
+});

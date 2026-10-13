@@ -7,6 +7,7 @@ import { W77_CARD_LACE_MAX_TEAR, cardTearPixels, clientRectOf, regionHolePixels 
 import { NORTH_STAR_PATH, reformBudgetMs } from "./north-star";
 import { SWIFTSHADER_RUNS_LIQUID } from "./projects";
 import { IDLE_2S_FRAMES, VISUAL_ENABLED, VISUAL_SKIP_REASON, advance, cssAlpha, gotoScene, projectRenderer, restAlpha } from "./scene";
+import { ACCEPTANCE_FILL, FILL_MIN, W80_COLOURS, scrollPath, scrollPathFills, worstFrame, type FillFrame } from "./scroll";
 
 /** W71.0 fallback B: SwiftShader cannot carry the liquid, so there are no webgpu Linux baselines. */
 const WEBGPU_NO_BASELINES = "W71.0 fallback B: no webgpu Linux baselines (SWIFTSHADER_RUNS_LIQUID = false)";
@@ -1132,5 +1133,139 @@ test.describe("W79 – merge and separate (step 5, canvas2d)", () => {
     await w78DragMergeToCard(page, W79_HOLD_FRAMES);
     await expect(page).toHaveScreenshot("acceptance-step5-merge-mid.png", { maxDiffPixelRatio: 0.01 });
     await page.mouse.up();
+  });
+});
+
+// =============================================================================
+// W80 (slice 6) – scroll follows: step 7 in Canvas2D (D80-1 … D80-3). WebGPU's step 7 and the
+// 1-frame-lag probe (D80-4) are the webgpu-robust.spec.ts W80 block (webgpu-hw); the container
+// scroll is e2e/scroll.spec.ts.
+// =============================================================================
+/** NORTH-STAR step 7: 300 px down and back. */
+const W80_SCROLL_PX = 300;
+/** D80-3: NORTH-STAR step 7's budget after the scroll back, in frames. */
+const W80_BUDGET_FRAMES = Math.round((reformBudgetMs(W77_NORTH_STAR, 7) / 1000) * W67_FPS);
+/** The W80.0 matrix speeds (px per frame) plus the gate's sustained fast scroll (30, D80-3); 300 is a jump in one frame. */
+const W80_SPEEDS = [1, 10, 30, 300] as const;
+
+async function w80ScrollY(page: Page): Promise<number> {
+  return page.evaluate(() => window.scrollY);
+}
+
+test.describe("W80 – scroll follows (step 7, canvas2d)", () => {
+  test.beforeEach(() => {
+    test.skip(projectRenderer() !== "canvas2d", "W80: canvas2d project (webgpu-hw: the webgpu-robust.spec.ts W80 block)");
+  });
+
+  test("step 7 – given the acceptance scene when read then the page can scroll 300 px at 1280×800 and every element is at rest at the top", async ({ page }) => {
+    await w67Open(page);
+    const max = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+    expect(max, "the spacer lets the page scroll at least 300 px (slice design §3)").toBeGreaterThanOrEqual(W80_SCROLL_PX);
+    expect(await w80ScrollY(page)).toBe(0);
+    expect(W80_BUDGET_FRAMES, "NORTH-STAR step 7 carries a re-form budget (D80-3)").toBeGreaterThan(0);
+  });
+
+  for (const step of W80_SPEEDS) {
+    test(`step 7 – given a scroll of 300 px down and back at ${step} px per frame when ticking then every element's liquid fills its DOM shape in every frame and every restAlpha is 1 within the step-7 budget`, async ({ page }) => {
+      test.setTimeout(120_000);
+      await w67Open(page);
+      const frames = await scrollPathFills(page, ACCEPTANCE_FILL, scrollPath(W80_SCROLL_PX, step));
+      const worst = worstFrame(frames);
+      const deepest = Math.max(...frames.map((f) => f.scroll));
+      console.log(`W80 step 7 (canvas2d, ${step} px/frame): ${frames.length} frames, lowest fill ${worst.min.toFixed(3)} (${worst.worst} at scroll ${worst.scroll}), bound ${FILL_MIN}`);
+      expect(deepest, "the page really scrolled 300 px").toBe(W80_SCROLL_PX);
+      expect(frames.at(-1)?.scroll, "and back").toBe(0);
+      expect(worst.min, `no snap: every element's liquid fills its DOM shape (${worst.worst} at scroll ${worst.scroll})`).toBeGreaterThanOrEqual(FILL_MIN);
+      const rest = await w67FramesUntilAllRest(page, W80_BUDGET_FRAMES);
+      console.log(`W80 step 7 (canvas2d, ${step} px/frame): every restAlpha 1 after ${rest} frames (budget ${W80_BUDGET_FRAMES})`);
+      expect(rest, `every restAlpha 1 within ${W80_BUDGET_FRAMES} frames after the scroll back`).toBeGreaterThan(0);
+    });
+  }
+
+  test("step 7 – given a smooth scrollTo of 300 px when the browser animates it over real time then every frame's liquid fills its DOM shape and the scroll back re-forms within the budget (W80 RF4)", async ({ page }) => {
+    test.setTimeout(60_000);
+    await w67Open(page);
+    const frames: FillFrame[] = [];
+    for (const target of [W80_SCROLL_PX, 0]) {
+      await page.evaluate((y) => window.scrollTo({ top: y, behavior: "smooth" }), target);
+      for (let f = 0; f < 240; f++) {
+        await page.waitForTimeout(16);
+        const [frame] = await scrollPathFills(page, ACCEPTANCE_FILL, [null]);
+        frames.push(frame);
+        if (frame.scroll === target && f > 2) break;
+      }
+      expect(frames.at(-1)?.scroll, `the smooth scroll reached ${target}`).toBe(target);
+    }
+    const worst = worstFrame(frames);
+    console.log(`W80 smooth scroll (canvas2d): ${frames.length} frames, lowest fill ${worst.min.toFixed(3)} (${worst.worst} at scroll ${worst.scroll})`);
+    expect(worst.min).toBeGreaterThanOrEqual(FILL_MIN);
+    expect(await w67FramesUntilAllRest(page, W80_BUDGET_FRAMES)).toBeGreaterThan(0);
+  });
+
+  test("step 7 – given Merge dragged 30 px up when the page scrolls 40 px mid-drag then slot 7 grows by 40, the dragged liquid stays under the pointer, and after the release every restAlpha is 1 within 180 frames (D80-1)", async ({ page }) => {
+    await w67Open(page);
+    const c = await w78Centre(page, "#merge");
+    await page.mouse.move(c.x, c.y);
+    await page.mouse.down();
+    for (let k = 1; k <= 6; k++) {
+      await page.mouse.move(c.x, c.y - 5 * k);
+      await w67Advance(page, 1);
+    }
+    await w67Advance(page, 20);
+    const before = (await w78Slots(page))[MERGE_INDEX];
+    expect([before.interaction, before.homeDy], "precondition: dragging 30 px up").toEqual([3, -30]);
+    const fillAtPointer = async (): Promise<number> =>
+      page.evaluate(
+        ([px, py, [r, g, b]]) => {
+          const img = window.__liquidTest!.pixels();
+          let n = 0;
+          let hit = 0;
+          for (let y = py - 12; y < py + 12; y++) {
+            for (let x = px - 30; x < px + 30; x++) {
+              n++;
+              const o = (y * img.width + x) * 4;
+              const d = img.data;
+              if (d[o + 3] > 128 && Math.abs(d[o] - r) + Math.abs(d[o + 1] - g) + Math.abs(d[o + 2] - b) < 60) hit++;
+            }
+          }
+          return hit / n;
+        },
+        [Math.round(c.x), Math.round(c.y - 30), W80_COLOURS["#merge"]] as const,
+      );
+    const held = await fillAtPointer();
+    await page.evaluate(() => window.scrollTo({ top: 40, behavior: "instant" }));
+    await w67Advance(page, 1);
+    const after = (await w78Slots(page))[MERGE_INDEX];
+    expect([after.interaction, after.homeDy], "the drag offset grew by the scroll").toEqual([3, 10]);
+    await w67Advance(page, 10);
+    const scrolled = await fillAtPointer();
+    console.log(`W80 mid-drag scroll (canvas2d): Merge colour under the pointer ${held.toFixed(3)} before, ${scrolled.toFixed(3)} 10 frames after the 40 px scroll`);
+    expect(scrolled, "the dragged liquid is still under the pointer").toBeGreaterThanOrEqual(Math.min(0.5, held));
+    await page.mouse.up();
+    expect(await w67FramesUntilAllRest(page, W78_REFORM_FRAMES), "re-form after the release").toBeGreaterThan(0);
+  });
+
+  test("step 7 – given the page scrolled 150 px down at 10 px per frame when screenshotted then it matches the baseline", async ({ page }) => {
+    test.skip(!VISUAL_ENABLED, VISUAL_SKIP_REASON);
+    await w67Open(page);
+    await scrollPathFills(page, ACCEPTANCE_FILL, scrollPath(W80_SCROLL_PX, 10).slice(0, 15));
+    expect(await w80ScrollY(page)).toBe(150);
+    await expect(page).toHaveScreenshot("acceptance-step7-scroll-mid.png", { maxDiffPixelRatio: 0.01 });
+  });
+
+  test("step 7 – given the page scrolled 300 px down when every restAlpha is 1 then it matches the baseline", async ({ page }) => {
+    test.skip(!VISUAL_ENABLED, VISUAL_SKIP_REASON);
+    await w67Open(page);
+    await scrollPathFills(page, ACCEPTANCE_FILL, scrollPath(W80_SCROLL_PX, 10).slice(0, 30));
+    expect(await w67FramesUntilAllRest(page, W80_BUDGET_FRAMES)).toBeGreaterThan(0);
+    await expect(page).toHaveScreenshot("acceptance-step7-scrolled-300.png", { maxDiffPixelRatio: 0.01 });
+  });
+
+  test("step 7 – given the page scrolled 300 px and back when every restAlpha is 1 then it matches the step 1 baseline (no residue)", async ({ page }) => {
+    test.skip(!VISUAL_ENABLED, VISUAL_SKIP_REASON);
+    await w67Open(page);
+    await scrollPathFills(page, ACCEPTANCE_FILL, scrollPath(W80_SCROLL_PX, 10));
+    expect(await w67FramesUntilAllRest(page, W80_BUDGET_FRAMES)).toBeGreaterThan(0);
+    await expect(page).toHaveScreenshot("acceptance-step1.png", { maxDiffPixelRatio: 0.01 });
   });
 });

@@ -3,7 +3,7 @@ ward: 80
 revision: null
 name: "Scroll follows"
 epic: "fluid-engine"
-status: "planned"
+status: "red"
 dependencies: [79]
 layer: "both"
 estimated_tests: 50
@@ -207,58 +207,58 @@ Every browser rest-frame count equals the Rust one for the same row (23, 26, 36,
 
 ## Tests
 
-| # | Test Name | Verifies |
-|---|-----------|----------|
-| 1 | scroll_tests.rs: given_nan_inf_and_huge_values_when_sanitized_then_the_shift_is_finite_and_clamped_and_the_inertia_is_capped | D80-1 sanitiser, W80 RF5 (negative shift kept) |
-| 2 | scroll_tests.rs: given_scroll_deltas_when_the_grid_origin_is_split_then_whole_cells_plus_the_rest_equal_the_delta_and_the_origin_stays_within_half_a_cell | D80-1 lattice origin |
-| 3 | scroll_tests.rs: given_a_zero_shift_and_zero_inertia_when_scroll_shift_then_the_core_is_bit_identical | no-op (guard) |
-| 4 | scroll_tests.rs: given_a_scroll_shift_when_called_then_every_homed_particle_moves_by_minus_the_delta_and_the_fused_aabb_is_invalidated | D80-1 shift, D68-10 |
-| 5 | scroll_tests.rs: given_a_page_scrolled_down_and_back_without_inertia_when_a_splash_is_in_flight_then_every_particle_matches_an_unscrolled_core_up_to_f32_rounding | D80-1 "unscrolled up to rounding" at 1, 10, 300 px/frame |
-| 6 | scroll_tests.rs: given_a_scroll_with_the_rects_moved_by_it_when_the_next_tick_simulates_then_the_home_velocity_is_0_and_nothing_un_rests | no excitation, W80 RF2 (0-step tick between shifts) |
-| 7 | scroll_tests.rs: given_a_dragged_element_when_the_page_scrolls_then_its_particles_and_previous_rect_stay_and_the_others_move | D80-1 drag skip |
-| 8 | scroll_tests.rs: given_scroll_down_with_inertia_when_ticking_then_the_liquid_lags_below_its_home_and_every_rest_alpha_is_1_within_the_step_7_budget | D80-2 sign and bound, D80-3 |
-| 9 | scroll_tests.rs: given_reduced_motion_when_scroll_shift_with_inertia_then_no_velocity_is_added_and_the_shift_still_applies | reduced motion |
-| 10 | scroll_tests.rs: given_a_shift_that_carries_particles_past_the_grid_when_scroll_shift_then_every_position_stays_inside_the_grid | clamp, no panic |
-| 11 | scroll_tests.rs: given_the_acceptance_area_hint_when_constructed_then_the_cell_is_not_a_whole_px_divisor_of_the_scroll_steps | test 5 is not vacuous (guard) |
-| 12 | scroll-tracker.test: given_a_new_tracker_when_the_first_frame_samples_a_scrolled_page_then_delta_and_inertia_are_0 | first frame |
-| 13 | scroll-tracker.test: given_body_mode_when_scrollY_grows_by_1_px_then_delta_is_1_and_the_inertia_is_delta_times_60_times_SCROLL_INERTIA_downwards | D80-2 formula and sign |
-| 14 | scroll-tracker.test: given_a_fast_diagonal_scroll_when_sampled_then_the_inertia_is_capped_at_SCROLL_INERTIA_MAX_PX_S_with_its_direction | D80-2 cap |
-| 15 | scroll-tracker.test: given_the_same_scroll_at_60_hz_and_at_120_hz_when_sampled_then_the_summed_inertia_is_the_same | D80-2 per distance, the cap per 1/60 s (also when it bites), W80 RF2 |
-| 16 | scroll-tracker.test: given_container_mode_when_the_container_and_the_page_scroll_then_delta_reads_only_the_container_and_dragDelta_subtracts_the_offset_change | W80 RF3 |
-| 17 | scroll-tracker.test: given_reduced_motion_or_a_frame_without_elapsed_time_when_the_page_scrolls_then_the_delta_is_kept_and_the_inertia_is_0 | reduced motion, resume |
-| 18 | scroll-tracker.test: given_two_scrolls_between_frames_when_sampled_then_one_delta_is_their_sum | W80 RF2 |
-| 19 | scroll-tracker.test: given_overscroll_with_a_negative_scroll_position_when_sampled_then_the_negative_delta_is_kept | W80 RF5 |
-| 20 | scroll-tracker.test: given_a_non_finite_scroll_position_when_sampled_then_the_frame_gives_0_and_the_last_good_position_is_kept | robustness |
-| 21 | scroll-tracker.test: given_reset_when_the_next_frame_samples_then_delta_is_0 | reset |
-| 22 | scroll-tracker.test: given_container_mode_when_placeCanvas_runs_then_the_canvas_is_translated_by_the_container_scroll_written_only_on_change_and_a_new_canvas_gets_it | container canvas, remount |
-| 23 | scroll-tracker.test: given_body_mode_when_placeCanvas_runs_then_the_fixed_canvas_is_never_restyled | body mode (guard) |
-| 24 | drag-tracker.test: given_an_active_drag_when_the_page_scrolls_40_px_then_the_offset_grows_by_40_and_later_moves_keep_it | D80-1 mid-drag |
-| 25 | drag-tracker.test: given_a_press_below_the_threshold_when_the_page_scrolls_40_px_then_no_drag_starts_and_the_drag_that_starts_later_includes_the_scroll | W80 RF1 |
-| 26 | drag-tracker.test: given_no_press_when_the_page_scrolls_then_nothing_changes | no press |
-| 27 | scroll-runtime.test: given_body_mode_when_the_window_scrolls_30_px_between_frames_then_scroll_shift_gets_the_delta_and_inertia_after_sync_and_before_tick | frame order |
-| 28 | scroll-runtime.test: given_no_scroll_when_frames_run_then_scroll_shift_is_never_called | idle bit-identity (guard) |
-| 29 | scroll-runtime.test: given_reduced_motion_when_the_page_scrolls_then_scroll_shift_gets_the_delta_with_zero_inertia | reduced motion |
-| 30 | scroll-runtime.test: given_a_mouse_drag_when_the_page_scrolls_40_px_then_slots_6_7_grow_by_40_in_that_frame_and_the_release_zeroes_them | D80-1 mid-drag in the runtime |
-| 31 | scroll-runtime.test: given_container_mode_when_the_container_scrolls_then_scroll_shift_gets_the_container_delta_and_the_canvas_sits_on_its_visible_window | container, W80 RF3 |
-| 32 | scroll-runtime.test: given_the_loop_paused_while_the_page_scrolls_when_resumed_then_the_first_frame_shifts_by_the_whole_delta_with_zero_inertia | W80 RF2 (pause) |
-| 33 | fluid-ffi.test: given_the_real_core_when_scroll_shift_runs_before_a_zero_step_tick_then_every_homed_particle_moves_by_minus_the_delta_in_the_dynamic_view | the WASM export |
-| 34 | whole-picture-tooling.test: given_north_star_scene_step_7_when_parsed_then_its_scroll_budget_is_d80_3_and_spec_section_6_agrees_W80 | D80-3 (guard after the gate) |
-| 35 | e2e acceptance (canvas2d): step 7 – given the acceptance scene when read then the page can scroll 300 px at 1280×800 and every element is at rest at the top | the spacer |
-| 36 | e2e acceptance (canvas2d): step 7 – … at 1 px per frame … | step 7 slow |
-| 37 | e2e acceptance (canvas2d): step 7 – … at 10 px per frame … | step 7 |
-| 38 | e2e acceptance (canvas2d): step 7 – … at 300 px per frame … | step 7 jump |
-| 39 | e2e acceptance (canvas2d): step 7 – given a smooth scrollTo of 300 px … (W80 RF4) | W80 RF4 |
-| 40 | e2e acceptance (canvas2d): step 7 – given Merge dragged 30 px up when the page scrolls 40 px mid-drag then … | D80-1 mid-drag, W80 RF1 |
-| 41 | e2e acceptance (canvas2d, Linux): step 7 – given the page scrolled 150 px down at 10 px per frame when screenshotted then it matches the baseline | baseline `acceptance-step7-scroll-mid` |
-| 42 | e2e acceptance (canvas2d, Linux): step 7 – given the page scrolled 300 px down when every restAlpha is 1 then it matches the baseline | baseline `acceptance-step7-scrolled-300` |
-| 43 | e2e acceptance (canvas2d, Linux): step 7 – given the page scrolled 300 px and back when every restAlpha is 1 then it matches the step 1 baseline (no residue) | `acceptance-step1` reused |
-| 44 | e2e scroll (canvas2d): step 7 (container) – … at 10 px per frame … | container scroll |
-| 45 | e2e scroll (canvas2d): step 7 (container) – … at 200 px per frame … | container jump |
-| 46 | e2e scroll (canvas2d): step 7 (container) – given the page scrolled 300 px around the container … (W80 RF3) | W80 RF3 |
-| 47 | e2e webgpu-robust (webgpu-hw): W80 step 7 – given renderer webgpu and a scroll of 300 px down and back at 10 px per frame … | step 7 in WebGPU |
-| 48 | e2e webgpu-robust (webgpu-hw): W80 D80-4 – … the offset of the canvas card edge from the DOM card edge per screenshot is logged (never gated) | D80-4 probe |
-| 49 | e2e perf (perf): perf – W80: a Canvas2D frame that scrolls 10 px costs at most 1.15 × the same frame without the scroll (both after a shake) | slice design §11 perf |
-| 50 | e2e acceptance (canvas2d): step 7 – … at 30 px per frame … | D80-3 gate: a sustained fast scroll (W80.0: the provisional 0.05 / 120 tore here) |
+| # | Test Name | Verifies | Red outcome |
+|---|-----------|----------|---|
+| 1 | scroll_tests.rs: given_nan_inf_and_huge_values_when_sanitized_then_the_shift_is_finite_and_clamped_and_the_inertia_is_capped | D80-1 sanitiser, W80 RF5 (negative shift kept) | ❌ stub returns NONE: speed 5000 capped at 2000 px/s … (0, 0) |
+| 2 | scroll_tests.rs: given_scroll_deltas_when_the_grid_origin_is_split_then_whole_cells_plus_the_rest_equal_the_delta_and_the_origin_stays_within_half_a_cell | D80-1 lattice origin | ❌ stub moves no origin: k·cell + rest = d (0·6.166 + 0 vs 1) |
+| 3 | scroll_tests.rs: given_a_zero_shift_and_zero_inertia_when_scroll_shift_then_the_core_is_bit_identical | no-op (guard) | ✅ passes (guard) |
+| 4 | scroll_tests.rs: given_a_scroll_shift_when_called_then_every_homed_particle_moves_by_minus_the_delta_and_the_fused_aabb_is_invalidated | D80-1 shift, D68-10 | ❌ D68-10: the shift does not invalidate the fused AABB (stub) |
+| 5 | scroll_tests.rs: given_a_page_scrolled_down_and_back_without_inertia_when_a_splash_is_in_flight_then_every_particle_matches_an_unscrolled_core_up_to_f32_rounding | D80-1 "unscrolled up to rounding" at 1, 10, 300 px/frame | ❌ 1 px/frame: worst 11.09 px (the scrolled core reads the moved rects as motion) |
+| 6 | scroll_tests.rs: given_a_scroll_with_the_rects_moved_by_it_when_the_next_tick_simulates_then_the_home_velocity_is_0_and_nothing_un_rests | no excitation, W80 RF2 (0-step tick between shifts) | ❌ Splash home velocity (0, -2250) instead of 0 |
+| 7 | scroll_tests.rs: given_a_dragged_element_when_the_page_scrolls_then_its_particles_and_previous_rect_stay_and_the_others_move | D80-1 drag skip | ❌ the card's liquid does not move with the page |
+| 8 | scroll_tests.rs: given_scroll_down_with_inertia_when_ticking_then_the_liquid_lags_below_its_home_and_every_rest_alpha_is_1_within_the_step_7_budget | D80-2 sign and bound, D80-3 | ❌ 10 px/frame: maxDev 167.3 px, not below 9 px |
+| 9 | scroll_tests.rs: given_reduced_motion_when_scroll_shift_with_inertia_then_no_velocity_is_added_and_the_shift_still_applies | reduced motion | ❌ the shift does not apply |
+| 10 | scroll_tests.rs: given_a_shift_that_carries_particles_past_the_grid_when_scroll_shift_then_every_position_stays_inside_the_grid | clamp, no panic | ❌ 261.5 vs -193.8: nothing on the top wall |
+| 11 | scroll_tests.rs: given_the_acceptance_area_hint_when_constructed_then_the_cell_is_not_a_whole_px_divisor_of_the_scroll_steps | test 5 is not vacuous (guard) | ✅ passes (guard) |
+| 12 | scroll-tracker.test: given_a_new_tracker_when_the_first_frame_samples_a_scrolled_page_then_delta_and_inertia_are_0 | first frame | ✅ passes (guard) |
+| 13 | scroll-tracker.test: given_body_mode_when_scrollY_grows_by_1_px_then_delta_is_1_and_the_inertia_is_delta_times_60_times_SCROLL_INERTIA_downwards | D80-2 formula and sign | ❌ dy 0, expected 1 (stub) |
+| 14 | scroll-tracker.test: given_a_fast_diagonal_scroll_when_sampled_then_the_inertia_is_capped_at_SCROLL_INERTIA_MAX_PX_S_with_its_direction | D80-2 cap | ❌ [dx, dy] = [0, 0], expected [300, 400] (stub) |
+| 15 | scroll-tracker.test: given_the_same_scroll_at_60_hz_and_at_120_hz_when_sampled_then_the_summed_inertia_is_the_same | D80-2 per distance, the cap per 1/60 s (also when it bites), W80 RF2 | ❌ the cap total: 0, expected 1800 (stub) |
+| 16 | scroll-tracker.test: given_container_mode_when_the_container_and_the_page_scroll_then_delta_reads_only_the_container_and_dragDelta_subtracts_the_offset_change | W80 RF3 | ❌ [0, 0, 0, 0], expected [0, 25, 0, 25] (stub) |
+| 17 | scroll-tracker.test: given_reduced_motion_or_a_frame_without_elapsed_time_when_the_page_scrolls_then_the_delta_is_kept_and_the_inertia_is_0 | reduced motion, resume | ❌ delta 0, expected dy 30 (stub) |
+| 18 | scroll-tracker.test: given_two_scrolls_between_frames_when_sampled_then_one_delta_is_their_sum | W80 RF2 | ❌ dy 0, expected 90 (stub) |
+| 19 | scroll-tracker.test: given_overscroll_with_a_negative_scroll_position_when_sampled_then_the_negative_delta_is_kept | W80 RF5 | ❌ [0, 0], expected [-40, -40] (stub) |
+| 20 | scroll-tracker.test: given_a_non_finite_scroll_position_when_sampled_then_the_frame_gives_0_and_the_last_good_position_is_kept | robustness | ❌ dy 0, expected 15 (stub) |
+| 21 | scroll-tracker.test: given_reset_when_the_next_frame_samples_then_delta_is_0 | reset | ❌ dy 0, expected 5 after reset (stub) |
+| 22 | scroll-tracker.test: given_container_mode_when_placeCanvas_runs_then_the_canvas_is_translated_by_the_container_scroll_written_only_on_change_and_a_new_canvas_gets_it | container canvas, remount | ❌ transform stays empty, expected translate(8px, 120px) (stub) |
+| 23 | scroll-tracker.test: given_body_mode_when_placeCanvas_runs_then_the_fixed_canvas_is_never_restyled | body mode (guard) | ✅ passes (guard) |
+| 24 | drag-tracker.test: given_an_active_drag_when_the_page_scrolls_40_px_then_the_offset_grows_by_40_and_later_moves_keep_it | D80-1 mid-drag | ❌ tracker.scrolled is not a function |
+| 25 | drag-tracker.test: given_a_press_below_the_threshold_when_the_page_scrolls_40_px_then_no_drag_starts_and_the_drag_that_starts_later_includes_the_scroll | W80 RF1 | ❌ tracker.scrolled is not a function |
+| 26 | drag-tracker.test: given_no_press_when_the_page_scrolls_then_nothing_changes | no press | ❌ tracker.scrolled is not a function |
+| 27 | scroll-runtime.test: given_body_mode_when_the_window_scrolls_30_px_between_frames_then_scroll_shift_gets_the_delta_and_inertia_after_sync_and_before_tick | frame order | ❌ order [sync, tick]: no scroll_shift call |
+| 28 | scroll-runtime.test: given_no_scroll_when_frames_run_then_scroll_shift_is_never_called | idle bit-identity (guard) | ✅ passes (guard) |
+| 29 | scroll-runtime.test: given_reduced_motion_when_the_page_scrolls_then_scroll_shift_gets_the_delta_with_zero_inertia | reduced motion | ❌ no scroll_shift call |
+| 30 | scroll-runtime.test: given_a_mouse_drag_when_the_page_scrolls_40_px_then_slots_6_7_grow_by_40_in_that_frame_and_the_release_zeroes_them | D80-1 mid-drag in the runtime | ❌ slot 7 stays -30, expected 10 |
+| 31 | scroll-runtime.test: given_container_mode_when_the_container_scrolls_then_scroll_shift_gets_the_container_delta_and_the_canvas_sits_on_its_visible_window | container, W80 RF3 | ❌ no scroll_shift call (container) |
+| 32 | scroll-runtime.test: given_the_loop_paused_while_the_page_scrolls_when_resumed_then_the_first_frame_shifts_by_the_whole_delta_with_zero_inertia | W80 RF2 (pause) | ❌ no scroll_shift call on resume |
+| 33 | fluid-ffi.test: given_the_real_core_when_scroll_shift_runs_before_a_zero_step_tick_then_every_homed_particle_moves_by_minus_the_delta_in_the_dynamic_view | the WASM export | ❌ stub moves nothing: expected 30 < 0.01 |
+| 34 | whole-picture-tooling.test: given_north_star_scene_step_7_when_parsed_then_its_scroll_budget_is_d80_3_and_spec_section_6_agrees_W80 | D80-3 (guard after the gate) | ✅ passes (guard) |
+| 35 | e2e acceptance (canvas2d): step 7 – given the acceptance scene when read then the page can scroll 300 px at 1280×800 and every element is at rest at the top | the spacer | ✅ passes (guard) |
+| 36 | e2e acceptance (canvas2d): step 7 – … at 1 px per frame … | step 7 slow | ✅ passes (the springs follow a slow scroll without the shift; lowest fill 1.000, rest after 27 frames; recorded as measured) |
+| 37 | e2e acceptance (canvas2d): step 7 – … at 10 px per frame … | step 7 | ❌ lowest fill 0.000 (#splash at scroll 290) |
+| 38 | e2e acceptance (canvas2d): step 7 – … at 300 px per frame … | step 7 jump | ✅ passes (guard: 2 frames, fill 1.000, rest after 25 frames; the plan expected a fail, see the W80.1 report) |
+| 39 | e2e acceptance (canvas2d): step 7 – given a smooth scrollTo of 300 px … (W80 RF4) | W80 RF4 | ❌ lowest fill 0.000 (#card at scroll 300) |
+| 40 | e2e acceptance (canvas2d): step 7 – given Merge dragged 30 px up when the page scrolls 40 px mid-drag then … | D80-1 mid-drag, W80 RF1 | ❌ slot 7 stays -30, expected 10 after the 40 px scroll |
+| 41 | e2e acceptance (canvas2d, Linux): step 7 – given the page scrolled 150 px down at 10 px per frame when screenshotted then it matches the baseline | baseline `acceptance-step7-scroll-mid` | ⏭ skipped (Linux only) |
+| 42 | e2e acceptance (canvas2d, Linux): step 7 – given the page scrolled 300 px down when every restAlpha is 1 then it matches the baseline | baseline `acceptance-step7-scrolled-300` | ⏭ skipped (Linux only) |
+| 43 | e2e acceptance (canvas2d, Linux): step 7 – given the page scrolled 300 px and back when every restAlpha is 1 then it matches the step 1 baseline (no residue) | `acceptance-step1` reused | ⏭ skipped (Linux only) |
+| 44 | e2e scroll (canvas2d): step 7 (container) – … at 10 px per frame … | container scroll | ❌ canvas transform is empty, expected translate(0px, 200px) |
+| 45 | e2e scroll (canvas2d): step 7 (container) – … at 200 px per frame … | container jump | ❌ canvas transform is empty, expected translate(0px, 200px) |
+| 46 | e2e scroll (canvas2d): step 7 (container) – given the page scrolled 300 px around the container … (W80 RF3) | W80 RF3 | ✅ passes (guard) |
+| 47 | e2e webgpu-robust (webgpu-hw): W80 step 7 – given renderer webgpu and a scroll of 300 px down and back at 10 px per frame … | step 7 in WebGPU | ❌ lowest fill 0.000 (#splash at scroll 290), webgpu-hw |
+| 48 | e2e webgpu-robust (webgpu-hw): W80 D80-4 – … the offset of the canvas card edge from the DOM card edge per screenshot is logged (never gated) | D80-4 probe | ✅ passes (logged probe; worst offset 97.0 px beyond the uncertainty) |
+| 49 | e2e perf (perf): perf – W80: a Canvas2D frame that scrolls 10 px costs at most 1.15 × the same frame without the scroll (both after a shake) | slice design §11 perf | — not run at red (perf project) |
+| 50 | e2e acceptance (canvas2d): step 7 – … at 30 px per frame … | D80-3 gate: a sustained fast scroll (W80.0: the provisional 0.05 / 120 tore here) | ❌ lowest fill 0.000 (#splash at scroll 120) |
 
 ## Must NOT
 - Excite the liquid on a rigid scroll; call the core on a frame without a scroll.

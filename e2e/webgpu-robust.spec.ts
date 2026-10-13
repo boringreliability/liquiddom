@@ -12,7 +12,7 @@ import AxeBuilder from "@axe-core/playwright";
 import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
 import { advanceAndCountOpaque, advanceAndCountOutside, advanceAndHash, advanceFrames } from "./frame-readback";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { presets } from "../packages/core/ts/src/material";
 import {
@@ -30,6 +30,7 @@ import {
 import { NORTH_STAR_PATH, reformBudgetMs } from "./north-star";
 import { SWIFTSHADER_RUNS_LIQUID, VIEWPORT } from "./projects";
 import { VISUAL_ENABLED, VISUAL_SKIP_REASON, canvasPixelAt, cssAlpha } from "./scene";
+import { ACCEPTANCE_FILL, FILL_MIN, scrollPath, scrollPathFills, worstFrame } from "./scroll";
 
 const FPS = 60;
 const IDLE_FRAMES = 2 * FPS;
@@ -1157,5 +1158,81 @@ test.describe("W79 – labels never overlap (webgpu)", () => {
     console.log(`W79 step 5 (webgpu): every restAlpha 1 after ${total} frames`);
     expect(total, "re-form within 3 s").toBeGreaterThan(0);
     await page.screenshot({ path: testInfo.outputPath("w79-webgpu-merge-reformed.png") });
+  });
+});
+
+// =============================================================================
+// W80 (slice 6) – scroll follows in WebGPU (D80-1 … D80-4), webgpu-hw only.
+// =============================================================================
+const W80_HW_ONLY = "W80: WebGPU on the hardware adapter; local webgpu-hw project only (fallback B)";
+const W80_BUDGET_FRAMES = Math.round((reformBudgetMs(W77_NORTH_STAR, 7) / 1000) * FPS);
+/** The card's colour (demo/scenes/acceptance.html), for the D80-4 edge probe. */
+const W80_CARD_RGB: readonly [number, number, number] = [0x26, 0x32, 0x38];
+
+test.describe("W80 – scroll follows (webgpu)", () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== HW_PROJECT, W80_HW_ONLY);
+  });
+
+  test("W80 step 7 – given renderer webgpu and a scroll of 300 px down and back at 10 px per frame when ticking then every element's liquid fills its DOM shape in every frame, every restAlpha is 1 within the step-7 budget and no element keeps liquid-text", async ({ page }, testInfo) => {
+    await openAtRest(page);
+    const frames = await scrollPathFills(page, ACCEPTANCE_FILL, scrollPath(300, 10));
+    const worst = worstFrame(frames);
+    console.log(`W80 step 7 (webgpu): ${frames.length} frames, lowest fill ${worst.min.toFixed(3)} (${worst.worst} at scroll ${worst.scroll}), bound ${FILL_MIN}`);
+    expect(Math.max(...frames.map((f) => f.scroll))).toBe(300);
+    expect(worst.min, `no snap (${worst.worst} at scroll ${worst.scroll})`).toBeGreaterThanOrEqual(FILL_MIN);
+    const rest = await framesUntilAllRest(page, W80_BUDGET_FRAMES);
+    console.log(`W80 step 7 (webgpu): every restAlpha 1 after ${rest} frames (budget ${W80_BUDGET_FRAMES})`);
+    expect(rest).toBeGreaterThan(0);
+    const textOn = await page.evaluate(() => Array.from(document.querySelectorAll("[data-liquid]")).filter((e) => e.classList.contains("liquid-text")).length);
+    expect(textOn, "at rest the DOM text is shown (D74-6)").toBe(0);
+    await page.screenshot({ path: testInfo.outputPath("w80-webgpu-scrolled-back.png") });
+  });
+
+  test("W80 D80-4 – given renderer webgpu on the RAF clock when the page is wheel-scrolled 300 px and back then the offset of the canvas card edge from the DOM card edge per screenshot is logged (never gated)", async ({ page }, testInfo) => {
+    await page.goto("/scenes/acceptance.html?seed=1&renderer=webgpu&test=1");
+    await page.waitForFunction(() => window.__liquidTest !== undefined, undefined, { timeout: 15_000 });
+    await page.evaluate(() => window.__liquidTest!.ready);
+    await page.waitForTimeout(2500); // the RAF clock settles every element at rest
+    const cardX = await page.evaluate(() => {
+      const r = document.querySelector("#card")!.getBoundingClientRect();
+      return Math.round(r.left + r.width / 2);
+    });
+    const domTop = (): Promise<number> => page.evaluate(() => document.querySelector("#card")!.getBoundingClientRect().top);
+    const samples: Array<{ offset: number; uncertainty: number }> = [];
+    await page.mouse.move(cardX, 700);
+    for (const dy of [100, 100, 100, -100, -100, -100]) {
+      await page.mouse.wheel(0, dy);
+      for (let k = 0; k < 4; k++) {
+        const before = await domTop();
+        const png = await page.screenshot();
+        const after = await domTop();
+        const edge = await page.evaluate(
+          async ([b64, x, [cr, cg, cb]]) => {
+            const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+            const bmp = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+            const c = new OffscreenCanvas(bmp.width, bmp.height);
+            const ctx = c.getContext("2d")!;
+            ctx.drawImage(bmp, 0, 0);
+            const d = ctx.getImageData(x, 0, 1, bmp.height).data;
+            for (let y = 0; y < bmp.height; y++) {
+              const o = y * 4;
+              if (Math.abs(d[o] - cr) + Math.abs(d[o + 1] - cg) + Math.abs(d[o + 2] - cb) < 60) return y;
+            }
+            return Number.NaN;
+          },
+          [png.toString("base64"), cardX, W80_CARD_RGB] as const,
+        );
+        if (Number.isFinite(edge)) samples.push({ offset: edge - (before + after) / 2, uncertainty: Math.abs(after - before) / 2 });
+      }
+      await page.waitForTimeout(300);
+    }
+    const worst = samples.reduce((m, s) => Math.max(m, Math.abs(s.offset) - s.uncertainty), 0);
+    const report = { metric: "D80-4: canvas card top edge minus DOM card top per screenshot during a wheel scroll (px), webgpu-hw; logged, never gated", samples, worstBeyondUncertaintyPx: worst };
+    const out = testInfo.outputPath("w80-lag-webgpu.json");
+    writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
+    await testInfo.attach("w80-lag-webgpu.json", { path: out, contentType: "application/json" });
+    console.log(`W80 D80-4 (webgpu): ${samples.length} samples, worst |offset| beyond the timing uncertainty ${worst.toFixed(1)} px`);
+    expect(samples.length, "the probe saw the card").toBeGreaterThan(0);
   });
 });

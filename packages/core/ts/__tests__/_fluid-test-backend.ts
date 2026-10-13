@@ -211,6 +211,10 @@ export function createTestBackend(opts: TestBackendOptions = {}): TestBackend {
       this.reducedMotion = on;
       record(`set_reduced_motion:${on}`);
     }
+    /** W80: recorded only; every tick pins the particles to the rects anyway. */
+    scroll_shift(dx: number, dy: number, ivx: number, ivy: number): void {
+      record(`scroll_shift:${dx}:${dy}:${ivx}:${ivy}`);
+    }
     free(): void {
       this.freed = true;
       record("free");

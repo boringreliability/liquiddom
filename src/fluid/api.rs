@@ -17,6 +17,7 @@ use super::material::{DEFAULT_MATERIAL, Material};
 use super::particles::Particles;
 use super::pool::{self, PoolScratch};
 use super::rng::Rng;
+use super::scroll::{self, ScrollShift};
 use super::solver::{self, PointerField, PointerGrid, Scratch, StepInput, SubstepOpts};
 use super::views::Views;
 
@@ -354,6 +355,12 @@ impl FluidCore {
 
     pub fn set_reduced_motion(&mut self, on: bool) {
         self.settings.reduced_motion = on;
+    }
+
+    /// W80.1 (red) stub: W80.2 shifts the particles and previous home rects (D80-1).
+    pub fn scroll_shift(&mut self, dx: f32, dy: f32, ivx: f32, ivy: f32) {
+        let _ = ScrollShift::sanitized(dx, dy, ivx, ivy, self.settings.reduced_motion);
+        let _ = scroll::shifts_with_scroll;
     }
 }
 
@@ -725,6 +732,11 @@ impl FluidCore {
 
     pub(crate) fn stiffness_of(&self, id: usize) -> f32 {
         self.elements.stiffness[id]
+    }
+
+    /// W80: element `id`'s home velocity (px/s) as the last simulating tick computed it.
+    pub(crate) fn home_velocity_of(&self, id: usize) -> (f32, f32) {
+        (self.elements.vel_x[id], self.elements.vel_y[id])
     }
 
     pub(crate) fn material_params(&self) -> super::material::MaterialParams {

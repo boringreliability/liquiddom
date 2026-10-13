@@ -26,6 +26,7 @@ pub mod particles;
 pub mod pool;
 pub mod rng;
 pub mod sampling;
+pub mod scroll;
 pub mod solver;
 pub mod views;
 
@@ -37,5 +38,7 @@ mod merge_tests;
 mod pointer_hover_tests;
 #[cfg(test)]
 mod scenario_tests;
+#[cfg(test)]
+mod scroll_tests;
 
 pub use api::FluidCore;

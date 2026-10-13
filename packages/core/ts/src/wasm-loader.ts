@@ -35,6 +35,8 @@ export interface FluidCoreLike {
   set_material(viscosity: number, cohesion: number, recovery: number): void;
   redistribute(): void;
   set_reduced_motion(on: boolean): void;
+  /** W80 (D80-1): the scroll since the last frame (px) and its inertia (px/s); before `tick`. */
+  scroll_shift(dx: number, dy: number, ivx: number, ivy: number): void;
   free(): void;
 }
 

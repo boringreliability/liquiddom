@@ -152,4 +152,27 @@ describe("W64 FluidCore FFI (real wasm)", () => {
     }
     expect(off).toBe(0);
   });
+
+  // W80 (D80-1): the scalar call through the real WASM export.
+  it("given_the_real_core_when_scroll_shift_runs_before_a_zero_step_tick_then_every_homed_particle_moves_by_minus_the_delta_in_the_dynamic_view", () => {
+    const { core, bridge } = acceptance();
+    core.redistribute();
+    bridge.syncGeneration();
+    expect(core.tick(1 / 60, 0, 0, 0, 0, false, 0, 0)).toBe(1);
+    const st = bridge.staticView();
+    const before = bridge.dynamicView().slice();
+    const v = bridge.elementView();
+    for (let id = 0; id < 4; id++) v[id * ELEMENT_STRIDE + El.Y] -= 30; // the page scrolled 30 px down
+    core.scroll_shift(0, 30, 0, 0);
+    expect(core.tick(0.001, 0, 0, 0, 0, false, 0, 0), "a 0-step tick only writes the dynamic view").toBe(0);
+    const d = bridge.dynamicView();
+    let worst = 0;
+    for (let i = 0; i < N; i++) {
+      if (!(st[Stat.HOME * N + i] >= 0)) continue;
+      worst = Math.max(worst, Math.abs(d[Dyn.X * N + i] - before[Dyn.X * N + i]), Math.abs(d[Dyn.Y * N + i] - (before[Dyn.Y * N + i] - 30)));
+    }
+    expect(worst, "every homed particle moved by (0, −30) px").toBeLessThan(0.01);
+    const s = bridge.stateView();
+    for (let id = 0; id < 4; id++) expect(s[id * STATE_STRIDE + St.REST_ALPHA], `element ${id} still at rest`).toBe(1);
+  });
 });

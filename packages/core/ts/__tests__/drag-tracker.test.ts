@@ -336,3 +336,49 @@ describe("W78: DragTracker (D78-2, D78-6)", () => {
     expect(ends).toEqual([]);
   });
 });
+
+describe("W80: a scroll during a press (D80-1)", () => {
+  // 15
+  it("given_an_active_drag_when_the_page_scrolls_40_px_then_the_offset_grows_by_40_and_later_moves_keep_it", () => {
+    const el = observed();
+    tracker.attach(el);
+    down(el, 100, 50);
+    move(100, 60);
+    expect(tracker.active).toMatchObject({ el, dx: 0, dy: 10 });
+    tracker.scrolled(0, 40);
+    expect(tracker.active, "the element moved up 40 px under a still pointer").toMatchObject({ el, dx: 0, dy: 50 });
+    move(110, 60);
+    expect(tracker.active, "pointer offset + scroll").toMatchObject({ el, dx: 10, dy: 50 });
+    tracker.scrolled(Number.NaN, 5);
+    expect(tracker.active, "a non-finite delta is ignored").toMatchObject({ dx: 10, dy: 50 });
+  });
+
+  // 16
+  it("given_a_press_below_the_threshold_when_the_page_scrolls_40_px_then_no_drag_starts_and_the_drag_that_starts_later_includes_the_scroll", () => {
+    const el = observed();
+    tracker.attach(el);
+    down(el, 100, 50);
+    move(101, 51);
+    tracker.scrolled(0, 40);
+    expect(tracker.active, "W80 RF1: a scroll alone never starts a drag").toBeNull();
+    expect(el.capture.set).not.toHaveBeenCalled();
+    move(106, 51); // 6.1 px of pointer motion: the drag starts
+    expect(tracker.active).toMatchObject({ el, dx: 6, dy: 41 });
+    up(el, 106, 51);
+    expect(ends).toEqual([[el, "release"]]);
+    down(el, 0, 0, { pointerId: 3 });
+    move(0, 10, { pointerId: 3 });
+    expect(tracker.active, "a new press starts without the old scroll").toMatchObject({ dx: 0, dy: 10 });
+  });
+
+  // 17
+  it("given_no_press_when_the_page_scrolls_then_nothing_changes", () => {
+    const el = observed();
+    tracker.attach(el);
+    tracker.scrolled(0, 40);
+    expect(tracker.active).toBeNull();
+    down(el, 0, 0);
+    move(0, 10);
+    expect(tracker.active).toMatchObject({ dx: 0, dy: 10 });
+  });
+});

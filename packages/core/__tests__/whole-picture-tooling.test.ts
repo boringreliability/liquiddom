@@ -122,6 +122,15 @@ describe("W69: e2e/north-star.ts (re-form budgets from the canonical scene)", ()
     expect(reformBudgetMs(northStar, 6)).toBe(3_000);
     expect(reformBudgetMs(spec, 6)).toBe(3_000);
   });
+
+  it("given_north_star_scene_step_7_when_parsed_then_its_scroll_budget_is_d80_3_and_spec_section_6_agrees_W80", () => {
+    const northStar = readFileSync(resolve(ROOT, ".wdd/NORTH-STAR.md"), "utf8");
+    const spec = readFileSync(resolve(ROOT, "docs/superpowers/specs/2026-10-02-liquiddom-fluid-design.md"), "utf8");
+    const scroll = reformBudgetMs(northStar, 7);
+    // D80-3 (W80.0 gate): the step-7 budget; the e2e reads it (acceptance.spec.ts, scroll.spec.ts, webgpu-robust.spec.ts).
+    expect(scroll, "NORTH-STAR step 7 budget (D80-3)").toBe(3_000);
+    expect(reformBudgetMs(spec, 7), "spec §6 step 7 agrees with NORTH-STAR").toBe(scroll);
+  });
 });
 
 describe("W70: e2e/record.spec.ts records step 8 (D70-6)", () => {

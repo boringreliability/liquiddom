@@ -214,3 +214,20 @@ export interface WebGpuModesHook {
   /** Pixels with alpha > 128 inside element `id`'s rect, read from instance `i`'s last snapshot. */
   opaqueIn(i: number, id: string): number;
 }
+
+/**
+ * W80 (D80-1): `window.__scrollContainer` on demo/scenes/scroll-container.html (manual clock). One
+ * instance in container mode on #box (a positioned `overflow: auto` container inside a page that
+ * scrolls as well) observing #c1 (pill) and #c2 (card); `?renderer=canvas2d|webgpu|auto`.
+ */
+export interface ScrollContainerHook {
+  readonly ready: Promise<void>;
+  /** Manual-clock frames of 1000/60 ms; snapshots the canvas when a frame rendered (W71 pixels() rule). */
+  advance(frames: number): void;
+  /** RGBA8 copy of the container's liquid canvas from the last advance() that rendered. */
+  pixels(): ImageData;
+  /** restAlpha of #c1, #c2 (NaN if unknown). */
+  restAlpha(): number[];
+  /** The canvas's inline `transform` (W80: `translate(…)` while the container is scrolled, else ""). */
+  canvasTransform(): string;
+}

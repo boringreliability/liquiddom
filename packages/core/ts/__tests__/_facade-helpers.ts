@@ -25,7 +25,7 @@ export function freshBackend(): FluidBackend {
   return createTestBackend();
 }
 
-const SPIED = ["tick", "free", "set_reduced_motion", "set_material", "redistribute", "splash", "shake"] as const;
+const SPIED = ["tick", "free", "set_reduced_motion", "set_material", "redistribute", "splash", "shake", "scroll_shift"] as const;
 export type SpiedMethod = (typeof SPIED)[number];
 export type TickArgs = Parameters<FluidCoreLike["tick"]>;
 export interface CoreCall {
