@@ -706,8 +706,12 @@ function buildRuntime(
       // W80 (D80-1): the scroll since the last frame; a scrolled container keeps the canvas on its window.
       const sc = scrollTracker.sample(dtS, frameOffset, reducedMotion);
       scrollTracker.placeCanvas(canvas);
-      // W80: a live press keeps the dragged liquid under the pointer (slots 6-7 grow by the scroll).
-      if (sc.dragDx !== 0 || sc.dragDy !== 0) dragTracker.scrolled(sc.dragDx, sc.dragDy);
+      // W80: a live press keeps the dragged liquid under the pointer (slots 6-7 grow by the scroll),
+      // only when its element moved with the scroll (ward review I1: a fixed or stuck sticky one did not).
+      if (sc.dragDx !== 0 || sc.dragDy !== 0) {
+        const pressed = dragTracker.pressed;
+        if (pressed !== null && registry.movedWithScroll(pressed, sc.dx, sc.dy)) dragTracker.scrolled(sc.dragDx, sc.dragDy);
+      }
       dragTracker.frame(); // W78: a pressed element that left the document cancels
       registry.sync();
       // W80 (D80-1): after this frame's rects, before the tick; only when something scrolled.

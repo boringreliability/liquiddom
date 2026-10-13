@@ -141,6 +141,7 @@ describe("W80 runtime: scroll follows (D80-1, D80-2)", () => {
     clock.advance(1);
     expect(slots(rt, id)).toEqual([Interaction.DRAGGED, 0, -30]);
     setScroll(0, 40);
+    mockRect(el, 734, 220, 140, 48); // jsdom does not scroll: the rect moves with the page (ward review I1)
     clock.advance(1);
     expect(slots(rt, id), "the dragged liquid stays under the pointer (D80-1)").toEqual([Interaction.DRAGGED, 0, 10]);
     el.dispatchEvent(new PointerEvent("pointerup", { ...PTR, button: 0, buttons: 0, clientX: 804, clientY: 254 }));
@@ -272,5 +273,53 @@ describe("W80 runtime: scroll follows (D80-1, D80-2)", () => {
     document.body.appendChild(box);
     clock.advance(1);
     expect(shifts(order), "reattached at 90: Δ 0 from the last good position").toEqual([]);
+  });
+  // 57 (W80 ward review I1)
+  it("given_a_mouse_drag_on_a_fixed_element_when_the_page_scrolls_40_px_then_its_offset_keeps_the_pointer_delta_and_a_press_below_the_threshold_gains_nothing", async () => {
+    const { rt, clock } = await start();
+    const el = button(); // position: fixed: its rect stays at (734, 260) while the page scrolls
+    const id = rt.observe(el);
+    await flush();
+    clock.advance(1);
+    el.dispatchEvent(new PointerEvent("pointerdown", { ...PTR, button: 0, buttons: 1, clientX: 804, clientY: 284 }));
+    clock.advance(1);
+    setScroll(0, 40);
+    clock.advance(1);
+    el.dispatchEvent(new PointerEvent("pointermove", { ...PTR, button: -1, buttons: 1, clientX: 804, clientY: 254 }));
+    clock.advance(1);
+    expect(slots(rt, id), "the scroll during the press below the threshold did not move the fixed element").toEqual([Interaction.DRAGGED, 0, -30]);
+    setScroll(0, 80);
+    clock.advance(1);
+    expect(slots(rt, id), "a fixed element's dragged liquid stays under the pointer: the offset is the pointer delta only").toEqual([Interaction.DRAGGED, 0, -30]);
+    // It unsticks (sticky): the rect moves with the next scroll again, so the offset follows it.
+    setScroll(0, 100);
+    mockRect(el, 734, 240, 140, 48);
+    clock.advance(1);
+    expect(slots(rt, id), "moving with the page again: the offset grows by the scroll").toEqual([Interaction.DRAGGED, 0, -10]);
+  });
+
+  // 58 (W80 ward review I1)
+  it("given_container_mode_and_a_mouse_drag_when_the_page_around_the_container_scrolls_then_the_offset_still_grows_by_the_page_scroll", async () => {
+    const box = document.createElement("div");
+    box.style.position = "relative";
+    document.body.appendChild(box);
+    let top = 100;
+    box.getBoundingClientRect = () => ({ x: 0, y: top, width: 800, height: 600, top, left: 0, right: 800, bottom: top + 600, toJSON: () => ({}) }) as DOMRect;
+    const { rt, clock } = await start({ container: box });
+    const el = button(box);
+    let elTop = 360;
+    el.getBoundingClientRect = () => ({ x: 734, y: elTop, width: 140, height: 48, top: elTop, left: 734, right: 874, bottom: elTop + 48, toJSON: () => ({}) }) as DOMRect;
+    const id = rt.observe(el);
+    await flush();
+    clock.advance(1);
+    el.dispatchEvent(new PointerEvent("pointerdown", { ...PTR, button: 0, buttons: 1, clientX: 804, clientY: 384 }));
+    el.dispatchEvent(new PointerEvent("pointermove", { ...PTR, button: -1, buttons: 1, clientX: 804, clientY: 354 }));
+    clock.advance(1);
+    expect(slots(rt, id)).toEqual([Interaction.DRAGGED, 0, -30]);
+    // The page scrolls 25 px: the container and its content move up together (no container scroll).
+    top -= 25;
+    elTop -= 25;
+    clock.advance(1);
+    expect(slots(rt, id), "dragDy = 0 − Δoffset = +25 (W80 RF3), unchanged by the I1 gate").toEqual([Interaction.DRAGGED, 0, -5]);
   });
 });

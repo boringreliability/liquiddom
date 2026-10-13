@@ -4,6 +4,7 @@ import type { ActiveDrag } from "./drag-tracker";
 import type { FluidBridge } from "./fluid-bridge";
 import { ELEMENT_STRIDE, El, Interaction, roundedRectArea } from "./fluid-layout";
 import type { ElementOptions } from "./options";
+import { movedWithScroll } from "./scroll-tracker";
 import {
   ELEMENT_CLASS,
   acquireHaloRule,
@@ -271,6 +272,22 @@ export class ElementRegistry {
       v[o + El.HOME_DX] = dragged ? drag.dx : 0;
       v[o + El.HOME_DY] = dragged ? drag.dy : 0;
     }
+  }
+
+  /**
+   * W80 ward review I1: whether the observed `el` moved with this frame's scroll `(dx, dy)` since the
+   * last `sync()` (`movedWithScroll` on its buffer-space rect against the one that sync wrote). Call
+   * it within the frame, before `sync()`: it reads the one element's rect, which `sync()` reads again
+   * with no style write in between (one layout per frame). Not observed: false.
+   */
+  movedWithScroll(el: HTMLElement, dx: number, dy: number): boolean {
+    const rec = this.byEl.get(el);
+    if (!rec) return false;
+    const v = this.bridge.elementView();
+    const o = rec.id * ELEMENT_STRIDE;
+    const off = this.deps.coordOffset();
+    const r = el.getBoundingClientRect();
+    return movedWithScroll(r.left - off.x - v[o + El.X], r.top - off.y - v[o + El.Y], dx, dy);
   }
 
   /** Σ rounded-rect area of the observed elements (the density-budget warning). */

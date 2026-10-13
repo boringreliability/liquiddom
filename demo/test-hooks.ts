@@ -218,7 +218,9 @@ export interface WebGpuModesHook {
 /**
  * W80 (D80-1): `window.__scrollContainer` on demo/scenes/scroll-container.html (manual clock). One
  * instance in container mode on #box (a positioned `overflow: auto` container inside a page that
- * scrolls as well) observing #c1 (pill) and #c2 (card); `?renderer=canvas2d|webgpu|auto`.
+ * scrolls as well) observing #c1 (pill) and #c2 (card); `?renderer=canvas2d|webgpu|auto`. The same
+ * hook on demo/scenes/scroll-fixed.html (W80 ward review I1): body mode, a `position: fixed` pill #fx,
+ * a `position: sticky` pill #st and a normal card #nm.
  */
 export interface ScrollContainerHook {
   readonly ready: Promise<void>;
@@ -226,7 +228,7 @@ export interface ScrollContainerHook {
   advance(frames: number): void;
   /** RGBA8 copy of the container's liquid canvas from the last advance() that rendered. */
   pixels(): ImageData;
-  /** restAlpha of #c1, #c2 (NaN if unknown). */
+  /** restAlpha of the scene's observed elements in document order: #c1, #c2 (container scene) or #fx, #st, #nm (fixed scene; NaN if unknown). */
   restAlpha(): number[];
   /** The canvas's inline `transform` (W80: `translate(…)` while the container is scrolled, else ""). */
   canvasTransform(): string;

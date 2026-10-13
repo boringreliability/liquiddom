@@ -7,7 +7,7 @@
  * a container's canvas on its visible window. jsdom does not scroll, so the tests set the positions.
  */
 import { describe, expect, it } from "vitest";
-import { SCROLL_INERTIA, SCROLL_INERTIA_MAX_PX_S, ScrollTracker } from "../src/scroll-tracker";
+import { SCROLL_INERTIA, SCROLL_INERTIA_MAX_PX_S, ScrollTracker, movedWithScroll } from "../src/scroll-tracker";
 
 const DT = 1 / 60;
 const ZERO = { x: 0, y: 0 } as const;
@@ -210,5 +210,16 @@ describe("W80: ScrollTracker (D80-1, D80-2)", () => {
     const canvas = document.createElement("canvas");
     t.placeCanvas(canvas);
     expect(canvas.getAttribute("style")).toBeNull();
+  });
+
+  // 59 (W80 ward review I1)
+  it("given_a_rect_change_and_a_scroll_when_movedWithScroll_then_a_rect_that_moved_by_at_least_half_the_scroll_against_it_follows_and_a_fixed_one_does_not", () => {
+    expect(movedWithScroll(0, -30, 0, 30), "moved with the page").toBe(true);
+    expect(movedWithScroll(0, 0, 0, 30), "position: fixed").toBe(false);
+    expect(movedWithScroll(0, -5, 0, 15), "stuck after 5 of 15 px: the nearer reading is \"did not move\"").toBe(false);
+    expect(movedWithScroll(0, -8, 0, 15), "8 of 15 px: followed").toBe(true);
+    expect(movedWithScroll(0.3, -24.6, 4, 25), "sub-px rounding and a small cross-axis scroll still follow").toBe(true);
+    expect(movedWithScroll(0, 0, 0, 0), "no scroll: a tie follows").toBe(true);
+    expect(movedWithScroll(Number.NaN, 0, 0, 30), "NaN reads as not moved").toBe(false);
   });
 });

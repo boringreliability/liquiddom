@@ -1,8 +1,11 @@
 /**
- * W80 (D80-1): container-mode scroll scene for e2e/scroll.spec.ts. One instance in container mode
- * on #box (an `overflow: auto`, positioned container inside a page that scrolls as well), observing
- * #c1 (a pill) and #c2 (a card); manual render-counting clock; `?renderer=canvas2d|webgpu|auto`
- * (default canvas2d). `window.__scrollContainer` (demo/test-hooks.ts ScrollContainerHook).
+ * W80 (D80-1): the scroll scenes for e2e/scroll.spec.ts. scroll-container.html: one instance in
+ * container mode on #box (an `overflow: auto`, positioned container inside a page that scrolls as
+ * well), observing #c1 (a pill) and #c2 (a card). scroll-fixed.html (W80 ward review I1): no #box,
+ * so body mode, observing a `position: fixed` pill, a `position: sticky` pill and a normal card.
+ * Every `[data-liquid]` element with an id is observed, in document order. Manual render-counting
+ * clock; `?renderer=canvas2d|webgpu|auto` (default canvas2d). `window.__scrollContainer`
+ * (demo/test-hooks.ts ScrollContainerHook).
  */
 import { LiquidDOM, type LiquidDOMInstance } from "liquiddom";
 import { createManualClock } from "../../packages/core/ts/src/clock";
@@ -17,7 +20,7 @@ if (rendererRaw !== "canvas2d" && rendererRaw !== "webgpu" && rendererRaw !== "a
 }
 const renderer: "canvas2d" | "webgpu" | "auto" = rendererRaw;
 const clock = createRenderCountingClock(createManualClock(0));
-const IDS = ["c1", "c2"] as const;
+const IDS = Array.from(document.querySelectorAll<HTMLElement>("[data-liquid][id]"), (el) => el.id);
 let instance: LiquidDOMInstance | null = null;
 let snapshot: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null = null;
 
@@ -54,7 +57,7 @@ async function start(): Promise<void> {
     maxElements: 4,
     clock,
     renderer,
-    container: byId("box"),
+    container: document.getElementById("box") ?? undefined,
     autoObserve: false,
   });
   for (const id of IDS) instance.observe(byId(id));

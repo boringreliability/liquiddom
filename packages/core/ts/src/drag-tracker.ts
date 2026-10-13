@@ -96,6 +96,11 @@ export class DragTracker {
     return p !== null && p.dragging ? p : null;
   }
 
+  /** W80 ward review I1: the element of the live press (below the threshold or dragging), or null. */
+  get pressed(): HTMLElement | null {
+    return this.press?.el ?? null;
+  }
+
   /** Once per frame, before registry.sync(): a pressed element that left the document cancels. */
   frame(): void {
     if (this.press !== null && !this.press.el.isConnected) this.end("cancel");

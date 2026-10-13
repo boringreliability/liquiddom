@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>liquiddom: scroll fixed scene</title>
+    <style>
+      /* W80 ward review I1: fixed and sticky observed elements on a page that scrolls (body mode). */
+      body { margin: 0; background: #f3efe6; color: #1d1d1f; font: 16px/1.4 system-ui, sans-serif; }
+      .page { position: relative; height: 2000px; }
+      .el { display: block; box-sizing: border-box; border: 0; color: #ffffff; font: 600 16px/64px system-ui, sans-serif; text-align: center; }
+      /* Never moves with the page. */
+      #fx { position: fixed; left: 80px; top: 40px; width: 200px; height: 64px; border-radius: 32px; background: #2f6fde; }
+      /* Follows the page until its top reaches 60 px (scroll 140), then stays. */
+      #st { position: sticky; top: 60px; margin: 200px 0 0 400px; width: 200px; height: 64px; border-radius: 32px; background: #ca4b20; }
+      /* Always moves with the page. */
+      #nm { position: absolute; left: 720px; top: 320px; width: 320px; height: 160px; border-radius: 16px; background: #263238; line-height: 160px; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <button id="fx" class="el" type="button" data-liquid>Fixed</button>
+      <button id="st" class="el" type="button" data-liquid>Sticky</button>
+      <div id="nm" class="el" data-liquid>Card</div>
+    </div>
+    <script type="module" src="./scroll-container.ts"></script>
+  </body>
+</html>

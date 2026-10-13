@@ -12,6 +12,12 @@
 //! A dragged element is skipped: its home is pinned to the pointer (TS adds the scroll delta to
 //! its drag offset in the same frame), so its liquid stays where it is in the viewport. W81 adds
 //! parked elements to the skip (`shifts_with_scroll`).
+//!
+//! W80 ward review I1: "moves with the page" is read from the rects, not assumed. An element
+//! whose DOM rect did not move with the scroll (`position: fixed`, a stuck `position: sticky`,
+//! an element inside a fixed ancestor) is not shifted either (`moved_with_scroll`): its liquid
+//! stays put in px like a dragged one's and its previous rect stays, so the home velocity sees
+//! what the rect really did. No FFI change: TS has written this frame's rects before the call.
 
 use super::access::{add, finite_or, rd, wr};
 use super::elements::Elements;
@@ -87,14 +93,54 @@ pub fn shifts_with_scroll(e: &Elements, id: usize) -> bool {
     !e.is_dragged(id)
 }
 
+/// W80 ward review I1: whether element `id`'s DOM rect moved with this shift. `m` is the rect's
+/// change since the last velocity sample (`prev`, which earlier shifts since that sample already
+/// moved for an element that followed them, so `m` is this call's change alone). The element
+/// follows when `m` is at least as close to the scroll's `(−dx, −dy)` as to no motion:
+/// `|m + d|² ≤ |m|²`, i.e. its rect moved by at least half the scroll against it. The tolerance is
+/// the midpoint between the two hypotheses, so it scales with the scroll: an element that did
+/// a bit of both (a sticky element that sticks mid-frame, or one with its own CSS motion during
+/// the scroll) gets the reading that leaves the smaller residual for the home velocity (at most
+/// `|d|/2` px), and sub-px rect rounding cannot flip a scroll of a few px. Ties (`d = 0`) follow.
+/// Without a previous sample (an element observed since the last simulating tick: its particles
+/// were placed at the rect written before this frame's scroll) or without an active rect it
+/// follows, as before the review. NaN in the rect reads as not moved.
+pub fn moved_with_scroll(e: &Elements, id: usize, s: &ScrollShift) -> bool {
+    let Some(r) = e.rect(id) else {
+        return true;
+    };
+    if !e.has_prev.get(id).copied().unwrap_or(false) {
+        return true;
+    }
+    let (mx, my) = (r.x - rd(&e.prev_x, id), r.y - rd(&e.prev_y, id));
+    let (fx, fy) = (mx + s.dx_px, my + s.dy_px);
+    fx * fx + fy * fy <= mx * mx + my * my
+}
+
+/// Whether element `id`'s particles and previous home rect move with shift `s`: not skipped
+/// (`shifts_with_scroll`) and, unless under reduced motion, its rect moved with the scroll
+/// (`moved_with_scroll`). Under reduced motion every tick pins each particle to its target, so
+/// the reading would change nothing visible; it is skipped there.
+fn follows_scroll(e: &Elements, id: usize, s: &ScrollShift, reduced_motion: bool) -> bool {
+    shifts_with_scroll(e, id) && (reduced_motion || moved_with_scroll(e, id, s))
+}
+
 /// Applies a sanitised shift. The grid's lattice origin moves by the sub-cell rest
-/// (`Grid::scroll_origin`) and every homed particle whose element `shifts_with_scroll` by the
-/// whole cells (clamped to the grid like every position write), so together they move by
-/// `(−dx, −dy)` px; those particles gain the inertia. The particles of a dragged element move by
-/// the rest in the other direction, so they stay put in px. Each shifted element's previous home
-/// rect moves with it. APIC C, J and F are translation-invariant and stay; the grid is cleared
-/// every substep; the caller invalidates the fused AABB (D68-10). No allocation, no panic.
-pub fn apply(p: &mut Particles, g: &mut Grid, e: &mut Elements, s: &ScrollShift) {
+/// (`Grid::scroll_origin`) and every homed particle whose element follows the scroll
+/// (`shifts_with_scroll` and `moved_with_scroll`) by the whole cells (clamped to the grid like
+/// every position write), so together they move by `(−dx, −dy)` px; those particles gain the
+/// inertia. The particles of a dragged element, or of one whose rect did not move with the page,
+/// move by the rest in the other direction, so they stay put in px. Each following element's
+/// previous home rect moves with it. APIC C, J and F are translation-invariant and stay; the grid
+/// is cleared every substep; the caller invalidates the fused AABB (D68-10). No allocation, no
+/// panic.
+pub fn apply(
+    p: &mut Particles,
+    g: &mut Grid,
+    e: &mut Elements,
+    s: &ScrollShift,
+    reduced_motion: bool,
+) {
     let moves = s.dx_px != 0.0 || s.dy_px != 0.0;
     let (kx, ky) = if moves {
         g.scroll_origin(s.dx_px, s.dy_px)
@@ -108,11 +154,21 @@ pub fn apply(p: &mut Particles, g: &mut Grid, e: &mut Elements, s: &ScrollShift)
     );
     let (gvx, gvy) = (s.ivx_px_s * g.inv_cell, s.ivy_px_s * g.inv_cell);
     let kicks = gvx != 0.0 || gvy != 0.0;
+    // The reading per element, cached for runs of particles of the same element. Every reading
+    // here precedes the `shift_prev` below, so all of them see the same previous rects.
+    let mut last: Option<(usize, bool)> = None;
     for i in 0..p.cap {
         let Some(h) = p.home_of(i) else {
             continue;
         };
-        let follows = shifts_with_scroll(e, h);
+        let follows = match last {
+            Some((id, f)) if id == h => f,
+            _ => {
+                let f = follows_scroll(e, h, s, reduced_motion);
+                last = Some((h, f));
+                f
+            }
+        };
         if moves {
             let (sx, sy) = if follows { (-kx, -ky) } else { (rx, ry) };
             let (x, y) = g.clamp_pos(rd(&p.x, i) + sx, rd(&p.y, i) + sy);
@@ -126,7 +182,8 @@ pub fn apply(p: &mut Particles, g: &mut Grid, e: &mut Elements, s: &ScrollShift)
     }
     if moves {
         for id in 0..e.cap {
-            if shifts_with_scroll(e, id) {
+            // Reads only this id's own previous rect, which no earlier iteration changed.
+            if follows_scroll(e, id, s, reduced_motion) {
                 e.shift_prev(id, -s.dx_px, -s.dy_px);
             }
         }

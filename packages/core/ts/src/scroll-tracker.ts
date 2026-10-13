@@ -20,7 +20,9 @@
  *
  * `dragDx/dragDy` is what a live press adds to its drag offset (`DragTracker.scrolled`) so the
  * dragged liquid stays under the pointer: the element moved by −Δ in buffer space, and in container
- * mode the pointer also moves by −Δoffset when the page around the container scrolls.
+ * mode the pointer also moves by −Δoffset when the page around the container scrolls. The runtime
+ * adds it only when the pressed element moved with the scroll (`movedWithScroll`; a fixed or stuck
+ * sticky element's press keeps its offset, W80 ward review I1).
  *
  * Container mode: the canvas is absolutely positioned at the container's padding-box origin, which
  * scrolls with the content; `placeCanvas()` keeps it on the container's visible window with a
@@ -37,6 +39,19 @@ export const SCROLL_INERTIA_MAX_PX_S = 30;
 const REFERENCE_FPS = 60;
 /** The core's own frame clamp (100 ms): a longer frame scales the inertia cap no further. */
 const MAX_FRAME_DT_S = 0.1;
+
+/**
+ * W80 ward review I1: whether an element whose rect changed by `(mx, my)` since its last reading
+ * moved with a scroll of `(dx, dy)`: `|m + d|² ≤ |m|²`, its rect moved by at least half the scroll
+ * against it (the midpoint between "moved with the page" and "did not move"; ties follow). A
+ * `position: fixed` element, or a `sticky` one while stuck, does not. The same rule as Rust's
+ * `scroll::moved_with_scroll`, which decides whether its liquid is shifted.
+ */
+export function movedWithScroll(mx: number, my: number, dx: number, dy: number): boolean {
+  const fx = mx + dx;
+  const fy = my + dy;
+  return fx * fx + fy * fy <= mx * mx + my * my;
+}
 
 /** One frame's scroll. Read it within the frame; the next `sample()` overwrites it. */
 export interface ScrollSample {

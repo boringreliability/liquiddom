@@ -3,7 +3,8 @@
  * puts a positioned `overflow: auto` container (#box) inside a page that scrolls as well; one
  * instance in container mode observes a pill (#c1) and a card (#c2). The container's own scroll
  * shifts its liquid and keeps the canvas on its visible window (a transform on the canvas only); a
- * page scroll around the container shifts nothing (W80 Review Focus 3).
+ * page scroll around the container shifts nothing (W80 Review Focus 3). demo/scenes/scroll-fixed.html
+ * (W80 ward review I1): a page scroll leaves a `position: fixed` element's liquid alone.
  */
 import type { Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
@@ -21,13 +22,20 @@ const CONTAINER_FILL: FillSpec = {
   colours: { "#c1": [0x2f, 0x6f, 0xde], "#c2": [0x26, 0x32, 0x38] },
 };
 const PAGE_FILL: FillSpec = { ...CONTAINER_FILL, scroller: null };
+/** W80 ward review I1: scroll-fixed.html, body mode; restAlpha() is [#fx, #st, #nm]. */
+const FIXED_FILL: FillSpec = {
+  hook: "__scrollContainer",
+  canvas: "canvas.liquid-canvas",
+  scroller: null,
+  colours: { "#fx": [0x2f, 0x6f, 0xde], "#st": [0xca, 0x4b, 0x20], "#nm": [0x26, 0x32, 0x38] },
+};
 
-async function openScene(page: Page): Promise<void> {
-  await page.goto("/scenes/scroll-container.html?renderer=canvas2d");
+async function openScene(page: Page, scene = "scroll-container", elements = 2): Promise<void> {
+  await page.goto(`/scenes/${scene}.html?renderer=canvas2d`);
   await page.waitForFunction(() => window.__scrollContainer !== undefined, undefined, { timeout: 15_000 });
   await page.evaluate(() => window.__scrollContainer!.ready);
   await page.evaluate(() => window.__scrollContainer!.advance(120));
-  expect(await page.evaluate(() => window.__scrollContainer!.restAlpha()), "at rest after 2 s").toEqual([1, 1]);
+  expect(await page.evaluate(() => window.__scrollContainer!.restAlpha()), "at rest after 2 s").toEqual(Array<number>(elements).fill(1));
 }
 
 async function framesUntilRest(page: Page, max: number): Promise<number> {
@@ -83,5 +91,30 @@ test.describe("W80 – container scroll (canvas2d)", () => {
     expect(frames.every((f) => f.rest.every((a) => a === 1)), "a page scroll never excites a container's liquid").toBe(true);
     expect(worst.min).toBeGreaterThanOrEqual(FILL_MIN);
     expect(await page.evaluate(() => window.__scrollContainer!.canvasTransform()), "the container did not scroll").toBe("");
+  });
+
+  test("step 7 (fixed) – given a position: fixed element when the page scrolls 300 px and back at 10 px per frame then its liquid never leaves rest, a sticky element switches without a snap and every visible DOM shape stays filled (W80 ward review I1)", async ({ page }) => {
+    await openScene(page, "scroll-fixed", 3);
+    const frames: Array<FillFrame & { rest: number[]; fx: number; st: number }> = [];
+    for (const y of scrollPath(300, 10)) {
+      const [f] = await scrollPathFills(page, FIXED_FILL, [y]);
+      const more = await page.evaluate(() => ({
+        rest: window.__scrollContainer!.restAlpha(),
+        fx: document.querySelector("#fx")!.getBoundingClientRect().top,
+        st: document.querySelector("#st")!.getBoundingClientRect().top,
+      }));
+      frames.push({ ...f, ...more });
+    }
+    const worst = worstFrame(frames);
+    const fixedRest = Math.min(...frames.map((f) => f.rest[0]));
+    console.log(`W80 I1 fixed/sticky (canvas2d): lowest fill ${worst.min.toFixed(3)} (${worst.worst} at scroll ${worst.scroll}), #fx restAlpha min ${fixedRest}`);
+    expect(Math.max(...frames.map((f) => f.scroll)), "the page scrolled 300 px").toBe(300);
+    expect(new Set(frames.map((f) => f.fx)), "precondition: #fx is fixed").toEqual(new Set([40]));
+    expect(frames.find((f) => f.scroll === 300)?.st, "precondition: #st is stuck at 60 px at scroll 300").toBe(60);
+    expect(frames.find((f) => f.scroll === 100)?.st, "precondition: #st follows the page at scroll 100").toBe(100);
+    expect(Math.min(...frames.map((f) => f.judged)), "#fx is judged in every frame").toBeGreaterThanOrEqual(1);
+    expect(fixedRest, "a page scroll never excites a fixed element's liquid").toBe(1);
+    expect(worst.min, `no snap (${worst.worst} at scroll ${worst.scroll})`).toBeGreaterThanOrEqual(FILL_MIN);
+    expect(await framesUntilRest(page, BUDGET_FRAMES), `re-form within ${BUDGET_FRAMES} frames`).toBeGreaterThan(0);
   });
 });

@@ -361,8 +361,10 @@ impl FluidCore {
     /// `(ivx, ivy)` px/s is the inertia TS derived from it (D80-2). Every particle and previous
     /// home rect of an element that moves with the page shifts by `(−dx, −dy)` (whole cells for
     /// the particles, the rest through the lattice origin), so the simulation is the unscrolled
-    /// one up to f32 rounding; the inertia is added to those particles' velocities. TS calls it
-    /// after writing this frame's rects and before `tick`. Sanitised (`ScrollShift::sanitized`);
+    /// one up to f32 rounding; the inertia is added to those particles' velocities. An element
+    /// moves with the page unless it is dragged or its rect did not move with the scroll
+    /// (`position: fixed` or stuck `sticky`; W80 ward review I1, `scroll::moved_with_scroll`).
+    /// TS calls it after writing this frame's rects and before `tick`. Sanitised (`ScrollShift::sanitized`);
     /// reduced motion drops the inertia (the pin still follows the rects). A zero shift is a
     /// no-op. The next `tick` writes the dynamic view.
     pub fn scroll_shift(&mut self, dx: f32, dy: f32, ivx: f32, ivy: f32) {
@@ -370,7 +372,13 @@ impl FluidCore {
         if s.is_none() {
             return;
         }
-        scroll::apply(&mut self.particles, &mut self.grid, &mut self.elements, &s);
+        scroll::apply(
+            &mut self.particles,
+            &mut self.grid,
+            &mut self.elements,
+            &s,
+            self.settings.reduced_motion,
+        );
         self.scratch.invalidate_bounds(); // D68-10: the shift moved particles
     }
 }

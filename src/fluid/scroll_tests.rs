@@ -414,6 +414,9 @@ fn given_a_shift_that_carries_particles_past_the_grid_when_scroll_shift_then_eve
  {
     let mut core = acceptance_core(SEED);
     frame(&mut core);
+    // W80 ward review I1: the rects move with the (clamped) scroll first, as TS writes them;
+    // an element whose rect stayed is not shifted.
+    write_scrolled(&mut core, WORLD_MAX_PX);
     core.scroll_shift(0.0, 1e30, 0.0, 0.0);
     let ids = homed(&core);
     let g = core.grid();
@@ -432,7 +435,6 @@ fn given_a_shift_that_carries_particles_past_the_grid_when_scroll_shift_then_eve
             "a shift of 8192 px (clamped from 1e30) puts every particle on the top wall: {y} vs {top}"
         );
     }
-    write_scrolled(&mut core, WORLD_MAX_PX);
     for _ in 0..3 {
         frame(&mut core);
     }
@@ -448,4 +450,226 @@ fn given_the_acceptance_area_hint_when_constructed_then_the_cell_is_not_a_whole_
     let cell = core.cell_px();
     assert!((cell - (4.0f32 * AREA_HINT_PX2 / 8000.0).sqrt()).abs() < 1e-4);
     assert!((STEP_PX / cell).fract() > 0.1 && (1.0 / cell).fract() > 0.1);
+}
+
+// ------------------------------------- W80 ward review I1: fixed and sticky elements (54–56)
+
+/// The card's restAlpha (the acceptance layout's slot 3).
+fn card_rest(core: &FluidCore) -> f32 {
+    core.state(CARD_ID)[super::layout::ST_REST_ALPHA]
+}
+
+/// One frame of a page scrolled from `from` to `to` px in which the card's rect is `card_y`
+/// (every other rect moves with the page): rects, shift, tick.
+fn scroll_frame_card_at(core: &mut FluidCore, from: f32, to: f32, card_y: f32, with_inertia: bool) {
+    write_scrolled(core, to);
+    let mut r = LAYOUT[CARD_ID];
+    r[1] = card_y;
+    core.write_element(CARD_ID, slot(r));
+    let d = to - from;
+    let iv = if with_inertia { inertia(d) } else { 0.0 };
+    core.scroll_shift(0.0, d, 0.0, iv);
+    frame(core);
+}
+
+#[test]
+fn given_a_fixed_element_when_the_page_scrolls_300_px_and_back_then_its_liquid_stays_put_with_home_velocity_0_and_rest_alpha_1_while_the_others_are_shifted()
+ {
+    let mut core = acceptance_core(SEED);
+    for _ in 0..5 {
+        frame(&mut core);
+    }
+    assert!(all_at_rest(&core), "precondition: at rest");
+    let card = core.particle_indices_of(CARD_ID as u32);
+    let split = core.particle_indices_of(1);
+    let card0: Vec<(f32, f32)> = card.iter().map(|&i| core.particle_px(i)).collect();
+    let split0: Vec<(f32, f32)> = split.iter().map(|&i| core.particle_px(i)).collect();
+    // The first frame, checked between the shift and the tick: the card (position: fixed, its
+    // rect never moves) is not shifted, Split (moves with the page) is.
+    write_scrolled(&mut core, STEP_PX);
+    core.write_element(CARD_ID, slot(LAYOUT[CARD_ID]));
+    core.scroll_shift(0.0, STEP_PX, 0.0, inertia(STEP_PX));
+    let card_moved = card
+        .iter()
+        .zip(&card0)
+        .map(|(&i, &(x0, y0))| {
+            let (x, y) = core.particle_px(i);
+            (x - x0).abs().max((y - y0).abs())
+        })
+        .fold(0.0f32, f32::max);
+    let split_err = split
+        .iter()
+        .zip(&split0)
+        .map(|(&i, &(x0, y0))| {
+            let (x, y) = core.particle_px(i);
+            (x - x0).abs().max((y - (y0 - STEP_PX)).abs())
+        })
+        .fold(0.0f32, f32::max);
+    assert!(
+        card_moved < ROUNDING_PX,
+        "the fixed card's liquid stays put in px ({card_moved} px)"
+    );
+    assert!(
+        split_err < ROUNDING_PX,
+        "Split's liquid moves with the page ({split_err} px)"
+    );
+    frame(&mut core);
+    let mut s = STEP_PX;
+    let mut worst_v = 0.0f32;
+    let mut worst_other_v = 0.0f32;
+    let mut min_rest = card_rest(&core);
+    for to in step7_path(STEP_PX).into_iter().skip(1) {
+        scroll_frame_card_at(&mut core, s, to, LAYOUT[CARD_ID][1], true);
+        s = to;
+        let (vx, vy) = core.home_velocity_of(CARD_ID);
+        worst_v = worst_v.max(vx.abs()).max(vy.abs());
+        for id in 0..CARD_ID {
+            let (ox, oy) = core.home_velocity_of(id);
+            worst_other_v = worst_other_v.max(ox.abs()).max(oy.abs());
+        }
+        min_rest = min_rest.min(card_rest(&core));
+    }
+    println!(
+        "W80 I1 fixed card at {STEP_PX} px/frame: worst card home velocity {worst_v} px/s, others {worst_other_v} px/s, card restAlpha min {min_rest}"
+    );
+    assert_eq!(
+        worst_v, 0.0,
+        "the fixed card's rect never moved: home velocity 0 in every frame"
+    );
+    assert!(
+        worst_other_v < 1e-3,
+        "the buttons moved with the page: no home velocity ({worst_other_v} px/s)"
+    );
+    assert_eq!(
+        min_rest, 1.0,
+        "the fixed card never leaves rest during the scroll"
+    );
+}
+
+#[test]
+fn given_a_sticky_element_that_sticks_and_unsticks_mid_scroll_when_the_page_scrolls_then_it_switches_between_following_and_staying_and_its_home_velocity_is_at_most_half_the_step()
+ {
+    // The card is `position: sticky; top: 240px`: it scrolls with the page until its top
+    // reaches 240 (scroll 100), then stays there, and follows again below scroll 100.
+    let stuck_at = |scroll: f32| (LAYOUT[CARD_ID][1] - scroll).max(240.0);
+    // 10 px per frame reaches 100 exactly; 15 px per frame sticks mid-frame (90 → 105). No
+    // inertia, so only the switch can un-rest the card.
+    for step in [STEP_PX, 15.0f32] {
+        let mut core = acceptance_core(SEED);
+        for _ in 0..5 {
+            frame(&mut core);
+        }
+        let mut s = 0.0;
+        let mut worst_v = 0.0f32;
+        let mut min_rest = 1.0f32;
+        let n = (210.0 / step).round() as usize;
+        let path: Vec<f32> = (1..=n)
+            .map(|k| k as f32 * step)
+            .chain((0..n).rev().map(|k| k as f32 * step))
+            .collect();
+        for to in path {
+            let (y_before, y_after) = (stuck_at(s), stuck_at(to));
+            scroll_frame_card_at(&mut core, s, to, y_after, false);
+            let (vx, vy) = core.home_velocity_of(CARD_ID);
+            // Velocity window = 1/60 s (one fixed step per frame).
+            let residual_px = vx.abs().max(vy.abs()) * DT;
+            worst_v = worst_v.max(residual_px);
+            let rect_moved = (y_after - y_before).abs();
+            let d = (to - s).abs();
+            if rect_moved == 0.0 || rect_moved == d {
+                assert!(
+                    residual_px < 1e-3,
+                    "{step} px/frame, scroll {s} → {to}: the card either stuck or followed, home velocity {vy} px/s"
+                );
+            }
+            s = to;
+            min_rest = min_rest.min(card_rest(&core));
+        }
+        println!(
+            "W80 I1 sticky card at {step} px/frame: worst home-velocity residual {worst_v} px per frame, card restAlpha min {min_rest}"
+        );
+        assert!(
+            worst_v <= 0.5 * step + 1e-3,
+            "{step} px/frame: a frame that sticks mid-way leaves at most half the step to the home velocity ({worst_v} px)"
+        );
+        if step == STEP_PX {
+            assert_eq!(min_rest, 1.0, "a clean switch never leaves rest");
+        }
+        let mut rest = None;
+        for f in 1..=STEP7_BUDGET_FRAMES {
+            frame(&mut core);
+            if all_at_rest(&core) {
+                rest = Some(f);
+                break;
+            }
+        }
+        assert!(
+            rest.is_some(),
+            "{step} px/frame: every restAlpha is 1 within the step-7 budget"
+        );
+    }
+}
+
+#[test]
+fn given_an_element_observed_in_the_frame_the_page_scrolls_when_scroll_shift_then_it_follows_without_a_previous_sample_like_an_unscrolled_core()
+ {
+    const NEW_ID: usize = 4;
+    const NEW_RECT: [f32; 5] = [200.0, 600.0, 120.0, 40.0, 20.0];
+    let mut plain = acceptance_core(SEED);
+    let mut core = acceptance_core(SEED);
+    for _ in 0..5 {
+        frame(&mut plain);
+        frame(&mut core);
+    }
+    // observe(): TS writes the rect at observe time and the batched redistribute places the
+    // liquid there (no velocity sample yet). In `core` the page then scrolls 25 px before the
+    // next frame; `plain` does not scroll.
+    for c in [&mut plain, &mut core] {
+        c.write_element(NEW_ID, slot(NEW_RECT));
+        c.redistribute();
+    }
+    let ids = core.particle_indices_of(NEW_ID as u32);
+    assert!(!ids.is_empty(), "precondition: the new element has liquid");
+    let before: Vec<(f32, f32)> = ids.iter().map(|&i| core.particle_px(i)).collect();
+    write_scrolled(&mut core, 25.0);
+    let mut r = NEW_RECT;
+    r[1] -= 25.0;
+    core.write_element(NEW_ID, slot(r));
+    core.scroll_shift(0.0, 25.0, 0.0, 0.0);
+    let worst = ids
+        .iter()
+        .zip(&before)
+        .map(|(&i, &(x0, y0))| {
+            let (x, y) = core.particle_px(i);
+            (x - x0).abs().max((y - (y0 - 25.0)).abs())
+        })
+        .fold(0.0f32, f32::max);
+    assert!(
+        worst < ROUNDING_PX,
+        "no previous sample: the new element follows the scroll ({worst} px)"
+    );
+    frame(&mut plain);
+    frame(&mut core);
+    let (vx, vy) = core.home_velocity_of(NEW_ID);
+    assert!(
+        vx == 0.0 && vy == 0.0,
+        "its first velocity sample is 0 ({vx}, {vy})"
+    );
+    let drift = ids
+        .iter()
+        .map(|&i| {
+            let (ax, ay) = plain.particle_px(i);
+            let (bx, by) = core.particle_px(i);
+            (bx - ax).abs().max((by + 25.0 - ay).abs())
+        })
+        .fold(0.0f32, f32::max);
+    assert!(
+        drift < ROUNDING_PX,
+        "after the frame its liquid is the unscrolled one moved by the scroll ({drift} px)"
+    );
+    assert_eq!(
+        plain.rest_alphas(),
+        core.rest_alphas(),
+        "the same rest state"
+    );
 }
