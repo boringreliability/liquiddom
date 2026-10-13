@@ -1,7 +1,8 @@
 /**
  * W80 (D80-1): the scroll scenes for e2e/scroll.spec.ts. scroll-container.html: one instance in
  * container mode on #box (an `overflow: auto`, positioned container inside a page that scrolls as
- * well), observing #c1 (a pill) and #c2 (a card). scroll-fixed.html (W80 ward review I1): no #box,
+ * well), observing #c1 (a pill) and #c2 (a card); `<body data-scene="container">` makes a missing
+ * #box throw. scroll-fixed.html (W80 ward review I1): `data-scene="body"`, no #box,
  * so body mode, observing a `position: fixed` pill, a `position: sticky` pill and a normal card.
  * Every `[data-liquid]` element with an id is observed, in document order. Manual render-counting
  * clock; `?renderer=canvas2d|webgpu|auto` (default canvas2d). `window.__scrollContainer`
@@ -28,6 +29,14 @@ function byId(id: string): HTMLElement {
   const el = document.getElementById(id);
   if (!el) throw new Error(`[scroll-container] #${id} not found`);
   return el;
+}
+
+/** `<body data-scene="container">` needs #box (throws when missing); `"body"` is body mode. Anything else throws. */
+function sceneContainer(): HTMLElement | undefined {
+  const scene = document.body.dataset.scene;
+  if (scene === "container") return byId("box");
+  if (scene === "body") return undefined;
+  throw new TypeError(`[scroll-container] body[data-scene] must be "container" or "body", got "${String(scene)}"`);
 }
 
 function runtime(): FluidRuntime {
@@ -57,7 +66,7 @@ async function start(): Promise<void> {
     maxElements: 4,
     clock,
     renderer,
-    container: document.getElementById("box") ?? undefined,
+    container: sceneContainer(),
     autoObserve: false,
   });
   for (const id of IDS) instance.observe(byId(id));
