@@ -6,7 +6,7 @@ epic: "fluid-engine"
 status: "approved"
 dependencies: [79]
 layer: "both"
-estimated_tests: 51
+estimated_tests: 53
 created: "2026-10-13"
 completed: null
 ---
@@ -260,6 +260,8 @@ Every browser rest-frame count equals the Rust one for the same row (23, 26, 36,
 | 49 | e2e perf (perf): perf – W80: a Canvas2D frame that scrolls 10 px costs at most 1.15 × the same frame without the scroll (both after a shake) | slice design §11 perf | — not run at red (perf project); a guard until W80.2 (no shift cost exists yet) |
 | 50 | e2e acceptance (canvas2d): step 7 – … at 30 px per frame … | D80-3 gate: a sustained fast scroll (W80.0: the provisional 0.05 / 120 tore here) | ❌ lowest fill 0.000 (#splash at scroll 120) |
 | 51 | scroll-runtime.test: given_container_mode_when_the_canvas_is_remounted_by_a_device_loss_then_the_new_canvas_carries_the_container_transform_and_no_scroll_shift_replays | D80-1 canvas remount (review I2, fix round 1) | ❌ no scroll_shift call (the container scroll is not shifted yet) |
+| 52 | scroll-runtime.test: given_container_mode_and_a_paused_loop_when_a_device_loss_remounts_the_canvas_then_the_new_canvas_carries_the_current_transform | D80-1 canvas remount while paused (W80.3 review m1) | ✅ passes (added at W80.5; fails without the `placeCanvas` call) |
+| 53 | scroll-runtime.test: given_a_scrolled_container_when_it_is_detached_and_reattached_at_the_same_scroll_then_neither_frame_shifts_the_liquid | D80-1 detached container (W80.3 review m3) | ✅ passes (added at W80.5; fails without the `isConnected` guard) |
 
 ## Must NOT
 - Excite the liquid on a rigid scroll; call the core on a frame without a scroll.

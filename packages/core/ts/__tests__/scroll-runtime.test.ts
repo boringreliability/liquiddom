@@ -221,4 +221,56 @@ describe("W80 runtime: scroll follows (D80-1, D80-2)", () => {
       gpu.restore();
     }
   });
+
+  // 52 (W80.5, W80.3 review m1)
+  it("given_container_mode_and_a_paused_loop_when_a_device_loss_remounts_the_canvas_then_the_new_canvas_carries_the_current_transform", async () => {
+    const gpu = installFakeGpuLifecycle();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const box = document.createElement("div");
+      box.style.position = "relative";
+      let top = 0;
+      Object.defineProperty(box, "scrollTop", { configurable: true, get: () => top });
+      Object.defineProperty(box, "scrollLeft", { configurable: true, get: () => 0 });
+      document.body.appendChild(box);
+      const { rt, clock } = await start({ container: box, renderer: "webgpu" });
+      rt.observe(button(box));
+      await flush();
+      clock.advance(1);
+      top = 90;
+      clock.advance(1);
+      rt.pause();
+      const old = rt.canvas;
+      await rt.simulateDeviceLoss();
+      await flush();
+      expect(rt.activeRenderer).toBe("canvas2d");
+      expect(rt.canvas, "remounted").not.toBe(old);
+      expect(rt.canvas.style.transform, "no frame has run: the rebuild itself places the canvas").toBe("translate(0px, 90px)");
+    } finally {
+      gpu.restore();
+    }
+  });
+
+  // 53 (W80.5, W80.3 review m3)
+  it("given_a_scrolled_container_when_it_is_detached_and_reattached_at_the_same_scroll_then_neither_frame_shifts_the_liquid", async () => {
+    const box = document.createElement("div");
+    box.style.position = "relative";
+    let top = 90;
+    // A detached element reports scrollTop 0 (jsdom does not scroll, so the stand-in does).
+    Object.defineProperty(box, "scrollTop", { configurable: true, get: () => (box.isConnected ? top : 0) });
+    Object.defineProperty(box, "scrollLeft", { configurable: true, get: () => 0 });
+    document.body.appendChild(box);
+    const { rt, clock, order } = await start({ container: box });
+    rt.observe(button(box));
+    await flush();
+    clock.advance(1);
+    clock.advance(1);
+    expect(shifts(order), "a steady scroll of 90 shifts nothing").toEqual([]);
+    box.remove();
+    clock.advance(1);
+    expect(shifts(order), "the detach frame reads scrollTop 0: unusable, not a −90 scroll").toEqual([]);
+    document.body.appendChild(box);
+    clock.advance(1);
+    expect(shifts(order), "reattached at 90: Δ 0 from the last good position").toEqual([]);
+  });
 });

@@ -831,6 +831,7 @@ function buildRuntime(
       renderer = null;
       lostRenderer?.destroy();
       canvas = remountLiquidCanvas(canvas, container);
+      scrollTracker.placeCanvas(canvas); // W80.3 review (m1): also right while the loop is paused
       pending = initCanvas2D(canvas);
     } catch (err) {
       rebuildFailed(err);

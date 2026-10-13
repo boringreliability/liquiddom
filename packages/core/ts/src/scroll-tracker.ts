@@ -93,7 +93,13 @@ export class ScrollTracker {
     const sy = this.container ? this.container.scrollTop : this.win.scrollY;
     const ox = offset.x;
     const oy = offset.y;
-    const usable = Number.isFinite(sx) && Number.isFinite(sy) && Number.isFinite(ox) && Number.isFinite(oy);
+    // A detached container reports scrollTop 0: its sample is unusable (keep the last good position).
+    const usable =
+      (this.container === undefined || this.container.isConnected) &&
+      Number.isFinite(sx) &&
+      Number.isFinite(sy) &&
+      Number.isFinite(ox) &&
+      Number.isFinite(oy);
     if (!usable || !this.hasPrev) {
       o.dx = o.dy = o.ivx = o.ivy = o.dragDx = o.dragDy = 0;
       if (usable) {
@@ -140,7 +146,7 @@ export class ScrollTracker {
    */
   placeCanvas(canvas: HTMLCanvasElement): void {
     const c = this.container;
-    if (!c) return;
+    if (!c || !c.isConnected) return;
     const x = c.scrollLeft;
     const y = c.scrollTop;
     if (!(Number.isFinite(x) && Number.isFinite(y))) return;
