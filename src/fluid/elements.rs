@@ -1,7 +1,7 @@
 //! Element table over the TS-written element buffer (spec §2 FFI item 1) and
 //! the Rust-written state view (item 4). Element id == slot index.
 
-use super::access::{finite_or, positive, rd, rd_or, wr};
+use super::access::{add, finite_or, positive, rd, rd_or, wr};
 use super::fmath::F_REST_TOL;
 use super::grid::WORLD_MAX_PX;
 use super::layout::{
@@ -262,6 +262,18 @@ impl Elements {
                 *slot = has;
             }
         }
+    }
+
+    /// W80 (D80-1): a scroll moved this element's rect by `(dx, dy)` px in buffer space; its
+    /// previous rect (the last velocity sample) moves with it, so `update_velocities` sees only
+    /// the motion beyond the scroll. Several shifts between two simulating ticks add up. A slot
+    /// without a previous sample, or out of range, is a no-op.
+    pub fn shift_prev(&mut self, id: usize, dx: f32, dy: f32) {
+        if !self.has_prev.get(id).copied().unwrap_or(false) {
+            return;
+        }
+        add(&mut self.prev_x, id, dx);
+        add(&mut self.prev_y, id, dy);
     }
 
     /// W67 ward-review fix: back to the state of a never-used slot (stiffness 1, no rest

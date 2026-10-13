@@ -104,6 +104,9 @@ pub struct Grid {
     pub inv_cell: f32,
     pub origin_x_px: f32,
     pub origin_y_px: f32,
+    /// W80 (D80-1): the origin `new` chose (`−margin` on both axes); `scroll_origin` keeps the
+    /// origin within half a cell of it.
+    pub base_origin_px: f32,
     pub w: usize,
     pub h: usize,
     pub mass: Vec<f32>,
@@ -156,6 +159,7 @@ impl Grid {
             inv_cell: inv,
             origin_x_px: -margin,
             origin_y_px: -margin,
+            base_origin_px: -margin,
             w,
             h,
             mass: vec![0.0; n],
@@ -166,9 +170,27 @@ impl Grid {
         }
     }
 
-    /// W80.1 (red) stub: W80.2 splits a scroll delta into whole cells and moves the origin.
-    pub fn scroll_origin(&mut self, _dx_px: f32, _dy_px: f32) -> (f32, f32) {
-        (0.0, 0.0)
+    /// W80 (D80-1): a scroll moved the content by `(−dx, −dy)` px. Splits each delta into whole
+    /// cells `k` (the caller moves the particles by `−k` grid units) and a rest `f` px (the lattice
+    /// origin moves by `−f` here), so `k·cell + f = d` and the particles keep their phase on the
+    /// lattice: MLS-MPM's quadratic B-spline transfers are translation-invariant only by whole
+    /// cells, so a shift by a fraction of a cell would change the motion of liquid in flight. `k`
+    /// is chosen so the origin stays within half a cell of `base_origin_px` (the walls move by at
+    /// most that much). Returns `(kx, ky)` in cells. A non-finite delta moves nothing.
+    pub fn scroll_origin(&mut self, dx_px: f32, dy_px: f32) -> (f32, f32) {
+        let split = |d: f32, origin: f32| -> (f32, f32) {
+            if !d.is_finite() {
+                return (0.0, 0.0);
+            }
+            let drift = origin - self.base_origin_px;
+            let k = ((d - drift) * self.inv_cell).round();
+            (k, d - k * self.cell_px)
+        };
+        let (kx, fx) = split(dx_px, self.origin_x_px);
+        let (ky, fy) = split(dy_px, self.origin_y_px);
+        self.origin_x_px -= fx;
+        self.origin_y_px -= fy;
+        (kx, ky)
     }
 
     #[inline]
