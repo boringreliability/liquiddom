@@ -1,7 +1,7 @@
 # Context — liquiddom
 
 ## Last Updated
-Ward 79 — 2026-10-12 (merge and separate; step 5 ✅, slice 5 closed). Next: plan slice 6.
+Ward 80 — 2026-10-13 (scroll follows). Next: W81 parking and resize.
 
 ## Current State
 Epic 15 (Fluid Engine): slices 1–5 closed. `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. The soft-body engine is the tag `softbody-final`. Packages `0.3.0-alpha.x` (pre mode `alpha`), nothing published; `site/` frozen until slice 6. Test totals: `.wdd/PROGRESS.md` and the ward gold notes.
@@ -49,9 +49,10 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 - Pointer drag 12/s (W70): a fast sweep lets a trailing edge recede ~8 px; holes start at drag ≥ 18.
 - Shake (W77): `1 + 0.35·sin(π·u + φ)`, cap 0.3, default yield J ≤ 1.46; x-only profile.
 - Drag (W78): mouse/pen only, no opt-out; re-form ≥ ≈113 frames; per-element `recovery` > ≈1.1 s cannot re-form in 3 s (D78-5).
-- Drag press: `selectstart` blocked document-wide (no drag-select in observed `<input>`/contenteditable, D78-2); if `setPointerCapture` throws (Firefox) the ending click may hit an ancestor, unswallowed; any keydown clears an armed swallow; in a pending Canvas2D rebuild a new drag may hide the label early. Two instances on nested elements: one press drags both. A mid-drag scroll carries the liquid (slice 6).
+- Drag press: `selectstart` blocked document-wide (no drag-select in observed `<input>`/contenteditable, D78-2); if `setPointerCapture` throws (Firefox) the ending click may hit an ancestor, unswallowed; any keydown clears an armed swallow; in a pending Canvas2D rebuild a new drag may hide the label early. Two instances on nested elements: one press drags both.
 - Container mode needs a positioned container (`console.warn` if static; never restyled).
-- Gravity is validated but has no effect until slice 6; scroll is verified in slice 6.
+- Gravity is validated but has no effect until slice 6 (W83).
+- Scroll (W80): rigid shift + capped inertia (D80-2); the canvas may lag native scroll by a frame (D80-4).
 - A large scroll can lock particles across elements (W67 slip, slice-6 parking).
 - Edge ring (D67-13): spacing cell/2 from the area hint, so a far-off hint makes it denser or sparser.
 - The first frame that throws stops the instance; adapters do not yet react to it.
@@ -69,5 +70,5 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 
 ## What Comes Next
 - Slice 2 closed: `.wdd/memory/whole-picture/slice-2.md` + addendum (steps 1–4, 6, 8 ✅; 5/7 ⏳).
-- Slices 4 and 5 closed. Next: plan slice 6.
+- Slices 4 and 5 closed. Slice 6: W80 scroll; next W81.
 - Open: fate of the published `0.2.0-rc.0` (spec §7); publishing `0.3.0-alpha.x` is Dennis' call (`changeset version`, commit, tag `v*`).

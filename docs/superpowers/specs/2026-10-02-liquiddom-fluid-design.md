@@ -106,6 +106,7 @@ The elements **are** liquid, and so is their text. They splash, split, merge wit
 - The grid is pre-allocated to cover `max(screen.width, innerWidth) × max(screen.height, innerHeight)` plus a margin (or the container's maximum in container mode).
 - A resize beyond that is clamped to the walls in slices 1–5. One explicit, logged reallocation is added in slice 6 (resize). *(Amended 2026-10-03 after plan verification.)* It is `resize_world(w, h)`, called outside `tick` when the viewport outgrows the world, logged once, never shrinking, particles kept (amended 2026-10-13, slice-6 design, D81-2).
 - Each grid substep only touches a dirty region: the particle AABB plus 2 cells.
+- The lattice origin follows a scroll by the sub-cell rest of each delta, so particles moved by whole cells keep their lattice phase; it stays within half a cell of `(−margin, −margin)` (W80, D80-1).
 
 **Walls and off-screen elements:**
 - The grid covers the viewport plus a margin of 1 element height, at least 200 px. Walls sit at the grid edges.
@@ -172,7 +173,7 @@ F's cost (+4 floats of SoA plus an SVD per substep) is benchmarked in slice 4. I
 | Drag (mouse or pen pointerdown, primary button; pointer capture once the pointer is > 4 px away, W78 D78-2) | `home_dx/dy` follow the pointer while the DOM stays put. After the threshold, the following click splash is suppressed (swallowed once). On release `home_dx/dy` → 0 and the liquid crawls home; `pointercancel`, blur, Escape, `unobserve`, `destroy` and reduced motion cancel the same way. No touch or keyboard drag in slice 5 (amended 2026-10-11, slice-5 design, D78-2, D78-6). Slice 6: touch drags after a 350 ms long-press (movement > 8 px cancels it and the page scrolls); `observe(el, { drag: false })` opts an element out (amended 2026-10-13, slice-6 design, D84-1, D84-2) |
 | `shake(strength)` | Global impulse: a seeded direction `d` and phase `φ` per element, speed profile `1 + 0.35·sin(π·u + φ)` across the element (`u = (x − cx)/(w/2)`), no per-particle noise, no rotation (amended in W70, D70-1; amended in W73, D73-1; amended in W77, D77-2). Everything goes soft |
 | Gravity | `(gx, gy)` in the grid update. Clamped to 0 under reduced motion. Only changes act (a high-pass): a tilt sloshes the liquid, which then rests at home; scaled so the liquid never leaves its element (amended 2026-10-13, slice-6 design, D83-1) |
-| Scroll | The scroll delta moves particles and previous home rects rigidly (`scroll_shift`), so a scroll does not excite the liquid; a light, capped share of the scroll speed is added as inertia (amended 2026-10-13, slice-6 design, D80-1) |
+| Scroll | The scroll delta moves particles and previous home rects rigidly (`scroll_shift`), so a scroll does not excite the liquid: particles move by whole cells and the lattice origin by the rest, so the simulation equals the unscrolled one up to f32 rounding; a dragged element is not shifted and its drag offset grows by the scroll; a light, capped share of the scroll distance is added as inertia, `Δ · 60 · SCROLL_INERTIA` px/s (amended 2026-10-13, slice-6 design, D80-1; W80, D80-1, D80-2) |
 | Droplets | Particles flung far away are ordinary liquid that crawls home. There is no separate entity type |
 
 ### Reduced motion
@@ -218,6 +219,7 @@ This is a coordinated contract change. It replaces the 9-float soft-body layout.
    - `redistribute()`
    - `generation()`
    - `set_reduced_motion(bool)`
+   - `scroll_shift(dx, dy, ivx, ivy)`: the frame's scroll delta (px) and inertia (px/s), after the rects are written and before `tick` (W80, D80-1)
 
 The stride constants live in both `src/` (Rust) and the TS bridge, and MUST stay in sync. A test asserts they match.
 
@@ -348,7 +350,7 @@ At rest, what you see is therefore pixel-exact the DOM text, with no atlas appro
 | `device.lost` | Canvas2D rebuild. `liquid-text` removed |
 | `@media print` | Canvas hidden. DOM unchanged |
 | Zoom, font or text change | Text atlas re-rendered |
-| Scroll | The canvas is `fixed` and is redrawn in RAF. **Known risk:** the liquid can lag one frame behind native scroll. At rest the real DOM text means the text never lags. Measured in slice 6 (W80.0, D80-4) |
+| Scroll | The canvas is `fixed` and is redrawn in RAF. **Known risk:** the liquid can lag one frame behind native scroll. At rest the real DOM text means the text never lags. Measured in W80.0 and accepted: invisible at rest (D80-4). Container mode keeps the canvas on the container's visible window with a `transform` on the canvas (W80) |
 
 ## 5. API and integration
 
