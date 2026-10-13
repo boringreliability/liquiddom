@@ -1,0 +1,62 @@
+# liquiddom fluid engine, slice 6 (the world): implementation plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking. **Every ward also follows WDD / GS-TDD:** direction gate (all `Decision:` lines approved) → failing tests → `wdd ward status NN red` → STOP for Dennis' "godkendt" → implement → green → ward review → `wdd ward status NN gold` → STOP. AI never decides on its own that a ward is complete; after Dennis approves gold, AI may run `wdd complete` (or apply the approved manual transition when the harness blocks it).
+
+**Goal:** The liquid follows the page. Scrolling 300 px and back moves the liquid with its elements without snapping and without tearing it (W80); elements far off-screen cost nothing and come back at rest, and the grid grows once when the window does (W81); escaped liquid goes under the page's own content and the landing page's open W77 findings are closed (W82); tilting the phone sloshes the liquid, which then rests at home (W83); touch can drag after a long-press and an element can opt out of drag (W84); the React and Vue adapters react to a stopped instance and carry the opt-out (W85); the public site is rebuilt on the fluid engine (W86). Slice 6 ends with scene step 7 ✅ and a whole-picture check of all 8 steps in every renderer (W87).
+
+**Architecture:** Buffer space stays the viewport. TypeScript reads the scroll delta once per frame and Rust shifts every simulated particle and every previous home rect rigidly by it (`scroll_shift`), so a scroll never excites the liquid; a light, capped share of the scroll speed is added as inertia. Rust parks elements outside viewport + margin (a particle flag both renderers skip) and puts them back at rest on re-entry; `resize_world` reallocates the grid once, outside `tick`. The canvas moves to `z-index: -1`. Gravity is high-passed in Rust so only changes act. The drag tracker gains a touch long-press path and a per-element opt-out. Adapters, the Vue example and the Astro site are rebuilt on the 0.3 API.
+
+**Tech stack:** Rust (edition 2024, wasm-bindgen), TypeScript (strict), WebGPU/WGSL, Vitest 4 (jsdom, fake canvas, fake GPU), Playwright 1.63.0 (canvas2d blocking in CI; WebGPU local on Metal, W71.0 fallback B), React 18/19 and Vue ≥ 3.4 adapters, Astro 6 + Tailwind 4 (site).
+
+**Spec:** the binding [`2026-10-02-liquiddom-fluid-design.md`](../../specs/2026-10-02-liquiddom-fluid-design.md) (amended for slice 6 in `17ede66`: §2 grid ~107, walls and parking ~111-114, interaction table gravity, scroll and drag rows, §4 canvas ~327 and scroll row, §5 `observe` options, §6 slice row 6) and the slice design [`2026-10-13-liquiddom-slice-6-world-design.md`](../../specs/2026-10-13-liquiddom-slice-6-world-design.md) (binding for this plan; brainstorm saga dec_645b54e4). Executors read both, this index and their ward file. Acceptance scene and matrix: `.wdd/NORTH-STAR.md`. Spike evidence (reference only, D2): session scratchpad — never copied into the repo.
+
+## Wards
+
+| Ward | Slice | File | Content |
+|---|---|---|---|
+| W80 | 6 | [W80.md](W80.md) | **Scroll follows:** spike W80.0 (half a day, throwaway) for the inertia constants, the step-7 budget and the 1-frame lag; `scroll-tracker.ts`; `FluidCore::scroll_shift(dx, dy, ivx, ivy)` (rigid shift of particles and previous home rects, capped inertia, sanitised); mid-drag scroll keeps the dragged liquid under the pointer; container scroll; the acceptance scene scrolls; step-7 budget in NORTH-STAR and spec §6; step 7 e2e in both renderers; Linux baselines; scroll perf guard |
+| W81 | 6 | planned after W80 gold | **Parking and resize** (slice design §4) |
+| W82 | 6 | planned after W81 gold | **Under the page** (§5) |
+| W83 | 6 | planned after W82 gold | **Gravity and tilt** (§6) |
+| W84 | 6 | planned after W83 gold | **Touch and opt-out** (§7) |
+| W85 | 6 | planned after W84 gold | **Adapters** (§8) |
+| W86 | 6 | planned after W85 gold | **The site** (§9) |
+| W87 | 6 | planned after W86 gold | **Whole picture** (§10) |
+
+Each later ward file is written after the previous ward's gold, against the code it leaves (as W79.md was written at W78's end), so its line anchors and test totals are measured, not guessed.
+
+**Test totals.** Baseline at `17ede66`: cargo `193 passed; 0 failed; 2 ignored`; vitest `695 passed | 4 skipped (699)`, 68 files; Playwright `--list` canvas2d 66 / webgpu 41 / webgpu-hw 80 / perf 4. After W80: cargo **`204 passed; 0 failed; 2 ignored`**; vitest **`718 passed | 4 skipped (722)`**, 70 files; `--list` canvas2d **78**, webgpu **50**, webgpu-hw **92**, perf **5**. Later wards measure their own at planning.
+
+**Shared interfaces:** each ward file carries a binding "Shared interfaces" block for the wards after it (W80.md: `scroll_shift`, `ScrollShift`, `shifts_with_scroll`, `Grid::scroll_origin`, `Elements::shift_prev`, `ScrollTracker`, `DragTracker.scrolled`). W81 must add "not parked" to `shifts_with_scroll` and keep the lattice phase in `resize_world`.
+
+**Order:** W80.0 (ward file, epic row, baseline, spike) → D80 direction gate → W80.1 red → W80.2 … → W80 gold. Then W81 … W87 in table order. W87 presents the publish of `0.3.0-alpha.x` and the fate of `0.2.0-rc.0` to Dennis; neither is executed by AI.
+
+**Human prerequisites:**
+- A direction gate per ward (D80-1, D81-1, D82-1, D83-1, D84-1 and D86-1 were chosen in the brainstorm of 2026-10-13 and still pass the gate formally; the others follow each ward's spike or measurement).
+- Dennis approves red ("godkendt"), every Linux baseline (D65-7) and gold.
+- Docker Desktop running for the Linux baselines; a Mac with Metal for `e2e:webgpu-hw`.
+- W86: dispatching `deploy-site.yml` is Dennis' call. W87: publishing is Dennis' call.
+
+## Global Constraints
+
+**Unchanged contracts**
+- FFI layout and strides unchanged: `ELEMENT_STRIDE 10`, `STATE_STRIDE 4`, `DYNAMIC_FIELDS 7`, `STATIC_FIELDS 3`; the 7-arg constructor is frozen (D64-4). Slice 6 adds scalar calls only (`scroll_shift` in W80, `resize_world` in W81); no new slot.
+- No JSON over FFI; fixed pools; no hot-path allocation (`resize_world` is outside `tick` and logged); no panics on JS input in `src/fluid` (`clippy::indexing_slicing` denied, no unwrap).
+- Rendering never touches the DOM; the runtime owns every class write. Only `ts/src/wasm-loader.ts` imports `pkg/`. liquiddom never restyles the container or author elements beyond its layer (the container-mode canvas transform is on the canvas only).
+- Rust is DOM-blind and colour-blind.
+
+**Values (slice design, spec as amended 2026-10-13)**
+- Scroll: rigid shift by the frame's scroll delta (particles by whole cells, the lattice origin by the rest); without inertia the simulation equals an unscrolled page up to f32 rounding and a run without a scroll is bit-identical to W79; inertia `Δ · 60 · SCROLL_INERTIA`, capped; a dragged element is not shifted (its drag offset grows by the scroll); NaN/Inf → 0; shift clamped to ±`WORLD_MAX_PX`; reduced motion: inertia 0.
+- Parking: home rect entirely outside viewport + grid margin → parked; unpark ≥ 64 px inside; re-entry at rest; a dragged element is never parked.
+- Stacking: canvas `z-index: -1` in body mode; container must be a stacking context (warned, never restyled).
+- Gravity: high-pass, only changes act; `strength` default 980 px/s²; reduced motion g = 0.
+- Touch drag: long-press 350 ms, cancelled by movement > 8 px, `pointerup` or `pointercancel`; opt-out `observe(el, { drag: false })`; pointer decay `0.8^(dt·60)`.
+- Re-form budgets come from NORTH-STAR (`e2e/north-star.ts`); step 7 gets its budget in W80 (D80-3).
+
+**Verification**
+- Every e2e spec imports `test` from `e2e/fixtures.ts` (fails on `console.error`, `pageerror`, panics); WebGPU specs run locally in `webgpu-hw` (Metal); pixel reads via `__liquidTest.pixels()`; gestures and scrolls run on the manual clock (`?clock=manual`), one frame per step.
+- Linux baselines only via `npm run e2e:update` (Docker, pinned image) and only with Dennis' vision approval (D65-7).
+
+**Process**
+- Commit by path, never `git add -A`; `git add` and `git commit -F <scratch file>` as separate commands. Trailers: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` and `Claude-Session: https://claude.ai/code/session_01JWKWkrzUtppUzFBpDS954E`.
+- No pushes or merges without asking. Ward status via `wdd ward status 80 …`; ward files are hand-created flat (D63-1). One changeset per ward (`minor` for a feature, pre mode alpha).
