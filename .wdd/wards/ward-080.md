@@ -6,7 +6,7 @@ epic: "fluid-engine"
 status: "red"
 dependencies: [79]
 layer: "both"
-estimated_tests: 50
+estimated_tests: 51
 created: "2026-10-13"
 completed: null
 ---
@@ -244,21 +244,22 @@ Every browser rest-frame count equals the Rust one for the same row (23, 26, 36,
 | 33 | fluid-ffi.test: given_the_real_core_when_scroll_shift_runs_before_a_zero_step_tick_then_every_homed_particle_moves_by_minus_the_delta_in_the_dynamic_view | the WASM export | ❌ stub moves nothing: expected 30 < 0.01 |
 | 34 | whole-picture-tooling.test: given_north_star_scene_step_7_when_parsed_then_its_scroll_budget_is_d80_3_and_spec_section_6_agrees_W80 | D80-3 (guard after the gate) | ✅ passes (guard) |
 | 35 | e2e acceptance (canvas2d): step 7 – given the acceptance scene when read then the page can scroll 300 px at 1280×800 and every element is at rest at the top | the spacer | ✅ passes (guard) |
-| 36 | e2e acceptance (canvas2d): step 7 – … at 1 px per frame … | step 7 slow | ✅ passes (the springs follow a slow scroll without the shift; lowest fill 1.000, rest after 27 frames; recorded as measured) |
+| 36 | e2e acceptance (canvas2d): step 7 – … at 1 px per frame … | step 7 slow | ❌ a slow scroll leaves rest without the shift: minimum restAlpha 0, expected 1 (fix round 1) |
 | 37 | e2e acceptance (canvas2d): step 7 – … at 10 px per frame … | step 7 | ❌ lowest fill 0.000 (#splash at scroll 290) |
-| 38 | e2e acceptance (canvas2d): step 7 – … at 300 px per frame … | step 7 jump | ✅ passes (guard: 2 frames, fill 1.000, rest after 25 frames; the plan expected a fail, see the W80.1 report) |
+| 38 | e2e acceptance (canvas2d): step 7 – … at 300 px per frame … | step 7 jump (each end held 12 frames past the restAlpha fade) | ❌ lowest fill 0.000 (#card at scroll 300) (fix round 1: the 2-frame path was vacuous, Canvas2D draws the exact rect while restAlpha > 0.5) |
 | 39 | e2e acceptance (canvas2d): step 7 – given a smooth scrollTo of 300 px … (W80 RF4) | W80 RF4 | ❌ lowest fill 0.000 (#card at scroll 300) |
-| 40 | e2e acceptance (canvas2d): step 7 – given Merge dragged 30 px up when the page scrolls 40 px mid-drag then … | D80-1 mid-drag, W80 RF1 | ❌ slot 7 stays -30, expected 10 after the 40 px scroll |
+| 40 | e2e acceptance (canvas2d): step 7 – given Merge dragged 30 px up when the page scrolls 40 px mid-drag then … | D80-1 mid-drag, W80 RF1 (precondition: the dragged liquid fills >= 0.5 of the probe box) | ❌ slot 7 stays -30, expected 10 after the 40 px scroll |
 | 41 | e2e acceptance (canvas2d, Linux): step 7 – given the page scrolled 150 px down at 10 px per frame when screenshotted then it matches the baseline | baseline `acceptance-step7-scroll-mid` | ⏭ skipped (Linux only) |
 | 42 | e2e acceptance (canvas2d, Linux): step 7 – given the page scrolled 300 px down when every restAlpha is 1 then it matches the baseline | baseline `acceptance-step7-scrolled-300` | ⏭ skipped (Linux only) |
 | 43 | e2e acceptance (canvas2d, Linux): step 7 – given the page scrolled 300 px and back when every restAlpha is 1 then it matches the step 1 baseline (no residue) | `acceptance-step1` reused | ⏭ skipped (Linux only) |
-| 44 | e2e scroll (canvas2d): step 7 (container) – … at 10 px per frame … | container scroll | ❌ canvas transform is empty, expected translate(0px, 200px) |
-| 45 | e2e scroll (canvas2d): step 7 (container) – … at 200 px per frame … | container jump | ❌ canvas transform is empty, expected translate(0px, 200px) |
+| 44 | e2e scroll (canvas2d): step 7 (container) – … at 10 px per frame … | container scroll | ❌ canvas transform is empty; lowest fill 0.000 (#c1 at scroll 110) |
+| 45 | e2e scroll (canvas2d): step 7 (container) – … at 200 px per frame … | container jump (each end held 12 frames) | ❌ canvas transform is empty; canvas rect 200 px above the window; lowest fill 0.000 (#c1 at scroll 200) |
 | 46 | e2e scroll (canvas2d): step 7 (container) – given the page scrolled 300 px around the container … (W80 RF3) | W80 RF3 | ✅ passes (guard) |
 | 47 | e2e webgpu-robust (webgpu-hw): W80 step 7 – given renderer webgpu and a scroll of 300 px down and back at 10 px per frame … | step 7 in WebGPU | ❌ lowest fill 0.000 (#splash at scroll 290), webgpu-hw |
 | 48 | e2e webgpu-robust (webgpu-hw): W80 D80-4 – … the offset of the canvas card edge from the DOM card edge per screenshot is logged (never gated) | D80-4 probe | ✅ passes (logged probe; worst offset 97.0 px beyond the uncertainty) |
-| 49 | e2e perf (perf): perf – W80: a Canvas2D frame that scrolls 10 px costs at most 1.15 × the same frame without the scroll (both after a shake) | slice design §11 perf | — not run at red (perf project) |
+| 49 | e2e perf (perf): perf – W80: a Canvas2D frame that scrolls 10 px costs at most 1.15 × the same frame without the scroll (both after a shake) | slice design §11 perf | — not run at red (perf project); a guard until W80.2 (no shift cost exists yet) |
 | 50 | e2e acceptance (canvas2d): step 7 – … at 30 px per frame … | D80-3 gate: a sustained fast scroll (W80.0: the provisional 0.05 / 120 tore here) | ❌ lowest fill 0.000 (#splash at scroll 120) |
+| 51 | scroll-runtime.test: given_container_mode_when_the_canvas_is_remounted_by_a_device_loss_then_the_new_canvas_carries_the_container_transform_and_no_scroll_shift_replays | D80-1 canvas remount (review I2, fix round 1) | ❌ no scroll_shift call (the container scroll is not shifted yet) |
 
 ## Must NOT
 - Excite the liquid on a rigid scroll; call the core on a frame without a scroll.

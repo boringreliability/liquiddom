@@ -1147,6 +1147,8 @@ const W80_SCROLL_PX = 300;
 const W80_BUDGET_FRAMES = Math.round((reformBudgetMs(W77_NORTH_STAR, 7) / 1000) * W67_FPS);
 /** The W80.0 matrix speeds (px per frame) plus the gate's sustained fast scroll (30, D80-3); 300 is a jump in one frame. */
 const W80_SPEEDS = [1, 10, 30, 300] as const;
+/** Frames held at each end of the 300 px jump: past the 120 ms restAlpha fade (D70-4 draws the exact rect while restAlpha > 0.5, which would fill the shape wherever the liquid is). */
+const W80_JUMP_HOLD = 12;
 
 async function w80ScrollY(page: Page): Promise<number> {
   return page.evaluate(() => window.scrollY);
@@ -1169,11 +1171,14 @@ test.describe("W80 – scroll follows (step 7, canvas2d)", () => {
     test(`step 7 – given a scroll of 300 px down and back at ${step} px per frame when ticking then every element's liquid fills its DOM shape in every frame and every restAlpha is 1 within the step-7 budget`, async ({ page }) => {
       test.setTimeout(120_000);
       await w67Open(page);
-      const frames = await scrollPathFills(page, ACCEPTANCE_FILL, scrollPath(W80_SCROLL_PX, step));
+      const path = step === W80_SCROLL_PX ? [W80_SCROLL_PX, ...Array<null>(W80_JUMP_HOLD).fill(null), 0, ...Array<null>(W80_JUMP_HOLD).fill(null)] : scrollPath(W80_SCROLL_PX, step);
+      const frames = await scrollPathFills(page, ACCEPTANCE_FILL, path);
       const worst = worstFrame(frames);
       const deepest = Math.max(...frames.map((f) => f.scroll));
       console.log(`W80 step 7 (canvas2d, ${step} px/frame): ${frames.length} frames, lowest fill ${worst.min.toFixed(3)} (${worst.worst} at scroll ${worst.scroll}), bound ${FILL_MIN}`);
       expect(deepest, "the page really scrolled 300 px").toBe(W80_SCROLL_PX);
+      expect(Math.min(...frames.filter((f) => f.scroll === W80_SCROLL_PX).map((f) => f.judged)), "at the extreme position at least one element is judged (the fill is not vacuous)").toBeGreaterThanOrEqual(1);
+      if (step === 1) expect(Math.min(...frames.map((f) => f.minRest)), "a slow scroll never leaves rest (D80-2: lag under 0.75 px)").toBe(1);
       expect(frames.at(-1)?.scroll, "and back").toBe(0);
       expect(worst.min, `no snap: every element's liquid fills its DOM shape (${worst.worst} at scroll ${worst.scroll})`).toBeGreaterThanOrEqual(FILL_MIN);
       const rest = await w67FramesUntilAllRest(page, W80_BUDGET_FRAMES);
@@ -1233,6 +1238,7 @@ test.describe("W80 – scroll follows (step 7, canvas2d)", () => {
         [Math.round(c.x), Math.round(c.y - 30), W80_COLOURS["#merge"]] as const,
       );
     const held = await fillAtPointer();
+    expect(held, "precondition: the dragged liquid fills the probe box").toBeGreaterThanOrEqual(0.5);
     await page.evaluate(() => window.scrollTo({ top: 40, behavior: "instant" }));
     await w67Advance(page, 1);
     const after = (await w78Slots(page))[MERGE_INDEX];

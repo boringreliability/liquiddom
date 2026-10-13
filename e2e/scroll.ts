@@ -35,6 +35,10 @@ export interface FillFrame {
   min: number;
   /** Selector of that element ("" when none was judged). */
   worst: string;
+  /** The lowest restAlpha over the hook's elements after the frame (NaN if unknown). */
+  minRest: number;
+  /** How many elements were judged (visible enough); 0 means the fill of 1 is vacuous. */
+  judged: number;
 }
 
 export interface FillSpec {
@@ -58,10 +62,10 @@ export const ACCEPTANCE_FILL: FillSpec = { hook: "__liquidTest", canvas: "canvas
 export async function scrollPathFills(page: Page, spec: FillSpec, path: readonly (number | null)[]): Promise<FillFrame[]> {
   return page.evaluate(
     ([s, positions, inset, minVisible]) => {
-      type Hook = { advance(n: number): void; pixels(): ImageData };
+      type Hook = { advance(n: number): void; pixels(): ImageData; restAlpha(): number[] };
       const hook = (window as unknown as Record<string, Hook>)[s.hook];
       const scroller = s.scroller === null ? null : document.querySelector<HTMLElement>(s.scroller);
-      const out: Array<{ scroll: number; min: number; worst: string }> = [];
+      const out: Array<{ scroll: number; min: number; worst: string; minRest: number; judged: number }> = [];
       for (const y of positions) {
         if (y !== null && scroller) scroller.scrollTo({ top: y, behavior: "instant" });
         else if (y !== null) window.scrollTo({ top: y, behavior: "instant" });
@@ -74,6 +78,7 @@ export async function scrollPathFills(page: Page, spec: FillSpec, path: readonly
         const ky = img.height / cr.height;
         let min = 1;
         let worst = "";
+        let judged = 0;
         for (const [sel, [cr0, cg0, cb0]] of Object.entries(s.colours)) {
           const el = document.querySelector<HTMLElement>(sel)!;
           const r = el.getBoundingClientRect();
@@ -87,6 +92,7 @@ export async function scrollPathFills(page: Page, spec: FillSpec, path: readonly
           const vx1 = Math.min(x1, cr.right);
           const vy1 = Math.min(y1, cr.bottom);
           if (vx1 - vx0 < minVisible || vy1 - vy0 < minVisible) continue;
+          judged++;
           let inside = 0;
           let filled = 0;
           for (let py = Math.ceil(vy0); py < vy1; py++) {
@@ -112,7 +118,7 @@ export async function scrollPathFills(page: Page, spec: FillSpec, path: readonly
             worst = sel;
           }
         }
-        out.push({ scroll: at, min, worst });
+        out.push({ scroll: at, min, worst, minRest: Math.min(...hook.restAlpha()), judged });
       }
       return out;
     },
@@ -130,5 +136,5 @@ export function scrollPath(distance: number, step: number): number[] {
 
 /** The frame with the lowest fill of a run. */
 export function worstFrame(frames: readonly FillFrame[]): FillFrame {
-  return frames.reduce((w, f) => (f.min < w.min ? f : w), { scroll: Number.NaN, min: 1, worst: "" });
+  return frames.reduce((w, f) => (f.min < w.min ? f : w), { scroll: Number.NaN, min: 1, worst: "", minRest: 1, judged: 0 });
 }

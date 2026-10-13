@@ -16,6 +16,7 @@ import { SCROLL_INERTIA, SCROLL_INERTIA_MAX_PX_S } from "../src/scroll-tracker";
 import { installFakeCanvas2D, type FakeCanvasHandle } from "./_fake-canvas";
 import { mockRect, resetDom, setupFacadeTestEnv } from "./_facade-helpers";
 import { createTestBackend, type TestBackend } from "./_fluid-test-backend";
+import { installFakeGpuLifecycle } from "./_fake-gpu";
 
 let fake2d: FakeCanvasHandle;
 const live: FluidRuntime[] = [];
@@ -183,5 +184,41 @@ describe("W80 runtime: scroll follows (D80-1, D80-2)", () => {
     rt.resume();
     clock.advance(1);
     expect(shifts(order), "W80 RF2: no delta is lost, no slosh on resume").toEqual(["scroll_shift:0:2000:0:0"]);
+  });
+
+  // 51 (W80.1 fix round 1, review I2)
+  it("given_container_mode_when_the_canvas_is_remounted_by_a_device_loss_then_the_new_canvas_carries_the_container_transform_and_no_scroll_shift_replays", async () => {
+    const gpu = installFakeGpuLifecycle(); // after the fake 2d, so it wraps it (device-lost.test.ts)
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const box = document.createElement("div");
+      box.style.position = "relative";
+      let top = 0;
+      Object.defineProperty(box, "scrollTop", { configurable: true, get: () => top });
+      Object.defineProperty(box, "scrollLeft", { configurable: true, get: () => 0 });
+      document.body.appendChild(box);
+      const { rt, clock, order } = await start({ container: box, renderer: "webgpu" });
+      rt.observe(button(box));
+      await flush();
+      clock.advance(1);
+      top = 90;
+      clock.advance(1);
+      expect(shifts(order), "the container scroll shifted once").toHaveLength(1);
+      expect(rt.canvas.style.transform).toBe("translate(0px, 90px)");
+      const old = rt.canvas;
+      expect(rt.activeRenderer).toBe("webgpu");
+      await rt.simulateDeviceLoss();
+      await flush();
+      expect(rt.activeRenderer).toBe("canvas2d");
+      expect(rt.canvas, "remounted").not.toBe(old);
+      clock.advance(2);
+      expect(rt.canvas.style.transform, "D80-1: the remount keeps the delta and re-applies the transform").toBe("translate(0px, 90px)");
+      expect(shifts(order), "an unchanged scroll replays nothing and loses nothing").toHaveLength(1);
+      top = 100;
+      clock.advance(1);
+      expect(args(shifts(order)[1]).slice(0, 2), "the next scroll is measured from 90").toEqual([0, 10]);
+    } finally {
+      gpu.restore();
+    }
   });
 });
