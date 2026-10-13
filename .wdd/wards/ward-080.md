@@ -6,7 +6,7 @@ epic: "fluid-engine"
 status: "planned"
 dependencies: [79]
 layer: "both"
-estimated_tests: 49
+estimated_tests: 50
 created: "2026-10-13"
 completed: null
 ---
@@ -36,25 +36,25 @@ Out of scope: parking and grid reallocation (W81), canvas stacking under page co
 ### D80-1: Scroll model — rigid scroll_shift in viewport space, whole cells plus a lattice-origin rest
 Proposal: buffer space stays the viewport (body mode) or the container's visible window (container mode). `scroll-tracker.ts` (one per instance) reads the window's `scrollX/scrollY` or the container's `scrollLeft/scrollTop` once per frame after `applyDomChanges()`; Δ = now − previous (an instance's first frame 0; a non-finite read gives 0 and keeps the last good position; a canvas remount does not reset it; a frame resumed after a pause shifts the whole Δ). After `registry.sync()` and before `tick` the runtime calls `core.scroll_shift(dx, dy, ivx, ivy)`, only on frames with a scroll. Rust moves every particle of an element that moves with the page by whole cells and the grid's lattice origin by the sub-cell rest (`Grid::scroll_origin`, the origin kept within half a cell of `−margin`), so the particles keep their lattice phase and move by exactly (−dx, −dy) px; that element's previous home rect moves with it, so its home velocity is 0 and nothing un-rests. A dragged element is not shifted (its particles stay put in px); TS adds the scroll to its drag offset in the same frame (a press below the 4 px threshold accumulates it, but a scroll alone never starts a drag), so the dragged liquid stays under the pointer; in container mode a page scroll around the container counts for the drag too (`dragDx = Δscroll − Δoffset`) and shifts nothing else. Container mode: `transform: translate(scrollLeft, scrollTop)` on liquiddom's canvas keeps it on the container's visible window (written only on change, re-applied to a remounted canvas; never on author DOM). Sanitised in Rust: NaN/Inf → 0, shift clamped to ±`WORLD_MAX_PX` (a negative one, overscroll, is kept), inertia capped at 2000 px/s; `invalidate_bounds()` (D68-10). Reduced motion: the shift applies, the inertia is 0 (TS and Rust). No parking (W81). Chosen in the brainstorm (Dennis 2026-10-13, saga dec_645b54e4); the lattice-origin split, the drag rules, the remount rule and the container rules are the plan's resolutions.
 Consequence: the spec's "without inertia the simulation is bit-identical to an unscrolled page" becomes "identical up to f32 rounding" (positions rewritten in f32 cannot be bit-exact; the plan validation measured ≤ 0.0031 px over 300 px down and back, also with a splash in flight, where a plain shift by fractions of a cell diverged by 5.05 px within 60 frames). A zero shift is a bit-exact no-op and an idle page never calls `scroll_shift`, so runs without a scroll stay bit-identical to W79. The grid's walls move by up to half a cell (≤ 4 px). Elements scrolled beyond the 200 px grid margin clamp to the walls until W81 parks them. One new scalar FFI call, no new slot.
-Decision: PENDING
+Decision: APPROVED 2026-10-13 — as proposed: rigid scroll_shift in viewport space, whole cells plus a lattice-origin rest, a dragged element is not shifted (its drag offset grows by the scroll), a canvas remount keeps the delta, container mode via a transform on liquiddom's canvas (saga dec_bf3e91f4)
 
 ### D80-2: Inertia — Δ · 60 · SCROLL_INERTIA, capped (values from W80.0)
 Proposal: `iv = Δ · 60 · SCROLL_INERTIA` px/s (equal to the design's `Δ / frameDt · SCROLL_INERTIA` at 60 Hz) with the direction of the scroll (down → ivy > 0 → the liquid lags below its home), its speed capped at `SCROLL_INERTIA_MAX_PX_S`; 0 on a frame without elapsed time (the first after a pause or a hidden tab) and under reduced motion. Rust adds it to the shifted particles' velocities. Values from the spike; the plan carries provisional `SCROLL_INERTIA` 0.05 and `SCROLL_INERTIA_MAX_PX_S` 120 (plan validation, Rust, 10 px/frame: the card lags ≤ 5.9 px, worst maxDev 7.06 px, every restAlpha 1 26 frames after the scroll back).
 Consequence: per distance, not per Δ/dt: the design's form doubles a scroll's total impulse at 120 Hz (Rust adds `iv` once per call; the D68-4 limitation); this one is the same at any frame rate. A fast scroll un-rests the elements for a moment (Canvas2D draws the density instead of the exact rect, WebGPU the liquid text) and they settle within the budget; a slow one stays at rest while its lag is under 0.75 px. `FILL_MIN` (D80-3) follows from these values.
-Decision: PENDING
+Decision: AMENDED 2026-10-13 — SCROLL_INERTIA 0.02, SCROLL_INERTIA_MAX_PX_S 30, the cap scaled per 1/60 s: the per-call cap is SCROLL_INERTIA_MAX_PX_S · dt · 60, so 60 Hz and 120 Hz give the same total impulse (W80.0: 0.05 / 120 tears the liquid off at 15–50 px/frame; a per-call cap doubles the impulse at 120 Hz) (saga dec_67a169e6)
 
 ### D80-3: Step-7 budget and "no snap"
 Proposal: NORTH-STAR step 7 and spec §6 step 7 change together to `7. Scroll 300 px and back: the liquid follows with no snap and every element is at rest within **3 s** after the scroll.` (seconds from the spike; the recommended 3 s matches steps 3, 5 and 6), so `e2e/north-star.ts` gives a step-7 budget. "No snap" is measured per frame as the fill of every visible element's DOM shape (its rounded rect inset 4 px) by its own colour or by liquid text, ≥ `FILL_MIN` (provisional 0.75; the gate sets min(0.9, the spike's lowest browser fill − 0.05)), at 1, 10 and 300 px per frame, during a smooth `scrollTo`, mid-drag and in a container. The acceptance scene gets a 640 px spacer below the stage (document 1160 px, max scroll 360 px at 1280×800); Linux baselines are viewport screenshots at scroll 0 with hidden scrollbars, so none moves; two new Canvas2D baselines (mid-scroll at 150 px, scrolled 300 px at rest), and "scrolled back" is checked against `acceptance-step1.png`.
 Consequence: step 7 carries a number the e2e, the whole picture (W87) and the recording read. A fill bound is a proxy: a liquid that trails by less than a few px passes it; the vision check at gold covers what it cannot see. If the spike shows a re-form above 3 s at 300 px per frame, this gate decides between a larger budget and lower inertia.
-Decision: PENDING
+Decision: APPROVED 2026-10-13 — step 7 "… with no snap and every element is at rest within **3 s** after the scroll" in NORTH-STAR and spec §6 together; FILL_MIN 0.85 (W80.0: min(0.9, 0.908 − 0.05)); the step-7 tests gain a 30 px/frame row (saga dec_08b53a98)
 
 ### D80-4: The 1-frame lag behind native scroll
 Proposal: the canvas is `fixed` (body mode) and redrawn in RAF, so during a compositor (wheel, touch) scroll the liquid can trail the DOM by one frame. Accepted if the spike shows it invisible at rest: at rest Canvas2D draws the exact rect and WebGPU the rest SDF, and the DOM text never lags. Evidence: RAF-clock recordings of a 300 px wheel scroll and a smooth `scrollTo` in Chromium headless (Canvas2D) and on Metal (WebGPU), inspected frame by frame with vision, plus a logged, never-gated probe in `webgpu-hw` (canvas card edge minus DOM card edge per screenshot, `w80-lag-webgpu.json`). If it is visible at rest: STOP and re-plan "a canvas that scrolls with the content" as a new decision before red.
 Consequence: a trailing frame during a fast native scroll stays a known, documented limitation (spec §4, CONTEXT). The probe is diagnostic: screenshots and DOM reads are not in one atomic frame, so it reports an uncertainty with each sample.
-Decision: PENDING
+Decision: APPROVED 2026-10-13 — accept and document: invisible at rest (probe 0.0 px); in motion the DOM labels sit 60–100 px off their liquid for one frame per scroll step in both renderers; a canvas that scrolls with the content stays the known alternative, revisited at W87 on real devices (saga dec_f06ddc93)
 
 ## Specification
-**Values (slice design §3, provisional until the gate).** `SCROLL_INERTIA = 0.05`, `SCROLL_INERTIA_MAX_PX_S = 120` (TS); `SCROLL_INERTIA_VMAX_PX_S = 2000` (Rust sanitiser, the pointer's cap); shift clamp ±`WORLD_MAX_PX` (8192); step-7 budget 3 s (180 frames); `FILL_MIN = 0.75`, `FILL_INSET_PX = 4`; acceptance spacer 640 px.
+**Values (slice design §3, set at the gate 2026-10-13 from W80.0).** `SCROLL_INERTIA = 0.02`, `SCROLL_INERTIA_MAX_PX_S = 30` per 1/60 s (TS; the per-call cap is `SCROLL_INERTIA_MAX_PX_S · dt · 60`, D80-2 amended); `SCROLL_INERTIA_VMAX_PX_S = 2000` (Rust sanitiser, the pointer's cap); shift clamp ±`WORLD_MAX_PX` (8192); step-7 budget 3 s (180 frames); `FILL_MIN = 0.85`, `FILL_INSET_PX = 4`; step-7 speeds 1, 10, 30, 300 px per frame (D80-3); acceptance spacer 640 px.
 
 **Frame order (`runtime.ts`).** `coord offset → applyDomChanges → scrollTracker.sample → scrollTracker.placeCanvas → dragTracker.scrolled (if dragDx/dragDy ≠ 0) → dragTracker.frame → registry.sync → core.scroll_shift (if dx, dy, ivx or ivy ≠ 0) → pointer sample → core.tick → atlas/paints → render → syncText → syncAway → syncHalo`.
 
@@ -223,7 +223,7 @@ Every browser rest-frame count equals the Rust one for the same row (23, 26, 36,
 | 12 | scroll-tracker.test: given_a_new_tracker_when_the_first_frame_samples_a_scrolled_page_then_delta_and_inertia_are_0 | first frame |
 | 13 | scroll-tracker.test: given_body_mode_when_scrollY_grows_by_1_px_then_delta_is_1_and_the_inertia_is_delta_times_60_times_SCROLL_INERTIA_downwards | D80-2 formula and sign |
 | 14 | scroll-tracker.test: given_a_fast_diagonal_scroll_when_sampled_then_the_inertia_is_capped_at_SCROLL_INERTIA_MAX_PX_S_with_its_direction | D80-2 cap |
-| 15 | scroll-tracker.test: given_the_same_scroll_at_60_hz_and_at_120_hz_when_sampled_then_the_summed_inertia_is_the_same | D80-2 per distance, W80 RF2 |
+| 15 | scroll-tracker.test: given_the_same_scroll_at_60_hz_and_at_120_hz_when_sampled_then_the_summed_inertia_is_the_same | D80-2 per distance, the cap per 1/60 s (also when it bites), W80 RF2 |
 | 16 | scroll-tracker.test: given_container_mode_when_the_container_and_the_page_scroll_then_delta_reads_only_the_container_and_dragDelta_subtracts_the_offset_change | W80 RF3 |
 | 17 | scroll-tracker.test: given_reduced_motion_or_a_frame_without_elapsed_time_when_the_page_scrolls_then_the_delta_is_kept_and_the_inertia_is_0 | reduced motion, resume |
 | 18 | scroll-tracker.test: given_two_scrolls_between_frames_when_sampled_then_one_delta_is_their_sum | W80 RF2 |
@@ -258,6 +258,7 @@ Every browser rest-frame count equals the Rust one for the same row (23, 26, 36,
 | 47 | e2e webgpu-robust (webgpu-hw): W80 step 7 – given renderer webgpu and a scroll of 300 px down and back at 10 px per frame … | step 7 in WebGPU |
 | 48 | e2e webgpu-robust (webgpu-hw): W80 D80-4 – … the offset of the canvas card edge from the DOM card edge per screenshot is logged (never gated) | D80-4 probe |
 | 49 | e2e perf (perf): perf – W80: a Canvas2D frame that scrolls 10 px costs at most 1.15 × the same frame without the scroll (both after a shake) | slice design §11 perf |
+| 50 | e2e acceptance (canvas2d): step 7 – … at 30 px per frame … | D80-3 gate: a sustained fast scroll (W80.0: the provisional 0.05 / 120 tore here) |
 
 ## Must NOT
 - Excite the liquid on a rigid scroll; call the core on a frame without a scroll.

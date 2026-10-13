@@ -430,7 +430,7 @@ The page is `demo/scenes/acceptance.html`: three buttons ("Splash", "Split", "Me
 4. Tab + Enter on "Split": the same splash at the centre. The focus ring is visible throughout.
 5. Drag "Merge" into the card and release: displacement merge, separation, both re-form within **3 s**, and the labels never overlap.
 6. Shake: everything sloshes and re-forms within **3 s**.
-7. Scroll 300 px and back: the liquid follows with no snap.
+7. Scroll 300 px and back: the liquid follows with no snap and every element is at rest within **3 s** after the scroll.
 8. Reduced motion / forced colours / Canvas2D project / `device.lost`: each behaves as in §4.
 
 **Expected state per slice.** ✅ = must pass, ⏳ = not expected yet, W/C = per renderer project:

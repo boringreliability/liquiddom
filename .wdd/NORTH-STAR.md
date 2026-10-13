@@ -35,7 +35,7 @@ What a person sees and feels. Every ward moves at least one of these closer, or 
 4. Tab + Enter on "Split": the same splash at the centre. The focus ring is visible throughout.
 5. Drag "Merge" into the card and release: displacement merge, separation, both re-form within **3 s**, and the labels never overlap.
 6. Shake: everything sloshes and re-forms within **3 s**.
-7. Scroll 300 px and back: the liquid follows with no snap.
+7. Scroll 300 px and back: the liquid follows with no snap and every element is at rest within **3 s** after the scroll.
 8. Reduced motion / forced colours / Canvas2D project / `device.lost`: each behaves as in §4.
 
 ### Slice matrix
@@ -232,3 +232,7 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D79-4 | Merge checks hold the drag 90 frames | W79 | dec_3209c60d |
 | D79-5 | Torn card text after release: no extra mechanism, vision at gold | W79 | dec_3209c60d |
 | D79-6 | @internal id-target readback for the e2e | W79 | dec_3209c60d |
+| D80-1 | Scroll model: viewport space + rigid scroll_shift (whole cells + lattice-origin rest) + light inertia; dragged element not shifted; container canvas transform | W80 | dec_bf3e91f4 |
+| D80-2 | Inertia Δ·60·SCROLL_INERTIA (0.02), capped at SCROLL_INERTIA_MAX_PX_S (30) · dt · 60 per call, 0 without elapsed time or under reduced motion (amended at the gate, W80.0) | W80 | dec_67a169e6 |
+| D80-3 | Step-7 budget: at rest within 3 s after the scroll; per-frame fill ≥ FILL_MIN 0.85; step-7 speeds 1, 10, 30, 300 px/frame | W80 | dec_08b53a98 |
+| D80-4 | 1-frame lag accepted (invisible at rest, W80.0; in motion one frame per scroll step); logged probe, never gated; a canvas that scrolls with the content revisited at W87 | W80 | dec_f06ddc93 |
