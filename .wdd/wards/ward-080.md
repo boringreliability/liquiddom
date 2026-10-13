@@ -3,7 +3,7 @@ ward: 80
 revision: null
 name: "Scroll follows"
 epic: "fluid-engine"
-status: "red"
+status: "approved"
 dependencies: [79]
 layer: "both"
 estimated_tests: 51
