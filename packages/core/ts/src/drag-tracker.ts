@@ -39,6 +39,13 @@ interface Press {
   readonly pointerId: number;
   readonly x0: number;
   readonly y0: number;
+  /** The pointer's offset from the down point (client px); the threshold reads only this. */
+  cx: number;
+  cy: number;
+  /** W80 (D80-1): the scroll since the down point that moved the element under the pointer. */
+  sx: number;
+  sy: number;
+  /** The drag offset the registry writes: pointer offset + scroll (`cx + sx`, `cy + sy`). */
   dx: number;
   dy: number;
   dragging: boolean;
@@ -94,6 +101,22 @@ export class DragTracker {
     if (this.press !== null && !this.press.el.isConnected) this.end("cancel");
   }
 
+  /**
+   * W80 (D80-1): once per frame before `frame()`, with the scroll tracker's `dragDx/dragDy`. The page
+   * (or the container) scrolled the pressed element by (−dx, −dy) under a pointer that stayed put, so
+   * the drag offset grows by (dx, dy) and the dragged liquid stays under the pointer. A press below
+   * the threshold accumulates it too (the offset includes it once the drag starts), but a scroll alone
+   * never starts a drag: the threshold reads the pointer's own motion. No press: no-op.
+   */
+  scrolled(dx: number, dy: number): void {
+    const p = this.press;
+    if (p === null || !Number.isFinite(dx) || !Number.isFinite(dy)) return;
+    p.sx += dx;
+    p.sy += dy;
+    p.dx = p.cx + p.sx;
+    p.dy = p.cy + p.sy;
+  }
+
   /** Reduced motion switched on, a lost device, a failed frame. */
   cancel(): void {
     if (this.press !== null) this.end("cancel");
@@ -117,7 +140,7 @@ export class DragTracker {
     if (e.button !== 0 || !e.isPrimary) return;
     if (!Number.isFinite(e.clientX) || !Number.isFinite(e.clientY)) return;
     this.clearSwallow(); // a new press: a swallow left by a cancelled drag is stale
-    this.press = { el, pointerId: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0, dragging: false };
+    this.press = { el, pointerId: e.pointerId, x0: e.clientX, y0: e.clientY, cx: 0, cy: 0, sx: 0, sy: 0, dx: 0, dy: 0, dragging: false };
     this.listen(true);
   }
 
@@ -132,8 +155,11 @@ export class DragTracker {
     const dx = e.clientX - p.x0;
     const dy = e.clientY - p.y0;
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
-    p.dx = dx;
-    p.dy = dy;
+    p.cx = dx;
+    p.cy = dy;
+    p.dx = dx + p.sx;
+    p.dy = dy + p.sy;
+    // W80: the threshold is the pointer's own motion; a scroll alone never starts a drag.
     if (!p.dragging && dx * dx + dy * dy > THRESHOLD_SQ) {
       p.dragging = true;
       // Captured only now (design resolution 1), so a plain click keeps its native targets.

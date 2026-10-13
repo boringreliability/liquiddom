@@ -22,6 +22,7 @@ import { clearHaloClasses, releaseHaloClass, syncHaloClasses, type HaloSyncArgs 
 import { LoopController } from "./loop-control";
 import { PointerTracker } from "./pointer-tracker";
 import { DragTracker } from "./drag-tracker";
+import { ScrollTracker } from "./scroll-tracker";
 import { acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas } from "./stylesheet";
 import { initCanvas2D, selectRenderer, type ActiveRenderer, type RendererChoice, type SelectedRenderer } from "./renderers/select";
 import type { FluidCanvas2DRenderer } from "./renderers/fluid-canvas2d";
@@ -527,6 +528,8 @@ function buildRuntime(
     pointerDoc,
     pointerDoc.defaultView ?? window,
   );
+  // W80 (D80-1): the scroll of the window (body mode) or of the container, read once per frame.
+  const scrollTracker = new ScrollTracker(pointerDoc.defaultView ?? window, container);
   const syncAway = (): void => {
     awayStateView = bridge.stateView();
     awayArgs.entries = registry.entries();
@@ -700,8 +703,15 @@ function buildRuntime(
     inFrame = true;
     try {
       applyDomChanges(); // W75: coalesced DOM, colour, font and DPR changes, once per frame
+      // W80 (D80-1): the scroll since the last frame; a scrolled container keeps the canvas on its window.
+      const sc = scrollTracker.sample(dtS, frameOffset, reducedMotion);
+      scrollTracker.placeCanvas(canvas);
+      // W80: a live press keeps the dragged liquid under the pointer (slots 6-7 grow by the scroll).
+      if (sc.dragDx !== 0 || sc.dragDy !== 0) dragTracker.scrolled(sc.dragDx, sc.dragDy);
       dragTracker.frame(); // W78: a pressed element that left the document cancels
       registry.sync();
+      // W80 (D80-1): after this frame's rects, before the tick; only when something scrolled.
+      if (sc.dx !== 0 || sc.dy !== 0 || sc.ivx !== 0 || sc.ivy !== 0) core.scroll_shift(sc.dx, sc.dy, sc.ivx, sc.ivy);
       // W68: soft pointer field input, gated by reduced motion (D68-5).
       const ptr = pointer.sample(nowMs, frameOffset);
       const pointerOn = ptr.active && !reducedMotion;
