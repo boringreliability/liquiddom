@@ -54,18 +54,18 @@ Soft-body decisions (W1–W62) are snapshotted in `.wdd/memory/snapshots/`. Acti
 - Gravity is validated but inert until W83.
 - Scroll (W80): rigid shift + capped inertia (D80-2); fixed/stuck sticky elements are not shifted. While scrolling, DOM labels sit 60–100 px off their liquid for a frame per scroll step (both renderers); none at rest (D80-4).
 - Parking (W81): outside world + margin an element is not simulated, re-enters at rest; partly outside keeps wall-clamped liquid. A translated container canvas keeps the old scroll range after the content shrinks (W80).
-- `resize_world` (W81): grid = world + margin; margin 8192 px at 4 px cells ≈ 450 MB (default 200 px: ≈ 55 MB at 8192).
-- Edge ring (D67-13): spacing cell/2 from the area hint; a far-off hint makes it denser or sparser.
+- `resize_world` (W81): a margin near 8192 px needs ≈ 450 MB of grid (200 px: ≈ 55 MB).
+- Edge ring (D67-13): spacing cell/2 from the area hint; a far-off hint changes its density.
 - The first frame that throws (or a failing `resize_world`) stops the instance; adapters do not react.
 - WebGPU e2e is local only (`e2e:webgpu`, `e2e:webgpu-hw`, Metal); CI runs the soft smoke. No webgpu Linux baselines.
 - A WebGPU canvas reads only in its render task; e2e uses `__liquidTest.pixels()`.
 - Text while the liquid is away: WebGPU carries it on its liquid (W74); Canvas2D adds a 1–8 px halo in the background colour (W75), not a solid backdrop for thin glyphs.
 - Colour re-read (W75 B): own class/style or a `color` transitionend only, after the element's CSS transitions end; ancestor/stylesheet/`:hover` changes and `@keyframes` colours need `refresh(el)`, which runs at once. Text can run one atlas upload behind.
-- Rewriting an observed element's inline style every frame costs a colour snapshot and an atlas re-render per frame (W75).
+- Rewriting an observed element's inline style every frame costs a colour snapshot and an atlas re-render per frame (W75); its DOM text shows meanwhile.
 - Liquid text v1 (W74, D74-5): text nodes only; underline, text-shadow, icons, images, SVG, form values/placeholders and `::before`/`::after` text hide while the text moves; `capitalize` is per word; atlas ≤ 4096² px (else the DOM text stays); words are clipped to the border box (overflow vanishes while moving).
 - Liquid text costs: the whole atlas page re-renders on any generation, paints or text change; two pages on the GPU (one staged); T1/T1w/T1id stay allocated. W79: no text where text liquids meet.
-- Hover swell with liquid text (W74): particles swell 2 %, the DOM text does not (≈ 1 px shift on the switch); a resting pointer can smear moving text.
-- `activeRenderer` can change mid-session (W72): a lost WebGPU device makes it `'canvas2d'`.
+- Hover swell with liquid text (W74): particles swell 2 %, the DOM text does not (≈ 1 px shift); a resting pointer can smear moving text.
+- `activeRenderer` can change mid-session (W72): a lost WebGPU device makes it `'canvas2d'`; a frame or two draw nothing.
 - Canvas2D cell (W77): one fine-spaced element holds the whole page on the 2 px grid, where R up to 16 px costs ≈1.5×.
 
 ## What Comes Next
