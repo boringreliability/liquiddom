@@ -614,7 +614,7 @@ mod w67 {
     fn given_element_moved_1000px_away_and_back_when_ticking_then_every_rest_alpha_1_within_5_s() {
         let mut core = settled_core(1);
         let home = LAYOUT[SPLASH];
-        // +1000 px ploughs through the Split and Merge liquid; −1000 px leaves the world (clamped).
+        // +1000 px ploughs through the Split and Merge liquid; −1000 px leaves the world and parks (W81).
         for dx in [1000.0f32, -1000.0] {
             let [x, y, w, h, r] = home;
             core.write_element(SPLASH, slot([x + dx, y, w, h, r]));

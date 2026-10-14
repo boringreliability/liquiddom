@@ -66,7 +66,7 @@ pub fn hold_dragged(e: &mut Elements) {
             continue;
         };
         for n in 0..e.cap {
-            if n == d || e.is_dragged(n) {
+            if n == d || e.is_dragged(n) || e.is_parked(n) {
                 continue;
             }
             if let Some(r) = e.home_rect(n, false)
@@ -148,6 +148,10 @@ pub fn splash(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, at: 
     let Some(rect) = e.rect(id) else {
         return false;
     };
+    // W81 (D81-1): a parked element is off-screen and not simulated; a splash on it is ignored.
+    if e.is_parked(id) {
+        return false;
+    }
     // W67 ward-review fix: no particles assigned (e.g. before the first redistribute)
     // means nothing to hit, so no damage either.
     if rd_u32(&e.counts, id) == 0 {
@@ -230,6 +234,9 @@ struct ShakeSlot {
 /// `None` for an inactive element. `shake` never runs under reduced motion (`FluidCore::shake`
 /// returns early), so the home rect is the one the targets use, hover swell included.
 fn shake_slot(stream: u32, id: usize, e: &Elements, g: &Grid) -> Option<ShakeSlot> {
+    if e.is_parked(id) {
+        return None; // W81 (D81-1): a parked element does not shake
+    }
     let r = e.home_rect(id, false)?;
     let (cx, _) = g.to_grid(r.x + 0.5 * r.w, r.y);
     let half_w = 0.5 * r.w * g.inv_cell;
@@ -275,7 +282,7 @@ pub fn shake(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, stren
         add(&mut p.vy, i, s.field.dir_y * k);
     }
     for id in 0..e.cap {
-        if e.is_active(id) {
+        if e.is_active(id) && !e.is_parked(id) {
             e.damage(id, SHAKE_STIFFNESS_CAP);
         }
     }

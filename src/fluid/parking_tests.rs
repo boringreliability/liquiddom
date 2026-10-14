@@ -537,8 +537,7 @@ fn given_a_dragged_element_outside_the_bound_when_ticking_then_it_is_never_parke
 }
 
 #[test]
-fn given_a_parked_element_when_the_page_scrolls_then_scroll_shift_leaves_its_particles_alone()
- {
+fn given_a_parked_element_when_the_page_scrolls_then_scroll_shift_leaves_its_particles_alone() {
     let mut c = far_core(true);
     frames(&mut c, 2);
     let before = bits_of(&c, &[FAR_ID]);

@@ -14,6 +14,7 @@ use super::grid::{Grid, MIN_PARTICLES_PER_CELL};
 use super::interaction::{self, SplashAt};
 use super::layout::{DYNAMIC_FIELDS, ELEMENT_STRIDE, STATE_STRIDE, STATIC_FIELDS};
 use super::material::{DEFAULT_MATERIAL, Material};
+use super::parking;
 use super::particles::Particles;
 use super::pool::{self, PoolScratch};
 use super::rng::Rng;
@@ -201,6 +202,18 @@ impl FluidCore {
         if raw_dt_s.is_finite() && raw_dt_s > 0.0 {
             self.vel_wall_s += f64::from(raw_dt_s);
         }
+        // W81 (D81-1): park and unpark for this frame's rects, also on a 0-step tick, so an
+        // element that re-enters is at rest in the frame it re-enters.
+        if self.parking_on()
+            && parking::update(
+                &mut self.particles,
+                &self.grid,
+                &mut self.elements,
+                self.settings.reduced_motion,
+            )
+        {
+            self.scratch.invalidate_bounds(); // D68-10: placed particles, a changed simulated set
+        }
         #[cfg(test)]
         self.step_vel_trace.clear();
         if self.settings.reduced_motion {
@@ -337,6 +350,11 @@ impl FluidCore {
             rm,
             &mut self.pool_scratch,
         );
+        // W81 (D81-1): parking for the new rects, then every particle's flag for its new home.
+        if self.parking_on() {
+            parking::update(&mut self.particles, &self.grid, &mut self.elements, rm);
+            parking::sync_particles(&mut self.particles, &self.grid, &self.elements, rm);
+        }
         self.generation = self.generation.wrapping_add(1);
         self.views.write_static(&self.particles);
         solver::compute_targets(
@@ -387,9 +405,18 @@ impl FluidCore {
         self.scratch.invalidate_bounds(); // D68-10: the shift moved particles
     }
 
-    /// W81 red stub (D81-2); W81.2 grows the grid.
-    pub fn resize_world(&mut self, _w: f32, _h: f32) -> bool {
-        false
+    /// W81 (D81-2): the viewport (or the container's window) outgrew the world given at
+    /// `create()`. Grows the grid to cover a world of at least `w × h` px (clamped to
+    /// [64, 8192] px per axis; never shrinks; a non-finite or non-positive extent keeps that
+    /// axis). Particles, the cell, the margin and the lattice origin are kept. The one allocation
+    /// outside the constructor: TS calls it outside `tick`, at most once per resize, and logs it.
+    /// Returns true when the grid grew.
+    pub fn resize_world(&mut self, w: f32, h: f32) -> bool {
+        let grew = self.grid.resize_world(w, h);
+        if grew {
+            self.scratch.invalidate_bounds(); // D68-10: a new grid, a new region
+        }
+        grew
     }
 }
 

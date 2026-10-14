@@ -359,8 +359,10 @@ pub fn compute_targets(
     s: &mut Scratch,
 ) {
     for i in 0..p.cap {
+        // W81 (D81-1): a parked particle has no target (the pin and maxDev skip it).
         let target = p
             .home_of(i)
+            .filter(|_| !p.is_parked(i))
             .and_then(|h| e.target_px(h, rd(&p.rest_u, i), rd(&p.rest_v, i), reduced_motion));
         let (tx, ty) = match target {
             Some((x, y)) => {
@@ -377,7 +379,8 @@ pub fn compute_targets(
 fn particle_bounds(p: &Particles, g: &Grid) -> Option<(f32, f32, f32, f32)> {
     let mut bounds: Option<(f32, f32, f32, f32)> = None;
     for i in 0..p.cap {
-        if p.home_of(i).is_none() {
+        // W81 (D81-1): parked particles are not simulated, so they do not widen the region.
+        if p.home_of(i).is_none() || p.is_parked(i) {
             continue;
         }
         let (x, y) = g.clamp_pos(rd(&p.x, i), rd(&p.y, i));
@@ -633,6 +636,9 @@ pub fn substep_with(
         let Some(h) = p.home_of(i) else {
             continue;
         };
+        if p.is_parked(i) {
+            continue; // W81 (D81-1): not simulated
+        }
         let mass = rd(&p.mass, i);
         if mass <= 0.0 {
             continue;
@@ -706,6 +712,9 @@ pub fn substep_with(
         let Some(h) = p.home_of(i) else {
             continue;
         };
+        if p.is_parked(i) {
+            continue; // W81 (D81-1): not simulated, not in the fused AABB
+        }
         let (x, y) = g.clamp_pos(rd(&p.x, i), rd(&p.y, i));
         if rd(&p.mass, i) <= 0.0 {
             // Not moved: its stored position is what `particle_bounds` reads.
@@ -832,6 +841,9 @@ pub fn measure_max_f_dev(p: &Particles, out: &mut [f32]) {
         let Some(h) = p.home_of(i) else {
             continue;
         };
+        if p.is_parked(i) {
+            continue; // W81 (D81-1)
+        }
         let d = f_dev(rd4(&p.f, i, IDENTITY));
         if let Some(m) = out.get_mut(h)
             && (d > *m || d.is_nan())

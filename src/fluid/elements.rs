@@ -167,8 +167,29 @@ impl Elements {
         }
     }
 
-    /// W81 red stub (D81-1); W81.2 puts the element at rest.
-    pub fn rest_now(&mut self, _id: usize) {}
+    /// W81 (D81-1): at rest now (park and re-entry): stiffness 1, full rest hold, no merge slip,
+    /// no previous rect sample and home velocity 0 (the next `update_velocities` starts from the
+    /// current rect), state s = 1, maxDev 0, restAlpha 1, maxFDev 0. Out of range is a no-op.
+    pub fn rest_now(&mut self, id: usize) {
+        if id >= self.cap {
+            return;
+        }
+        wr(&mut self.stiffness, id, 1.0);
+        wr(&mut self.rest_hold_s, id, REST_HOLD_S);
+        self.set_merge_slip(id, false);
+        if let Some(slot) = self.has_prev.get_mut(id) {
+            *slot = false;
+        }
+        wr(&mut self.vel_x, id, 0.0);
+        wr(&mut self.vel_y, id, 0.0);
+        wr(&mut self.prev_off_x, id, 0.0);
+        wr(&mut self.prev_off_y, id, 0.0);
+        let base = id * STATE_STRIDE;
+        wr(&mut self.state, base + ST_S, 1.0);
+        wr(&mut self.state, base + ST_MAX_DEV, 0.0);
+        wr(&mut self.state, base + ST_REST_ALPHA, 1.0);
+        wr(&mut self.state, base + ST_MAX_F_DEV, 0.0);
+    }
 
     /// W78 (D78-4): slot 5 holds DRAGGED (within ±0.5, like HOVER in `swell_rect`). NaN, an
     /// out-of-range id and every other code are not dragged.
@@ -316,6 +337,7 @@ impl Elements {
         wr(&mut self.prev_off_x, id, 0.0);
         wr(&mut self.prev_off_y, id, 0.0);
         self.set_merge_slip(id, false);
+        self.set_parked(id, false);
         let base = id * STATE_STRIDE;
         wr(&mut self.state, base + ST_S, 1.0);
         wr(&mut self.state, base + ST_MAX_DEV, 0.0);
@@ -388,6 +410,11 @@ impl Elements {
             wr(&mut self.state, base + ST_MAX_DEV, 0.0);
             wr(&mut self.state, base + ST_REST_ALPHA, 0.0);
             wr(&mut self.state, base + ST_MAX_F_DEV, 0.0);
+            return;
+        }
+        if self.is_parked(id) {
+            // W81 (D81-1): a parked element is held at rest (its particles are not simulated).
+            self.rest_now(id);
             return;
         }
         if reduced_motion {

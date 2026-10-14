@@ -90,7 +90,7 @@ impl ScrollShift {
 /// W80 (D80-1): whether element `id`'s particles and previous home rect follow the scroll. A
 /// dragged element does not: its home is pinned to the pointer. W81 also skips a parked element.
 pub fn shifts_with_scroll(e: &Elements, id: usize) -> bool {
-    !e.is_dragged(id)
+    !e.is_dragged(id) && !e.is_parked(id)
 }
 
 /// W80 ward review I1: whether element `id`'s DOM rect moved with this shift. `m` is the rect's
@@ -161,6 +161,10 @@ pub fn apply(
         let Some(h) = p.home_of(i) else {
             continue;
         };
+        if p.is_parked(i) {
+            // W81 (D81-1): not simulated; re-entry places it at rest wherever it is.
+            continue;
+        }
         let follows = match last {
             Some((id, f)) if id == h => f,
             _ => {

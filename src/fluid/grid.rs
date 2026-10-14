@@ -201,9 +201,40 @@ impl Grid {
         (kx, ky)
     }
 
-    /// W81 red stub (D81-2); W81.2 grows the grid.
-    pub fn resize_world(&mut self, _world_w_px: f32, _world_h_px: f32) -> bool {
-        false
+    /// W81 (D81-2): grows the world to at least `world_w_px × world_h_px` (each clamped to
+    /// `[WORLD_MIN_PX, WORLD_MAX_PX]`; a non-finite or non-positive extent keeps that axis) and
+    /// reallocates the grid arrays for it. Never shrinks. The cell, the margin and the origin stay,
+    /// so every particle keeps its grid position and W80's lattice phase (`origin − base_origin_px`);
+    /// only the right and bottom walls move out. The region is reset (the caller invalidates the
+    /// fused AABB). Allocates: called outside `tick` only. Returns true when the world grew.
+    pub fn resize_world(&mut self, world_w_px: f32, world_h_px: f32) -> bool {
+        let grow = |v: f32, now: f32| {
+            if positive(v) {
+                v.clamp(WORLD_MIN_PX, WORLD_MAX_PX).max(now)
+            } else {
+                now
+            }
+        };
+        let ww = grow(world_w_px, self.world_w_px);
+        let wh = grow(world_h_px, self.world_h_px);
+        if ww <= self.world_w_px && wh <= self.world_h_px {
+            return false;
+        }
+        let cells = |extent: f32| {
+            ((extent + 2.0 * self.margin_px) * self.inv_cell).ceil() as usize + STENCIL_GUARD_CELLS
+        };
+        let w = cells(ww).max(self.w);
+        let h = cells(wh).max(self.h);
+        let n = w * h;
+        self.world_w_px = ww;
+        self.world_h_px = wh;
+        self.w = w;
+        self.h = h;
+        self.mass = vec![0.0; n];
+        self.mvx = vec![0.0; n];
+        self.mvy = vec![0.0; n];
+        self.region = Region::default();
+        true
     }
 
     #[inline]
