@@ -113,15 +113,20 @@ describe("W81 – the world in the runtime (D81-2, D81-3)", () => {
   it("given_a_frame_that_failed_when_the_window_grows_then_no_core_method_is_called_and_nothing_is_logged", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    const { rt, clock, backend, calls } = await start();
+    const all: string[] = [];
+    const backend = createTestBackend({ onCall: (n) => all.push(n) });
+    const clock = createManualClock();
+    const rt = await createFluidRuntime({ particles: 256, maxElements: 4, seed: 1, testBackend: backend, clock });
+    live.push(rt);
     vi.spyOn(backend.cores[0]!, "tick").mockImplementation(() => {
       throw new Error("boom (a poisoned core)");
     });
     clock.advance(1);
     expect(error, "the frame failed").toHaveBeenCalledTimes(1);
+    const before = all.length;
     setWindow("innerWidth", 3000);
     window.dispatchEvent(new Event("resize"));
-    expect(resizes(calls)).toEqual([]);
+    expect(all.slice(before), "every core method recorded after the failed frame: none").toEqual([]);
     expect(info).not.toHaveBeenCalled();
     expect(rt.world).toEqual({ w: 1280, h: 800 });
   });

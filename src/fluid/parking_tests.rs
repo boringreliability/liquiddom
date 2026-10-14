@@ -23,6 +23,8 @@ const FAR_RECT: [f32; 5] = [480.0, 2400.0, 320.0, 160.0, 16.0];
 const PLACE_EPS_PX: f32 = 1e-3;
 /// W80's bound for "equal to the unscrolled core up to f32 rounding".
 const ROUNDING_PX: f32 = 0.01;
+/// Home velocity (px/s) that still counts as zero.
+const HOME_V_EPS: f32 = 1e-3;
 
 fn frame(core: &mut FluidCore) -> u32 {
     core.tick(DT, 0.0, 0.0, 0.0, 0.0, false, 0.0, 0.0)
@@ -126,6 +128,26 @@ fn given_the_world_and_margin_when_the_bounds_are_read_then_outside_inside_by_an
         "bottom edge at 1000 − 64"
     );
     assert!(!inside_by(&rect(480.0, 777.0, 320.0, 160.0), &b, 64.0));
+    assert!(
+        inside_by(&rect(-136.0, 300.0, 200.0, 48.0), &b, 64.0),
+        "left edge at −200 + 64"
+    );
+    assert!(
+        !inside_by(&rect(-150.0, 300.0, 200.0, 48.0), &b, 64.0),
+        "left edge 50 px inside: not 64"
+    );
+    assert!(
+        inside_by(&rect(1096.0, 300.0, 320.0, 48.0), &b, 64.0),
+        "right edge at 1480 − 64"
+    );
+    assert!(
+        !inside_by(&rect(1100.0, 300.0, 320.0, 48.0), &b, 64.0),
+        "right edge 60 px inside: not 64"
+    );
+    assert!(
+        inside_by(&rect(0.0, 0.0, 1280.0, 800.0), &b, 64.0),
+        "inside by ≥ 64 on all four sides"
+    );
     assert!(overlaps(&rect(480.0, 799.0, 320.0, 160.0), &world(&g)));
     assert!(
         !overlaps(&rect(480.0, 800.0, 320.0, 160.0), &world(&g)),
@@ -287,6 +309,22 @@ fn given_a_parked_far_element_when_the_others_splash_shake_and_scroll_then_their
     );
 }
 
+/// FNV-1a 64 over the words of a run (positions, velocities, dynamic view).
+fn golden_hash(run: &(Vec<u32>, Vec<u32>, Vec<u32>)) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for w in run.0.iter().chain(&run.1).chain(&run.2) {
+        for b in w.to_le_bytes() {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    h
+}
+
+/// Captured at the W81 red, where the stubs carry the W80 numerics (parking is not wired into the
+/// tick yet), by hashing `run(false)` of the test below. It must never change in W81.
+const W80_GOLDEN: u64 = 1_710_035_767_997_873_519;
+
 #[test]
 fn given_no_element_ever_leaves_the_bound_when_splashing_shaking_and_scrolling_300_px_then_the_core_is_bit_identical_with_parking_on_and_off()
  {
@@ -319,9 +357,16 @@ fn given_no_element_ever_leaves_the_bound_when_splashing_shaking_and_scrolling_3
                 .collect::<Vec<_>>(),
         )
     };
+    let off = run(false);
+    let on = run(true);
     assert_eq!(
-        run(true),
-        run(false),
+        golden_hash(&off),
+        W80_GOLDEN,
+        "parking off equals the W80 engine"
+    );
+    assert_eq!(
+        golden_hash(&on),
+        W80_GOLDEN,
         "parking changes nothing while no element is parked (W80 bit-identity)"
     );
 }
@@ -372,9 +417,21 @@ fn given_a_parked_element_scrolled_into_view_when_it_overlaps_the_world_then_in_
         count_parked_others(&c),
         "only the elements still out of the bound are flagged"
     );
-    for _ in 0..20 {
+    let (vx, vy) = c.home_velocity_of(FAR_ID);
+    assert!(
+        vx.abs() < HOME_V_EPS && vy.abs() < HOME_V_EPS,
+        "home velocity 0 in the entering frame (the scroll is rigid): ({vx}, {vy})"
+    );
+    for k in 0..20 {
         scroll_frame(&mut c, at, at + 10.0);
         at += 10.0;
+        if k == 0 {
+            let (vx, vy) = c.home_velocity_of(FAR_ID);
+            assert!(
+                vx.abs() < HOME_V_EPS && vy.abs() < HOME_V_EPS,
+                "home velocity 0 after the first rigid scroll frame: ({vx}, {vy})"
+            );
+        }
         assert_eq!(
             c.state(FAR_ID)[ST_REST_ALPHA],
             1.0,
@@ -392,6 +449,26 @@ fn given_a_parked_element_scrolled_into_view_when_it_overlaps_the_world_then_in_
         vx.abs() < 1e-3 && vy.abs() < 1e-3,
         "home velocity 0 after re-entry: ({vx}, {vy})"
     );
+}
+
+#[test]
+fn given_a_parked_element_that_enters_the_world_on_a_0_step_tick_when_ticked_then_it_is_unparked_at_rest_and_placed_on_its_targets()
+ {
+    let mut c = far_core(true);
+    frames(&mut c, 5);
+    assert!(c.is_parked_of(FAR_ID));
+    write_all(&mut c, 1700.0); // the card at y 700: in the world
+    c.scroll_shift(0.0, 1700.0, 0.0, 0.0);
+    // 0.004 s is below one fixed step: the tick runs 0 steps (spec §2: parking also runs then).
+    assert_eq!(c.tick(0.004, 0.0, 0.0, 0.0, 0.0, false, 0.0, 0.0), 0);
+    assert!(!c.is_parked_of(FAR_ID), "unparked on a 0-step tick");
+    assert_eq!(c.state(FAR_ID)[ST_REST_ALPHA], 1.0, "at rest");
+    let dev = worst_target_dev(&c, FAR_ID);
+    assert!(
+        dev < PLACE_EPS_PX,
+        "placed on its targets on a 0-step tick: {dev} px"
+    );
+    assert_eq!(c.parked_particles(), 0);
 }
 
 fn count_parked_others(c: &FluidCore) -> usize {
@@ -460,7 +537,7 @@ fn given_a_dragged_element_outside_the_bound_when_ticking_then_it_is_never_parke
 }
 
 #[test]
-fn given_a_parked_element_when_the_page_scrolls_then_scroll_shift_leaves_its_particles_and_previous_rect_alone()
+fn given_a_parked_element_when_the_page_scrolls_then_scroll_shift_leaves_its_particles_alone()
  {
     let mut c = far_core(true);
     frames(&mut c, 2);

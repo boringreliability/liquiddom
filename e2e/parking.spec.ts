@@ -80,15 +80,11 @@ test.describe("W81 – parking and resize (canvas2d)", () => {
 
   test("D81-1 – given a jump straight to #far2 when the frame runs then #far2 is unparked and at rest in that very frame with its DOM shape filled, and the jump back parks it again", async ({ page }) => {
     await openLongPage(page);
-    const enter = await page.evaluate(() => {
-      const h = window.__longPage!;
-      window.scrollTo({ top: 4100, behavior: "instant" });
-      h.advance(1);
-      return { parked: h.parked(), rest: h.restAlpha() };
-    });
+    // scrollPathFills scrolls, advances exactly one frame and measures that frame: the re-entry frame itself.
+    const fill = await scrollPathFills(page, LONG_FILL, [4100]);
+    const enter = await page.evaluate(() => ({ parked: window.__longPage!.parked(), rest: window.__longPage!.restAlpha() }));
     expect(enter.parked, "#far2 unparked, the first screen parked").toEqual([true, true, true, false]);
     expect(enter.rest[3], "#far2 re-enters at rest (D81-1)").toBe(1);
-    const fill = await scrollPathFills(page, LONG_FILL, [null]);
     expect(fill[0]!.judged, "#far2 is visible").toBeGreaterThan(0);
     expect(fill[0]!.min, `${fill[0]!.worst} filled in the re-entry frame`).toBeGreaterThanOrEqual(FILL_MIN);
     const leave = await page.evaluate(() => {
