@@ -32,27 +32,27 @@ Out of scope: touch drag and the drag opt-out (W84), the adapters (W85), the sit
 ### D83-1: High-pass gravity — only changes act
 Proposal: Rust keeps a low-pass `g_lp` per core and adds `scale·g_hp·dt` (`g_hp = g − g_lp`) to the grid velocities of cells with mass, after momentum → velocity and before the walls and the CFL cap; `|scale·g_hp|` is clamped to 2000 px/s² and `|g_hp| < 0.5 px/s²` snaps to 0 (so the engine returns to bit-identity ≈ 8τ after a change). The home spring is unchanged: a tilt gives a subtle lean of a few px that settles at home, not a run to the side (Dennis chose this over a softer spring during a tilt, 2026-10-14). Reduced motion: g = 0. Parked particles skip the grid and are unaffected (brainstorm 2026-10-13, saga dec_645b54e4, made concrete by W83.0).
 Consequence: tilt is a subtle, live detail (W83.0 Q1: a 90° tilt leans 6.4 px at its peak, ragged edges for a few frames, rest within 142 frames, ≤ 0.05 px left after 3 s; the settled frame is byte-identical to the frame before the tilt); the clamp keeps it below the spring's saturation, where the liquid would run out of its element (20–700 px). A tilt during a shake stays bounded (153 px vs 98 px for the shake alone, re-forms within 150 frames). With `source: 'none'` every acceptance step is bit-identical.
-Decision: PENDING
+Decision: APPROVED 2026-10-14 — high-pass as proposed: per-core low-pass, scale·g_hp·dt on grid velocities with mass after momentum → velocity, clamp 2000 px/s², snap below 0.5 px/s², home spring unchanged (a subtle lean, Dennis chose it over a softer spring), reduced motion g = 0 (saga dec_1b0ca2b0)
 
 ### D83-2: Gravity scale and high-pass time constant
 Proposal: τ = 0.5 s, scale = 1.5, clamp `|scale·g_hp|` ≤ 2000 px/s².
 Consequence: W83.0 Q1 grid (τ 0.25/0.5/1.0 × scale 0.25/0.5/1.0): the slosh peaks at ≤ 5 px and a 20° or slow 2 s tilt at scale ≤ 0.5 never drops restAlpha (nothing visible); 1.5 with the clamp is the largest visible lean that stays inside rect + one kernel radius (6.4 of 7.09 px) even at 2× strength.
-Decision: PENDING
+Decision: APPROVED 2026-10-14 — tau 0.5 s, scale 1.5, clamp 2000 px/s² (saga dec_92788d5a)
 
 ### D83-3: Changing gravity at run time
 Proposal: a `setGravity(partial)` setter, snapshotted, validated and applied atomically like `setMaterial`; for `fixed` the gravity is `normalize(vector)·strength` (both are typed px/s² today, which is ambiguous); a zero vector means no gravity; the Rust clamp guards large strengths.
 Consequence: a new public method; `fixed` gravity acts only when it changes (D83-1); the `vector` + `strength` meaning is documented.
-Decision: PENDING
+Decision: APPROVED 2026-10-14 — setGravity(partial) atomic like setMaterial; fixed gravity = normalize(vector)·strength, a zero vector means none (saga dec_993e915c)
 
 ### D83-4: A fixed vector at create()
 Proposal: the low-pass is seeded with the initial gravity at `create()` (and on a source switch), so a fixed vector starts at rest; only later changes act.
 Consequence: W83.0 Q2: crisp from frame 0 and bit-identical to `none`; the alternative (high-pass from 0) leaned ≈ 2 px at load and held restAlpha below 1 for 74 frames.
-Decision: PENDING
+Decision: APPROVED 2026-10-14 — the low-pass is seeded with the initial gravity at create() and on a source switch, so a fixed vector starts at rest (saga dec_f274696e)
 
 ### D83-5: Orientation mapping
 Proposal: `deviceorientation` → `px = cos β · sin γ`, `py = sin β`, rotated by θ = `screen.orientation.angle`: `gx = s·(px·cos θ + py·sin θ)`, `gy = s·(−px·sin θ + py·cos θ)`; a 2° dead band on the gravity direction; the listener is added only for `source: 'orientation'` and removed on `destroy`; `requestOrientationPermission()` (iOS) unchanged.
 Consequence: W83.0 Q3: all 8 sign cases (portrait, landscape left/right, upside down × tilt directions) check out and a flat phone gives (0, 0); with ±0.5° sensor noise rest held with every band, and only the 2° band makes `g_hp` exactly 0 at rest (the engine stays bit-quiet); a real 30° tilt passes unchanged. Not tested: the iOS permission prompt on a device.
-Decision: PENDING
+Decision: APPROVED 2026-10-14 — beta/gamma projection rotated by screen.orientation.angle, 2 degree dead band, listener only for orientation and removed on destroy (saga dec_ec44cc30)
 
 ## Spike W83.0 result (2026-10-14, a throwaway copy of `7a67ce7`, deleted; report `.superpowers/sdd/W83/spike-Q.md`, stills in `.superpowers/sdd/W83/stills/`, inspected with vision)
 

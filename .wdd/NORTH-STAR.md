@@ -245,3 +245,8 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D82-4 | Canvas2D density cell ceil(R)/6 (2 px floor kept, EDGE_SOFTNESS 0.1) | W82 | dec_34ee6dd6 |
 | D82-5 | Shake mirrors outward direction within 80 px of a viewport edge; set_viewport(w, h) scalar call | W82 | dec_adb31552 |
 | D82-6 | Book a demo bead chain under shake accepted as a known limitation | W82 | dec_09c2f0ea |
+| D83-1 | High-pass gravity: per-core low-pass, scale·g_hp·dt on grid velocities with mass, clamp 2000 px/s², snap < 0.5; home spring unchanged (subtle lean); reduced motion g = 0 | W83 | dec_1b0ca2b0 |
+| D83-2 | Gravity tau 0.5 s, scale 1.5, clamp 2000 px/s² | W83 | dec_92788d5a |
+| D83-3 | setGravity(partial) atomic like setMaterial; fixed g = normalize(vector)·strength | W83 | dec_993e915c |
+| D83-4 | Low-pass seeded at create() and on a source switch: a fixed vector starts at rest | W83 | dec_f274696e |
+| D83-5 | Orientation: beta/gamma projection rotated by screen.orientation.angle, 2° dead band, listener removed on destroy | W83 | dec_ec44cc30 |
