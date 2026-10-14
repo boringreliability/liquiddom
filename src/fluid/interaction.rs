@@ -18,6 +18,7 @@ use super::grid::Grid;
 use super::particles::Particles;
 use super::rng::Rng;
 use super::solver::{PointerField, PointerGrid};
+use super::viewport::{Viewport, mirror_outward};
 
 /// Splash speed at strength 1, px/s (D67-3).
 pub const SPLASH_SPEED_PX_S: f32 = 950.0;
@@ -232,16 +233,20 @@ struct ShakeSlot {
 }
 
 /// `None` for an inactive element. `shake` never runs under reduced motion (`FluidCore::shake`
-/// returns early), so the home rect is the one the targets use, hover swell included.
-fn shake_slot(stream: u32, id: usize, e: &Elements, g: &Grid) -> Option<ShakeSlot> {
+/// returns early), so the home rect is the one the targets use, hover swell included. W82 (D82-5):
+/// the direction's outward components are mirrored when that home rect lies within
+/// `EDGE_MIRROR_PX` of a viewport edge (`viewport::mirror_outward`); farther away it is unchanged.
+fn shake_slot(stream: u32, id: usize, e: &Elements, g: &Grid, vp: Viewport) -> Option<ShakeSlot> {
     if e.is_parked(id) {
         return None; // W81 (D81-1): a parked element does not shake
     }
     let r = e.home_rect(id, false)?;
     let (cx, _) = g.to_grid(r.x + 0.5 * r.w, r.y);
     let half_w = 0.5 * r.w * g.inv_cell;
+    let mut field = shake_field(stream, id);
+    (field.dir_x, field.dir_y) = mirror_outward(field.dir_x, field.dir_y, &r, vp);
     Some(ShakeSlot {
-        field: shake_field(stream, id),
+        field,
         cx,
         inv_half_w: if half_w > 0.0 { 1.0 / half_w } else { 0.0 },
     })
@@ -251,8 +256,16 @@ fn shake_slot(stream: u32, id: usize, e: &Elements, g: &Grid) -> Option<ShakeSlo
 /// spatially coherent speed profile across its width, `d · speed · (1 + A · sin(π · u + φ))`, so
 /// it bends and waves instead of sliding intact. There is no per-particle noise (it averaged out)
 /// and no rotation term (that would be rigid motion). Every active element goes soft:
-/// s ← min(s, `SHAKE_STIFFNESS_CAP`).
-pub fn shake(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, strength: f32) -> bool {
+/// s ← min(s, `SHAKE_STIFFNESS_CAP`). W82 (D82-5): `vp` is the viewport TS set; an element within
+/// `EDGE_MIRROR_PX` of its edge sloshes inward (`shake_slot`). `Viewport::UNKNOWN` mirrors nothing.
+pub fn shake(
+    p: &mut Particles,
+    g: &Grid,
+    e: &mut Elements,
+    rng: &mut Rng,
+    strength: f32,
+    vp: Viewport,
+) -> bool {
     let Some(strength) = sanitize_strength(strength) else {
         return false;
     };
@@ -262,7 +275,7 @@ pub fn shake(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, stren
     // rect); stack table, no allocation. `None` = inactive.
     let mut slots = [None::<ShakeSlot>; SHAKE_TABLE];
     for (id, slot) in slots.iter_mut().enumerate().take(e.cap) {
-        *slot = shake_slot(stream, id, e, g);
+        *slot = shake_slot(stream, id, e, g, vp);
     }
     for i in 0..p.cap {
         let Some(h) = p.home_of(i) else {
@@ -271,7 +284,7 @@ pub fn shake(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, stren
         let slot = match slots.get(h) {
             Some(s) => *s,
             // Beyond the table (cap > ELEMENTS_MAX, tests only): derive in place.
-            None => shake_slot(stream, h, e, g),
+            None => shake_slot(stream, h, e, g, vp),
         };
         let Some(s) = slot else {
             continue;

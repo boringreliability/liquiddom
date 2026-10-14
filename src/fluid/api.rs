@@ -334,6 +334,7 @@ impl FluidCore {
             &mut self.elements,
             &mut self.interaction_rng,
             strength,
+            self.viewport,
         );
         self.scratch.invalidate_bounds(); // D68-10
     }

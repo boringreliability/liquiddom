@@ -32,8 +32,17 @@ impl Viewport {
     /// Per axis: a finite, positive extent is kept, clamped to `WORLD_MAX_PX`; NaN, ±Inf, 0 and
     /// negative values give 0 (unknown).
     pub fn sanitized(w: f32, h: f32) -> Viewport {
-        let _ = (w, h, WORLD_MAX_PX); // W82.1 red stub: W82.2 keeps the finite, positive extents
-        Viewport::UNKNOWN
+        let axis = |v: f32| {
+            if v.is_finite() && v > 0.0 {
+                v.min(WORLD_MAX_PX)
+            } else {
+                0.0
+            }
+        };
+        Viewport {
+            w: axis(w),
+            h: axis(h),
+        }
     }
 }
 
@@ -41,8 +50,19 @@ impl Viewport {
 /// viewport's. Near the low edge a negative `d` flips, near the high edge a positive one; a rect
 /// near both edges of an axis (nothing is inward), an unknown extent or a non-finite rect keeps `d`.
 fn mirror_axis(d: f32, lo: f32, hi: f32, extent: f32) -> f32 {
-    let _ = (lo, hi, extent); // W82.1 red stub: W82.2 mirrors the outward component
-    d
+    if extent.is_nan() || extent <= 0.0 {
+        return d;
+    }
+    let near_lo = lo < EDGE_MIRROR_PX;
+    let near_hi = extent - hi < EDGE_MIRROR_PX;
+    if near_lo == near_hi {
+        return d; // neither edge, or both (NaN compares false: neither)
+    }
+    if (near_lo && d < 0.0) || (near_hi && d > 0.0) {
+        -d
+    } else {
+        d
+    }
 }
 
 /// D82-5: the shake direction `(dx, dy)` of an element whose home rect is `r` (buffer px), with
