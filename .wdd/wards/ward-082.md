@@ -3,12 +3,12 @@ ward: 82
 revision: null
 name: "Under the page"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [81]
 layer: "both"
 estimated_tests: 31
 created: "2026-10-14"
-completed: null
+completed: "2026-10-14"
 ---
 # Ward 082: Under the page
 
@@ -138,7 +138,7 @@ Approved-test changes at red (Dennis approves with the tests): `stylesheet.test.
 - **Probes:** covered glyph ink px on the hero paragraph 0 under a strength-2 splash and shake in Canvas2D (macOS, Linux) and WebGPU (Metal), with the liquid behind the text (893/2013, 765/1978, 830/3609 px; W82.0 at z 0: 86/137); the isolated container 0 (1319/1403/1085 px behind); D82-5 right column dark px 0 (181 at HEAD), top row tint px 0; Canvas2D cell 2.17 px (3.25 before).
 - **Vision (approved by Dennis 2026-10-14):** landing splash/shake at strength 2 in both renderers (the lede's letters above the liquid), the default shake at f10/f20 (the dark card sloshes inward, "Sign in" stays on the page, "Book a demo" beads as D82-6 accepts), the Canvas2D card edge at 2× (no 3.5 px steps), `under-page.html` body / opaque / wrapper / isolate / relative (text above the liquid under the page; W81's look with one warning in the three fallbacks).
 - **Reviews:** red task review (two Important gaps: html-only background, an isolated container on an opaque page; fixed in fix round 1 with five minors, re-review ✅); W82.2 ✅/✅; W82.3 ✅/✅ with `isNone` fixed for multi-layer `none, none` (9180695). Ward review: ready for gold; doc findings fixed in 9ea44fa (which helpers read screenshots; the container warning names the fix). Parked and documented: a stacking-context `<body>` still falls back, a negative-z ancestor context and ancestors beyond a shadow host are not detected, two warnings for a static non-isolated container, `set_viewport` requested twice at create (deduped). Offered to Dennis at gold: an ink floor in the probes (a box without glyph ink would pass vacuously).
-- **Manual smoke:** pending Dennis at the live URLs below (both renderers).
+- **Manual smoke:** by Dennis at gold (both renderers); on `under-page.html` only `body` and `isolate` put the liquid under the text, the three fallbacks draw it over the text with one warning each, as D82-1/D82-2 decide.
 
 ## Must NOT
 - Restyle the author's container, `<html>` or `<body>`.
@@ -166,3 +166,5 @@ Approved-test changes at red (Dennis approves with the tests): `stylesheet.test.
 
 ## Verification
 `npm run verify`, `npm run e2e:canvas2d`, `npm run e2e:webgpu-hw`, `npm run e2e:docker -- --project=canvas2d` (every Linux baseline unchanged, no `--update-snapshots`), vision on the landing page and `under-page.html` in both renderers.
+
+**Resolved at gold (Dennis, 2026-10-14):** gold approved after a live smoke test (saga dec_9e6110ab). Open for W83's red (not decided at gold): an ink floor in the W82 page probes (a text box without glyph ink would pass vacuously; an approved-test change). Carried: the Canvas2D scroll-frame cost (W80); the parked stacking limits (a stacking-context `<body>`, negative-z ancestor contexts, shadow-host ancestors).
