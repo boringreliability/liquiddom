@@ -3,7 +3,7 @@ ward: 81
 revision: null
 name: "Parking and resize"
 epic: "fluid-engine"
-status: "approved"
+status: "gold"
 dependencies: [80]
 layer: "both"
 estimated_tests: 36
