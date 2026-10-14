@@ -239,3 +239,9 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D81-1 | Parking: not simulated outside world + grid margin (FLAG_PARKED, both renderers skip); unpark 64 px inside on every side or overlapping the world; re-entry at rest; dragged/inactive never parked; Canvas2D skips inactive slots | W81 | dec_8e1fb156 |
 | D81-2 | Resize: resize_world(w, h) grows the grid arrays only (lattice phase kept), never shrinks; TS grows an outgrown axis to ≥ 1.25 × from the resize handler, one console.info per growth | W81 | dec_bffbacf6 |
 | D81-3 | Container world = the container's client box (its visible window since W80), not its scroll range | W81 | dec_0831a6b4 |
+| D82-1 | Stacking: canvas at z-index -1 (body); container -1 only as a stacking context, else warn + z-index 0 fallback; container/html/body never restyled | W82 | dec_5cee9fcb |
+| D82-2 | Opaque ancestor backgrounds: chain check at create() and observe() (body only when html has its own); first hit = one console.warn + z-index 0 fallback with the D7 rules | W82 | dec_aee06d64 |
+| D82-3 | D7 data-liquid-stack rules dropped at z-index -1, kept for a z-index 0 fallback instance | W82 | dec_94c7834f |
+| D82-4 | Canvas2D density cell ceil(R)/6 (2 px floor kept, EDGE_SOFTNESS 0.1) | W82 | dec_34ee6dd6 |
+| D82-5 | Shake mirrors outward direction within 80 px of a viewport edge; set_viewport(w, h) scalar call | W82 | dec_adb31552 |
+| D82-6 | Book a demo bead chain under shake accepted as a known limitation | W82 | dec_09c2f0ea |
