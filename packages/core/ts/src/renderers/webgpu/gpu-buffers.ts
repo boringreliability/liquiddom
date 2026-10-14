@@ -2,7 +2,8 @@
  * W71: pure packing from `RenderFrame` views into typed arrays for `queue.writeBuffer`
  * (slice-3 design §2 "Per-frame data"). No GPU, no DOM.
  * - particles: W74 (D74-4) 8 floats per active particle (`x, y, f00, f01, f10, f11, flags, pad`);
- *   a non-finite position goes far off-screen, a non-finite F becomes the identity with FLAG_TORN;
+ *   a non-finite position or (W81, D81-1) a parked particle goes far off-screen, a non-finite F
+ *   becomes the identity with FLAG_TORN;
  * - rest UVs (W74): `rest_u, rest_v` per active particle, uploaded with the homes;
  * - text info (W74): one 8-float record per slot (atlas rect, rest size, valid);
  * - homes: the element id per particle, −1 when unassigned, fractional, out of range or
@@ -12,7 +13,7 @@
  * - elements: one 16-float record per slot (WGSL `struct Element`), written every frame.
  *   Colour stays straight (rgb 0–1, a 0–1); the shaders premultiply.
  */
-import { Dyn, ELEMENT_STRIDE, FLAG_TORN, homeRectInto, type HomeRect, St, STATE_STRIDE, Stat } from "../../fluid-layout";
+import { Dyn, ELEMENT_STRIDE, FLAG_PARKED, FLAG_TORN, homeRectInto, type HomeRect, St, STATE_STRIDE, Stat } from "../../fluid-layout";
 import type { RenderFrame } from "../frame";
 import { kernelRadiusPx } from "../kernel-params";
 
@@ -71,7 +72,11 @@ export function packParticles(frame: RenderFrame, out: Float32Array, withF = tru
     const o = i * PARTICLE_GPU_FLOATS;
     const x = dyn[Dyn.X * cap + i] as number;
     const y = dyn[Dyn.Y * cap + i] as number;
-    const ok = Number.isFinite(x) && Number.isFinite(y);
+    const raw = dyn[Dyn.FLAGS * cap + i] as number;
+    const flags = Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : 0;
+    // W81 (D81-1): a parked particle's quad goes off-screen like a non-finite position, so neither
+    // the splat nor the text pass draws it (its flags are still packed below).
+    const ok = Number.isFinite(x) && Number.isFinite(y) && (flags & FLAG_PARKED) === 0;
     out[o] = ok ? x : OFFSCREEN_PX;
     out[o + 1] = ok ? y : OFFSCREEN_PX;
     if (!withF) continue;
@@ -79,8 +84,6 @@ export function packParticles(frame: RenderFrame, out: Float32Array, withF = tru
     const f01 = dyn[Dyn.F01 * cap + i] as number;
     const f10 = dyn[Dyn.F10 * cap + i] as number;
     const f11 = dyn[Dyn.F11 * cap + i] as number;
-    const raw = dyn[Dyn.FLAGS * cap + i] as number;
-    const flags = Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : 0;
     const fOk = Number.isFinite(f00) && Number.isFinite(f01) && Number.isFinite(f10) && Number.isFinite(f11);
     out[o + 2] = fOk ? f00 : 1;
     out[o + 3] = fOk ? f01 : 0;

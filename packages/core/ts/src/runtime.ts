@@ -23,7 +23,7 @@ import { LoopController } from "./loop-control";
 import { PointerTracker } from "./pointer-tracker";
 import { DragTracker } from "./drag-tracker";
 import { ScrollTracker } from "./scroll-tracker";
-import { clampWorld, measureWorld, type WorldSize } from "./world";
+import { clampWorld, grownWorld, measureWorld, WORLD_RESIZE_INFO, type WorldSize } from "./world";
 import { acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas } from "./stylesheet";
 import { initCanvas2D, selectRenderer, type ActiveRenderer, type RendererChoice, type SelectedRenderer } from "./renderers/select";
 import type { FluidCanvas2DRenderer } from "./renderers/fluid-canvas2d";
@@ -540,6 +540,19 @@ function buildRuntime(
   };
   fontSet?.addEventListener("loadingdone", onFontsDone);
 
+  /**
+   * W81 (D81-2): when the viewport (or the container's window) outgrew the world, one
+   * `resize_world` grows the grid, from the resize handler (never inside a frame), with one
+   * console.info. Never shrinks; a stopped instance's core (maybe poisoned) is not called.
+   */
+  const growWorld = (): void => {
+    if (failed) return;
+    const next = grownWorld(world, measureWorld(container));
+    if (next === null) return;
+    world = next;
+    if (core.resize_world(next.w, next.h)) console.info(`${WORLD_RESIZE_INFO} ${next.w}×${next.h} px.`);
+  };
+
   // Canvas backing store + DPR (D64-14, C2).
   const resizeCanvas = (): void => {
     if (destroyed) return;
@@ -558,6 +571,7 @@ function buildRuntime(
     canvas.height = bh;
     viewport = { widthCss: Math.max(1, w), heightCss: Math.max(1, h), dpr };
     renderer?.resize(bw, bh, dpr);
+    growWorld(); // W81 (D81-2)
   };
   resizeCanvas();
   let resizeObserver: ResizeObserver | null = null;

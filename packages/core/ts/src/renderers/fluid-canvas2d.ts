@@ -9,7 +9,7 @@
  * density buffer is a `document.createElement("canvas")` and its pixels come
  * from `ctx.createImageData`.
  */
-import { Dyn, type HomeRect, homeRectInto, St, STATE_STRIDE, Stat } from "../fluid-layout";
+import { Dyn, El, ELEMENT_STRIDE, FLAG_PARKED, type HomeRect, homeRectInto, St, STATE_STRIDE, Stat } from "../fluid-layout";
 import { DEFAULT_SCALE_PX, DensityGrid, densityCellPx } from "./density-grid";
 import { kernelRadiusPx } from "./kernel-params";
 import type { ElementPaint, RenderFrame, Renderer } from "./frame";
@@ -125,7 +125,7 @@ export class FluidCanvas2DRenderer implements Renderer {
     grid.clear();
     if (frame.activeParticles === 0) return;
     const cap = frame.particleCapacity;
-    const { dynamicView: dyn, staticView: st, stateView: state, paints } = frame;
+    const { dynamicView: dyn, staticView: st, stateView: state, elementView: ev, paints } = frame;
     for (let i = 0; i < cap; i++) {
       const home = st[Stat.HOME * cap + i];
       if (!(home >= 0)) continue; // HOME_NONE (-1) or NaN (B12)
@@ -136,6 +136,11 @@ export class FluidCanvas2DRenderer implements Renderer {
       // in on top at restAlpha, so there is no translucent dip mid-transition (W69: ~151/255 at
       // restAlpha 0.58, the pale flash on hover and at the end of a re-form).
       if (!(clamp01(state[id * STATE_STRIDE + St.REST_ALPHA]) < 1)) continue;
+      // W81 (D81-1): an inactive slot (w == 0: hidden, or unobserved until the redistribute) is not
+      // drawn, as WebGPU's element record (flags 0) already does (closes W76's w == 0 item); a
+      // parked particle is not simulated and not drawn.
+      if (!((ev[id * ELEMENT_STRIDE + El.W] as number) > 0)) continue;
+      if (((dyn[Dyn.FLAGS * cap + i] as number) & FLAG_PARKED) !== 0) continue;
       const radius = kernelRadiusPx(paint.spacingPx);
       grid.splat(
         dyn[Dyn.X * cap + i],
