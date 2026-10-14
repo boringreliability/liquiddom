@@ -3,12 +3,12 @@ ward: 81
 revision: null
 name: "Parking and resize"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [80]
 layer: "both"
 estimated_tests: 36
 created: "2026-10-14"
-completed: null
+completed: "2026-10-14"
 ---
 # Ward 081: Parking and resize
 
@@ -114,7 +114,7 @@ Approved-test changes at red (Dennis approves with the tests): `scenario_tests.r
 - **Vision (approved by Dennis 2026-10-14):** stills in both renderers on the live (RAF) page: the top, the re-entry frame of `#far1` (crisp, no liquid trailing in), the jump to `#far2`, back at the top, and the hidden `#wrap` after a shake (no red liquid). Under continuous scrolling a re-entered element leaves rest through W80's scroll inertia (D80-2), exactly like `#top` on the first screen (restAlpha 1 → 0.861 → 0.722 in both); it re-enters at rest.
 - **Reviews:** task reviews of W81.1–W81.3 ✅/✅ after one fix round each (W81.2: kinematics reset when a parked slot goes inactive, one sync after redistribute; W81.3: a throwing `resize_world` stops the instance). Ward review: ready for gold, three minors fixed in 067ded2 (growth waits for the loop, so an init-time throw cannot leak listeners; a stopped device-loss rebuild settles false; flag values named in the docs). Parked: a margin near 8192 px needs ≈ 450 MB of grid (CONTEXT).
 - **Approved-test changes after red (Dennis 2026-10-14):** test 35's last assertion; the new test 36.
-- **Manual smoke:** pending Dennis at the live URLs below (both renderers).
+- **Manual smoke:** by Dennis at gold (both renderers); one growth logged `[liquiddom] the viewport outgrew the liquid's world; the grid grew to 2160×1117 px.`
 
 ## Must NOT
 - Change the FFI strides, the element or state slots or the 7-arg constructor; allocate inside `tick`; panic on JS input.
@@ -145,3 +145,5 @@ Approved-test changes at red (Dennis approves with the tests): `scenario_tests.r
 
 ## Verification
 `npm run verify`, `npm run e2e:canvas2d`, `npm run e2e:webgpu-hw`, the perf project's W81 guard, `npm run e2e:docker -- --project=canvas2d` (every existing Linux baseline unchanged), vision on the long page in both renderers.
+
+**Resolved at gold (Dennis, 2026-10-14):** gold approved after a live smoke test (saga dec_658b1513). Step 7: follows the scroll on a long page without a snap in both renderers; ✅ in S6 is claimed at W87. Carried to W82: the canvas under page content; the Canvas2D scroll-frame cost (W80). Parked: a margin near 8192 px needs ≈ 450 MB of grid; an element only partly outside the bound keeps its wall-clamped liquid.
