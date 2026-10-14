@@ -31,34 +31,47 @@ Out of scope: gravity (W83), touch drag (W84), the adapters (W85), the site (W86
 ## Decisions
 <!-- Direction gate (NORTH-STAR.md rule 3): one item per technique, architecture or scope choice. Present each in chat to Dennis as a named decision with its consequence, record it with saga_record_decision, then replace PENDING with: APPROVED YYYY-MM-DD — <choice> (saga dec_xxxxxxxx), or AMENDED when he changed it, and add the row to NORTH-STAR.md "Plan decisions". The ward cannot move to red while any line says PENDING. -->
 ### D82-1: Stacking — the canvas under all page content
-Proposal: body mode puts the canvas at `z-index: -1` in the root stacking context, so every page box, its text and the observed elements paint above escaped liquid; container mode needs the container to be a stacking context (e.g. `isolation: isolate`), with one `console.warn` at `create()` when it is not (like the static-container warning); liquiddom never restyles the container, `<html>` or `<body>` (brainstorm 2026-10-13, saga dec_645b54e4). Measured in W82.0 Q1a/Q1d/Q1e.
-Consequence: escaped liquid can no longer cover page text (slice-4 finding); any page box with its own opaque background now covers the liquid behind it; acceptance baselines may move (W82.0 Q1e lists each).
+Proposal: body mode puts the canvas at `z-index: -1` in the root stacking context, so every page box, its text and the observed elements paint above escaped liquid. Container mode: the canvas sits at `z-index: -1` inside the container when the container is a stacking context (`isolation: isolate`, a `z-index` other than `auto`, …); when it is not, one `console.warn` at `create()` and the instance falls back to `z-index: 0` (today's behaviour), because without a stacking context the liquid escapes under the container's own background and every observed element vanishes (W82.0 Q1d). liquiddom never restyles the container, `<html>` or `<body>` (brainstorm 2026-10-13, saga dec_645b54e4; the container fallback is new from the spike).
+Consequence: escaped liquid never covers page text (Q1a: covered glyph pixels on the hero paragraph 86 → 0 under a strength-2 splash, 137 → 0 under a strength-2 shake, both renderers); two z-0 bugs disappear (the label of an element inside a transformed ancestor, author dropdowns hidden by the liquid; Q1c). All 13 Linux baselines are pixel-identical (Docker, maxDiffPixelRatio 0, twice). Approved tests change at red: `a11y.spec.ts:53-55` and `webgpu-robust.spec.ts:906` (they assert canvas z-index 0), `stylesheet.test.ts` (the canvas style and the D7 rules). At HEAD the default splash and shake no longer reach page text (W77 calmed them), so the red e2e uses strength 2.
 Decision: PENDING
 
 ### D82-2: Opaque `<html>` and `<body>` backgrounds
-Proposal: from W82.0 Q1b — either detect both opaque at `create()`, one `console.warn` and fall back to `z-index: 0`, or a documented author rule.
-Consequence: from W82.0 Q1b.
+Proposal: at `create()` (the canvas's ancestor chain) and at `observe()` (the element's ancestor chain) liquiddom looks for an opaque background between the canvas and the root stacking context: any ancestor box with a non-transparent `background-color` or a `background-image`; `<body>` counts only when `<html>` has its own background (otherwise body's background propagates to the canvas, which is fine). On the first hit: one `console.warn` naming the element and the fix ("make it transparent or give liquiddom a container with `isolation: isolate`"), and the instance falls back to `z-index: 0` with the D7 rules (today's behaviour) for the rest of its life.
+Consequence: pages with opaque html + body, an opaque wrapper (`.wrap`, a white `<main>`) or html with any alpha keep working as today (Q1b: without the fallback the liquid is 0 px visible and the CTAs become invisible); everyone else gets the canvas under the page. A check of only "html and body both opaque" misses the wrapper and `<main>` cases (measured). Cost: a computed-style walk per observe (outside the frame loop); the fallback is per instance and one-way.
 Decision: PENDING
 
 ### D82-3: The observed-element `z-index: 1` rule (D7)
-Proposal: from W82.0 Q1c — keep or drop the `data-liquid-stack` rules once the canvas is at `z-index: -1`.
-Consequence: from W82.0 Q1c (dropping it stops restyling authors' elements; keeping it is the known behaviour).
+Proposal: drop the `data-liquid-stack` rules (`position: relative; z-index: 1` and `z-index: 1`) for an instance whose canvas sits at `z-index: -1`; keep them for an instance that fell back to `z-index: 0` (D82-1 container fallback, D82-2).
+Consequence: liquiddom stops restyling authors' elements in the normal case (Q1c: text, children, focus ring, a positioned `z-index: auto` element and an element inside a transform all paint above the liquid without the rule; the acceptance scene is pixel-identical); keeping the rule at z −1 would make card text paint through author dropdowns. `stackingFor`/`data-liquid-stack` stay for the fallback, so the refcounted decoration keeps one code path.
 Decision: PENDING
 
 ### D82-4: Canvas2D edge on the landing (stair-step at a 3.5 px cell)
-Proposal: from W82.0 Q2 — a finer density cell (`ceil(R)/6` or `/8`), a softer threshold, or the current edge.
-Consequence: from W82.0 Q2 (edge roughness against Canvas2D frame time).
+Proposal: Canvas2D's density cell becomes `ceil(R)/6` instead of `ceil(R)/4` (`DENSITY_CELLS_PER_RADIUS` 4 → 6), the 2 px floor and the fine-spacing bound kept; `EDGE_SOFTNESS` stays 0.1 (it is shared with WebGPU).
+Consequence: the moving Canvas2D edge on the landing page is smooth (Q2: roughness f10/f20 0.225/0.269 → 0.180/0.196 px, WebGPU 0.116/0.149; vision: the notches on the dark card's left edge are gone); no Linux baseline moves (the acceptance scene stays on the 2 px floor). Cost: Canvas2D render time on pages with large kernels ≈ 2.8× (landing 2.6 → 7.4 ms per frame on this Mac); the acceptance and stress scenes are unchanged. `/5` is the compromise (1.5× for half the gain); a softer threshold was rejected (transparent stripes inside the card, alpha < 240 pixels 1170 → 5231). Approved tests change at red: the `kernel-params` / `density-grid` unit tests that pin 4 and the 13.04 → 3.5 px example.
 Decision: PENDING
 
 ### D82-5: Liquid past the viewport edge under shake
-Proposal: from W82.0 Q3 — accept (the canvas clips at the viewport), a viewport-wall term in shake, or a body-mode world equal to the inner size.
-Consequence: from W82.0 Q3.
+Proposal: shake mirrors its outward direction per element when the element's home rect lies within 80 px of a viewport edge, so an element near the edge sloshes inward instead of being clipped flat; Rust learns the viewport through one new scalar call `set_viewport(w, h)` (buffer px, called by the runtime at create and from `resizeCanvas()`; the world stays `max(screen, inner)`).
+Consequence: the dark landing card no longer reaches past the right edge (Q3: particles outside the viewport 112 → 0, dark pixels in column 1279 181 → 0; "Sign in" no longer leaves the top: 78 particles above y 0 over 29 frames → 0); elements still slosh; acceptance step-6 diff 0; W77 tear 13/61 (bound 400); cargo 223 green. The wall itself was never the problem (it sits at x 1488, the card peaked at 1285); a per-particle wall term and world = inner measured no effect. Cost: one new scalar call (FFI addition, no layout change). Alternative: accept (the canvas clips at the viewport).
 Decision: PENDING
 
 ### D82-6: Thin wide elements beading under shake ("Book a demo" at f20)
-Proposal: from W82.0 Q4 — a thickness-dependent yield, a thickness-scaled shake amplitude, or accept.
-Consequence: from W82.0 Q4.
+Proposal: accept the "Book a demo" bead chain as a known limitation in W82 (CONTEXT): it lasts 5 frames (f18–f23) of a strength-1 shake and every element re-forms within budget (76/139/136 of 180 frames).
+Consequence: no physics change. Yield is the wrong lever (Q4: a lower yield for thin elements gives more beads, a higher one changes nothing because J never reaches 1.46 there); the beads come from the shake's sinus profile stretching a 54 px strip along its long axis. The fix that works, a thickness-scaled profile amplitude, breaks D70-5's slosh floor on the acceptance pills (Split 7.7–8.4 px against the floor of 10), three golden tests and the step-6 baseline (1.06–1.74 %); scaling only the long-axis component is untested. Alternative: that fix, with D70-5 amended.
 Decision: PENDING
+
+## Spike W82.0 result (2026-10-14, throwaway copies of `bc4deaa`, 1280 × 800, seed 1, manual clock; reports in `.superpowers/sdd/W82/spike-Q1.md`, `spike-Q2.md`, `spike-Q34.md`, stills inspected with vision)
+
+| Q | Candidate | Numbers | Vision | Verdict |
+|---|---|---|---|---|
+| Q1a | canvas `z-index: -1` vs 0 | covered glyph pixels on the hero paragraph, strength-2 splash 86 → 0, shake 137 → 0 (14 px antialiased edges), both renderers; default splash/shake reach no text at HEAD | text over the liquid at −1; "SQL", "Riverbase" covered at 0 | −1 (D82-1) |
+| Q1b | html/body backgrounds at −1 | body only, html only, neither: work; html + body opaque, an opaque wrapper, a white `<main>`, html with any alpha: liquid 0 px visible, the CTAs vanish | confirmed (CTA labels invisible) | ancestor-chain check + warn + z-0 fallback (D82-2) |
+| Q1c | D7 `z-index: 1` rule at −1 | acceptance scene pixel-identical with and without; text, children, focus ring, positioned `z-index: auto`, element in a transform all above the liquid without it; at z 0 a label in a transformed ancestor and author dropdowns are hidden today | — | drop at −1, keep for the fallback (D82-3) |
+| Q1d | container | `isolation: isolate` or a `z-index`: liquid above the container background, under its text (0 glyph px); `position: relative` only with a background: 0 px visible, elements vanish | — | stacking context or warn + z-0 fallback (D82-1) |
+| Q1e | Docker Canvas2D, no update | 13 / 13 baselines 0 changed pixels (z −1 with and without the rule); only the a11y z-index asserts fail | — | no baseline moves |
+| Q2 | density cell /4 (3.25 px), /5, /6, /8, softness 0.2 | roughness (7-px window) f10/f20: 0.225/0.269, —, 0.180/0.196, 0.170/0.185, 0.153/0.172 (WebGPU 0.116/0.149); landing render 2.6, 3.9, 7.4, 18.1, 2.6 ms; no baseline moves except softness 0.2 (step 6: 477 px) | /4 notched, /6 and /8 smooth, softness 0.2 striped | /6 (D82-4) |
+| Q3 | (i) accept, (ii) per-particle wall term, (ii-c) per-element mirror within 80 px of the viewport, (iii) world = inner | dark card past x 1280: 112 particles / 181 px in col 1279 (i), unchanged (ii), 0 / 0 (ii-c), unchanged (iii); "Sign in" above y 0: 78 particles × 29 frames → 0 (ii-c); step-6 diff 0; W77 tear 13/61 | (i) clipped flat at the edge; (ii-c) sloshes inward | (ii-c) + `set_viewport` (D82-5) |
+| Q4 | (i) thickness yield, (ii-p) thickness profile amplitude, (ii-v) thickness speed, (iii) accept | lobes ≥ 3 frames: 5 (HEAD), more with lower yield, 5 with higher, 0 (ii-p, refs 80–200 px) but Split slosh 7.7–8.4 px < D70-5 floor 10 and step-6 1.06–1.74 %; (ii-v) pills tame (RMS 5.6 px, 2.4 %); re-form 76/139/136 of 180 everywhere | chain of 3–4 beads at f20 in both renderers | accept in W82 (D82-6) |
 
 ## Specification
 Set after the gate (part 2 of the plan).
