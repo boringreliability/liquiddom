@@ -24,7 +24,8 @@ import { PointerTracker } from "./pointer-tracker";
 import { DragTracker } from "./drag-tracker";
 import { ScrollTracker } from "./scroll-tracker";
 import { clampWorld, grownWorld, measureWorld, WORLD_RESIZE_INFO, type WorldSize } from "./world";
-import { acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas } from "./stylesheet";
+import { CANVAS_Z_FALLBACK, CANVAS_Z_UNDER, acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas } from "./stylesheet";
+import { canvasBlocker, opaqueAncestor, opaqueBackgroundWarning } from "./stacking";
 import { initCanvas2D, selectRenderer, type ActiveRenderer, type RendererChoice, type SelectedRenderer } from "./renderers/select";
 import { FluidCanvas2DRenderer } from "./renderers/fluid-canvas2d";
 import { WebGPURenderer, type TextIdCapture } from "./renderers/webgpu/webgpu-renderer";
@@ -218,7 +219,10 @@ export async function createFluidRuntime(opts: FluidRuntimeOptions): Promise<Flu
     const bridge = new FluidBridge(backend, core);
     const material = opts.material ?? DEFAULT_MATERIAL;
     core.set_material(material.viscosity, material.cohesion, material.recovery);
-    canvas = mountLiquidCanvas(opts.container);
+    // W82 (D82-1, D82-2): under the page (z-index -1) unless the page or the container cannot take it;
+    // the warning is logged once the runtime exists (buildRuntime).
+    const blocked = canvasBlocker(opts.container);
+    canvas = mountLiquidCanvas(opts.container, blocked === null ? CANVAS_Z_UNDER : CANVAS_Z_FALLBACK);
     // D66-2 / W72 (D72-1): selectRenderer destroys a renderer whose init failed. An 'auto'
     // fallback remounts the canvas through remountCanvas, so `canvas` is always the one in
     // the DOM, and the catch below (W64) removes it and frees the core exactly once.
@@ -235,7 +239,7 @@ export async function createFluidRuntime(opts: FluidRuntimeOptions): Promise<Flu
       ...(opts.webgpuT0Scale === undefined ? {} : { t0Scale: opts.webgpuT0Scale }),
     });
     canvas = selected.canvas;
-    return startRuntime(opts, core, bridge, selected, relay, world);
+    return startRuntime(opts, core, bridge, selected, relay, world, blocked);
   } catch (err) {
     canvas?.remove();
     core.free();
@@ -250,10 +254,11 @@ function startRuntime(
   selected: SelectedRenderer,
   relay: LossRelay,
   world: WorldSize,
+  blocked: string | null,
 ): FluidRuntime {
   const releaseStyles = acquireLiquidStyles(document);
   try {
-    return buildRuntime(opts, core, bridge, selected, relay, releaseStyles, world);
+    return buildRuntime(opts, core, bridge, selected, relay, releaseStyles, world, blocked);
   } catch (err) {
     // A synchronous failure after the styles/renderer were acquired: undo both,
     // createFluidRuntime's catch removes the canvas and frees the core.
@@ -271,6 +276,7 @@ function buildRuntime(
   relay: LossRelay,
   releaseStyles: () => void,
   initialWorld: WorldSize,
+  blocked: string | null,
 ): FluidRuntime {
   // W72 (D72-3): the renderer slot and the canvas are mutable. A lost WebGPU device swaps in
   // Canvas2D on a remounted canvas; the slot is null while that rebuild is in flight.
@@ -290,11 +296,28 @@ function buildRuntime(
   if (container && getComputedStyle(container).position === "static") {
     console.warn(STATIC_CONTAINER_WARNING);
   }
+  // W82 (D82-1, D82-2): "under" while the canvas sits at z-index -1; "fallback" (z-index 0, the D7
+  // rules on every observed element) from the first blocker on, for the rest of the instance's life.
+  let stacking: "under" | "fallback" = blocked === null ? "under" : "fallback";
+  if (blocked !== null) console.warn(blocked);
   let destroyed = false;
   /** Ward-fix M2a: set by the first frame that throws; the loop is gone for good. */
   let failed = false;
   /** W81: true once the loop runs; growWorld waits for it, since stopInstance needs `loop`. */
   let started = false;
+  /**
+   * W82 (D82-5): the visible window in buffer px (CSS px: the canvas's size) for the shake's edge
+   * mirror. Sent here, before the first frame, and again from resizeCanvas() whenever it changed;
+   * never inside a frame, never to a stopped instance's core.
+   */
+  let sentViewport = "";
+  const sendViewport = (w: number, h: number): void => {
+    const key = `${w}x${h}`;
+    if (failed || key === sentViewport) return;
+    sentViewport = key;
+    core.set_viewport(w, h);
+  };
+  sendViewport(container ? container.clientWidth : window.innerWidth, container ? container.clientHeight : window.innerHeight);
   let lastMs: number | null = null;
   let inFrame = false;
   let frameOffset: Offset = ZERO;
@@ -362,7 +385,20 @@ function buildRuntime(
     reducedMotion: () => reducedMotion,
     // W78 (D78-4): the active drag, read during sync(); `dragTracker` is declared below.
     drag: () => dragTracker.active,
+    // W82 (D82-3): an instance in the fallback stacks its elements (data-liquid-stack).
+    stacked: () => stacking === "fallback",
   });
+  /**
+   * W82 (D82-2): one-way. The current canvas goes to z-index 0 (a remount keeps it), every observed
+   * element takes the D7 stacking, one console.warn.
+   */
+  const fallBack = (warning: string): void => {
+    if (stacking === "fallback") return;
+    stacking = "fallback";
+    canvas.style.zIndex = CANVAS_Z_FALLBACK;
+    registry.stackAll();
+    console.warn(warning);
+  };
 
   // ---- W75: text that stays true ------------------------------------------------
   // D75-1: one MutationObserver per observed element; D75-2: transitionend; RF5: fonts and DPR.
@@ -585,6 +621,7 @@ function buildRuntime(
     canvas.height = bh;
     viewport = { widthCss: Math.max(1, w), heightCss: Math.max(1, h), dpr };
     renderer?.resize(bw, bh, dpr);
+    sendViewport(w, h); // W82 (D82-5)
     growWorld(); // W81 (D81-2)
   };
   resizeCanvas();
@@ -907,6 +944,12 @@ function buildRuntime(
         renewOwner(el);
         // W75 amendment B: no atlas rect until a page is built for this observation.
         atlasOutdated.add(id);
+        // W82 (D82-2): an opaque box between the element and the canvas's stacking context (up to the
+        // container, or <html>) would hide its liquid: fall back to z-index 0 for good.
+        if (stacking === "under") {
+          const hit = opaqueAncestor(el.parentElement, container ?? null);
+          if (hit !== null) fallBack(opaqueBackgroundWarning(hit));
+        }
       }
       splashInput.attach(el);
       dragTracker.attach(el); // W78

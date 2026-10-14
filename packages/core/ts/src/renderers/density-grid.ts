@@ -12,28 +12,35 @@ export { DENSITY_THRESHOLD, EDGE_SOFTNESS, KERNEL_RADIUS_CAP_PX, KERNEL_RADIUS_P
 /** CSS px per density cell (the finest grid; used while the largest kernel radius is ≤ 8 px). */
 export const DEFAULT_SCALE_PX = 2;
 /**
- * W77 (D77-1): kernel radius in density cells at which the grid stops refining. At R = 8 px on
- * 2 px cells a splat spans 4 cells per radius (≈50 cells); `densityCellPx` keeps that ratio for
- * larger radii, so a splat's cost per particle stays flat when the kernel grows to 16 px.
+ * W77 (D77-1), amended in W82 (D82-4, saga dec_34ee6dd6): kernel radius in density cells at which
+ * the grid stops refining. W77 kept 4 cells per radius, so a splat's cost stayed flat as the kernel
+ * grew to 16 px; on the landing page's 13 px kernels that gave a 3.25–3.5 px cell whose bilinear
+ * upscale showed as a stair-step edge while the liquid moves. Six cells per radius give a smooth
+ * moving edge (W82.0 Q2: roughness 0.27 → 0.20 px at shake f20) for ≈ 2.8× the Canvas2D render time
+ * on large-kernel pages (2.6 → 7.4 ms on the landing page); the acceptance and stress scenes stay on
+ * the 2 px floor.
  */
-export const DENSITY_CELLS_PER_RADIUS = 4;
+export const DENSITY_CELLS_PER_RADIUS = 6;
+/** W77 (D77-1): the fine bound's steps per px (quarter px); D82-4 leaves it unchanged. */
+export const FINE_CELL_STEPS_PER_PX = 4;
 
 /**
- * W77 (D77-1): the density cell (CSS px) for the largest and smallest kernel radius of a frame:
+ * W77 (D77-1), W82 (D82-4): the density cell (CSS px) for the largest and smallest kernel radius of a frame:
  * `max(DEFAULT_SCALE_PX, min(ceil(maxR) / DENSITY_CELLS_PER_RADIUS, floor(4 · minR / 2.3) / 4))`,
  * maxR capped at `KERNEL_RADIUS_CAP_PX` first. A non-finite or non-positive maxR gets the cap
  * (kernelRadiusPx's contract); a bad minR adds no bound, and minR is clamped to maxR. The second
  * term keeps the cell at or under the finest particle spacing (R / 2.3), so every element's kernel
  * spans ≥ 2.3 cells per radius and never reaches splat's one-cell floor (D71-5: one kernel in both
- * renderers). Quarter-px steps: R 7.09 → 2 (acceptance, unchanged), 13.04 → 3.5 (landing page), 16 → 4;
- * (16, 7.36) → 3; (16, 4.6) → 2. The 2 px floor wins for spacings under 2 px (pre-W77 grid).
+ * renderers). Sixth-px coarse steps (W82): R 7.09 → 2 (acceptance, unchanged), 12.47 → 13/6 and
+ * 13.04 → 14/6 (landing page; W77: 3.25 and 3.5), 16 → 16/6; quarter-px fine steps: (16, 5.98) → 2.5;
+ * (16, 4.6) → 2. The 2 px floor wins for spacings under 2 px (pre-W77 grid).
  */
 export function densityCellPx(maxRadiusPx: number, minRadiusPx: number = maxRadiusPx): number {
   const R =
     Number.isFinite(maxRadiusPx) && maxRadiusPx > 0 ? Math.min(maxRadiusPx, KERNEL_RADIUS_CAP_PX) : KERNEL_RADIUS_CAP_PX;
   const r = Number.isFinite(minRadiusPx) && minRadiusPx > 0 ? Math.min(minRadiusPx, R) : R;
   const coarse = Math.ceil(R) / DENSITY_CELLS_PER_RADIUS;
-  const fine = Math.floor((DENSITY_CELLS_PER_RADIUS * r) / KERNEL_RADIUS_PER_SPACING) / DENSITY_CELLS_PER_RADIUS;
+  const fine = Math.floor((FINE_CELL_STEPS_PER_PX * r) / KERNEL_RADIUS_PER_SPACING) / FINE_CELL_STEPS_PER_PX;
   return Math.max(DEFAULT_SCALE_PX, Math.min(coarse, fine));
 }
 

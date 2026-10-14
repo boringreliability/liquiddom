@@ -9,7 +9,9 @@ import {
   ELEMENT_CLASS,
   acquireHaloRule,
   decorateElement,
+  holdStacking,
   releaseHaloRule,
+  releaseStacking,
   undecorateElement,
   updateHaloRule,
 } from "./stylesheet";
@@ -31,6 +33,8 @@ export interface RegistryDeps {
   reducedMotion?(): boolean;
   /** W78 (D78-4): the instance's active drag (drag-tracker.ts), read every sync(); null when none. */
   drag?(): ActiveDrag | null;
+  /** W82 (D82-3): true while the instance is in the z-index 0 fallback; its elements then hold `data-liquid-stack` (the D7 rules). */
+  stacked?(): boolean;
 }
 
 export interface MicrotaskBatcher {
@@ -80,6 +84,8 @@ export class ElementRegistry {
   private readonly byEl = new Map<HTMLElement, InternalRecord>();
   /** This registry's decoration claims; the refcount itself lives in stylesheet.ts (shared across instances). */
   private readonly decorated = new Set<HTMLElement>();
+  /** W82 (D82-3): this registry's stacking holds (refcounted across instances in stylesheet.ts). */
+  private readonly stacked = new Set<HTMLElement>();
 
   private readonly interactionListeners = new Map<
     HTMLElement,
@@ -212,6 +218,7 @@ export class ElementRegistry {
       acquireHaloRule(el, background);
       this.decorated.add(el);
     }
+    if (this.deps.stacked?.() === true) this.stack(el);
     this.deps.scheduleRedistribute();
     return id;
   }
@@ -225,6 +232,7 @@ export class ElementRegistry {
     this.slots[rec.id] = undefined;
     const o = rec.id * ELEMENT_STRIDE;
     this.bridge.elementView().fill(0, o, o + ELEMENT_STRIDE);
+    if (this.stacked.delete(el)) releaseStacking(el); // W82 (D82-3)
     if (this.decorated.delete(el)) {
       releaseHaloRule(el);
       undecorateElement(el);
@@ -249,6 +257,17 @@ export class ElementRegistry {
 
   unobserveAll(): void {
     for (const el of [...this.byEl.keys()]) this.unobserve(el);
+  }
+
+  /** W82 (D82-2, D82-3): the instance fell back to z-index 0; every observed element holds the D7 stacking from now on. */
+  stackAll(): void {
+    for (const el of this.byEl.keys()) this.stack(el);
+  }
+
+  private stack(el: HTMLElement): void {
+    if (this.stacked.has(el)) return;
+    holdStacking(el);
+    this.stacked.add(el);
   }
 
   /**

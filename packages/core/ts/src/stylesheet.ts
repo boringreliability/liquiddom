@@ -11,6 +11,7 @@
  * W74 (D74-6): the text rule hides the glyphs of the element and its descendants with -webkit-text-fill-color, so `color` (read by the atlas, used by currentColor icons) is untouched.
  * W78 (D78-1): `liquid-away` hides a dragged element's glyphs under Canvas2D with the same declarations; screen + forced-colors: none only.
  * W75 (D75-3): the sheet also holds one halo rule per observed element (`liquid-halo` + `data-liquid-id`), rewritten when an element is observed, re-coloured or unobserved; never per frame.
+ * W82 (D82-1, D82-3): the canvas sits at z-index -1, under the page, and no element needs the D7 rules. An instance whose page or container cannot take that (stacking.ts) mounts its canvas at 0 and holds `data-liquid-stack` on its elements (holdStacking); the rules key on the attribute, so the sheet is the same for both.
  */
 import type { RGBA } from "./color";
 
@@ -178,14 +179,14 @@ export function releaseHaloRule(el: HTMLElement): void {
   else el.setAttribute(HALO_ID_ATTR, claim.prevAttr);
 }
 
-/** The liquid canvas element, not yet inserted: aria-hidden, no pointer events, z-index 0. */
-function createLiquidCanvas(container?: HTMLElement): HTMLCanvasElement {
+/** The liquid canvas element, not yet inserted: aria-hidden, no pointer events, at `zIndex` (W82: -1 under the page, 0 in the fallback). */
+function createLiquidCanvas(container: HTMLElement | undefined, zIndex: CanvasZ): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.className = CANVAS_CLASS;
   canvas.setAttribute("aria-hidden", "true");
   const s = canvas.style;
   s.pointerEvents = "none";
-  s.zIndex = "0";
+  s.zIndex = zIndex;
   s.top = "0";
   s.left = "0";
   if (container) {
@@ -200,9 +201,12 @@ function createLiquidCanvas(container?: HTMLElement): HTMLCanvasElement {
   return canvas;
 }
 
-/** The liquid canvas: aria-hidden, no pointer events, z-index 0, last in body (or inside the container). */
-export function mountLiquidCanvas(container?: HTMLElement): HTMLCanvasElement {
-  const canvas = createLiquidCanvas(container);
+/**
+ * The liquid canvas: aria-hidden, no pointer events, last in body (or inside the container). W82
+ * (D82-1): at z-index -1, under the page, or at 0 for an instance in the fallback (stacking.ts).
+ */
+export function mountLiquidCanvas(container?: HTMLElement, zIndex: CanvasZ = CANVAS_Z_UNDER): HTMLCanvasElement {
+  const canvas = createLiquidCanvas(container, zIndex);
   (container ?? document.body).appendChild(canvas);
   return canvas;
 }
@@ -211,10 +215,11 @@ export function mountLiquidCanvas(container?: HTMLElement): HTMLCanvasElement {
  * W72 (D72-1, D72-3): a canvas that handed out a 'webgpu' context can never give a '2d' one,
  * so an 'auto' fallback and a device-lost rebuild replace it. The new canvas takes the old
  * one's place (same parent, same position, same markup as a fresh mount); a detached old
- * canvas is mounted like a new one. The backing-store size is the runtime's job (resize).
+ * canvas is mounted like a new one. The backing-store size is the runtime's job (resize). W82
+ * (D82-1): the new canvas keeps the old one's z-index, so an instance in the fallback stays at 0.
  */
 export function remountLiquidCanvas(old: HTMLCanvasElement, container?: HTMLElement): HTMLCanvasElement {
-  const fresh = createLiquidCanvas(container);
+  const fresh = createLiquidCanvas(container, old.style.zIndex === CANVAS_Z_FALLBACK ? CANVAS_Z_FALLBACK : CANVAS_Z_UNDER);
   if (old.parentNode) old.replaceWith(fresh);
   else (container ?? document.body).appendChild(fresh);
   return fresh;
@@ -230,7 +235,6 @@ export function stackingFor(position: string, zIndex: string): StackMode | null 
 interface Decoration {
   readonly hadClassAttr: boolean;
   readonly hadClass: boolean;
-  readonly prevStack: string | null;
 }
 
 /**
@@ -251,13 +255,8 @@ export function decorateElement(el: HTMLElement): void {
   const decoration: Decoration = {
     hadClassAttr: el.hasAttribute("class"),
     hadClass: el.classList.contains(ELEMENT_CLASS),
-    prevStack: el.getAttribute(STACK_ATTR),
   };
-  const view = el.ownerDocument.defaultView;
-  const cs = view ? view.getComputedStyle(el) : null;
-  const mode = cs ? stackingFor(cs.position, cs.zIndex) : "relative";
   el.classList.add(ELEMENT_CLASS);
-  if (mode !== null) el.setAttribute(STACK_ATTR, mode);
   decorated.set(el, { count: 1, decoration });
 }
 
@@ -271,8 +270,6 @@ export function undecorateElement(el: HTMLElement): void {
   const d = entry.decoration;
   if (!d.hadClass) el.classList.remove(ELEMENT_CLASS);
   if (!d.hadClassAttr && el.getAttribute("class") === "") el.removeAttribute("class");
-  if (d.prevStack === null) el.removeAttribute(STACK_ATTR);
-  else el.setAttribute(STACK_ATTR, d.prevStack);
 }
 
 /**
@@ -305,14 +302,42 @@ function classHolds(cls: string): { add(el: HTMLElement): void; remove(el: HTMLE
   };
 }
 
-/** W82 (D82-3): W82.1 red stub; W82.3 holds data-liquid-stack per element across fallback instances. */
+interface StackHold {
+  count: number;
+  /** The attribute the first hold found (the author's own, or null). */
+  readonly prev: string | null;
+}
+const stackHolds = new WeakMap<HTMLElement, StackHold>();
+
+/**
+ * W82 (D82-3): the D7 stacking (spec §4: static → relative + z 1; positioned with z auto → z 1; an
+ * explicit z-index → untouched) for an element observed by an instance in the z-index 0 fallback.
+ * Refcounted per element across instances like the decoration: the first hold reads the computed
+ * position and z-index and writes `data-liquid-stack`; the last release restores what it found. An
+ * instance under the page (z-index -1) never holds it.
+ */
 export function holdStacking(el: HTMLElement): void {
-  void el;
+  const hold = stackHolds.get(el);
+  if (hold) {
+    hold.count += 1;
+    return;
+  }
+  stackHolds.set(el, { count: 1, prev: el.getAttribute(STACK_ATTR) });
+  const view = el.ownerDocument.defaultView;
+  const cs = view ? view.getComputedStyle(el) : null;
+  const mode = cs ? stackingFor(cs.position, cs.zIndex) : "relative";
+  if (mode !== null) el.setAttribute(STACK_ATTR, mode);
 }
 
-/** W82 (D82-3): W82.1 red stub. */
+/** W82 (D82-3): releases one hold; the last one restores the attribute; an unbalanced release is a no-op. */
 export function releaseStacking(el: HTMLElement): void {
-  void el;
+  const hold = stackHolds.get(el);
+  if (!hold) return;
+  hold.count -= 1;
+  if (hold.count > 0) return;
+  stackHolds.delete(el);
+  if (hold.prev === null) el.removeAttribute(STACK_ATTR);
+  else el.setAttribute(STACK_ATTR, hold.prev);
 }
 
 const textHolds = classHolds(TEXT_CLASS);
