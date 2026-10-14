@@ -47,29 +47,29 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Active fluid decisions
 
 ## Known Limitations
 - Pointer idle decay (D68-4): ×0.8 per frame; at 120 Hz the tail decays twice as fast.
-- Pointer drag 12/s (W70): a fast sweep: a trailing edge recedes ~8 px; holes at drag ≥ 18.
-- Shake (W77): `1 + 0.35·sin(π·u + φ)`, cap 0.3, yield J ≤ 1.46; x-only profile. Mirrored near viewport edges (W82). "Book a demo" beads ≈ 5 frames (D82-6).
+- Pointer drag 12/s (W70): a fast sweep: trailing edge recedes ~8 px; holes at drag ≥ 18.
+- Shake (W77): `1 + 0.35·sin(π·u + φ)`, cap 0.3, default yield J ≤ 1.46; x-only profile. Mirrored near viewport edges (W82). "Book a demo" beads ≈ 5 frames (D82-6).
 - Drag (W78): mouse/pen only, no opt-out; re-form ≥ ≈113 frames; `recovery` > ≈1.1 s cannot re-form in 3 s (D78-5).
-- Drag press: `selectstart` blocked document-wide (no drag-select in observed `<input>`/contenteditable, D78-2); if `setPointerCapture` throws (Firefox) the ending click may hit an ancestor; any keydown clears an armed swallow; in a pending Canvas2D rebuild a new drag may hide the label early; nested instances: a press drags both.
-- Container mode: positioned and a stacking context (`isolation: isolate`), else warn + z 0 (W82); never restyled.
-- Gravity is validated, inert until W83.
-- Scroll (W80): rigid shift + capped inertia (D80-2); fixed/stuck-sticky elements not shifted. While scrolling, DOM labels sit 60–100 px off their liquid for a frame per scroll step (both renderers); none at rest (D80-4).
+- Drag press: `selectstart` blocked document-wide (no drag-select in observed `<input>`/contenteditable, D78-2); if `setPointerCapture` throws (Firefox) the ending click may hit an ancestor, unswallowed; any keydown clears an armed swallow; in a pending Canvas2D rebuild a new drag may hide the label early; nested instances: a press drags both.
+- Container mode: positioned + a stacking context (`isolation: isolate`), else warn + z 0 (W82); never restyled.
+- Gravity: validated, inert until W83.
+- Scroll (W80): rigid shift + capped inertia (D80-2); fixed/stuck-sticky elements not shifted. While scrolling, DOM labels sit 60–100 px off their liquid for a frame per scroll step, both renderers; none at rest (D80-4).
 - Parking (W81): outside world + margin an element is not simulated, re-enters at rest; partly outside keeps wall-clamped liquid. A translated container canvas keeps its scroll range after the content shrinks (W80).
 - `resize_world` (W81): a margin near 8192 px needs ≈ 450 MB of grid (200 px: ≈ 55 MB).
 - Edge ring (D67-13): spacing cell/2 from the area hint; a far-off hint changes density.
 - The first throwing frame (or a failing `resize_world`) stops the instance; adapters do not react.
-- WebGPU e2e is local only (`e2e:webgpu`, `e2e:webgpu-hw`, Metal); CI runs a soft smoke; no webgpu Linux baselines.
+- WebGPU e2e local only (`e2e:webgpu`, `-hw` on Metal); CI: soft smoke; no webgpu Linux baselines.
 - A WebGPU canvas reads only in its render task; e2e uses `__liquidTest.pixels()`.
-- Text while the liquid is away: WebGPU carries it on its liquid (W74); Canvas2D adds a 1–8 px background-colour halo (W75), no solid backdrop for thin glyphs.
+- Text while away: WebGPU carries it on its liquid (W74); Canvas2D adds a 1–8 px background-colour halo (W75), no solid backdrop for thin glyphs.
 - Colour re-read (W75 B): own class/style or a `color` transitionend only, after its CSS transitions end; ancestor/stylesheet/`:hover` changes and `@keyframes` colours need `refresh(el)` (runs at once). Text can lag one atlas upload.
-- Rewriting an observed element's inline style per frame costs a colour snapshot and atlas re-render each frame (W75); DOM text shows meanwhile.
+- Rewriting an observed element's inline style every frame costs a colour snapshot + atlas re-render per frame (W75); DOM text shows meanwhile.
 - Liquid text v1 (W74, D74-5): text nodes only; underline, text-shadow, icons, images, SVG, form values/placeholders, `::before`/`::after` hide while moving; `capitalize` per word; atlas ≤ 4096² px (else DOM text stays); words clipped to the border box (overflow vanishes while moving).
 - Liquid text costs: whole atlas page re-renders on a generation, paints or text change; two GPU pages (one staged); T1/T1w/T1id stay allocated. W79: no text where text liquids meet.
 - Hover swell + liquid text (W74): particles swell 2 %, DOM text not (≈ 1 px); a resting pointer can smear moving text.
 - `activeRenderer` can change mid-session (W72): a lost WebGPU device makes it `'canvas2d'`; a frame or two draw nothing.
-- Canvas2D cell `ceil(R)/6` (W82): ≈ 2.8× render time on large kernels.
+- Canvas2D cell `ceil(R)/6` (W82): ≈ 2.8× render time on large kernels; one fine-spaced element holds the page on the 2 px floor (W77).
 - Stacking check (W82): stacking-context `<body>` + opaque html/body falls back (z 0); negative-z ancestor contexts and ancestors beyond a shadow host are missed (canvas may cover their text).
 
 ## What Comes Next
-- Slices 2, 4, 5 closed (slice 2: `.wdd/memory/whole-picture/slice-2.md` + addendum). Slice 6: W80 scroll, W81 parking, W82 under the page; next W83.
+- Slices 1–5 closed (whole pictures: `.wdd/memory/whole-picture/`). Slice 6: W80–W82 done; next W83.
 - Open: fate of the published `0.2.0-rc.0` (spec §7); publishing `0.3.0-alpha.x` is Dennis' call.
