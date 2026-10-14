@@ -222,6 +222,7 @@ This is a coordinated contract change. It replaces the 9-float soft-body layout.
    - `set_reduced_motion(bool)`
    - `scroll_shift(dx, dy, ivx, ivy)`: the frame's scroll delta (px) and inertia (px/s), after the rects are written and before `tick` (W80, D80-1)
    - `resize_world(w, h) -> bool`: grows the grid when the viewport outgrew the world, outside `tick`; true when it grew (W81, D81-2)
+   - `set_viewport(w, h)`: the visible window in buffer px (`innerWidth × innerHeight`, or the container's client box), at `create()` and whenever a resize changes it, outside `tick`; sanitised (a non-finite or non-positive extent is unknown). `shake` mirrors the outward component of an element's direction when its home rect lies within 80 px of a viewport edge (W82, D82-5)
 
 The stride constants live in both `src/` (Rust) and the TS bridge, and MUST stay in sync. A test asserts they match.
 
@@ -254,7 +255,7 @@ The `Renderer` keeps its method shape. The new `RenderFrame` contains:
 
    **Per-element density normalisation:**
    - Each particle's splat mass is its element's area per particle.
-   - The kernel radius is proportional to the element's spacing (both passed as per-element uniforms), and is **capped at 16 px** (amended in W77, D77-1; was 8 px). The Canvas2D density cell follows the largest kernel radius, `max(2, ceil(R)/4)` px, but is never coarser than the finest particle spacing, so a splat's cost stays flat and every kernel spans ≥ 2.3 cells per radius. Canvas2D samples the shared kernel at the cell size and WebGPU at 0.5× the backing size: a sampling difference, not a second kernel (D71-5).
+   - The kernel radius is proportional to the element's spacing (both passed as per-element uniforms), and is **capped at 16 px** (amended in W77, D77-1; was 8 px). The Canvas2D density cell follows the largest kernel radius, `max(2, ceil(R)/6)` px (amended in W82, D82-4; W77 had `ceil(R)/4`, whose 3.25–3.5 px cell showed as a stair-step edge on large kernels), but is never coarser than the finest particle spacing (in quarter px), so every kernel spans ≥ 2.3 cells per radius. Canvas2D samples the shared kernel at the cell size and WebGPU at 0.5× the backing size: a sampling difference, not a second kernel (D71-5).
    - The 0.5 threshold therefore lands on the rect edge for every element.
 2. **Composite.**
    - Density is thresholded into a silhouette with an anti-aliased edge (`fwidth`).
@@ -324,7 +325,7 @@ At rest, what you see is therefore pixel-exact the DOM text, with no atlas appro
 - **Classes and an injected stylesheet** (one `<style>` per document, removed on the last `destroy()`):
   - `.liquid-element`
     - `background: transparent; border-color: transparent; box-shadow: none;` (D8)
-    - `position: relative; z-index: 1;` when the element's computed position is `static`. Otherwise only `z-index: 1` if `z-index` is `auto`.
+    - `position: relative; z-index: 1;` when the element's computed position is `static`. Otherwise only `z-index: 1` if `z-index` is `auto`. Since W82 (D82-3) only for the elements of an instance in the `z-index: 0` fallback (below); under the page no element needs it.
   - `.liquid-text, .liquid-text * { -webkit-text-fill-color: transparent; text-decoration-color: transparent; text-shadow: none; }` (amended 2026-10-10, W74, D74-6: `color` stays for the atlas and `currentColor` icons)
     - Set **only** under WebGPU, and **only** while the element is moving (§3).
   - `@media (forced-colors: active)` and `@media print`: canvas `display: none`, and both classes neutralised with `!important`.
@@ -332,7 +333,8 @@ At rest, what you see is therefore pixel-exact the DOM text, with no atlas appro
 - **Canvas:**
   - `aria-hidden="true"` (new), `pointer-events: none`, `position: fixed`, `z-index: 0`; slice 6 moves it to `z-index: -1` so escaped liquid goes under all page content; in container mode the container must be a stacking context (documented, warned, never restyled) (amended 2026-10-13, slice-6 design, D82-1).
   - It is a sibling at the end of `body`, or inside the container in container mode.
-  - Observed elements sit above it because of the injected stacking rule (D7). This is the mechanism W57 assumed but never guaranteed.
+  - W82 (D82-1, D82-2): the canvas mounts at `z-index: -1`. It falls back to `z-index: 0` for good, with one `console.warn` naming the element and the fix, when the container is not a stacking context (checked at `create()`), or when an opaque box lies between an observed element and the canvas's stacking context (`<body>` when `<html>` has its own background, at `create()`; any ancestor up to the container or `<html>` with a non-transparent `background-color` or a `background-image`, at `observe()`). Liquiddom never restyles the container, `<html>` or `<body>`. Known: a `<body>` that is itself a stacking context still triggers the fallback when `<html>` and `<body>` are both opaque (harmless, z 0); an ancestor stacking context with a negative `z-index` is not detected (the canvas at −1 can paint over its text); ancestors outside a shadow root's host are not walked.
+  - Observed elements sit above it: under the page every page box does; in the fallback the injected stacking rule (D7) lifts them. This is the mechanism W57 assumed but never guaranteed.
   - The `canvasZIndex` option is **removed**.
   - Focus rings (`:focus-visible`) are part of the DOM element and are always drawn above the liquid.
   - **Accepted limitations:**
