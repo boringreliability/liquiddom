@@ -33,6 +33,7 @@ Make observed web elements genuinely liquid, which is the project's declared goa
 | 80 | Scroll follows (slice 6) | planned |
 | 81 | Parking and resize (slice 6) | planned |
 | 82 | Under the page (slice 6) | planned |
+| 83 | Gravity and tilt (slice 6) | planned |
 
 Slices 1–2 = W63–W69. Slices 3–6 (WebGPU liquid, liquid text, drag and merge, the world) are outlines in the spec. Their wards are planned only after the whole-picture check that precedes them. This table is maintained by hand; `wdd progress` / PROGRESS.md is the source of truth for status.
 
