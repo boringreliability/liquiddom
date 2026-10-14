@@ -103,8 +103,8 @@ The elements **are** liquid, and so is their text. They splash, split, merge wit
 
 **Grid:**
 - The cell size is decided **once** at `create()` from the particle density, clamped to 4–8 px. It is independent of the viewport, so the numerical behaviour (and visual regression) does not depend on window size.
-- The grid is pre-allocated to cover `max(screen.width, innerWidth) × max(screen.height, innerHeight)` plus a margin (or the container's maximum in container mode).
-- A resize beyond that is clamped to the walls in slices 1–5. One explicit, logged reallocation is added in slice 6 (resize). *(Amended 2026-10-03 after plan verification.)* It is `resize_world(w, h)`, called outside `tick` when the viewport outgrows the world, logged once, never shrinking, particles kept (amended 2026-10-13, slice-6 design, D81-2).
+- The grid is pre-allocated to cover `max(screen.width, innerWidth) × max(screen.height, innerHeight)` plus a margin (in container mode the container's client box, its visible window since W80; amended W81, D81-3).
+- A resize beyond that is clamped to the walls in slices 1–5. One explicit, logged reallocation is added in slice 6 (resize). *(Amended 2026-10-03 after plan verification.)* It is `resize_world(w, h)`, called outside `tick` when the viewport outgrows the world, logged once, never shrinking, particles kept (amended 2026-10-13, slice-6 design, D81-2). W81: each outgrown axis grows to at least 1.25 × its extent (capped at 8192 px), from the resize handler, with one `console.info` per growth; the cell, the margin and the lattice origin stay.
 - Each grid substep only touches a dirty region: the particle AABB plus 2 cells.
 - The lattice origin follows a scroll by the sub-cell rest of each delta, so particles moved by whole cells keep their lattice phase; it stays within half a cell of `(−margin, −margin)` (W80, D80-1).
 
@@ -113,6 +113,7 @@ The elements **are** liquid, and so is their text. They splash, split, merge wit
 - An element whose rect lies entirely outside viewport + margin is **parked**: its particles are not simulated.
 - When it re-enters the margin, its particles are placed at `rest` instantly. This is invisible because it happens off-screen.
 - Parked particles carry a `PARKED` flag that both renderers skip; re-entry needs the rect ≥ 64 px inside the bound (hysteresis); a dragged element is never parked (amended 2026-10-13, slice-6 design, D81-1).
+- W81 (D81-1): the bound is the world the grid covers plus its margin. The rect must lie 64 px inside it on every side, or overlap the world (a rect taller than the margin − 64 px would otherwise be on screen while parked); re-entry happens in that tick, with the element at rest and no previous rect sample. A parked element is not shifted, splashed or shaken, keeps its particle share, and its particles count as unplaced for the next redistribute. An inactive element is never parked; Canvas2D also skips an inactive slot's particles.
 
 ### T-1000 re-form
 
@@ -208,7 +209,7 @@ This is a coordinated contract change. It replaces the 9-float soft-body layout.
    | 8 | `viscosity` | Per-element override in [0,1]. NaN = material default |
    | 9 | `recovery` | Per-element override in seconds. NaN = material default |
 
-2. **Dynamic particle view**, written by Rust: SoA `x, y, f00, f01, f10, f11, flags` (7 floats per particle) as **one contiguous block**. `flags` sits here because `torn` is set during simulation. TS uploads it with a single `writeBuffer(buf, 0, memory.buffer, ptr, particleCapacity·7·4)` and takes the view from `WasmBridge` every frame, never a cached view.
+2. **Dynamic particle view**, written by Rust: SoA `x, y, f00, f01, f10, f11, flags` (7 floats per particle) as **one contiguous block**. `flags` sits here because `torn` (bit 1) is set during simulation; bit 2 is `parked` (W81, D81-1). TS uploads it with a single `writeBuffer(buf, 0, memory.buffer, ptr, particleCapacity·7·4)` and takes the view from `WasmBridge` every frame, never a cached view.
 3. **Static particle view**, written by Rust at redistribution: SoA `home, rest_u, rest_v`. TS reads it only when the generation counter changes.
 4. **Element state view**, written by Rust every step: 4 floats per element, `s, maxDev, restAlpha, reserved`.
 5. **Scalar calls** (no buffer, no JSON):
@@ -220,6 +221,7 @@ This is a coordinated contract change. It replaces the 9-float soft-body layout.
    - `generation()`
    - `set_reduced_motion(bool)`
    - `scroll_shift(dx, dy, ivx, ivy)`: the frame's scroll delta (px) and inertia (px/s), after the rects are written and before `tick` (W80, D80-1)
+   - `resize_world(w, h) -> bool`: grows the grid when the viewport outgrew the world, outside `tick`; true when it grew (W81, D81-2)
 
 The stride constants live in both `src/` (Rust) and the TS bridge, and MUST stay in sync. A test asserts they match.
 
