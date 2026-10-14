@@ -52,9 +52,10 @@ const WILL_CHANGE_STACKING: ReadonlySet<string> = new Set([
   "transform", "translate", "rotate", "scale", "opacity", "filter", "perspective", "isolation",
   "mix-blend-mode", "clip-path", "mask", "mask-image", "backdrop-filter", "contain",
 ]);
+// Every layer is `none`: Chrome computes `none, none` for a multi-layer background or mask (W82.3 review).
 const isNone = (v: string | undefined): boolean => {
   const s = val(v);
-  return s === "" || s === "none";
+  return s === "" || s.split(",").every((t) => t.trim() === "none");
 };
 
 /**
