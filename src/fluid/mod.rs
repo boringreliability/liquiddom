@@ -22,6 +22,7 @@ pub mod grid;
 pub mod interaction;
 pub mod layout;
 pub mod material;
+pub mod parking;
 pub mod particles;
 pub mod pool;
 pub mod rng;
@@ -34,6 +35,8 @@ pub mod views;
 mod drag_tests;
 #[cfg(test)]
 mod merge_tests;
+#[cfg(test)]
+mod parking_tests;
 #[cfg(test)]
 mod pointer_hover_tests;
 #[cfg(test)]

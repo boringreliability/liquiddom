@@ -52,6 +52,7 @@ const TS_MIRROR: Record<string, number> = {
   STAT_REST_V: L.Stat.REST_V,
   HOME_NONE: L.HOME_NONE,
   FLAG_TORN: L.FLAG_TORN,
+  FLAG_PARKED: L.FLAG_PARKED,
   INTERACTION_IDLE: L.Interaction.IDLE,
   INTERACTION_HOVER: L.Interaction.HOVER,
   INTERACTION_FOCUSED: L.Interaction.FOCUSED,
@@ -68,7 +69,8 @@ function slot(values: number[]): Float32Array {
 describe("W64 fluid-layout mirror of src/fluid/layout.rs", () => {
   it("given_layout_rs_when_parsed_then_every_rust_constant_has_an_equal_ts_mirror", () => {
     const rust = rustConstants();
-    expect(rust.size).toBe(35);
+    // W81 red: approved-test change (D81-1): layout.rs gains FLAG_PARKED
+    expect(rust.size).toBe(36);
     for (const [name, value] of rust) {
       expect(TS_MIRROR, `TS mirror is missing ${name}`).toHaveProperty(name);
       expect(TS_MIRROR[name], name).toBe(value);

@@ -2,12 +2,13 @@
  * W71 (D71-3, Review Focus 4): WebGPU liquid check page for e2e/webgpu-liquid.spec.ts.
  *   ?renderer=webgpu|canvas2d   (default webgpu)
  * An opaque, a translucent (rgba(…, 0.5)) and a transparent element (→ the default liquid
- * colour) on a manual clock. window.__webgpuLiquid also builds the three liquid pipelines on its
+ * colour). RAF clock by default (live in a browser); `?clock=manual` switches to the manual
+ * render-counting clock the e2e needs (W81 carry-over). window.__webgpuLiquid also builds the three liquid pipelines on its
  * own device under a validation error scope (pipelineCheck).
  */
 import { LiquidDOM, type LiquidDOMInstance } from "liquiddom";
-import { createManualClock } from "../../packages/core/ts/src/clock";
-import { createRenderCountingClock } from "../render-counting-clock";
+import { createManualClock, rafClock, type FrameClock } from "../../packages/core/ts/src/clock";
+import { createRenderCountingClock, type RenderCountingClock } from "../render-counting-clock";
 import { runtimeOf } from "../../packages/core/ts/src/internal";
 import { buildPipelines } from "../../packages/core/ts/src/renderers/webgpu/webgpu-renderer";
 import type { PipelineCheckResult, WebGpuLiquidHook } from "../test-hooks";
@@ -17,7 +18,9 @@ if (rendererRaw !== "webgpu" && rendererRaw !== "canvas2d") {
   throw new TypeError(`[webgpu-liquid] ?renderer must be "webgpu" or "canvas2d", got "${rendererRaw}"`);
 }
 const renderer: "webgpu" | "canvas2d" = rendererRaw;
-const clock = createRenderCountingClock(createManualClock(0));
+const manual: RenderCountingClock | null =
+  new URLSearchParams(window.location.search).get("clock") === "manual" ? createRenderCountingClock(createManualClock(0)) : null;
+const clock: FrameClock = manual ?? rafClock;
 const elements = Array.from(document.querySelectorAll<HTMLElement>("[data-liquid]"));
 let instance: LiquidDOMInstance | null = null;
 
@@ -77,7 +80,8 @@ const hook: WebGpuLiquidHook = {
   advance(frames) {
     // No frame rendered in this task (advance(0), paused, hidden tab, failed frame): keep the
     // previous snapshot (W71.5 review Minor 1, W71 ward-review M3).
-    if (clock.advance(frames) === 0) return;
+    if (!manual) throw new Error("[webgpu-liquid] advance() needs ?clock=manual");
+    if (manual.advance(frames) === 0) return;
     capture();
   },
   pixels() {

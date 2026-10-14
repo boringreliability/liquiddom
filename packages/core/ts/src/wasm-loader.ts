@@ -37,6 +37,8 @@ export interface FluidCoreLike {
   set_reduced_motion(on: boolean): void;
   /** W80 (D80-1): the scroll since the last frame (px) and its inertia (px/s); before `tick`. */
   scroll_shift(dx: number, dy: number, ivx: number, ivy: number): void;
+  /** W81 (D81-2): grows the grid to a world of at least w × h px (never shrinks); true when it grew. Outside `tick`. */
+  resize_world(w: number, h: number): boolean;
   free(): void;
 }
 

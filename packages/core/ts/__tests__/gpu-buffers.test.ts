@@ -7,6 +7,7 @@ import {
   Dyn,
   DYNAMIC_FIELDS,
   ELEMENT_STRIDE,
+  FLAG_PARKED,
   FLAG_TORN,
   HOME_NONE,
   HOVER_SWELL,
@@ -274,5 +275,21 @@ describe("W71 gpu-buffers", () => {
     expect(Array.from(out.subarray(0, 2 * P))).toEqual([10, 100, 7, 7, 7, 7, 7, 7, OFFSCREEN_PX, OFFSCREEN_PX, 7, 7, 7, 7, 7, 7]);
     packParticles(f, out, true);
     expect(Array.from(out.subarray(0, P))).toEqual([10, 100, 3, 0, 0, 0, 0, 0]);
+  });
+
+  // W81 (D81-1)
+  it("given_parked_particles_when_packParticles_with_or_without_F_then_their_quads_go_off_screen_and_their_flags_are_kept", () => {
+    const f = frame();
+    f.dynamicView[Dyn.FLAGS * CAP + 2] = FLAG_PARKED;
+    f.dynamicView[Dyn.FLAGS * CAP + 3] = FLAG_PARKED | FLAG_TORN;
+    const P = PARTICLE_GPU_FLOATS;
+    const out = new Float32Array(CAP * P).fill(7);
+    packParticles(f, out, false);
+    expect(Array.from(out.subarray(2 * P, 2 * P + 2))).toEqual([OFFSCREEN_PX, OFFSCREEN_PX]);
+    expect(Array.from(out.subarray(3 * P, 3 * P + 2))).toEqual([OFFSCREEN_PX, OFFSCREEN_PX]);
+    expect(Array.from(out.subarray(4 * P, 4 * P + 2)), "an unparked particle keeps its position").toEqual([14, 104]);
+    packParticles(f, out, true);
+    expect(Array.from(out.subarray(2 * P, 3 * P))).toEqual([OFFSCREEN_PX, OFFSCREEN_PX, 0, 0, 0, 0, FLAG_PARKED, 0]);
+    expect(out[3 * P + 6]).toBe(FLAG_PARKED | FLAG_TORN);
   });
 });

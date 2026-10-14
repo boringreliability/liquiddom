@@ -37,6 +37,8 @@ export const Interaction = { IDLE: 0, HOVER: 1, FOCUSED: 2, DRAGGED: 3 } as cons
 
 export const HOME_NONE = -1;
 export const FLAG_TORN = 1;
+/** W81 (D81-1): the particle's element is parked (not simulated); both renderers skip it. */
+export const FLAG_PARKED = 2;
 /** Plan resolution B1: hover swell of the home rect around its centre. */
 export const HOVER_SWELL = 0.02;
 

@@ -107,6 +107,9 @@ export function createTestBackend(opts: TestBackendOptions = {}): TestBackend {
     private active = 0;
     private acc = 0;
     private readonly forced = new Map<number, number>();
+    /** W81 (D81-2): the world, clamped like Rust's `world_extent`. */
+    private worldW: number;
+    private worldH: number;
 
     constructor(
       particles: number,
@@ -118,6 +121,10 @@ export function createTestBackend(opts: TestBackendOptions = {}): TestBackend {
       seed: number,
     ) {
       this.ctorArgs = [particles, maxElements, worldWPx, worldHPx, areaHintPx2, maxElementHPx, seed];
+      const extent = (v: number, fallback: number): number =>
+        Number.isFinite(v) && v > 0 ? Math.min(8192, Math.max(64, v)) : fallback;
+      this.worldW = extent(worldWPx, 1280);
+      this.worldH = extent(worldHPx, 800);
       this.n = particles;
       this.m = maxElements;
       this.cell =
@@ -214,6 +221,16 @@ export function createTestBackend(opts: TestBackendOptions = {}): TestBackend {
     /** W80: recorded only; every tick pins the particles to the rects anyway. */
     scroll_shift(dx: number, dy: number, ivx: number, ivy: number): void {
       record(`scroll_shift:${dx}:${dy}:${ivx}:${ivy}`);
+    }
+    /** W81 (D81-2): Rust's rule (grow only, clamped to [64, 8192], a non-finite or ≤ 0 extent keeps its axis); recorded. */
+    resize_world(w: number, h: number): boolean {
+      record(`resize_world:${w}:${h}`);
+      const grow = (v: number, now: number): number =>
+        Number.isFinite(v) && v > 0 ? Math.max(now, Math.min(8192, Math.max(64, v))) : now;
+      const [w0, h0] = [this.worldW, this.worldH];
+      this.worldW = grow(w, w0);
+      this.worldH = grow(h, h0);
+      return this.worldW > w0 || this.worldH > h0;
     }
     free(): void {
       this.freed = true;

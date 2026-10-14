@@ -65,42 +65,42 @@ Decision: APPROVED 2026-10-14 — the container world is its client box, not its
 
 ## Tests
 
-| # | Test Name | Verifies |
-|---|-----------|----------|
-| 1 | parking_tests.rs: given_the_world_and_margin_when_the_bounds_are_read_then_outside_inside_by_and_overlaps_follow_d81_1 | D81-1 geometry |
-| 2 | parking_tests.rs: given_a_world_when_resize_world_then_it_grows_never_shrinks_clamps_and_keeps_the_origin_and_the_lattice_phase | D81-2 grid |
-| 3 | parking_tests.rs: given_an_element_entirely_below_the_world_plus_margin_when_redistributed_and_ticked_then_it_is_parked_at_rest_and_every_one_of_its_particles_carries_flag_parked | D81-1 park, the flag in the view |
-| 4 | parking_tests.rs: given_a_parked_element_when_ticking_with_a_splash_a_shake_and_the_pointer_then_its_particles_are_untouched_and_it_stays_at_rest | D81-1 skip |
-| 5 | parking_tests.rs: given_a_parked_far_element_when_the_others_splash_shake_and_scroll_then_their_simulation_is_bit_identical_to_the_unparked_engine_and_touches_fewer_cells | D81-1 no side effect, perf (≤ 0.5 × cells) |
-| 6 | parking_tests.rs: given_no_element_ever_leaves_the_bound_when_splashing_shaking_and_scrolling_300_px_then_the_core_is_bit_identical_with_parking_on_and_off | W80 bit-identity (guard) |
-| 7 | parking_tests.rs: given_a_parked_element_scrolled_into_view_when_it_overlaps_the_world_then_in_that_frame_it_is_unparked_at_rest_with_every_particle_on_its_target_and_it_stays_at_rest | D81-1 re-entry at rest, W81 RF1 |
-| 8 | parking_tests.rs: given_a_parked_element_near_the_bound_when_its_rect_jitters_by_5_px_then_it_does_not_flap_and_it_unparks_only_64_px_inside | D81-1 hysteresis |
-| 9 | parking_tests.rs: given_a_dragged_element_outside_the_bound_when_ticking_then_it_is_never_parked_and_a_parked_element_that_becomes_dragged_unparks_at_once | D81-1 drag |
-| 10 | parking_tests.rs: given_a_parked_element_when_the_page_scrolls_then_scroll_shift_leaves_its_particles_and_previous_rect_alone | W80 carry-over (`shifts_with_scroll`) |
-| 11 | parking_tests.rs: given_a_parked_element_when_redistributed_then_it_keeps_its_area_share_and_when_it_is_unobserved_its_particles_start_on_their_new_visible_targets | D81-1 budget, unplaced rule, W81 RF2 |
-| 12 | parking_tests.rs: given_reduced_motion_when_an_element_is_out_of_the_bound_then_it_is_parked_the_pin_skips_it_and_re_entry_places_it_on_its_target | reduced motion |
-| 13 | parking_tests.rs: given_an_inactive_element_when_ticking_then_it_is_never_parked_and_a_parked_slot_that_goes_inactive_loses_the_flag | D81-1 inactive |
-| 14 | parking_tests.rs: given_a_core_when_resize_world_grows_it_then_particles_and_every_non_grid_buffer_stay_and_an_element_inside_the_new_bound_unparks | D81-2 core, W81 RF5 |
-| 15 | parking_tests.rs: given_a_page_scrolled_150_px_before_and_after_resize_world_when_a_splash_is_in_flight_then_every_particle_matches_an_unscrolled_resized_core_up_to_f32_rounding | D81-2 lattice phase (W80 carry-over) |
-| 16 | world.test: given_body_mode_when_measured_then_the_world_is_max_screen_inner_per_axis | B2 (guard) |
-| 17 | world.test: given_container_mode_when_measured_then_the_world_is_the_container_client_box_not_its_scroll_range_d81_3 | D81-3 |
-| 18 | world.test: given_rusts_world_extent_when_clampWorld_then_positive_extents_clamp_to_64_8192_and_non_positive_or_non_finite_fall_back_to_1280_800 | Rust's clamp mirrored |
-| 19 | world.test: given_a_world_when_grownWorld_then_only_outgrown_axes_grow_to_at_least_1_25_times_capped_at_8192_and_it_never_shrinks | D81-2 growth rule |
-| 20 | world-runtime.test: given_the_window_grown_beyond_the_world_when_resize_fires_then_resize_world_runs_once_outside_any_frame_with_the_grown_world_and_logs_one_console_info | D81-2 trigger and log |
-| 21 | world-runtime.test: given_container_mode_when_created_then_the_world_is_the_container_client_box_and_a_ResizeObserver_growth_reallocates_once_d81_3 | D81-3 in the runtime |
-| 22 | world-runtime.test: given_a_frame_that_failed_when_the_window_grows_then_no_core_method_is_called_and_nothing_is_logged | W81 RF5 (guard) |
-| 23 | world-runtime.test: given_a_world_beyond_8192_px_when_the_window_grows_then_resize_world_gets_the_capped_world_once_and_further_growth_calls_nothing | D81-2 cap |
-| 24 | fluid-canvas2d.test: given_particles_flagged_parked_while_their_element_moves_when_rendering_then_only_the_unparked_ones_splat | D81-1 Canvas2D |
-| 25 | fluid-canvas2d.test: given_an_inactive_slot_w_0_with_a_paint_and_rest_alpha_0_when_rendering_then_its_particles_add_no_density_and_no_rest_contour_w76 | W76 w == 0, W81 RF4 |
-| 26 | gpu-buffers.test: given_parked_particles_when_packParticles_with_or_without_F_then_their_quads_go_off_screen_and_their_flags_are_kept | D81-1 WebGPU |
-| 27 | fluid-ffi.test: given_the_real_core_with_a_card_below_the_world_when_ticked_then_its_particles_carry_flag_parked_and_resize_world_unparks_it_at_rest_with_the_view_pointers_unchanged | the WASM exports |
-| 28 | e2e parking (canvas2d): D81-1 – given the long page at the top when read then #far1 and #far2 are parked, #top and #hide are not, every restAlpha is 1 and no green or orange liquid is drawn | park, renderer skip |
-| 29 | e2e parking (canvas2d): step 7 (long page) – given the page scrolled to #far1 at 30 px per frame and back … every restAlpha is 1 within the step-7 budget | step 7 on a long page |
-| 30 | e2e parking (canvas2d): D81-1 – given a jump straight to #far2 when the frame runs then #far2 is unparked and at rest in that very frame … | re-entry frame, W81 RF1 |
-| 31 | e2e parking (canvas2d): D81-1 (W76 w == 0) – given #hide moving after a shake when its wrapper is hidden … no red liquid is left on the Canvas2D canvas | colour-keyed w == 0 guard, W81 RF4 |
-| 32 | e2e parking (canvas2d): D81-2 – given the window grown beyond the world when resized then exactly one console.info … a smaller window logs nothing | D81-2 in the browser |
-| 33 | e2e webgpu-robust (webgpu-hw): W81 D81-1 – given renderer webgpu on the long page when scrolled to the far card at 30 px per frame and back … | parking in WebGPU |
-| 34 | e2e perf (perf): perf – W81: a Canvas2D frame of the long page with its far cards parked costs at most 0.6 × the same page with every element on screen | slice design §11 perf |
+| # | Test Name | Verifies | Red outcome |
+|---|-----------|----------|---|
+| 1 | parking_tests.rs: given_the_world_and_margin_when_the_bounds_are_read_then_outside_inside_by_and_overlaps_follow_d81_1 | D81-1 geometry | ❌ stub bound is all zero (assert_eq left == right) |
+| 2 | parking_tests.rs: given_a_world_when_resize_world_then_it_grows_never_shrinks_clamps_and_keeps_the_origin_and_the_lattice_phase | D81-2 grid | ❌ `wider: grows (height kept)` (stub returns false) |
+| 3 | parking_tests.rs: given_an_element_entirely_below_the_world_plus_margin_when_redistributed_and_ticked_then_it_is_parked_at_rest_and_every_one_of_its_particles_carries_flag_parked | D81-1 park, the flag in the view | ❌ `parked from the first redistribute` |
+| 4 | parking_tests.rs: given_a_parked_element_when_ticking_with_a_splash_a_shake_and_the_pointer_then_its_particles_are_untouched_and_it_stays_at_rest | D81-1 skip | ❌ `no P2G, G2P, splash, shake or pointer on a parked element` |
+| 5 | parking_tests.rs: given_a_parked_far_element_when_the_others_splash_shake_and_scroll_then_their_simulation_is_bit_identical_to_the_unparked_engine_and_touches_fewer_cells | D81-1 no side effect, perf (≤ 0.5 × cells) | ❌ `the parked element's particles leave the dirty region: 10371538 vs 10371538 cells` |
+| 6 | parking_tests.rs: given_no_element_ever_leaves_the_bound_when_splashing_shaking_and_scrolling_300_px_then_the_core_is_bit_identical_with_parking_on_and_off | W80 bit-identity (guard) | ✅ passes (guard) |
+| 7 | parking_tests.rs: given_a_parked_element_scrolled_into_view_when_it_overlaps_the_world_then_in_that_frame_it_is_unparked_at_rest_with_every_particle_on_its_target_and_it_stays_at_rest | D81-1 re-entry at rest, W81 RF1 | ❌ `still parked with its top at 2370 px (below the world)` |
+| 8 | parking_tests.rs: given_a_parked_element_near_the_bound_when_its_rect_jitters_by_5_px_then_it_does_not_flap_and_it_unparks_only_64_px_inside | D81-1 hysteresis | ❌ `assertion failed: c.is_parked_of(1)` |
+| 9 | parking_tests.rs: given_a_dragged_element_outside_the_bound_when_ticking_then_it_is_never_parked_and_a_parked_element_that_becomes_dragged_unparks_at_once | D81-1 drag | ❌ `c.is_parked_of(…)` |
+| 10 | parking_tests.rs: given_a_parked_element_when_the_page_scrolls_then_scroll_shift_leaves_its_particles_and_previous_rect_alone | W80 carry-over (`shifts_with_scroll`) | ❌ `c.is_parked_of(…)` |
+| 11 | parking_tests.rs: given_a_parked_element_when_redistributed_then_it_keeps_its_area_share_and_when_it_is_unobserved_its_particles_start_on_their_new_visible_targets | D81-1 budget, unplaced rule, W81 RF2 | ❌ `c.is_parked_of(…)` |
+| 12 | parking_tests.rs: given_reduced_motion_when_an_element_is_out_of_the_bound_then_it_is_parked_the_pin_skips_it_and_re_entry_places_it_on_its_target | reduced motion | ❌ `parking holds under reduced motion` |
+| 13 | parking_tests.rs: given_an_inactive_element_when_ticking_then_it_is_never_parked_and_a_parked_slot_that_goes_inactive_loses_the_flag | D81-1 inactive | ❌ `c.is_parked_of(…)` |
+| 14 | parking_tests.rs: given_a_core_when_resize_world_grows_it_then_particles_and_every_non_grid_buffer_stay_and_an_element_inside_the_new_bound_unparks | D81-2 core, W81 RF5 | ❌ `taller: grows` |
+| 15 | parking_tests.rs: given_a_page_scrolled_150_px_before_and_after_resize_world_when_a_splash_is_in_flight_then_every_particle_matches_an_unscrolled_resized_core_up_to_f32_rounding | D81-2 lattice phase (W80 carry-over) | ❌ `assertion failed: c.resize_world(1920.0, 1080.0)` |
+| 16 | world.test: given_body_mode_when_measured_then_the_world_is_max_screen_inner_per_axis | B2 (guard) | ✅ passes (guard) |
+| 17 | world.test: given_container_mode_when_measured_then_the_world_is_the_container_client_box_not_its_scroll_range_d81_3 | D81-3 | ❌ stub measure is `max(client, scroll)` (360 expected, 1200 received) |
+| 18 | world.test: given_rusts_world_extent_when_clampWorld_then_positive_extents_clamp_to_64_8192_and_non_positive_or_non_finite_fall_back_to_1280_800 | Rust's clamp mirrored | ❌ stub clampWorld does not clamp |
+| 19 | world.test: given_a_world_when_grownWorld_then_only_outgrown_axes_grow_to_at_least_1_25_times_capped_at_8192_and_it_never_shrinks | D81-2 growth rule | ❌ stub grownWorld returns null |
+| 20 | world-runtime.test: given_the_window_grown_beyond_the_world_when_resize_fires_then_resize_world_runs_once_outside_any_frame_with_the_grown_world_and_logs_one_console_info | D81-2 trigger and log | ❌ no `resize_world` call from the resize handler |
+| 21 | world-runtime.test: given_container_mode_when_created_then_the_world_is_the_container_client_box_and_a_ResizeObserver_growth_reallocates_once_d81_3 | D81-3 in the runtime | ❌ container world is `max(client, scroll)`; no `resize_world` call |
+| 22 | world-runtime.test: given_a_frame_that_failed_when_the_window_grows_then_no_core_method_is_called_and_nothing_is_logged | W81 RF5 (guard) | ✅ passes (guard) |
+| 23 | world-runtime.test: given_a_world_beyond_8192_px_when_the_window_grows_then_resize_world_gets_the_capped_world_once_and_further_growth_calls_nothing | D81-2 cap | ❌ no `resize_world` call |
+| 24 | fluid-canvas2d.test: given_particles_flagged_parked_while_their_element_moves_when_rendering_then_only_the_unparked_ones_splat | D81-1 Canvas2D | ❌ every particle splats |
+| 25 | fluid-canvas2d.test: given_an_inactive_slot_w_0_with_a_paint_and_rest_alpha_0_when_rendering_then_its_particles_add_no_density_and_no_rest_contour_w76 | W76 w == 0, W81 RF4 | ❌ the inactive slot's particles splat |
+| 26 | gpu-buffers.test: given_parked_particles_when_packParticles_with_or_without_F_then_their_quads_go_off_screen_and_their_flags_are_kept | D81-1 WebGPU | ❌ parked particles keep their positions |
+| 27 | fluid-ffi.test: given_the_real_core_with_a_card_below_the_world_when_ticked_then_its_particles_carry_flag_parked_and_resize_world_unparks_it_at_rest_with_the_view_pointers_unchanged | the WASM exports | ❌ no particle is flagged parked |
+| 28 | e2e parking (canvas2d): D81-1 – given the long page at the top when read then #far1 and #far2 are parked, #top and #hide are not, every restAlpha is 1 and no green or orange liquid is drawn | park, renderer skip | ❌ `parked()` is `[false, false, false, false]` |
+| 29 | e2e parking (canvas2d): step 7 (long page) – given the page scrolled to #far1 at 30 px per frame and back … every restAlpha is 1 within the step-7 budget | step 7 on a long page | ❌ `at 2100 px: #top, #hide and #far2 parked, #far1 not` |
+| 30 | e2e parking (canvas2d): D81-1 – given a jump straight to #far2 when the frame runs then #far2 is unparked and at rest in that very frame … | re-entry frame, W81 RF1 | ❌ `#far2 unparked, the first screen parked` |
+| 31 | e2e parking (canvas2d): D81-1 (W76 w == 0) – given #hide moving after a shake when its wrapper is hidden … no red liquid is left on the Canvas2D canvas | colour-keyed w == 0 guard, W81 RF4 | ❌ `an inactive slot's liquid is not drawn (colour-keyed guard)`: 7202 red pixels |
+| 32 | e2e parking (canvas2d): D81-2 – given the window grown beyond the world when resized then exactly one console.info … a smaller window logs nothing | D81-2 in the browser | ❌ `page.waitForFunction: Timeout 5000ms exceeded` (the world never grows) |
+| 33 | e2e webgpu-robust (webgpu-hw): W81 D81-1 – given renderer webgpu on the long page when scrolled to the far card at 30 px per frame and back … | parking in WebGPU | ❌ `parked()` is all false (webgpu-hw) |
+| 34 | e2e perf (perf): perf – W81: a Canvas2D frame of the long page with its far cards parked costs at most 0.6 × the same page with every element on screen | slice design §11 perf | — not run at red (perf project) |
 
 Approved-test changes at red (Dennis approves with the tests): `scenario_tests.rs` W67 lock probe (−1000 px leg: parked at rest instead of "left its home"); `fluid-layout.test.ts` (layout.rs has 36 constants, `FLAG_PARKED` mirrored); the openers of `e2e/webgpu-liquid.spec.ts` and the D72-6 block of `e2e/webgpu-robust.spec.ts` add `clock=manual` (the smoke pages run on RAF by default, W80 gold carry-over).
 

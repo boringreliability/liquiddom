@@ -13,6 +13,7 @@ import {
   Dyn,
   El,
   ELEMENT_STRIDE,
+  FLAG_PARKED,
   St,
   STATE_STRIDE,
   Stat,
@@ -174,5 +175,40 @@ describe("W64 FluidCore FFI (real wasm)", () => {
     expect(worst, "every homed particle moved by (0, −30) px").toBeLessThan(0.01);
     const s = bridge.stateView();
     for (let id = 0; id < 4; id++) expect(s[id * STATE_STRIDE + St.REST_ALPHA], `element ${id} still at rest`).toBe(1);
+  });
+
+  // W81 (D81-1, D81-2): parking and resize_world through the real WASM exports.
+  it("given_the_real_core_with_a_card_below_the_world_when_ticked_then_its_particles_carry_flag_parked_and_resize_world_unparks_it_at_rest_with_the_view_pointers_unchanged", () => {
+    const { core, bridge } = acceptance();
+    bridge.elementView().set([480, 2400, 320, 160, 16, 0, 0, 0, NaN, NaN], 4 * ELEMENT_STRIDE);
+    core.redistribute();
+    bridge.syncGeneration();
+    expect(core.tick(1 / 60, 0, 0, 0, 0, false, 0, 0)).toBe(1);
+    const census = (): { mine: number; flagged: number; others: number } => {
+      const st = bridge.staticView();
+      const d = bridge.dynamicView();
+      let mine = 0;
+      let flagged = 0;
+      let others = 0;
+      for (let i = 0; i < N; i++) {
+        const parked = (d[Dyn.FLAGS * N + i] & FLAG_PARKED) !== 0;
+        if (st[Stat.HOME * N + i] === 4) {
+          mine += 1;
+          if (parked) flagged += 1;
+        } else if (parked) others += 1;
+      }
+      return { mine, flagged, others };
+    };
+    const before = census();
+    expect(before.mine, "the far card keeps its share of the budget").toBeGreaterThan(1000);
+    expect(before.flagged, "every one of its particles is parked").toBe(before.mine);
+    expect(before.others).toBe(0);
+    const ptrs = [core.elements_ptr(), core.dynamic_ptr(), core.static_ptr(), core.state_ptr()];
+    expect(core.resize_world(1280, 800), "the same world: no reallocation").toBe(false);
+    expect(core.resize_world(1280, 2600)).toBe(true);
+    expect([core.elements_ptr(), core.dynamic_ptr(), core.static_ptr(), core.state_ptr()], "the views' pointers stay").toEqual(ptrs);
+    expect(core.tick(1 / 60, 0, 0, 0, 0, false, 0, 0)).toBe(1);
+    expect(census().flagged, "unparked once the card overlaps the grown world").toBe(0);
+    expect(bridge.stateView()[4 * STATE_STRIDE + St.REST_ALPHA], "re-entered at rest").toBe(1);
   });
 });

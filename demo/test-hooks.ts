@@ -233,3 +233,24 @@ export interface ScrollContainerHook {
   /** The canvas's inline `transform` (W80: `translate(…)` while the container is scrolled, else ""). */
   canvasTransform(): string;
 }
+
+/**
+ * W81 (D81-1, D81-2): `window.__longPage` on demo/scenes/long-page.html (body mode, a page about 5000 px
+ * tall). One instance observes #top, #hide (inside #wrap), #far1 and #far2, in this order; the far cards
+ * start parked. `?clock=manual` for advance(); `?compact=1` puts every element on the first screen.
+ */
+export interface LongPageHook {
+  readonly ready: Promise<void>;
+  /** Manual-clock frames of 1000/60 ms (throws without ?clock=manual); snapshots the canvas when a frame rendered (W71 pixels() rule). */
+  advance(frames: number): void;
+  /** RGBA8 copy of the liquid canvas from the last advance() that rendered. */
+  pixels(): ImageData;
+  /** restAlpha of #top, #hide, #far1, #far2 (NaN if unknown). */
+  restAlpha(): number[];
+  /** Per element, same order: it has particles and every one of them carries FLAG_PARKED in the dynamic view. */
+  parked(): boolean[];
+  /** The world the core's grid covers (`FluidRuntime.world`, @internal), px. */
+  world(): { w: number; h: number };
+  /** `instance.shake()` at strength 1. */
+  shake(): void;
+}

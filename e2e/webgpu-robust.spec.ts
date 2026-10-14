@@ -30,7 +30,7 @@ import {
 import { NORTH_STAR_PATH, reformBudgetMs } from "./north-star";
 import { SWIFTSHADER_RUNS_LIQUID, VIEWPORT } from "./projects";
 import { VISUAL_ENABLED, VISUAL_SKIP_REASON, canvasPixelAt, cssAlpha } from "./scene";
-import { ACCEPTANCE_FILL, FILL_MIN, scrollPath, scrollPathFills, worstFrame } from "./scroll";
+import { ACCEPTANCE_FILL, FILL_MIN, scrollPath, scrollPathFills, worstFrame, type FillSpec } from "./scroll";
 
 const FPS = 60;
 const IDLE_FRAMES = 2 * FPS;
@@ -257,7 +257,7 @@ test.describe("W72 – WebGPU by default, robust", () => {
   test.describe("D72-6 – WebGPU on the hardware adapter: container mode, two instances, DPR 2", () => {
     /** demo/smoke/webgpu-modes.html: ?mode=container (one 'auto' instance in #box-a) or ?mode=multi (two 'webgpu' instances, body mode). */
     async function openModes(page: Page, mode: "container" | "multi"): Promise<void> {
-      await page.goto(`/smoke/webgpu-modes.html?mode=${mode}`);
+      await page.goto(`/smoke/webgpu-modes.html?mode=${mode}&clock=manual`);
       await page.waitForFunction(() => window.__webgpuModes !== undefined, undefined, { timeout: 15_000 });
       await page.evaluate(() => window.__webgpuModes!.ready);
       await page.evaluate((n) => window.__webgpuModes!.advance(n), IDLE_FRAMES);
@@ -1234,5 +1234,47 @@ test.describe("W80 – scroll follows (webgpu)", () => {
     await testInfo.attach("w80-lag-webgpu.json", { path: out, contentType: "application/json" });
     console.log(`W80 D80-4 (webgpu): ${samples.length} samples, worst |offset| beyond the timing uncertainty ${worst.toFixed(1)} px`);
     expect(samples.length, "the probe saw the card").toBeGreaterThan(0);
+  });
+});
+
+// =============================================================================
+// W81 (slice 6) – parking in WebGPU (D81-1), webgpu-hw only.
+// =============================================================================
+const W81_HW_ONLY = "W81: WebGPU on the hardware adapter; local webgpu-hw project only (fallback B)";
+/** demo/scenes/long-page.html colours, in the hook's element order. */
+const W81_LONG_FILL: FillSpec = {
+  hook: "__longPage",
+  canvas: "canvas.liquid-canvas",
+  scroller: null,
+  colours: { "#top": [0x2f, 0x6f, 0xde], "#hide": [0xd9, 0x30, 0x25], "#far1": [0x1a, 0x83, 0x61], "#far2": [0xe8, 0x71, 0x0a] },
+};
+
+test.describe("W81 – parking (webgpu)", () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== HW_PROJECT, W81_HW_ONLY);
+  });
+
+  test("W81 D81-1 – given renderer webgpu on the long page when scrolled to the far card at 30 px per frame and back then every visible DOM shape is filled, the parked cards draw nothing and every restAlpha is 1 within the step-7 budget", async ({ page }, testInfo) => {
+    await page.goto("/scenes/long-page.html?renderer=webgpu&clock=manual");
+    await page.waitForFunction(() => window.__longPage !== undefined, undefined, { timeout: 15_000 });
+    await page.evaluate(() => window.__longPage!.ready);
+    await page.evaluate((n) => window.__longPage!.advance(n), IDLE_FRAMES);
+    expect(await page.evaluate(() => window.__longPage!.parked())).toEqual([false, false, true, true]);
+    const frames = await scrollPathFills(page, W81_LONG_FILL, scrollPath(2100, 30));
+    const worst = worstFrame(frames);
+    console.log(`W81 long page (webgpu): ${frames.length} frames, lowest fill ${worst.min.toFixed(3)} (${worst.worst} at scroll ${worst.scroll}), bound ${FILL_MIN}`);
+    expect(worst.min, `no snap (${worst.worst} at scroll ${worst.scroll})`).toBeGreaterThanOrEqual(FILL_MIN);
+    expect(await page.evaluate(() => window.__longPage!.parked()), "back at the top").toEqual([false, false, true, true]);
+    const rest = await page.evaluate((n) => {
+      const h = window.__longPage!;
+      for (let f = 1; f <= n; f++) {
+        h.advance(1);
+        if (h.restAlpha().every((a) => a === 1)) return f;
+      }
+      return -1;
+    }, W80_BUDGET_FRAMES);
+    console.log(`W81 long page (webgpu): every restAlpha 1 after ${rest} frames (budget ${W80_BUDGET_FRAMES})`);
+    expect(rest).toBeGreaterThan(0);
+    await page.screenshot({ path: testInfo.outputPath("w81-webgpu-long-page.png") });
   });
 });

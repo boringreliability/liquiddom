@@ -42,6 +42,8 @@ pub const STAT_REST_V: usize = 2;
 
 pub const HOME_NONE: f32 = -1.0;
 pub const FLAG_TORN: u32 = 1;
+/// W81 (D81-1): the particle's element is parked (not simulated); both renderers skip it.
+pub const FLAG_PARKED: u32 = 2;
 
 pub const INTERACTION_IDLE: f32 = 0.0;
 pub const INTERACTION_HOVER: f32 = 1.0;

@@ -621,10 +621,21 @@ mod w67 {
             for _ in 0..60 {
                 frame(&mut core);
             }
-            assert!(
-                core.rest_alphas()[SPLASH] < 1.0,
-                "dx {dx}: the Splash liquid left its home"
-            );
+            if dx > 0.0 {
+                assert!(
+                    core.rest_alphas()[SPLASH] < 1.0,
+                    "dx {dx}: the Splash liquid left its home"
+                );
+            } else {
+                // W81 red: approved-test change (D81-1): −1000 px is entirely outside the world
+                // plus the margin, so the element parks at rest instead of clamping to the wall.
+                assert!(core.is_parked_of(SPLASH), "dx {dx}: parked (W81)");
+                assert_eq!(
+                    core.rest_alphas()[SPLASH],
+                    1.0,
+                    "dx {dx}: held at rest while parked"
+                );
+            }
             core.write_element(SPLASH, slot(home));
             let frames = frames_until_rest(&mut core, budget_frames(LOCK_PROBE_BUDGET_S, 0));
             eprintln!(

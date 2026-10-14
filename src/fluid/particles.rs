@@ -2,7 +2,7 @@
 //! home, rest_u, rest_v, flags`), plus the per-generation rank and mass.
 
 use super::access::{wr, wr4};
-use super::layout::FLAG_TORN;
+use super::layout::{FLAG_PARKED, FLAG_TORN};
 
 pub const NO_HOME: u32 = u32::MAX;
 pub const IDENTITY: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
@@ -56,6 +56,12 @@ impl Particles {
             Some(&h) if h != NO_HOME => Some(h as usize),
             _ => None,
         }
+    }
+
+    /// W81 (D81-1): the particle carries `FLAG_PARKED` (its element is parked). Out of range: false.
+    #[inline]
+    pub fn is_parked(&self, i: usize) -> bool {
+        self.flags.get(i).is_some_and(|f| f & FLAG_PARKED != 0)
     }
 
     /// v = 0, C = 0, J = 1, and (W74) `reset_deformation`: the reduced-motion pin leaves no

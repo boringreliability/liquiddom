@@ -64,6 +64,9 @@ pub struct FluidCore {
     /// 1 = production). Read by `f_dt_for`.
     #[cfg(test)]
     f_every: u32,
+    /// Test-only (W81): parking switched off, so a test can compare against the unparked engine.
+    #[cfg(test)]
+    parking_off: bool,
 }
 
 #[wasm_bindgen]
@@ -115,6 +118,8 @@ impl FluidCore {
             step_vel_trace: Vec::with_capacity(MAX_STEPS_PER_TICK as usize),
             #[cfg(test)]
             f_every: 1,
+            #[cfg(test)]
+            parking_off: false,
         }
     }
 
@@ -381,6 +386,11 @@ impl FluidCore {
         );
         self.scratch.invalidate_bounds(); // D68-10: the shift moved particles
     }
+
+    /// W81 red stub (D81-2); W81.2 grows the grid.
+    pub fn resize_world(&mut self, _w: f32, _h: f32) -> bool {
+        false
+    }
 }
 
 /// Fix round (D67-14 hiccup): the time a tick's rect delta is divided by. Normally the
@@ -419,6 +429,18 @@ impl FluidCore {
             self.elements
                 .update_rest_state_with_f(id, dev, fdev, dt, reduced_motion);
         }
+    }
+
+    /// W81: parking runs in production; a test can switch it off (`set_parking_off`).
+    #[cfg(not(test))]
+    #[inline]
+    fn parking_on(&self) -> bool {
+        true
+    }
+
+    #[cfg(test)]
+    fn parking_on(&self) -> bool {
+        !self.parking_off
     }
 
     /// D74-1: F is updated on every substep. Test builds can thin it to every n-th substep
@@ -530,6 +552,7 @@ impl FluidCore {
             e.prev_x,
             e.prev_y,
             e.has_prev,
+            e.parked,
             e.vel_x,
             e.vel_y,
             e.stiffness,
@@ -751,6 +774,28 @@ impl FluidCore {
 
     pub(crate) fn stiffness_of(&self, id: usize) -> f32 {
         self.elements.stiffness[id]
+    }
+
+    /// W81: switch parking off (true) for a comparison run; on by default.
+    pub(crate) fn set_parking_off(&mut self, off: bool) {
+        self.parking_off = off;
+    }
+
+    /// W81: element `id` is parked.
+    pub(crate) fn is_parked_of(&self, id: usize) -> bool {
+        self.elements.is_parked(id)
+    }
+
+    /// W81: how many particles carry FLAG_PARKED.
+    pub(crate) fn parked_particles(&self) -> usize {
+        (0..self.particles.cap)
+            .filter(|&i| self.particles.is_parked(i))
+            .count()
+    }
+
+    /// W81: the world the grid covers (px).
+    pub(crate) fn world_px(&self) -> (f32, f32) {
+        (self.grid.world_w_px, self.grid.world_h_px)
     }
 
     /// W80: element `id`'s home velocity (px/s) as the last simulating tick computed it.

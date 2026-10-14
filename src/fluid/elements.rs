@@ -52,6 +52,9 @@ pub struct Elements {
     /// W79 (D79-2): set while the element is dragged or a neighbour under the drag, and kept
     /// until its restAlpha is 1 again; its particles slip at the merge rate meanwhile.
     pub merge_slip: Vec<bool>,
+    /// W81 (D81-1): parked (home rect outside the world plus the margin); its particles carry
+    /// `FLAG_PARKED` and are not simulated (`parking::update`).
+    pub parked: Vec<bool>,
     pub stiffness: Vec<f32>,
     pub rest_w: Vec<f32>,
     pub rest_h: Vec<f32>,
@@ -109,6 +112,7 @@ impl Elements {
             prev_off_x: vec![0.0; cap],
             prev_off_y: vec![0.0; cap],
             merge_slip: vec![false; cap],
+            parked: vec![false; cap],
             stiffness: vec![1.0; cap],
             rest_w: vec![0.0; cap],
             rest_h: vec![0.0; cap],
@@ -150,6 +154,21 @@ impl Elements {
             *slot = on;
         }
     }
+
+    /// W81 (D81-1): the element is parked. Out of range gives false.
+    pub fn is_parked(&self, id: usize) -> bool {
+        self.parked.get(id).copied().unwrap_or(false)
+    }
+
+    /// W81 (D81-1): sets or clears `parked`; out of range is a no-op. `parking::update` owns it.
+    pub fn set_parked(&mut self, id: usize, on: bool) {
+        if let Some(slot) = self.parked.get_mut(id) {
+            *slot = on;
+        }
+    }
+
+    /// W81 red stub (D81-1); W81.2 puts the element at rest.
+    pub fn rest_now(&mut self, _id: usize) {}
 
     /// W78 (D78-4): slot 5 holds DRAGGED (within ±0.5, like HOVER in `swell_rect`). NaN, an
     /// out-of-range id and every other code are not dragged.

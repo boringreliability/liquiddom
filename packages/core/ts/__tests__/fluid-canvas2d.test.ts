@@ -4,6 +4,8 @@ import {
   Dyn,
   DYNAMIC_FIELDS,
   ELEMENT_STRIDE,
+  FLAG_PARKED,
+  FLAG_TORN,
   HOME_NONE,
   HOVER_SWELL,
   Interaction,
@@ -209,5 +211,28 @@ describe("W70 D70-4: full density weight during the Canvas2D cross-fade", () => 
     expect(fills[0].globalAlpha).toBeCloseTo(0.58, 6);
     const order = ctx.calls.map((c) => c.op).filter((op) => op === "drawImage" || op === "fill");
     expect(order, "density first, the rest contour on top").toEqual(["drawImage", "fill"]);
+  });
+});
+
+describe("W81 D81-1: Canvas2D skips parked and inactive particles", () => {
+  it("given_particles_flagged_parked_while_their_element_moves_when_rendering_then_only_the_unparked_ones_splat", async () => {
+    const splat = vi.spyOn(DensityGrid.prototype, "splat");
+    const { renderer } = await setup();
+    const f = makeFrame({ restAlpha: 0 });
+    for (let i = 0; i < CAP; i += 2) f.dynamicView[Dyn.FLAGS * CAP + i] = FLAG_PARKED;
+    f.dynamicView[Dyn.FLAGS * CAP + 1] = FLAG_TORN; // another bit: still drawn
+    renderer.render(f);
+    expect(splat).toHaveBeenCalledTimes(CAP / 2);
+  });
+
+  it("given_an_inactive_slot_w_0_with_a_paint_and_rest_alpha_0_when_rendering_then_its_particles_add_no_density_and_no_rest_contour_w76", async () => {
+    const splat = vi.spyOn(DensityGrid.prototype, "splat");
+    const { renderer, ctx } = await setup();
+    const f = makeFrame({ restAlpha: 0 });
+    f.elementView.fill(0, 0, ELEMENT_STRIDE); // hidden or unobserved: w = 0 until the next redistribute
+    renderer.render(f);
+    expect(splat).not.toHaveBeenCalled();
+    expect(ctx.ops("drawImage")).toHaveLength(0);
+    expect(ctx.ops("roundRect")).toHaveLength(0);
   });
 });

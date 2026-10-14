@@ -42,8 +42,8 @@ export interface FillFrame {
 }
 
 export interface FillSpec {
-  /** "__liquidTest" (acceptance scene) or "__scrollContainer" (W80 container scene). */
-  hook: "__liquidTest" | "__scrollContainer";
+  /** "__liquidTest" (acceptance scene), "__scrollContainer" (W80 container scene) or "__longPage" (W81 long page). */
+  hook: "__liquidTest" | "__scrollContainer" | "__longPage";
   /** CSS selector of the liquid canvas whose client rect maps the snapshot. */
   canvas: string;
   /** null: the window scrolls; else the selector of the scrolled container. */

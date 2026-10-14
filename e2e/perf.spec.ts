@@ -294,3 +294,47 @@ test("perf – W80: a Canvas2D frame that scrolls 10 px costs at most 1.15 × th
   );
   expect(ratio, "scroll / still Canvas2D frame cost after a shake (W80)").toBeLessThanOrEqual(W80_SCROLL_OVER_IDLE_MAX);
 });
+
+// W81 (slice design §11): parking lowers the frame time on a long page. The long page at the top
+// (#far1 and #far2 parked: about 88 % of the particles, by area) against the same page with
+// ?compact=1 (all four elements on the first screen, nothing parked); both at rest on the manual
+// clock, so the ratio isolates the simulated particles (the Rust plan validation: 2.40 vs
+// 3.87 ms per frame with 40 % of the particles parked, native release build).
+const W81_PARKED_OVER_COMPACT_MAX = 0.6;
+const W81_COST_FRAMES = 60;
+const W81_COST_RUNS = 3;
+
+/** Median wall ms of `advance(1)` over W81_COST_FRAMES frames of the long page at rest. */
+async function w81FrameMedianMs(page: Page, compact: boolean): Promise<number> {
+  await page.goto(`/scenes/long-page.html?renderer=canvas2d&clock=manual${compact ? "&compact=1" : ""}`);
+  await page.waitForFunction(() => window.__longPage !== undefined, undefined, { timeout: 15_000 });
+  await page.evaluate(() => window.__longPage!.ready);
+  await page.evaluate(() => window.__longPage!.advance(120));
+  await page.mouse.move(1279, 799);
+  const parked = await page.evaluate(() => window.__longPage!.parked());
+  expect(parked, compact ? "compact: nothing parked" : "long page: the far cards parked").toEqual(compact ? [false, false, false, false] : [false, false, true, true]);
+  return page.evaluate((n) => {
+    const out: number[] = [];
+    for (let f = 0; f < n; f++) {
+      const t = performance.now();
+      window.__longPage!.advance(1);
+      out.push(performance.now() - t);
+    }
+    out.sort((a, b) => a - b);
+    return out[Math.floor(out.length / 2)];
+  }, W81_COST_FRAMES);
+}
+
+test("perf – W81: a Canvas2D frame of the long page with its far cards parked costs at most 0.6 × the same page with every element on screen", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "perf", "the canvas2d frame-cost guard runs in the perf project");
+  test.setTimeout(180_000);
+  const parked: number[] = [];
+  const compact: number[] = [];
+  for (let k = 0; k < W81_COST_RUNS; k++) {
+    parked.push(await w81FrameMedianMs(page, false));
+    compact.push(await w81FrameMedianMs(page, true));
+  }
+  const ratio = median(parked) / median(compact);
+  console.log(`[perf W81] canvas2d frame median at rest: parked ${median(parked).toFixed(2)} ms, compact ${median(compact).toFixed(2)} ms, ratio ${ratio.toFixed(3)} (bound ${W81_PARKED_OVER_COMPACT_MAX})`);
+  expect(ratio, "parked / compact Canvas2D frame cost (W81)").toBeLessThanOrEqual(W81_PARKED_OVER_COMPACT_MAX);
+});

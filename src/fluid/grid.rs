@@ -107,6 +107,11 @@ pub struct Grid {
     /// W80 (D80-1): the origin `new` chose (`−margin` on both axes); `scroll_origin` keeps the
     /// origin within half a cell of it.
     pub base_origin_px: f32,
+    /// W81 (D81-1, D81-2): the world the grid covers (px, clamped like `new`), and the margin
+    /// around it. The parking bound is the world plus the margin; `resize_world` grows the world.
+    pub world_w_px: f32,
+    pub world_h_px: f32,
+    pub margin_px: f32,
     pub w: usize,
     pub h: usize,
     pub mass: Vec<f32>,
@@ -160,6 +165,9 @@ impl Grid {
             origin_x_px: -margin,
             origin_y_px: -margin,
             base_origin_px: -margin,
+            world_w_px: ww,
+            world_h_px: wh,
+            margin_px: margin,
             w,
             h,
             mass: vec![0.0; n],
@@ -191,6 +199,11 @@ impl Grid {
         self.origin_x_px -= fx;
         self.origin_y_px -= fy;
         (kx, ky)
+    }
+
+    /// W81 red stub (D81-2); W81.2 grows the grid.
+    pub fn resize_world(&mut self, _world_w_px: f32, _world_h_px: f32) -> bool {
+        false
     }
 
     #[inline]

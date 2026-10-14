@@ -23,6 +23,7 @@ import { LoopController } from "./loop-control";
 import { PointerTracker } from "./pointer-tracker";
 import { DragTracker } from "./drag-tracker";
 import { ScrollTracker } from "./scroll-tracker";
+import { clampWorld, measureWorld, type WorldSize } from "./world";
 import { acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas } from "./stylesheet";
 import { initCanvas2D, selectRenderer, type ActiveRenderer, type RendererChoice, type SelectedRenderer } from "./renderers/select";
 import type { FluidCanvas2DRenderer } from "./renderers/fluid-canvas2d";
@@ -103,6 +104,8 @@ export interface FluidRuntime {
   readonly t0Size: readonly [number, number] | null;
   /** @internal W75 (Review Focus 3, 5): atlas re-render requests issued so far; the scene hook reads it. */
   readonly textInvalidations: number;
+  /** @internal W81 (D81-2): the world the core's grid covers, px (grows with resize_world, never shrinks). */
+  readonly world: WorldSize;
   /**
    * @internal W79 (D79-1) scene test hook: the text id target of the next rendered frame (WebGPU);
    * null under Canvas2D, after a lost device or destroy(). Only the acceptance hook calls it.
@@ -137,19 +140,6 @@ function assertInt(name: string, v: number, min: number, max: number): void {
   if (!Number.isInteger(v) || v < min || v > max) {
     throw new TypeError(`[liquiddom] ${name} must be an integer in [${min}, ${max}], got ${String(v)}`);
   }
-}
-
-/** B2: `max(screen, inner)` per axis; container mode: `max(client, scroll)`. */
-function measureWorld(container?: HTMLElement): { w: number; h: number } {
-  if (container) {
-    return {
-      w: Math.max(container.clientWidth, container.scrollWidth, 1),
-      h: Math.max(container.clientHeight, container.scrollHeight, 1),
-    };
-  }
-  const sw = typeof screen !== "undefined" ? screen.width || 0 : 0;
-  const sh = typeof screen !== "undefined" ? screen.height || 0 : 0;
-  return { w: Math.max(sw, window.innerWidth || 0, 1), h: Math.max(sh, window.innerHeight || 0, 1) };
 }
 
 /** B5 area hint and B15 tallest height from the initial elements. */
@@ -243,7 +233,7 @@ export async function createFluidRuntime(opts: FluidRuntimeOptions): Promise<Flu
       ...(opts.webgpuT0Scale === undefined ? {} : { t0Scale: opts.webgpuT0Scale }),
     });
     canvas = selected.canvas;
-    return startRuntime(opts, core, bridge, selected, relay);
+    return startRuntime(opts, core, bridge, selected, relay, world);
   } catch (err) {
     canvas?.remove();
     core.free();
@@ -257,10 +247,11 @@ function startRuntime(
   bridge: FluidBridge,
   selected: SelectedRenderer,
   relay: LossRelay,
+  world: WorldSize,
 ): FluidRuntime {
   const releaseStyles = acquireLiquidStyles(document);
   try {
-    return buildRuntime(opts, core, bridge, selected, relay, releaseStyles);
+    return buildRuntime(opts, core, bridge, selected, relay, releaseStyles, world);
   } catch (err) {
     // A synchronous failure after the styles/renderer were acquired: undo both,
     // createFluidRuntime's catch removes the canvas and frees the core.
@@ -277,6 +268,7 @@ function buildRuntime(
   selected: SelectedRenderer,
   relay: LossRelay,
   releaseStyles: () => void,
+  initialWorld: WorldSize,
 ): FluidRuntime {
   // W72 (D72-3): the renderer slot and the canvas are mutable. A lost WebGPU device swaps in
   // Canvas2D on a remounted canvas; the slot is null while that rebuild is in flight.
@@ -310,6 +302,8 @@ function buildRuntime(
   ).fill(undefined);
   const counts = new Uint32Array(bridge.elementCapacity);
   let viewport: RenderViewport = { widthCss: 1, heightCss: 1, dpr: 1 };
+  /** W81 (D81-2): the core's world (Rust's clamp mirrored); grows with resize_world, never shrinks. */
+  let world: WorldSize = clampWorld(initialWorld);
   // ---- W74 (D74-5, D74-6): the text atlas and the liquid-text toggle ----
   // W74 review: the page never exceeds the device's maxTextureDimension2D (min(4096, limit)).
   const atlasMaxSize =
@@ -942,6 +936,9 @@ function buildRuntime(
     },
     get textInvalidations() {
       return textInvalidations;
+    },
+    get world() {
+      return world;
     },
     captureTextIds() {
       return renderer instanceof WebGPURenderer ? renderer.captureTextIds() : Promise.resolve(null);
