@@ -291,6 +291,8 @@ function buildRuntime(
   let destroyed = false;
   /** Ward-fix M2a: set by the first frame that throws; the loop is gone for good. */
   let failed = false;
+  /** W81: true once the loop runs; before it, a throwing growWorld rethrows (create() rejects) because stopInstance needs `loop`. */
+  let started = false;
   let lastMs: number | null = null;
   let inFrame = false;
   let frameOffset: Offset = ZERO;
@@ -549,8 +551,16 @@ function buildRuntime(
     if (failed) return;
     const next = grownWorld(world, measureWorld(container));
     if (next === null) return;
+    let grew: boolean;
+    try {
+      grew = core.resize_world(next.w, next.h);
+    } catch (err) {
+      if (!started) throw err; // init: create() rejects like any other init error
+      stopInstance("[liquiddom] growing the fluid world failed; the instance stopped. Call destroy() and create a new instance.", err);
+      return;
+    }
     world = next;
-    if (core.resize_world(next.w, next.h)) console.info(`${WORLD_RESIZE_INFO} ${next.w}×${next.h} px.`);
+    if (grew) console.info(`${WORLD_RESIZE_INFO} ${next.w}×${next.h} px.`);
   };
 
   // Canvas backing store + DPR (D64-14, C2).
@@ -771,19 +781,24 @@ function buildRuntime(
     }
   };
 
+  // Stops the instance for good with one console.error (a failed frame, or a throwing resize_world).
+  const stopInstance = (msg: string, err: unknown): void => {
+    failed = true;
+    clearTextClasses(textHeld); // W74: a stopped instance never leaves text hidden
+    dragTracker.destroy(); // W78: a stopped instance takes no more drags
+    loop.destroy();
+    clearHaloClasses(haloHeld); // W75: a stopped instance leaves no halo behind
+    clearAwayClasses(awayHeld); // W78: a stopped instance hides no label
+    resyncStopped();
+    console.error(msg, err);
+  };
+
   const frame = (nowMs: number): void => {
     if (destroyed || failed) return;
     try {
       frameBody(nowMs);
     } catch (err) {
-      failed = true;
-      clearTextClasses(textHeld); // W74: a stopped instance never leaves text hidden
-      dragTracker.destroy(); // W78: a stopped instance takes no more drags
-      loop.destroy();
-      clearHaloClasses(haloHeld); // W75: a stopped instance leaves no halo behind
-      clearAwayClasses(awayHeld); // W78: a stopped instance hides no label
-      resyncStopped();
-      console.error("[liquiddom] frame failed; the instance stopped. Call destroy() and create a new instance.", err);
+      stopInstance("[liquiddom] frame failed; the instance stopped. Call destroy() and create a new instance.", err);
     }
   };
 
@@ -792,6 +807,7 @@ function buildRuntime(
     lastMs = null; // the dt must not span a pause
   });
   loop.start();
+  started = true;
 
   // W72 (D72-3): a lost WebGPU device (any loss not caused by our own destroy(); the renderer
   // decides on device identity, not the reason string, since a crashed GPU process also

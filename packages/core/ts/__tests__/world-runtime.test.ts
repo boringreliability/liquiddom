@@ -131,6 +131,24 @@ describe("W81 – the world in the runtime (D81-2, D81-3)", () => {
     expect(rt.world).toEqual({ w: 1280, h: 800 });
   });
 
+  it("given_a_resize_world_that_throws_when_the_window_grows_then_the_instance_stops_with_one_console_error_and_no_further_tick", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { rt, clock, backend, calls } = await start();
+    vi.spyOn(backend.cores[0]!, "resize_world").mockImplementation(() => {
+      throw new Error("out of memory");
+    });
+    setWindow("innerWidth", 3000);
+    expect(() => window.dispatchEvent(new Event("resize")), "nothing escapes the handler").not.toThrow();
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls[0]![0]).toBe("[liquiddom] growing the fluid world failed; the instance stopped. Call destroy() and create a new instance.");
+    expect(info).not.toHaveBeenCalled();
+    const ticks = calls.filter((n) => n === "tick").length;
+    clock.advance(3);
+    expect(calls.filter((n) => n === "tick"), "the loop is stopped").toHaveLength(ticks);
+    expect(rt.world, "the TS copy still equals the core's world").toEqual({ w: 1280, h: 800 });
+  });
+
   it("given_a_world_beyond_8192_px_when_the_window_grows_then_resize_world_gets_the_capped_world_once_and_further_growth_calls_nothing", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     const { rt, calls } = await start();
