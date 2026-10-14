@@ -209,7 +209,7 @@ This is a coordinated contract change. It replaces the 9-float soft-body layout.
    | 8 | `viscosity` | Per-element override in [0,1]. NaN = material default |
    | 9 | `recovery` | Per-element override in seconds. NaN = material default |
 
-2. **Dynamic particle view**, written by Rust: SoA `x, y, f00, f01, f10, f11, flags` (7 floats per particle) as **one contiguous block**. `flags` sits here because `torn` (bit 1) is set during simulation; bit 2 is `parked` (W81, D81-1). TS uploads it with a single `writeBuffer(buf, 0, memory.buffer, ptr, particleCapacity·7·4)` and takes the view from `WasmBridge` every frame, never a cached view.
+2. **Dynamic particle view**, written by Rust: SoA `x, y, f00, f01, f10, f11, flags` (7 floats per particle) as **one contiguous block**. `flags` sits here because `torn` (value 1, `FLAG_TORN`) is set during simulation; value 2 (`FLAG_PARKED`) is `parked` (W81, D81-1). TS uploads it with a single `writeBuffer(buf, 0, memory.buffer, ptr, particleCapacity·7·4)` and takes the view from `WasmBridge` every frame, never a cached view.
 3. **Static particle view**, written by Rust at redistribution: SoA `home, rest_u, rest_v`. TS reads it only when the generation counter changes.
 4. **Element state view**, written by Rust every step: 4 floats per element, `s, maxDev, restAlpha, reserved`.
 5. **Scalar calls** (no buffer, no JSON):

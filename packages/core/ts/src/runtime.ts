@@ -291,7 +291,7 @@ function buildRuntime(
   let destroyed = false;
   /** Ward-fix M2a: set by the first frame that throws; the loop is gone for good. */
   let failed = false;
-  /** W81: true once the loop runs; before it, a throwing growWorld rethrows (create() rejects) because stopInstance needs `loop`. */
+  /** W81: true once the loop runs; growWorld waits for it, since stopInstance needs `loop`. */
   let started = false;
   let lastMs: number | null = null;
   let inFrame = false;
@@ -544,18 +544,20 @@ function buildRuntime(
 
   /**
    * W81 (D81-2): when the viewport (or the container's window) outgrew the world, one
-   * `resize_world` grows the grid, from the resize handler (never inside a frame), with one
-   * console.info. Never shrinks; a stopped instance's core (maybe poisoned) is not called.
+   * `resize_world` grows the grid, from `resizeCanvas()` (the resize handler, a DPR change, a
+   * device-loss rebuild; never inside a frame), with one console.info. Never shrinks; a stopped
+   * instance's core (maybe poisoned) is not called. Before the loop starts it does nothing: the
+   * call right after `loop.start()` covers a window that grew during init, so a throw always
+   * takes the `stopInstance` path (W81 ward review m1).
    */
   const growWorld = (): void => {
-    if (failed) return;
+    if (failed || !started) return;
     const next = grownWorld(world, measureWorld(container));
     if (next === null) return;
     let grew: boolean;
     try {
       grew = core.resize_world(next.w, next.h);
     } catch (err) {
-      if (!started) throw err; // init: create() rejects like any other init error
       stopInstance("[liquiddom] growing the fluid world failed; the instance stopped. Call destroy() and create a new instance.", err);
       return;
     }
@@ -808,6 +810,7 @@ function buildRuntime(
   });
   loop.start();
   started = true;
+  growWorld(); // W81: a window that grew while create() awaited the renderer (ward review m1)
 
   // W72 (D72-3): a lost WebGPU device (any loss not caused by our own destroy(); the renderer
   // decides on device identity, not the reason string, since a crashed GPU process also
@@ -876,6 +879,11 @@ function buildRuntime(
         }
         renderer = c2d;
         resizeCanvas(); // the new canvas gets the backing store and the renderer its grid
+        if (failed) {
+          // W81 ward review (m2): a failing resize_world in resizeCanvas() stopped the instance.
+          settleRebuild(false);
+          return;
+        }
         // W72 ward-review (m2): a paused loop (user pause or hidden tab) has no next frame, so
         // draw one render-only frame (no core.tick) rather than leave the remounted canvas blank.
         if (loop.isPaused) c2d.render(buildFrame());
