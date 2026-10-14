@@ -7,13 +7,14 @@
  * a test-local UNLAYERED rule that emulates what the layered `!important` rule
  * does in a real browser.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { LiquidDOM } from "../src/index";
 import {
   TEXT_CLASS, addTextClass, removeTextClass, AWAY_CLASS,
   HALO_CLASS, HALO_ID_ATTR, HALO_BLUR_PX, haloRule, acquireHaloRule, updateHaloRule, releaseHaloRule, addHaloClass, removeHaloClass,
   CANVAS_CLASS, ELEMENT_CLASS, LIQUID_CSS, STACK_ATTR, STYLE_ELEMENT_ID,
   acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas, stackingFor,
+  CANVAS_Z_FALLBACK, CANVAS_Z_UNDER, holdStacking, releaseStacking,
 } from "../src/stylesheet";
 import { ElementRegistry } from "../src/element-registry";
 import { FluidBridge } from "../src/fluid-bridge";
@@ -158,6 +159,21 @@ describe("W66 T2: injected stylesheet", () => {
 });
 
 describe("W66 T2: stacking (D66-3)", () => {
+  // W82 red: approved-test change (D82-2, D82-3): only an instance in the z-index 0 fallback stacks
+  // its elements (data-liquid-stack); opaque <html> and <body> backgrounds put every instance of this
+  // block there (one console.warn each, silenced here).
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    document.documentElement.style.backgroundColor = "rgb(255, 255, 255)";
+    document.body.style.backgroundColor = "rgb(255, 255, 255)";
+  });
+  afterEach(() => {
+    tracker.destroyAll();
+    document.documentElement.removeAttribute("style");
+    document.body.removeAttribute("style");
+    vi.restoreAllMocks();
+  });
+
   it("given_stackingFor_table_when_evaluated_then_static_relative_auto_z_else_null", () => {
     expect(stackingFor("static", "auto")).toBe("relative");
     expect(stackingFor("", "")).toBe("relative");
@@ -247,7 +263,8 @@ describe("W66 T2: stacking (D66-3)", () => {
 });
 
 describe("W66 T2: canvas mount", () => {
-  it("given_canvas_when_mounted_then_aria_hidden_true_pointer_events_none_fixed_z0_last_in_body", async () => {
+  // W82 red: approved-test change (D82-1): the canvas sits under the page at z-index -1 (was 0).
+  it("given_canvas_when_mounted_then_aria_hidden_true_pointer_events_none_fixed_z_minus_1_last_in_body", async () => {
     document.body.appendChild(document.createElement("main"));
     await create();
     const canvas = document.querySelector<HTMLCanvasElement>(`canvas.${CANVAS_CLASS}`)!;
@@ -255,7 +272,7 @@ describe("W66 T2: canvas mount", () => {
     expect(canvas.getAttribute("aria-hidden")).toBe("true");
     expect(canvas.style.pointerEvents).toBe("none");
     expect(canvas.style.position).toBe("fixed");
-    expect(canvas.style.zIndex).toBe("0");
+    expect(canvas.style.zIndex).toBe("-1");
     expect(document.body.lastElementChild).toBe(canvas);
   });
 
@@ -333,7 +350,8 @@ describe("W72: canvas remount (D72-1, D72-3)", () => {
     expect(fresh.getAttribute("aria-hidden")).toBe("true");
     expect(fresh.style.position).toBe("fixed");
     expect(fresh.style.pointerEvents).toBe("none");
-    expect(fresh.style.zIndex).toBe("0");
+    // W82 red: approved-test change (D82-1): a fresh mount (and its remount) sits at z-index -1.
+    expect(fresh.style.zIndex).toBe("-1");
     expect(fresh.width).toBe(300); // backing-store size is the runtime's job (resize), not the remount's
   });
 
@@ -541,5 +559,45 @@ describe("W75 amendment B and ward-review M7: halo sheet writes and liquid-text 
     expect(writes.takeRecords().length).toBeGreaterThan(0);
     writes.disconnect();
     releaseHaloRule(el);
+  });
+});
+
+describe("W82: the canvas z-index and the stacking hold (D82-1, D82-3)", () => {
+  it("given_a_fresh_mount_and_a_canvas_at_z_index_0_when_remounted_then_the_fresh_one_is_at_minus_1_and_a_remount_keeps_the_old_z_index", () => {
+    const under = mountLiquidCanvas();
+    expect(under.style.zIndex).toBe(CANVAS_Z_UNDER);
+    expect(remountLiquidCanvas(under).style.zIndex).toBe("-1");
+    const fallback = mountLiquidCanvas(undefined, CANVAS_Z_FALLBACK);
+    expect(fallback.style.zIndex).toBe("0");
+    const fresh = remountLiquidCanvas(fallback);
+    expect(fresh.style.zIndex, "an 'auto' fallback or a device-loss rebuild keeps the instance's mode").toBe("0");
+    expect(fresh.getAttribute("aria-hidden")).toBe("true");
+    expect(fresh.style.pointerEvents).toBe("none");
+  });
+
+  it("given_holdStacking_twice_when_released_once_and_twice_then_data_liquid_stack_stays_until_the_last_release_and_the_author_value_is_restored", () => {
+    const el = document.body.appendChild(document.createElement("button"));
+    holdStacking(el);
+    holdStacking(el); // a second fallback instance
+    expect(el.getAttribute(STACK_ATTR), "static → relative (D66-3)").toBe("relative");
+    releaseStacking(el);
+    expect(el.getAttribute(STACK_ATTR), "one hold left").toBe("relative");
+    releaseStacking(el);
+    expect(el.hasAttribute(STACK_ATTR)).toBe(false);
+    releaseStacking(el); // unbalanced: a no-op
+    const positioned = document.body.appendChild(document.createElement("div"));
+    positioned.style.position = "absolute";
+    positioned.setAttribute(STACK_ATTR, "author");
+    holdStacking(positioned);
+    expect(positioned.getAttribute(STACK_ATTR)).toBe("z");
+    releaseStacking(positioned);
+    expect(positioned.getAttribute(STACK_ATTR), "the author's value is restored").toBe("author");
+    const own = document.body.appendChild(document.createElement("div"));
+    own.style.position = "relative";
+    own.style.zIndex = "4";
+    holdStacking(own);
+    expect(own.hasAttribute(STACK_ATTR), "an explicit z-index is left alone (D66-3)").toBe(false);
+    releaseStacking(own);
+    expect(own.getAttribute("style"), "no inline style write").toBe("position: relative; z-index: 4;");
   });
 });

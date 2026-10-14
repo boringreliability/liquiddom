@@ -26,7 +26,7 @@ import { ScrollTracker } from "./scroll-tracker";
 import { clampWorld, grownWorld, measureWorld, WORLD_RESIZE_INFO, type WorldSize } from "./world";
 import { acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas } from "./stylesheet";
 import { initCanvas2D, selectRenderer, type ActiveRenderer, type RendererChoice, type SelectedRenderer } from "./renderers/select";
-import type { FluidCanvas2DRenderer } from "./renderers/fluid-canvas2d";
+import { FluidCanvas2DRenderer } from "./renderers/fluid-canvas2d";
 import { WebGPURenderer, type TextIdCapture } from "./renderers/webgpu/webgpu-renderer";
 import { loadFluidWasm, type FluidBackend, type FluidCoreLike } from "./wasm-loader";
 
@@ -102,6 +102,8 @@ export interface FluidRuntime {
   readonly fragmentEstimate: number;
   /** @internal W72 (D72-6): T0 size in px `[width, height]` of the WebGPU renderer; null under Canvas2D. */
   readonly t0Size: readonly [number, number] | null;
+  /** @internal W82 (D82-4): the Canvas2D density cell in CSS px (the scene hook reads it); null under WebGPU. */
+  readonly densityCellPx: number | null;
   /** @internal W75 (Review Focus 3, 5): atlas re-render requests issued so far; the scene hook reads it. */
   readonly textInvalidations: number;
   /** @internal W81 (D81-2): the world the core's grid covers, px (grows with resize_world, never shrinks). */
@@ -971,6 +973,9 @@ function buildRuntime(
     },
     get t0Size() {
       return renderer instanceof WebGPURenderer ? renderer.t0Size : null;
+    },
+    get densityCellPx() {
+      return renderer instanceof FluidCanvas2DRenderer ? renderer.densityCellPx : null;
     },
     get textInvalidations() {
       return textInvalidations;

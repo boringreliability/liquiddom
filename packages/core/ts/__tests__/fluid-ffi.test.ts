@@ -211,4 +211,53 @@ describe("W64 FluidCore FFI (real wasm)", () => {
     expect(census().flagged, "unparked once the card overlaps the grown world").toBe(0);
     expect(bridge.stateView()[4 * STATE_STRIDE + St.REST_ALPHA], "re-entered at rest").toBe(1);
   });
+
+  // W82 (D82-5): set_viewport through the real WASM export; shake mirrors only near an edge.
+  it("given_the_real_core_with_a_pill_40_px_from_the_right_edge_when_shaken_after_set_viewport_then_an_outward_shake_turns_inward_and_the_acceptance_elements_stay_bit_identical", () => {
+    const PILL = 4;
+    /** The acceptance layout plus a pill 40 px from the right edge, one shake and one frame. */
+    const run = (seed: number, viewport: boolean): { d: Float32Array; st: Float32Array } => {
+      const core = new backend.FluidCore(N, 32, 1280, 800, 76_057, 180, seed);
+      live.push(core);
+      const bridge = new FluidBridge(backend, core);
+      const v = bridge.elementView();
+      LAYOUT.forEach(([x, y, w, h, r], id) => v.set([x, y, w, h, r, 0, 0, 0, NaN, NaN], id * ELEMENT_STRIDE));
+      v.set([1100, 600, 140, 48, 24, 0, 0, 0, NaN, NaN], PILL * ELEMENT_STRIDE);
+      core.redistribute();
+      bridge.syncGeneration();
+      core.set_viewport(Number.NaN, -1); // sanitised to "unknown": no mirror, no throw
+      if (viewport) core.set_viewport(1280, 800);
+      core.shake(1);
+      expect(core.tick(1 / 60, 0, 0, 0, 0, false, 0, 0)).toBe(1);
+      return { d: bridge.dynamicView().slice(), st: bridge.staticView().slice() };
+    };
+    const meanX = ({ d, st }: { d: Float32Array; st: Float32Array }): number => {
+      let sum = 0;
+      let n = 0;
+      for (let i = 0; i < N; i++) {
+        if (st[Stat.HOME * N + i] !== PILL) continue;
+        sum += d[Dyn.X * N + i];
+        n += 1;
+      }
+      return sum / Math.max(1, n);
+    };
+    let mirroredSeeds = 0;
+    for (let seed = 1; seed <= 8; seed++) {
+      const plain = run(seed, false);
+      const mirrored = run(seed, true);
+      let others = 0;
+      for (let i = 0; i < N; i++) {
+        const h = plain.st[Stat.HOME * N + i];
+        if (h === PILL || !(h >= 0)) continue;
+        if (mirrored.d[Dyn.X * N + i] !== plain.d[Dyn.X * N + i] || mirrored.d[Dyn.Y * N + i] !== plain.d[Dyn.Y * N + i]) others += 1;
+      }
+      expect(others, `seed ${seed}: elements farther than 80 px from every edge are bit-identical`).toBe(0);
+      const [p, m] = [meanX(plain), meanX(mirrored)];
+      if (p !== m) {
+        mirroredSeeds += 1;
+        expect(m, `seed ${seed}: the outward shake turned inward`).toBeLessThan(p);
+      }
+    }
+    expect(mirroredSeeds, "some of the 8 seeds shake the pill outward (right)").toBeGreaterThan(0);
+  });
 });

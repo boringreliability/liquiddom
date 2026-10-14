@@ -20,6 +20,7 @@ use super::pool::{self, PoolScratch};
 use super::rng::Rng;
 use super::scroll::{self, ScrollShift};
 use super::solver::{self, PointerField, PointerGrid, Scratch, StepInput, SubstepOpts};
+use super::viewport::Viewport;
 use super::views::Views;
 
 pub const PARTICLES_MIN: u32 = 16;
@@ -57,6 +58,8 @@ pub struct FluidCore {
     vel_wall_s: f64,
     /// W67: deterministic RNG for splash and shake.
     interaction_rng: Rng,
+    /// W82 (D82-5): the visible window in buffer px (`set_viewport`); unknown until TS sets it.
+    viewport: Viewport,
     /// Test-only (D67-14): element 0's rect velocity (px/s) as each fixed step of the
     /// last tick saw it. Pre-allocated to MAX_STEPS_PER_TICK, so it never reallocates.
     #[cfg(test)]
@@ -115,6 +118,7 @@ impl FluidCore {
             time_s: 0.0,
             vel_wall_s: 0.0,
             interaction_rng: Rng::derive(seed, RNG_STREAM_INTERACTION),
+            viewport: Viewport::UNKNOWN,
             #[cfg(test)]
             step_vel_trace: Vec::with_capacity(MAX_STEPS_PER_TICK as usize),
             #[cfg(test)]
@@ -419,6 +423,15 @@ impl FluidCore {
             self.scratch.invalidate_bounds(); // D68-10: a new grid, a new region
         }
         grew
+    }
+
+    /// W82 (D82-5): the visible window's size in buffer px (`innerWidth × innerHeight` in body
+    /// mode, the container's client box in container mode). TS calls it at `create()` and from
+    /// every resize, outside `tick`. Sanitised per axis (`Viewport::sanitized`: a non-finite or
+    /// non-positive extent is unknown, a finite one is clamped to `WORLD_MAX_PX`). `shake` mirrors
+    /// the outward direction of an element within `EDGE_MIRROR_PX` of an edge; nothing else reads it.
+    pub fn set_viewport(&mut self, w: f32, h: f32) {
+        self.viewport = Viewport::sanitized(w, h);
     }
 }
 
@@ -775,6 +788,11 @@ impl FluidCore {
 
     pub(crate) fn particle_j(&self, i: usize) -> f32 {
         self.particles.j[i]
+    }
+
+    /// W82 (D82-5): the viewport `set_viewport` stored.
+    pub(crate) fn viewport_of(&self) -> Viewport {
+        self.viewport
     }
 
     pub(crate) fn set_particle_j(&mut self, i: usize, j: f32) {

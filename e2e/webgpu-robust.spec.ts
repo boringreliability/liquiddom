@@ -31,6 +31,7 @@ import { NORTH_STAR_PATH, reformBudgetMs } from "./north-star";
 import { SWIFTSHADER_RUNS_LIQUID, VIEWPORT } from "./projects";
 import { VISUAL_ENABLED, VISUAL_SKIP_REASON, canvasPixelAt, cssAlpha } from "./scene";
 import { ACCEPTANCE_FILL, FILL_MIN, scrollPath, scrollPathFills, worstFrame, type FillSpec } from "./scroll";
+import { MAX_COVERED_INK_PX, inkCovered } from "./under-page";
 
 const FPS = 60;
 const IDLE_FRAMES = 2 * FPS;
@@ -901,9 +902,10 @@ test.describe("W75 – text that stays true (webgpu)", () => {
         const canvas = document.querySelector("canvas.liquid-canvas")!;
         return { z: cs.zIndex, position: cs.position, canvasZ: getComputedStyle(canvas).zIndex, halo: el.classList.contains("liquid-halo") };
       });
-      expect(stack.z).toBe("1");
-      expect(stack.position).not.toBe("static");
-      expect(stack.canvasZ).toBe("0");
+      // W82 red: approved-test change (D82-1, D82-3): the canvas under the page, no stacking rule on Split.
+      expect(stack.z).toBe("auto");
+      expect(stack.position).toBe("static");
+      expect(stack.canvasZ).toBe("-1");
       expect(stack.halo).toBe(false);
       if (f === 2) {
         const box = (await split.boundingBox())!;
@@ -1276,5 +1278,78 @@ test.describe("W81 – parking (webgpu)", () => {
     console.log(`W81 long page (webgpu): every restAlpha 1 after ${rest} frames (budget ${W80_BUDGET_FRAMES})`);
     expect(rest).toBeGreaterThan(0);
     await page.screenshot({ path: testInfo.outputPath("w81-webgpu-long-page.png") });
+  });
+});
+
+// =============================================================================
+// W82 (slice 6) – the canvas under the page in WebGPU (D82-1), webgpu-hw only.
+// =============================================================================
+const W82_HW_ONLY = "W82: WebGPU on the hardware adapter; local webgpu-hw project only (fallback B)";
+/** W82.0 Q1a frames (e2e/under-page.spec.ts): every 2nd frame up to f40 holds both peaks. */
+const W82_PROBE_FRAMES: readonly number[] = [4, 8, 12, 16, 20, 24, 26, 28, 32, 36, 40];
+
+/** The worst ink probe over `selector` at W82_PROBE_FRAMES after `act`, and the most liquid seen behind it. */
+async function w82Probe(page: Page, selector: string, act: () => Promise<unknown>, step: (n: number) => Promise<unknown>): Promise<{ covered: number; frame: number; reached: number }> {
+  await act();
+  let at = 0;
+  let covered = -1;
+  let frame = 0;
+  let reached = 0;
+  for (const f of W82_PROBE_FRAMES) {
+    await step(f - at);
+    at = f;
+    const p = await inkCovered(page, selector);
+    reached = Math.max(reached, p.changed);
+    if (p.covered > covered) {
+      covered = p.covered;
+      frame = f;
+    }
+  }
+  return { covered, frame, reached };
+}
+
+test.describe("W82 – under the page (webgpu)", () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== HW_PROJECT, W82_HW_ONLY);
+  });
+
+  test("W82 D82-1 – given renderer webgpu on the landing page when Start free splashes and the instance shakes at strength 2 then no liquid covers a glyph of the hero paragraph", async ({ page }) => {
+    await w77OpenLanding(page);
+    const splash = await w82Probe(
+      page,
+      ".lede",
+      () => page.evaluate(() => (window.__liquidTest!.instance as SceneInstance).splash(document.getElementById("start")!, { strength: 2 })),
+      (n) => advanceFrames(page, n),
+    );
+    expect(await framesUntilAllRest(page, REFORM_BUDGET_FRAMES), "re-formed before the shake").toBeGreaterThan(0);
+    const shake = await w82Probe(page, ".lede", () => page.evaluate(() => (window.__liquidTest!.instance as SceneInstance).shake(2)), (n) => advanceFrames(page, n));
+    console.log(`W82 lede (webgpu): splash(2) covered ${splash.covered} at f${splash.frame} (reached ${splash.reached}); shake(2) covered ${shake.covered} at f${shake.frame} (reached ${shake.reached}); W82.0 at z 0: 78 / 128`);
+    expect(splash.reached, "the splash reaches the lede").toBeGreaterThan(100);
+    expect(shake.reached, "the shake reaches the lede").toBeGreaterThan(100);
+    expect(splash.covered, `splash: covered ink px at f${splash.frame}`).toBeLessThanOrEqual(MAX_COVERED_INK_PX);
+    expect(shake.covered, `shake: covered ink px at f${shake.frame}`).toBeLessThanOrEqual(MAX_COVERED_INK_PX);
+  });
+
+  test("W82 D82-1 – given renderer webgpu in a container with isolation: isolate when the pill splashes at strength 2 then the canvas is at z-index -1 inside it and no glyph of the paragraph is covered", async ({ page }) => {
+    const warnings: string[] = [];
+    page.on("console", (m) => {
+      if (m.type() === "warning" && m.text().startsWith("[liquiddom]")) warnings.push(m.text());
+    });
+    await page.goto("/scenes/under-page.html?page=isolate&renderer=webgpu&clock=manual");
+    await page.waitForFunction(() => window.__underPage !== undefined, undefined, { timeout: 15_000 });
+    await page.evaluate(() => window.__underPage!.ready);
+    await page.evaluate(() => window.__underPage!.advance(60));
+    await page.mouse.move(VIEWPORT.width - 1, VIEWPORT.height - 1);
+    expect(warnings).toEqual([]);
+    expect(await page.evaluate(() => window.__underPage!.canvasZ())).toBe("-1");
+    const probe = await w82Probe(
+      page,
+      "#note",
+      () => page.evaluate(() => window.__underPage!.splash(2)),
+      (n) => page.evaluate((k) => window.__underPage!.advance(k), n),
+    );
+    console.log(`W82 container (isolate, webgpu): covered ${probe.covered} at f${probe.frame}; reached ${probe.reached}`);
+    expect(probe.reached, "the splash reaches the paragraph").toBeGreaterThan(100);
+    expect(probe.covered).toBeLessThanOrEqual(MAX_COVERED_INK_PX);
   });
 });

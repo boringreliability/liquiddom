@@ -98,6 +98,8 @@ export interface LiquidTestHook {
    * never add to it.
    */
   readonly textInvalidations: number;
+  /** W82 (D82-4, landing scene): the Canvas2D density cell in CSS px of the last frame; null under WebGPU. */
+  readonly densityCellPx?: number | null;
   /**
    * W78 (acceptance scene only): slot 5 (interaction), slots 6–7 (home_dx, home_dy) and the state
    * view's s per [data-liquid] element, DOM order (#splash, #split, #merge, #card).
@@ -253,4 +255,27 @@ export interface LongPageHook {
   world(): { w: number; h: number };
   /** `instance.shake()` at strength 1. */
   shake(): void;
+}
+
+/** W82: the variants of demo/scenes/under-page.html (`?page=`). */
+export type UnderPage = "body" | "opaque" | "wrapper" | "isolate" | "relative";
+
+/**
+ * W82 (D82-1, D82-2): `window.__underPage` on demo/scenes/under-page.html. One instance observes #pill;
+ * #note is an unobserved paragraph. body, opaque, wrapper: body mode; isolate, relative: container
+ * mode on #box. `?clock=manual` for advance(); `?renderer=canvas2d|webgpu|auto` (default canvas2d).
+ */
+export interface UnderPageHook {
+  readonly ready: Promise<void>;
+  readonly page: UnderPage;
+  /** Manual-clock frames of 1000/60 ms (throws without ?clock=manual). */
+  advance(frames: number): void;
+  /** restAlpha of #pill (NaN if unknown). */
+  restAlpha(): number[];
+  /** The computed z-index of the instance's current canvas ("-1" under the page, "0" in the fallback). */
+  canvasZ(): string;
+  /** #pill's data-liquid-stack (null under the page). */
+  stack(): string | null;
+  /** `instance.splash(#pill, { strength })`. */
+  splash(strength: number): void;
 }

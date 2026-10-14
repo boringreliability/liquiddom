@@ -39,6 +39,8 @@ export interface FluidCoreLike {
   scroll_shift(dx: number, dy: number, ivx: number, ivy: number): void;
   /** W81 (D81-2): grows the grid to a world of at least w × h px (never shrinks); true when it grew. Outside `tick`. */
   resize_world(w: number, h: number): boolean;
+  /** W82 (D82-5): the visible window in buffer px (sanitised in Rust); from resizeCanvas(), outside `tick`. */
+  set_viewport(w: number, h: number): void;
   free(): void;
 }
 

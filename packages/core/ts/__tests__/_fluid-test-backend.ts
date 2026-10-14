@@ -232,6 +232,10 @@ export function createTestBackend(opts: TestBackendOptions = {}): TestBackend {
       this.worldH = grow(h, h0);
       return this.worldW > w0 || this.worldH > h0;
     }
+    /** W82 (D82-5): recorded only (the test backend has no shake physics). */
+    set_viewport(w: number, h: number): void {
+      record(`set_viewport:${w}:${h}`);
+    }
     free(): void {
       this.freed = true;
       record("free");

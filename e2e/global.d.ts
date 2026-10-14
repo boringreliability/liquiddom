@@ -1,5 +1,5 @@
 // e2e/global.d.ts
-import type { LiquidTestHook, LongPageHook, ScrollContainerHook, StressReport, WebGpuLiquidHook, WebGpuModesHook, WebGpuSmokeResult } from "../demo/test-hooks";
+import type { LiquidTestHook, LongPageHook, ScrollContainerHook, StressReport, UnderPageHook, WebGpuLiquidHook, WebGpuModesHook, WebGpuSmokeResult } from "../demo/test-hooks";
 
 declare global {
   interface Window {
@@ -10,6 +10,7 @@ declare global {
     __webgpuModes?: WebGpuModesHook;
     __scrollContainer?: ScrollContainerHook;
     __longPage?: LongPageHook;
+    __underPage?: UnderPageHook;
   }
 }
 

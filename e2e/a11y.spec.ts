@@ -35,8 +35,9 @@ test("given focus on Split via Tab when screenshotted then the focus ring is dra
     await page.keyboard.press("Tab");
   }
   await expect(split).toBeFocused();
-  // D66-3: stacking comes from the injected data-liquid-stack attribute.
-  expect(["relative", "z"]).toContain(await split.getAttribute("data-liquid-stack"));
+  // W82 red: approved-test change (D82-1, D82-3): the canvas sits under the page at z-index -1, so
+  // Split needs no stacking rule (was: D66-3 data-liquid-stack "relative" or "z").
+  expect(await split.getAttribute("data-liquid-stack")).toBeNull();
   const stack = await split.evaluate((el) => {
     const cs = getComputedStyle(el);
     const canvas = document.querySelector("canvas.liquid-canvas") as HTMLCanvasElement;
@@ -50,9 +51,9 @@ test("given focus on Split via Tab when screenshotted then the focus ring is dra
   });
   expect(stack.focusVisible).toBe(true);
   expect(stack.outline).not.toBe("none");
-  expect(stack.position).not.toBe("static");
-  expect(stack.z).toBe("1");
-  expect(stack.canvasZ).toBe("0");
+  expect(stack.position).toBe("static");
+  expect(stack.z).toBe("auto");
+  expect(stack.canvasZ).toBe("-1");
   await advance(page, 2);
   const box = (await split.boundingBox())!;
   const clip = { x: box.x - 8, y: box.y - 8, width: box.width + 16, height: box.height + 16 };

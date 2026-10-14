@@ -28,6 +28,11 @@ export const HALO_BLUR_PX: readonly number[] = Object.freeze([1, 2, 4, 8]);
 /** W78 (D78-1): the Canvas2D drag label class: the runtime hides a dragged element's DOM glyphs while its liquid is away. */
 export const AWAY_CLASS = "liquid-away";
 export type StackMode = "relative" | "z";
+/** W82 (D82-1): the canvas under the page; every page box and its text paint above escaped liquid. */
+export const CANVAS_Z_UNDER = "-1";
+/** W82 (D82-1, D82-2): an instance whose page or container cannot take the canvas under it keeps W81's z-index 0, with the D7 rules. */
+export const CANVAS_Z_FALLBACK = "0";
+export type CanvasZ = typeof CANVAS_Z_UNDER | typeof CANVAS_Z_FALLBACK;
 
 export const LIQUID_CSS = [
   "@layer liquiddom {",
@@ -298,6 +303,16 @@ function classHolds(cls: string): { add(el: HTMLElement): void; remove(el: HTMLE
       if (!hold.hadClass) el.classList.remove(cls);
     },
   };
+}
+
+/** W82 (D82-3): W82.1 red stub; W82.3 holds data-liquid-stack per element across fallback instances. */
+export function holdStacking(el: HTMLElement): void {
+  void el;
+}
+
+/** W82 (D82-3): W82.1 red stub. */
+export function releaseStacking(el: HTMLElement): void {
+  void el;
 }
 
 const textHolds = classHolds(TEXT_CLASS);

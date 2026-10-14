@@ -110,6 +110,9 @@ const hook: LiquidTestHook = {
   get textInvalidations(): number {
     return runtime?.textInvalidations ?? 0;
   },
+  get densityCellPx(): number | null {
+    return runtime?.densityCellPx ?? null;
+  },
 };
 
 started.catch((err: unknown) => {

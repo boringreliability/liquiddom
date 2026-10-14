@@ -166,31 +166,36 @@ function touchedCells(scalePx: number, R: number): number {
 }
 
 describe("W77 density grid cell (D77-1)", () => {
-  it("given_the_largest_kernel_radius_when_densityCellPx_then_max_of_2px_and_ceil_R_over_4_with_bad_or_oversized_radii_taking_the_cap", () => {
+  // W82 red: approved-test change (D82-4, approved 2026-10-14, saga dec_34ee6dd6): ceil(R) / 6 (was / 4);
+  // the 2 px floor and the quarter-px fine bound stay.
+  it("given_the_largest_kernel_radius_when_densityCellPx_then_max_of_2px_and_ceil_R_over_6_with_bad_or_oversized_radii_taking_the_cap", () => {
     expect(grid.DEFAULT_SCALE_PX).toBe(2);
-    expect(grid.DENSITY_CELLS_PER_RADIUS).toBe(4);
+    expect(grid.DENSITY_CELLS_PER_RADIUS).toBe(6);
+    expect(grid.FINE_CELL_STEPS_PER_PX).toBe(4);
     const cell = grid.densityCellPx;
     // The acceptance scene (R 7.09–7.36 px) keeps the 2 px grid: its frames do not change.
     expect(cell(4.6)).toBe(2);
     expect(cell(7.09)).toBe(2);
     expect(cell(7.36)).toBe(2);
-    expect(cell(8)).toBe(2);
-    // Quarter-px steps above 8 px: ceil(R) / 4.
-    expect(cell(8.01)).toBe(2.25);
-    expect(cell(12.466)).toBe(3.25); // landing cards, spacing 5.42 px
-    expect(cell(13.04)).toBe(3.5); // landing pills, spacing 5.67 px
-    expect(cell(16)).toBe(4);
+    expect(cell(12)).toBe(2);
+    // Sixth-px steps above 12 px: ceil(R) / 6.
+    expect(cell(12.01)).toBe(13 / 6);
+    expect(cell(12.466)).toBe(13 / 6); // landing cards, spacing 5.42 px (W77: 3.25)
+    expect(cell(13.04)).toBe(14 / 6); // landing pills, spacing 5.67 px (W77: 3.5)
+    expect(cell(16)).toBe(16 / 6);
     // A radius above the cap is capped first; a bad radius gets the cap (kernelRadiusPx's contract).
-    expect(cell(100)).toBe(4);
-    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) expect(cell(bad), String(bad)).toBe(4);
+    expect(cell(100)).toBe(16 / 6);
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) expect(cell(bad), String(bad)).toBe(16 / 6);
   });
 
-  it("given_a_splat_at_R_on_the_densityCellPx_R_grid_when_counting_touched_cells_then_at_most_1_15x_a_splat_at_8px_on_the_2px_grid", () => {
+  // W82 red: approved-test change (D82-4): six cells per radius, so a large-kernel splat touches up to
+  // (6/4)² × the W77 count (W82.0 Q2: 2.6 → 7.4 ms on the landing page, the acceptance scene unchanged).
+  it("given_a_splat_at_R_on_the_densityCellPx_R_grid_when_counting_touched_cells_then_at_most_1_15x_(6/4)²_a_splat_at_8px_on_the_2px_grid", () => {
     const reference = touchedCells(2, 8);
     expect(reference).toBeGreaterThan(40); // π·8²/2² ≈ 50 cells
     for (const R of [kernelRadiusPx(5.42), kernelRadiusPx(5.67), 16]) {
       const n = touchedCells(grid.densityCellPx(R), R);
-      expect(n, `R ${R.toFixed(2)} px on ${grid.densityCellPx(R)} px cells: ${n} vs ${reference}`).toBeLessThanOrEqual(1.15 * reference);
+      expect(n, `R ${R.toFixed(2)} px on ${grid.densityCellPx(R)} px cells: ${n} vs ${reference}`).toBeLessThanOrEqual(1.15 * (6 / 4) ** 2 * reference);
     }
     // Without the scaling the 16 px kernel touches ≈4× the cells (the spike's 12 → 21.5 ms Canvas2D frame).
     expect(touchedCells(2, 16)).toBeGreaterThan(3 * reference);
@@ -208,8 +213,9 @@ describe("W77 density grid cell (D77-1)", () => {
     const before = created().length;
 
     r.render(onePaintFrame(5.42)); // landing card spacing: R 12.47 px
-    expect(r.densityCellPx).toBe(3.25);
-    expect(created().at(-1), "buffer sized to the new cell").toEqual([Math.ceil(200 / 3.25), Math.ceil(100 / 3.25)]);
+    // W82 red: approved-test change (D82-4): ceil(12.47) / 6 (was 3.25).
+    expect(r.densityCellPx).toBe(13 / 6);
+    expect(created().at(-1), "buffer sized to the new cell").toEqual([Math.ceil(200 / (13 / 6)), Math.ceil(100 / (13 / 6))]);
     const afterChange = created().length;
     expect(afterChange).toBe(before + 1);
 
@@ -228,19 +234,22 @@ describe("W77 density grid cell (D77-1)", () => {
   // from WebGPU's kernel, D71-5).
   it("given_the_largest_and_smallest_kernel_radius_when_densityCellPx_then_the_cell_is_never_coarser_than_the_finest_spacing", () => {
     const cell = grid.densityCellPx;
-    // One radius: the min bound is looser than ceil(R) / 4, so the single-radius rule is unchanged.
-    expect(cell(13.04, 13.04)).toBe(3.5);
-    // The landing page (cards R 12.47, pills R 13.04): unchanged, 3.5 px.
-    expect(cell(13.04, kernelRadiusPx(5.42))).toBe(3.5);
-    // A 16 px kernel next to an acceptance-sized one (spacing 3.2, R 7.36): the cell drops to the
-    // finest spacing in quarter px, floor(4 · 3.2) / 4 = 3 (not 4).
-    expect(cell(16, kernelRadiusPx(3.2))).toBe(3);
+    // W82 red: approved-test change (D82-4): the coarse term is ceil(R) / 6; the fine bound is unchanged.
+    // One radius: the min bound is looser than ceil(R) / 6, so the single-radius rule holds.
+    expect(cell(13.04, 13.04)).toBe(14 / 6);
+    // The landing page (cards R 12.47, pills R 13.04): 14/6 px (W77: 3.5).
+    expect(cell(13.04, kernelRadiusPx(5.42))).toBe(14 / 6);
+    // A 16 px kernel next to an acceptance-sized one (spacing 3.2, R 7.36): the coarse term 16/6 is
+    // finer than the fine bound floor(4 · 3.2) / 4 = 3, so it wins.
+    expect(cell(16, kernelRadiusPx(3.2))).toBe(16 / 6);
+    // Next to spacing 2.6 (R 5.98) the cell drops to the finest spacing in quarter px, floor(4 · 2.6) / 4 = 2.5 (not 16/6).
+    expect(cell(16, kernelRadiusPx(2.6))).toBe(2.5);
     // Next to a fine element (spacing 2, R 4.6) the grid stays at 2 px.
     expect(cell(16, kernelRadiusPx(2))).toBe(2);
     // The 2 px floor (DEFAULT_SCALE_PX, WebGPU's 0.5× backing at DPR 1) still wins for spacings under 2 px.
     expect(cell(16, kernelRadiusPx(0.5))).toBe(2);
     // A bad smallest radius adds no bound; a smallest radius above the largest is clamped to it.
-    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) expect(cell(16, bad), String(bad)).toBe(4);
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) expect(cell(16, bad), String(bad)).toBe(16 / 6);
     expect(cell(8, 16)).toBe(2);
     // The property: every kernel spans at least 2.3 cells per radius whenever the grid is coarser than 2 px.
     for (const maxR of [8.01, 10, 12.47, 13.04, 16]) {

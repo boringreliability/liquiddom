@@ -4,7 +4,7 @@
  * facade (shared-element decoration refcount, stale autoObserve candidates,
  * runtimeOf after destroy, autoDiscover root scoping).
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from "vitest";
 import { LiquidDOM } from "../src/index";
 import { runtimeOf } from "../src/internal";
 import { ELEMENT_CLASS, STACK_ATTR } from "../src/stylesheet";
@@ -28,6 +28,16 @@ async function create(opts: Parameters<typeof LiquidDOM.create>[0] = {}) {
 
 describe("W66.5 fix 1: an element shared by two instances", () => {
   it("given_two_autoObserve_instances_on_one_element_when_A_destroyed_then_still_decorated_and_after_B_restored_exactly", async () => {
+    // W82 red: approved-test change (D82-2, D82-3): data-liquid-stack is held only by an instance in
+    // the z-index 0 fallback; opaque <html> and <body> backgrounds put both instances there.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    document.documentElement.style.backgroundColor = "rgb(255, 255, 255)";
+    document.body.style.backgroundColor = "rgb(255, 255, 255)";
+    onTestFinished(() => {
+      document.documentElement.removeAttribute("style");
+      document.body.removeAttribute("style");
+      vi.restoreAllMocks();
+    });
     const el = addLiquid("button", [0, 0, 100, 40]);
     el.className = "btn primary";
     const a = await create({ autoObserve: true });

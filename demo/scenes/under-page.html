@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>liquiddom: under the page</title>
+    <style>
+      /* W82 (D82-1, D82-2): one pill and an unobserved paragraph next to it, in five page variants
+         (?page=…, set on <html> before the instance is created):
+           body      body background only (it propagates to the root): the canvas goes under the page
+           opaque    html and body both opaque: body's background would paint over the canvas → fallback
+           wrapper   an opaque .wrap around the pill: the observe() check falls back
+           isolate   container #box (position: relative; isolation: isolate) with its own background
+           relative  container #box (position: relative) with a background, not a stacking context → fallback */
+      body { margin: 0; background: #f3efe6; color: #1d1d1f; font: 16px/1.4 system-ui, sans-serif; }
+      html[data-page="opaque"] { background: #f3efe6; }
+      .stage { position: relative; width: 640px; height: 360px; margin: 120px 0 0 120px; }
+      html[data-page="wrapper"] .wrap { background: #ffffff; }
+      html[data-page="isolate"] #box, html[data-page="relative"] #box { background: #ffffff; }
+      html[data-page="isolate"] #box { isolation: isolate; }
+      #pill { position: absolute; left: 40px; top: 40px; width: 200px; height: 64px; border: 0; border-radius: 32px; background: #2f6fde; color: #ffffff; font: 600 18px/64px system-ui, sans-serif; text-align: center; }
+      #note { position: absolute; left: 40px; top: 128px; width: 520px; margin: 0; font-size: 22px; line-height: 32px; color: #1d1d1f; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div id="box" class="stage">
+        <button id="pill" type="button">Liquid pill</button>
+        <p id="note">This paragraph is not observed. Splashed liquid passes under its letters, never over them.</p>
+      </div>
+    </div>
+    <script type="module" src="./under-page.ts"></script>
+  </body>
+</html>

@@ -29,6 +29,7 @@ pub mod rng;
 pub mod sampling;
 pub mod scroll;
 pub mod solver;
+pub mod viewport;
 pub mod views;
 
 #[cfg(test)]
