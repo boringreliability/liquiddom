@@ -468,7 +468,11 @@ fn given_a_parked_element_that_enters_the_world_on_a_0_step_tick_when_ticked_the
         dev < PLACE_EPS_PX,
         "placed on its targets on a 0-step tick: {dev} px"
     );
-    assert_eq!(c.parked_particles(), 0);
+    assert_eq!(
+        c.parked_particles(),
+        count_parked_others(&c),
+        "only the elements still out of the bound are flagged"
+    );
 }
 
 fn count_parked_others(c: &FluidCore) -> usize {
