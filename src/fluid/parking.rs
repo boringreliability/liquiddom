@@ -109,10 +109,10 @@ pub fn update(p: &mut Particles, g: &Grid, e: &mut Elements, reduced_motion: boo
 
 /// Brings every particle's `FLAG_PARKED` in line with its home's parked state. A parked particle
 /// keeps its position and has `placed = false` (a redistribute that gives it a new home places it
-/// at its new target, `pool::redistribute`, instead of letting it crawl in from where it was). A particle that stops being parked is
-/// placed at rest at its target with its kinematics reset (`reset_kinematics`: v, C, J, F, torn);
-/// without a target (its slot went inactive) it only loses the flag and stays unplaced. A homeless
-/// particle never carries the flag.
+/// at its new target, `pool::redistribute`, instead of letting it crawl in from where it was). A
+/// particle that stops being parked is placed at rest at its target with its kinematics reset
+/// (`reset_kinematics`: v, C, J, F, torn); without a target (its slot went inactive) it loses the
+/// flag, has its kinematics reset and stays unplaced. A homeless particle never carries the flag.
 pub fn sync_particles(p: &mut Particles, g: &Grid, e: &Elements, reduced_motion: bool) {
     for i in 0..p.cap {
         let home = p.home_of(i);
@@ -142,6 +142,8 @@ pub fn sync_particles(p: &mut Particles, g: &Grid, e: &Elements, reduced_motion:
             if let Some(placed) = p.placed.get_mut(i) {
                 *placed = true;
             }
+        } else {
+            p.reset_kinematics(i);
         }
     }
 }

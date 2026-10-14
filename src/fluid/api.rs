@@ -351,8 +351,10 @@ impl FluidCore {
             &mut self.pool_scratch,
         );
         // W81 (D81-1): parking for the new rects, then every particle's flag for its new home.
-        if self.parking_on() {
-            parking::update(&mut self.particles, &self.grid, &mut self.elements, rm);
+        if self.parking_on()
+            && !parking::update(&mut self.particles, &self.grid, &mut self.elements, rm)
+        {
+            // `update` already synced when an element changed.
             parking::sync_particles(&mut self.particles, &self.grid, &self.elements, rm);
         }
         self.generation = self.generation.wrapping_add(1);
