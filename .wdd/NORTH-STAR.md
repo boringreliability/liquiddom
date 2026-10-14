@@ -236,3 +236,6 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D80-2 | Inertia Δ·60·SCROLL_INERTIA (0.02), capped at SCROLL_INERTIA_MAX_PX_S (30) · dt · 60 per call, 0 without elapsed time or under reduced motion (amended at the gate, W80.0) | W80 | dec_67a169e6 |
 | D80-3 | Step-7 budget: at rest within 3 s after the scroll; per-frame fill ≥ FILL_MIN 0.85; step-7 speeds 1, 10, 30, 300 px/frame | W80 | dec_08b53a98 |
 | D80-4 | 1-frame lag accepted (invisible at rest, W80.0; in motion one frame per scroll step); logged probe, never gated; a canvas that scrolls with the content revisited at W87 | W80 | dec_f06ddc93 |
+| D81-1 | Parking: not simulated outside world + grid margin (FLAG_PARKED, both renderers skip); unpark 64 px inside on every side or overlapping the world; re-entry at rest; dragged/inactive never parked; Canvas2D skips inactive slots | W81 | dec_8e1fb156 |
+| D81-2 | Resize: resize_world(w, h) grows the grid arrays only (lattice phase kept), never shrinks; TS grows an outgrown axis to ≥ 1.25 × from the resize handler, one console.info per growth | W81 | dec_bffbacf6 |
+| D81-3 | Container world = the container's client box (its visible window since W80), not its scroll range | W81 | dec_0831a6b4 |
