@@ -99,6 +99,12 @@ describe("W82 stacking helpers (D82-1, D82-2)", () => {
     card.classList.add(ELEMENT_CLASS);
     expect(opaqueAncestor(el.parentElement, null)).toBeNull();
     expect(opaqueAncestor(null, null)).toBeNull();
+    // Fix round 1 (resolution 3, W82.0 Q1b "html only: works"): an opaque <html> with a transparent <body>
+    // paints below the z-index -1 canvas, so nothing blocks (a guard at red: the stub answers null).
+    card.style.backgroundColor = "";
+    document.body.style.backgroundColor = "";
+    document.documentElement.style.backgroundColor = "rgb(244, 246, 251)";
+    expect(opaqueAncestor(el.parentElement, null), "html only").toBeNull();
   });
 
   it("given_a_container_or_the_body_when_canvasBlocker_then_a_stacking_context_container_and_a_page_without_an_opaque_body_pass_and_each_warning_names_the_fix", () => {
@@ -119,5 +125,11 @@ describe("W82 stacking helpers (D82-1, D82-2)", () => {
     named.id = "app";
     named.className = `shell ${ELEMENT_CLASS} dark`;
     expect(describeElement(named), "liquiddom's own classes are left out").toBe("<main#app.shell.dark>");
+    // Fix round 1 (guards at red: the stub answers null). Resolution 3: opaque <html> with a transparent <body> works.
+    document.body.style.backgroundColor = "";
+    expect(canvasBlocker(undefined), "html only").toBeNull();
+    // A stacking-context container is fine on a fully opaque page (its canvas sits inside the container).
+    document.body.style.backgroundColor = "rgb(255, 255, 255)";
+    expect(canvasBlocker(container), "container on an opaque page").toBeNull();
   });
 });

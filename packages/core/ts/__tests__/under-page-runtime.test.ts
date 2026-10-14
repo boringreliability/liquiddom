@@ -101,6 +101,9 @@ describe("W82 the canvas under the page (D82-1 … D82-3)", () => {
   });
 
   it("given_container_mode_when_the_container_is_or_is_not_a_stacking_context_then_minus_1_without_a_warning_or_one_container_warning_and_the_z_0_fallback", async () => {
+    // Fix round 1: an opaque page does not matter in container mode; the canvas sits inside the container.
+    document.documentElement.style.backgroundColor = "rgb(244, 246, 251)";
+    document.body.style.backgroundColor = "rgb(244, 246, 251)";
     const iso = document.body.appendChild(document.createElement("div"));
     iso.style.position = "relative";
     iso.style.zIndex = "0";
@@ -136,6 +139,8 @@ describe("W82 the canvas under the page (D82-1 … D82-3)", () => {
     for (const order of ["fallback-first", "under-first"] as const) {
       const under = await create();
       const fallback = await create({ container: rel });
+      // Fix round 1: the container instance's fallback never drops the body instance's canvas.
+      expect(document.body.querySelector<HTMLCanvasElement>(":scope > canvas.liquid-canvas")!.style.zIndex, "body instance stays under the page").toBe("-1");
       under.observe(el);
       expect(el.hasAttribute(STACK_ATTR), "the instance under the page sets no stacking").toBe(false);
       fallback.observe(el);
@@ -155,13 +160,24 @@ describe("W82 the canvas under the page (D82-1 … D82-3)", () => {
   });
 
   it("given_renderer_auto_without_webgpu_when_the_canvas_is_remounted_then_it_keeps_the_instance_z_index_under_the_page_and_in_the_fallback", async () => {
+    // Fix round 1: prove the remount happened (a canvas was removed from the body during create()).
+    const removed: Node[] = [];
+    const watch = new MutationObserver((records) => records.forEach((r) => removed.push(...Array.from(r.removedNodes))));
+    watch.observe(document.body, { childList: true });
     await create({ renderer: "auto", silentFallback: true });
+    watch.takeRecords().forEach((r) => removed.push(...Array.from(r.removedNodes)));
+    expect(removed.some((n) => n instanceof HTMLCanvasElement), "the 'auto' fallback remounted the canvas").toBe(true);
     expect(canvases()).toHaveLength(1);
     expect(canvases()[0]!.style.zIndex, "the remounted canvas stays under the page").toBe("-1");
     tracker.destroyAll();
     document.documentElement.style.backgroundColor = "rgb(255, 255, 255)";
     document.body.style.backgroundColor = "rgb(255, 255, 255)";
+    removed.length = 0;
+    watch.takeRecords();
     await create({ renderer: "auto", silentFallback: true });
+    watch.takeRecords().forEach((r) => removed.push(...Array.from(r.removedNodes)));
+    watch.disconnect();
+    expect(removed.some((n) => n instanceof HTMLCanvasElement), "remounted in the fallback too").toBe(true);
     expect(canvases()).toHaveLength(1);
     expect(canvases()[0]!.style.zIndex, "the remounted canvas keeps the fallback").toBe("0");
   });

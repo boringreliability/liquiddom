@@ -141,6 +141,20 @@ mod tests {
             (1.0, -1.0)
         );
         assert_eq!(m(1.0, -1.0, (f32::NAN, f32::NAN, 20.0, 20.0)), (1.0, -1.0));
+        // Fix round 1 (a): exactly 80 px from the edge is not near (strict <). Right gap 80, left gap 600.
+        assert_eq!(m(1.0, 0.0, (600.0, 300.0, 600.0, 40.0)), (1.0, 0.0));
+        // (b): a rect entirely beyond the right edge is nearest the edge: its outward x flips.
+        assert_eq!(m(1.0, 0.0, (1300.0, 300.0, 50.0, 40.0)), (-1.0, 0.0));
+        // (c): a partially unknown viewport mirrors the known axis only.
+        let half = Viewport { w: 1280.0, h: 0.0 };
+        let r = Rect {
+            x: 1180.0,
+            y: 740.0,
+            w: 60.0,
+            h: 30.0,
+            r: 0.0,
+        };
+        assert_eq!(mirror_outward(0.6, 0.8, &r, half), (-0.6, 0.8));
     }
 
     /// Mean x and y velocity (px/s) of element `id`'s particles.

@@ -167,6 +167,7 @@ test.describe("W82 – opaque pages and containers (demo/scenes/under-page.html,
     expect(mine).toHaveLength(1);
     expect(mine[0]).toContain("<div.wrap>");
     expect(await page.evaluate(() => window.__underPage!.canvasZ())).toBe("0");
+    expect(await page.evaluate(() => window.__underPage!.stack()), "the pill is stacked after the observe-time fallback (position: absolute → z)").toBe("z");
     const visible = await pagePixelsOf(page, await clientRectOf(page, "#pill"), PILL_RGB);
     expect(visible).toBeGreaterThan(PILL_VISIBLE_MIN_PX);
   });

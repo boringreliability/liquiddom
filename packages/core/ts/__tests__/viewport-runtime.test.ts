@@ -54,6 +54,10 @@ describe("W82 – the viewport in the core (D82-5)", () => {
     setWindow("innerHeight", 700);
     window.dispatchEvent(new Event("resize"));
     expect(calls.at(-1)).toBe("set_viewport:900:700");
+    // Fix round 1 (resolution 5): a resize with an unchanged size sends nothing (a guard at red: nothing is sent at all).
+    const n = calls.length;
+    window.dispatchEvent(new Event("resize"));
+    expect(calls.length, "unchanged inner size: no new set_viewport").toBe(n);
   });
 
   it("given_container_mode_when_created_and_the_container_resizes_then_set_viewport_gets_its_client_box_and_after_a_failed_frame_nothing_is_called", async () => {
