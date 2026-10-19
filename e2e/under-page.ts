@@ -21,6 +21,8 @@ export const INK_FRACTION = 0.95;
 export const COVER_L1 = 60;
 /** Covered ink pixels allowed: the canvas under the page covers none. */
 export const MAX_COVERED_INK_PX = 0;
+/** W83 red (approved by Dennis 2026-10-14, saga dec_6f6924ff): a probed text box must hold more glyph-ink pixels than this, so a box without ink cannot pass vacuously. */
+export const MIN_INK_PX = 200;
 
 export interface InkProbe {
   /** Ink pixels of the box in the reference. */

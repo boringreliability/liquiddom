@@ -260,4 +260,31 @@ describe("W64 FluidCore FFI (real wasm)", () => {
     }
     expect(mirroredSeeds, "some of the 8 seeds shake the pill outward (right)").toBeGreaterThan(0);
   });
+
+  // W83 (D83-1, D83-4): seed_gravity and tick's gx, gy through the real WASM export.
+  it("given_the_real_core_when_a_constant_gravity_is_seeded_then_it_is_bit_identical_to_none_and_a_90_degree_tilt_moves_the_liquid_to_the_right", () => {
+    const run = (seed: readonly [number, number] | null, g: (frame: number) => readonly [number, number]): Float32Array => {
+      const { core, bridge } = acceptance();
+      core.redistribute();
+      bridge.syncGeneration();
+      if (seed) core.seed_gravity(seed[0], seed[1]);
+      for (let f = 0; f < 30; f++) {
+        const [gx, gy] = g(f);
+        expect(core.tick(1 / 60, 0, 0, 0, 0, false, gx, gy)).toBe(1);
+      }
+      return bridge.dynamicView().slice();
+    };
+    const meanX = (d: Float32Array): number => {
+      let sum = 0;
+      for (let i = 0; i < N; i++) sum += d[Dyn.X * N + i];
+      return sum / N;
+    };
+    const none = run(null, () => [0, 0]);
+    const constant = run([0, 980], () => [0, 980]);
+    let differ = 0;
+    for (let i = 0; i < none.length; i++) if (!Object.is(none[i], constant[i])) differ += 1;
+    expect(differ, "a constant gravity seeded at create moves nothing").toBe(0);
+    const tilted = run([0, 980], (f) => (f < 5 ? [0, 980] : [980, 0]));
+    expect(meanX(tilted) - meanX(none), "a 90° tilt to the right leans the liquid right").toBeGreaterThan(0.5);
+  });
 });

@@ -13,7 +13,7 @@ import { test, expect } from "./fixtures";
 import { LANDING_DARK_RGB, clientRectOf } from "./lace";
 import { VIEWPORT } from "./projects";
 import { IDLE_2S_FRAMES, advance, restAlpha } from "./scene";
-import { MAX_COVERED_INK_PX, edgePixels, inkCovered, pagePixelsOf, type InkProbe } from "./under-page";
+import { MAX_COVERED_INK_PX, MIN_INK_PX, edgePixels, inkCovered, pagePixelsOf, type InkProbe } from "./under-page";
 
 test.use({ viewport: { ...VIEWPORT } });
 
@@ -90,6 +90,8 @@ test.describe("W82 – the canvas under the landing page (canvas2d)", () => {
     );
     console.log(`W82 lede splash(2): worst covered ${worst.covered} of ${worst.ink} ink px at f${frame}; liquid behind the lede up to ${reached} px (W82.0 at z 0: 86)`);
     expect(reached, "the strength-2 splash reaches the lede (else the probe proves nothing)").toBeGreaterThan(100);
+    // W83 red: approved-test change (saga dec_6f6924ff): the lede holds glyph ink, else no glyph can be covered.
+    expect(worst.ink, "glyph-ink pixels in the lede").toBeGreaterThan(MIN_INK_PX);
     expect(worst.covered, `covered ink px at f${frame}`).toBeLessThanOrEqual(MAX_COVERED_INK_PX);
   });
 
@@ -103,6 +105,8 @@ test.describe("W82 – the canvas under the landing page (canvas2d)", () => {
     );
     console.log(`W82 lede shake(2): worst covered ${worst.covered} of ${worst.ink} ink px at f${frame}; liquid behind the lede up to ${reached} px (W82.0 at z 0: 137)`);
     expect(reached, "the strength-2 shake reaches the lede").toBeGreaterThan(100);
+    // W83 red: approved-test change (saga dec_6f6924ff).
+    expect(worst.ink, "glyph-ink pixels in the lede").toBeGreaterThan(MIN_INK_PX);
     expect(worst.covered, `covered ink px at f${frame}`).toBeLessThanOrEqual(MAX_COVERED_INK_PX);
   });
 
@@ -186,6 +190,8 @@ test.describe("W82 – opaque pages and containers (demo/scenes/under-page.html,
     );
     console.log(`W82 container (isolate) splash(2): worst covered ${worst.covered} of ${worst.ink} ink px at f${frame}; liquid behind #note up to ${reached} px`);
     expect(reached, "the splash reaches the paragraph").toBeGreaterThan(100);
+    // W83 red: approved-test change (saga dec_6f6924ff).
+    expect(worst.ink, "glyph-ink pixels in #note").toBeGreaterThan(MIN_INK_PX);
     expect(worst.covered, `covered ink px at f${frame}`).toBeLessThanOrEqual(MAX_COVERED_INK_PX);
   });
 

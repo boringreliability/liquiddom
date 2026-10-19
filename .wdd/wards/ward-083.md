@@ -6,7 +6,7 @@ epic: "fluid-engine"
 status: "planned"
 dependencies: [82]
 layer: "both"
-estimated_tests: 0
+estimated_tests: 32
 created: "2026-10-14"
 completed: null
 ---
@@ -25,7 +25,11 @@ Out of scope: touch drag and the drag opt-out (W84), the adapters (W85), the sit
 - Baseline at `4a38e4a` (W82 complete): see Specification.
 
 ## Outputs
-- Set after the gate (part 2 of the plan).
+- Rust: `src/fluid/gravity.rs` (`HighPass`, `GRAVITY_SCALE` 1.5, `GRAVITY_TAU_S` 0.5, `GRAVITY_CLAMP_PX_S2` 2000, `GRAVITY_SNAP_PX_S2` 0.5, `sanitized`); `FluidCore::seed_gravity(gx, gy)`; `tick` high-passes `(gx, gy)` per fixed step into `Grid::set_body_accel`; `update_velocities` adds it to cells with mass before the walls and the CFL cap (D83-1, D83-2, D83-4).
+- TS: `gravity.ts` (`GravityInput`, `fixedGravity`, `orientationGravity`, `screenAngle`, `ORIENTATION_DEAD_BAND_DEG`), `mergeGravity` in `options.ts`, `setGravity(partial)` on the instance, the runtime hands every tick its gravity and seeds the core's low-pass when a gravity starts fresh (D83-3 … D83-5).
+- Demo: `demo/scenes/tilt.html` (RAF by default; a gravity slider, "Use device tilt"; `?gravity=`, `?angle=`, `?clock=manual`, hook `window.__tilt`).
+- Tests: 12 Rust, 16 vitest, 4 e2e (3 canvas2d, 1 webgpu-hw); the approved-test changes listed under Tests.
+- Docs: spec §2 (gravity row, `seed_gravity`), §5 (`setGravity`, gravity semantics), §6 interim note; CLAUDE.md; CONTEXT; core README; changeset.
 
 ## Decisions
 <!-- Direction gate (NORTH-STAR.md rule 3): one item per technique, architecture or scope choice. Present each in chat to Dennis as a named decision with its consequence, record it with saga_record_decision, then replace PENDING with: APPROVED YYYY-MM-DD — <choice> (saga dec_xxxxxxxx), or AMENDED when he changed it, and add the row to NORTH-STAR.md "Plan decisions". The ward cannot move to red while any line says PENDING. -->
@@ -64,7 +68,11 @@ Decision: APPROVED 2026-10-14 — beta/gamma projection rotated by screen.orient
 | Q4 | `none`, seeded `fixed` | all 8 acceptance-step state hashes equal HEAD; reduced motion g = 0; parked, drag, scroll unaffected; a snap `|g_hp| < 0.5 → 0` is needed for bit-identity to return after a change | — | snap in D83-1 |
 
 ## Specification
-Set after the gate (part 2 of the plan).
+**Values.** `GRAVITY_SCALE = 1.5`, `GRAVITY_TAU_S = 0.5`, `GRAVITY_CLAMP_PX_S2 = 2000`, `GRAVITY_SNAP_PX_S2 = 0.5`, `GRAVITY_INPUT_MAX_PX_S2 = 1e5` (`gravity.rs`); `ORIENTATION_DEAD_BAND_DEG = 2` (`gravity.ts`); `strength` default 980 px/s² (unchanged).
+
+**Engine (Rust, D83-1, D83-2).** `HighPass` holds `g_lp` (f64). Per fixed step of `tick`: `g` sanitised (NaN/Inf → 0, ±1e5); `h = g − g_lp`; if `|h| < 0.5` then `g_lp = g` and the step adds exactly nothing; else the grid gets `1.5 · h`, clamped to 2000 px/s² along its direction, in cells/s² (`Grid::set_body_accel`), and `g_lp += (1 − e^(−FIXED_DT/τ)) · h`. Every substep's `update_velocities` adds `body_accel · dt` to the cells with mass after momentum → velocity, before the walls and the CFL cap; a zero body acceleration is skipped (bit-identical to W82). Under reduced motion `tick` seeds `g_lp = g`. `seed_gravity(gx, gy)` sets `g_lp = g` (sanitised). FFI layout and the constructor are unchanged.
+
+**Sources (TS, D83-3 … D83-5).** `fixed`: `normalize(vector) · strength`, a zero vector (or strength 0) is none. `orientation`: `d = (cos β · sin γ, sin β, cos β · cos γ)` from `deviceorientation`; the held `d` moves only when a reading turns it by more than 2°; `g = strength · (dx · cos θ + dy · sin θ, −dx · sin θ + dy · cos θ)` with `θ = screen.orientation.angle` (else `window.orientation`, else 0); no reading yet: none. The listener is added only while the source is `orientation` and removed on a source switch and on `destroy`. Under reduced motion every tick gets 0. `core.seed_gravity(g)` runs before the tick at `create()`, after a source switch, on the first orientation reading and on the first frame after reduced motion. `setGravity(partial)`: every own key read once, the merge validated like create()'s `gravity` (TypeError, state unchanged), then handed to the runtime.
 
 **Baseline (2026-10-14, `4a38e4a`).**
 
@@ -76,10 +84,44 @@ Set after the gate (part 2 of the plan).
 
 ## Tests
 
-Set at red (part 2 of the plan).
+| # | Test Name | Verifies | Red outcome |
+|---|-----------|----------|-------------|
+| 1 | gravity.rs: given_the_approved_decisions_when_reading_the_gravity_constants_then_they_equal_the_literals | D83-1, D83-2 values | ✅ passes (guard) |
+| 2 | gravity.rs: given_gravity_input_when_sanitized_then_finite_values_are_kept_up_to_1e5_and_nan_or_inf_gives_0 | no panics on JS input | ❌ the stub gives (0, 0) |
+| 3 | gravity.rs: given_a_90_degree_step_when_the_high_pass_steps_then_it_starts_at_the_scaled_change_decays_with_tau_and_snaps_to_exactly_0 | D83-1, D83-2 high-pass and snap, W83 RF1 | ❌ "1.5 · (g − g_lp)": (0, 0) |
+| 4 | gravity.rs: given_a_180_degree_flip_at_double_strength_when_stepped_then_the_output_is_clamped_to_2000_px_s2_along_the_change | D83-1 clamp | ❌ "clamped: 0" |
+| 5 | gravity.rs: given_a_seeded_low_pass_when_stepped_with_the_same_gravity_then_every_step_returns_exactly_0 | D83-4 seed | ✅ passes (guard) |
+| 6 | gravity.rs: given_gravity_none_and_a_seeded_constant_vector_when_the_acceptance_stress_runs_then_the_core_state_is_bit_identical | bit-identity, RF2 | ✅ passes (guard) |
+| 7 | gravity.rs: given_a_90_degree_tilt_when_the_snap_engages_then_the_core_runs_bit_identical_to_one_without_gravity_and_not_before | the snap restores bit-identity, RF1 | ❌ "1 s after the tilt the high-pass still acts" |
+| 8 | gravity.rs: given_reduced_motion_when_gravity_turns_and_motion_returns_then_nothing_sloshes | reduced motion, RF4 | ❌ "under reduced motion the low-pass followed g": (0, 0) |
+| 9 | gravity.rs: given_non_finite_gravity_when_seeded_and_ticked_then_nothing_panics_and_the_core_equals_one_without_gravity | no panics on JS input | ✅ passes (guard) |
+| 10 | gravity.rs: given_a_parked_element_when_gravity_tilts_then_its_particles_are_bit_unchanged_while_the_others_lean | W81 parking | ❌ "the tilt leans the on-screen elements" |
+| 11 | scenario_tests.rs: given_a_constant_gravity_seeded_at_create_when_ticking_then_positions_identical_to_zero_gravity (approved-test change) | D83-1, D83-4 | ✅ passes (guard) |
+| 12 | scenario_tests.rs: given_a_90_degree_tilt_on_the_settled_acceptance_layout_when_ticking_then_the_liquid_leans_inside_rect_plus_kernel_rests_within_3_s_and_no_deviation_persists (approved-test change) | D83-1 slosh and rest, RF3 | ❌ "the tilt leans the liquid: peak 0 px" |
+| 13 | gravity-input.test: given_a_fixed_vector_and_strength_when_fixedGravity_then_normalize_vector_times_strength_and_a_zero_vector_or_strength_is_no_gravity | D83-3 | ❌ stub [0, 0] |
+| 14 | gravity-input.test: given_device_orientation_poses_when_orientationGravity_then_the_W83_0_sign_table_holds_and_a_flat_phone_feels_none | D83-5 mapping | ❌ stub (portrait upright gy 0) |
+| 15 | gravity-input.test: given_screen_orientation_angle_or_window_orientation_when_screenAngle_then_they_are_read_in_that_order_and_anything_else_is_0 | D83-5 θ | ❌ stub 0 |
+| 16 | gravity-input.test: given_an_orientation_source_when_readings_arrive_then_the_first_seeds_noise_within_2_degrees_is_held_and_a_larger_tilt_acts_without_a_seed | D83-5 dead band, D83-4 | ❌ stub never seeds |
+| 17 | gravity.test: given_gravity_none_when_ticking_then_the_low_pass_is_seeded_with_zero_once_and_every_tick_receives_zero_gravity_even_after_an_orientation_event (approved-test change) | none, D83-4 | ❌ no seed_gravity |
+| 18 | gravity.test: given_gravity_fixed_when_created_then_the_low_pass_is_seeded_with_normalize_vector_times_strength_before_the_first_tick_and_every_tick_receives_it (approved-test change) | D83-3, D83-4 | ❌ no seed; ticks get (0, 0) |
+| 19 | gravity.test: given_orientation_event_when_ticking_then_beta_gamma_mapped_to_gx_gy_and_the_first_reading_seeds (approved-test change) | D83-5 | ❌ no seed; ticks get (0, 0) |
+| 20 | gravity.test: given_reduced_motion_when_ticking_then_gravity_clamped_to_zero (approved-test change: un-skipped) | reduced motion | ✅ passes (guard) |
+| 21 | gravity.test: given_orientation_source_when_destroyed_then_deviceorientation_listener_removed (approved-test change: un-skipped) | D83-5 listener | ❌ no deviceorientation listener |
+| 22 | gravity.test: given_fixed_gravity_when_setGravity_changes_the_vector_then_the_next_ticks_receive_the_new_gravity_without_a_seed | D83-3, D83-1 | ❌ ticks get (0, 0) |
+| 23 | gravity.test: given_a_source_switch_when_setGravity_then_the_low_pass_is_seeded_before_the_next_tick_and_the_orientation_listener_follows_the_source | D83-4, D83-5, RF5 | ❌ no seed |
+| 24 | gravity.test: given_an_invalid_partial_when_setGravity_then_a_TypeError_names_the_problem_the_gravity_is_unchanged_and_after_destroy_it_throws_Error | D83-3 atomic | ❌ no TypeError (stub merge) |
+| 25 | gravity.test: given_a_partial_with_a_getter_when_setGravity_then_the_value_is_read_once | D83-3 snapshot | ❌ read 0 times |
+| 26 | gravity.test: given_reduced_motion_when_it_ends_then_the_low_pass_is_seeded_with_the_gravity_before_the_first_tick_with_motion | reduced motion, D83-4, RF4 | ❌ no seed |
+| 27 | gravity.test: given_orientation_source_when_the_first_reading_arrives_then_it_seeds_and_a_later_tilt_beyond_the_dead_band_acts_without_a_seed | D83-4, D83-5, RF5 | ❌ no seed |
+| 28 | fluid-ffi.test: given_the_real_core_when_a_constant_gravity_is_seeded_then_it_is_bit_identical_to_none_and_a_90_degree_tilt_moves_the_liquid_to_the_right | the WASM export | ❌ "leans the liquid right": 0 |
+| 29 | e2e tilt (canvas2d): D83-1 – given the tilt scene at rest when gravity turns 90° then the liquid leans, none leaves its rect + 8 px, every restAlpha is 1 within 3 s and the settled frame equals the frame before the tilt | D83-1 in the browser | ❌ restAlpha stays 1 |
+| 30 | e2e tilt (canvas2d): D83-4 – given a fixed vector at create() when the scene loads then every restAlpha is 1 from the first frame and the canvas equals the same scene with gravity none | D83-4 | ✅ passes (guard) |
+| 31 | e2e tilt (canvas2d): D83-5 – given gravity orientation when the first deviceorientation reading arrives then nothing moves, and a 30° tilt leans the liquid and every restAlpha is 1 within 3 s | D83-5 in the browser | ❌ "the 30° tilt leans the liquid": 1 |
+| 32 | e2e webgpu-robust (webgpu-hw): W83 D83-1 – given renderer webgpu on the tilt scene when gravity turns 90° then the liquid leans, none leaves its rect + 8 px, every restAlpha is 1 within 3 s and the settled frame equals the frame before the tilt | D83-1 in WebGPU | ❌ restAlpha stays 1 |
 
-| # | Test Name | Verifies |
-|---|-----------|----------|
+Approved-test changes at red (Dennis approves with the tests): `gravity.test.ts` (rows 17–21: the zero-gravity test keeps only `none`; the four `it.skip` rewritten to the high-pass and un-skipped; header and describe name), `scenario_tests.rs` (rows 11–12: the D67-2 test seeds its constant gravity; the ignored slice-6 scenario becomes slosh-then-rest), `__fixtures__/api-migration-types/index.ts` (`setGravity` lines checked by the existing tsc test), and the W82 ink floor carried from Dennis' approval of 2026-10-14 (saga dec_6f6924ff): `e2e/under-page.spec.ts` (three probes) and `e2e/webgpu-robust.spec.ts` (`w82Probe` returns `ink`; three probes) require more than `MIN_INK_PX` (200, `e2e/under-page.ts`) glyph-ink pixels.
+
+Red run (W83.1): cargo 232 passed, 7 failed, 1 ignored (rows 2, 3, 4, 7, 8, 10, 12); vitest 3 files failed, 15 tests failed, 752 passed (767) (rows 13–19, 21–28); e2e canvas2d rows 29 and 31 fail, 30 passes, `under-page.spec.ts` 9/9 pass with the ink floor (lede 1399 ink px, `#note` 2446); webgpu-hw row 32 fails, the two W82 tests pass. All counts equal the plan's expectation; no deviation. `--list`: canvas2d 97, webgpu 51, webgpu-hw 98, perf 6.
 
 ## Must NOT
 - Change the FFI layout or the 7-arg constructor (gravity travels through `tick`'s `gx, gy`).
@@ -94,7 +136,7 @@ Set at red (part 2 of the plan).
 
 ## Manual Smoke Test
 ### Setup
-`npm run dev`, then `http://localhost:3000/scenes/tilt.html` (after part 2).
+`npm run dev`, then `http://localhost:3000/scenes/tilt.html?renderer=auto` (Metal: WebGPU) and `…?renderer=canvas2d`. Real tilt needs a phone and a secure context (`deviceorientation` is HTTPS-only): the same page served over HTTPS, then "Use device tilt" (optional; W83.0 checked the mapping on synthetic traces only).
 
 ### Steps
 1. Move the vector slider (desktop) or tilt a phone.
@@ -104,4 +146,4 @@ Set at red (part 2 of the plan).
 - [ ] Slosh on a change, rest at home afterwards, in both renderers.
 
 ## Verification
-Set after the gate (part 2 of the plan).
+`npm run verify`, `npm run e2e:canvas2d`, `npm run e2e:webgpu-hw`, `npm run e2e:docker -- --project=canvas2d` (every Linux baseline unchanged, no `--update-snapshots`), vision on `tilt.html` in both renderers.

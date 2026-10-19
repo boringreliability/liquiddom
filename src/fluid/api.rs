@@ -10,6 +10,7 @@ use super::access::rd;
 use super::clock::MAX_STEPS_PER_TICK;
 use super::clock::{FIXED_DT_S, FixedClock, SUBSTEPS};
 use super::elements::Elements;
+use super::gravity::HighPass;
 use super::grid::{Grid, MIN_PARTICLES_PER_CELL};
 use super::interaction::{self, SplashAt};
 use super::layout::{DYNAMIC_FIELDS, ELEMENT_STRIDE, STATE_STRIDE, STATIC_FIELDS};
@@ -60,6 +61,8 @@ pub struct FluidCore {
     interaction_rng: Rng,
     /// W82 (D82-5): the visible window in buffer px (`set_viewport`); unknown until TS sets it.
     viewport: Viewport,
+    /// W83 (D83-1, D83-4): the gravity low-pass; only `g − g_lp` reaches the grid.
+    gravity: HighPass,
     /// Test-only (D67-14): element 0's rect velocity (px/s) as each fixed step of the
     /// last tick saw it. Pre-allocated to MAX_STEPS_PER_TICK, so it never reallocates.
     #[cfg(test)]
@@ -119,6 +122,7 @@ impl FluidCore {
             vel_wall_s: 0.0,
             interaction_rng: Rng::derive(seed, RNG_STREAM_INTERACTION),
             viewport: Viewport::UNKNOWN,
+            gravity: HighPass::default(),
             #[cfg(test)]
             step_vel_trace: Vec::with_capacity(MAX_STEPS_PER_TICK as usize),
             #[cfg(test)]
@@ -433,6 +437,14 @@ impl FluidCore {
     /// the outward direction of an element within `EDGE_MIRROR_PX` of an edge; nothing else reads it.
     pub fn set_viewport(&mut self, w: f32, h: f32) {
         self.viewport = Viewport::sanitized(w, h);
+    }
+
+    /// W83 (D83-4): the gravity low-pass jumps to `(gx, gy)` px/s² (sanitised like `tick`'s), so
+    /// a `tick` with the same gravity adds nothing. TS calls it outside `tick`, right before the
+    /// tick of a frame whose gravity starts fresh: at `create()`, on a gravity source switch, on
+    /// the first orientation reading and when reduced motion ends. No allocation.
+    pub fn seed_gravity(&mut self, gx: f32, gy: f32) {
+        self.gravity.seed(gx, gy);
     }
 }
 
@@ -794,6 +806,11 @@ impl FluidCore {
     /// W82 (D82-5): the viewport `set_viewport` stored.
     pub(crate) fn viewport_of(&self) -> Viewport {
         self.viewport
+    }
+
+    /// W83 (D83-1): the gravity low-pass (a copy).
+    pub(crate) fn gravity_of(&self) -> HighPass {
+        self.gravity
     }
 
     pub(crate) fn set_particle_j(&mut self, i: usize, j: f32) {

@@ -460,9 +460,14 @@ mod w67 {
     }
 
     #[test]
-    fn given_gravity_args_when_ticking_then_positions_identical_to_zero_gravity_until_slice_6() {
+    fn given_a_constant_gravity_seeded_at_create_when_ticking_then_positions_identical_to_zero_gravity()
+     {
+        // W83 red: approved-test change (D83-1, D83-4): gravity acts now, but only its changes do.
+        // A constant gravity seeded like TS seeds it at create() moves nothing. Until W83 this test
+        // (D67-2) passed 980 unseeded and expected no effect at all.
         let mut a = settled_core(5);
         let mut b = settled_core(5);
+        a.seed_gravity(0.0, 980.0);
         let (cx, cy) = centre(SPLIT);
         a.splash(SPLIT as u32, cx, cy, 1.0);
         b.splash(SPLIT as u32, cx, cy, 1.0);
@@ -473,27 +478,73 @@ mod w67 {
         assert_eq!(
             a.position_bits(),
             b.position_bits(),
-            "D67-2: gravity has no effect before slice 6"
+            "D83-1: a constant gravity moves nothing"
         );
     }
 
+    /// W83 (D83-1): the acceptance layout's kernel radius, 2.3 × its particle spacing (W83.0 Q1).
+    const TILT_KERNEL_PX: f32 = 7.09;
+
     #[test]
-    #[ignore = "slice 6: gravity in the grid update (spec §6 interim state, D67-2)"]
-    fn given_gravity_when_ticking_then_liquid_falls() {
+    fn given_a_90_degree_tilt_on_the_settled_acceptance_layout_when_ticking_then_the_liquid_leans_inside_rect_plus_kernel_rests_within_3_s_and_no_deviation_persists()
+     {
+        // W83 red: approved-test change (D83-1): this slice-6 scenario (ignored until W83) expected
+        // the card's liquid to sag under gravity and stay down. Gravity is a high-pass now: a tilt
+        // sloshes the liquid inside its element and it rests at home again.
         let mut core = settled_core(5);
-        let ids = core.particle_indices_of(CARD as u32);
-        let mean_y = |c: &FluidCore| {
-            ids.iter().map(|&i| c.particle_px(i).1).sum::<f32>() / ids.len().max(1) as f32
+        core.seed_gravity(0.0, 980.0);
+        let centroids = |c: &FluidCore| -> Vec<(f32, f32)> {
+            (0..4u32)
+                .map(|id| {
+                    let ids = c.particle_indices_of(id);
+                    let n = ids.len().max(1) as f32;
+                    let (sx, sy) = ids.iter().fold((0.0f32, 0.0f32), |(ax, ay), &i| {
+                        let (x, y) = c.particle_px(i);
+                        (ax + x, ay + y)
+                    });
+                    (sx / n, sy / n)
+                })
+                .collect()
         };
-        let before = mean_y(&core);
-        core.shake(0.5);
-        for _ in 0..60 {
-            core.tick(1.0 / 60.0, -1.0e4, -1.0e4, 0.0, 0.0, false, 0.0, 980.0);
+        let before = centroids(&core);
+        let k = TILT_KERNEL_PX;
+        let mut peak = 0.0f32;
+        let mut rest_at = None;
+        for f in 1..=budget_frames(3.0, 0) {
+            // Straight down → to the right: a 90° tilt step.
+            assert_eq!(
+                core.tick(1.0 / 60.0, -1.0e4, -1.0e4, 0.0, 0.0, false, 980.0, 0.0),
+                1
+            );
+            peak = core.max_dev_px().into_iter().fold(peak, f32::max);
+            for i in 0..core.particle_capacity() as usize {
+                let [x0, y0, w, h, r] = LAYOUT[core.home(i) as usize];
+                let (x, y) = core.particle_px(i);
+                assert!(
+                    crate::fluid::sampling::inside_rounded_rect(
+                        x - (x0 - k),
+                        y - (y0 - k),
+                        w + 2.0 * k,
+                        h + 2.0 * k,
+                        r + k
+                    ),
+                    "frame {f}, particle {i}: ({x}, {y}) leaves its element's rect + kernel"
+                );
+            }
+            if rest_at.is_none() && peak > 1.0 && all_at_rest(&core) {
+                rest_at = Some(f);
+            }
         }
-        assert!(
-            mean_y(&core) > before + 5.0,
-            "the card's liquid sags under gravity"
-        );
+        eprintln!("W83 D83-1 evidence: 90° tilt peak {peak} px, rest after {rest_at:?} frames");
+        assert!(peak > 1.0, "the tilt leans the liquid: peak {peak} px");
+        assert!(rest_at.is_some(), "every restAlpha back to 1 within 3 s");
+        for (id, (a, b)) in before.iter().zip(centroids(&core)).enumerate() {
+            let d = (a.0 - b.0).hypot(a.1 - b.1);
+            assert!(
+                d <= 0.05,
+                "element {id}: its centroid sits {d} px from where it rested before the tilt, 3 s later"
+            );
+        }
     }
 
     // ---- W67 amendment: D67-13 edge metric and D67-15 lock probe ---------------------

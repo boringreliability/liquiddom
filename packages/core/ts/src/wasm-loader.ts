@@ -41,6 +41,8 @@ export interface FluidCoreLike {
   resize_world(w: number, h: number): boolean;
   /** W82 (D82-5): the visible window in buffer px (sanitised in Rust); from resizeCanvas(), outside `tick`. */
   set_viewport(w: number, h: number): void;
+  /** W83 (D83-4): the gravity low-pass jumps to (gx, gy) px/s², so the next tick with that gravity adds nothing; right before a frame's `tick`. */
+  seed_gravity(gx: number, gy: number): void;
   free(): void;
 }
 

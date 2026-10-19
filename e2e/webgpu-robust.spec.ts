@@ -31,7 +31,8 @@ import { NORTH_STAR_PATH, reformBudgetMs } from "./north-star";
 import { SWIFTSHADER_RUNS_LIQUID, VIEWPORT } from "./projects";
 import { VISUAL_ENABLED, VISUAL_SKIP_REASON, canvasPixelAt, cssAlpha } from "./scene";
 import { ACCEPTANCE_FILL, FILL_MIN, scrollPath, scrollPathFills, worstFrame, type FillSpec } from "./scroll";
-import { MAX_COVERED_INK_PX, inkCovered } from "./under-page";
+import { MAX_COVERED_INK_PX, MIN_INK_PX, inkCovered } from "./under-page";
+import { TILT_BUDGET_FRAMES, gotoTilt, tiltAndSettle } from "./tilt";
 
 const FPS = 60;
 const IDLE_FRAMES = 2 * FPS;
@@ -1288,24 +1289,29 @@ const W82_HW_ONLY = "W82: WebGPU on the hardware adapter; local webgpu-hw projec
 /** W82.0 Q1a frames (e2e/under-page.spec.ts): every 2nd frame up to f40 holds both peaks. */
 const W82_PROBE_FRAMES: readonly number[] = [4, 8, 12, 16, 20, 24, 26, 28, 32, 36, 40];
 
-/** The worst ink probe over `selector` at W82_PROBE_FRAMES after `act`, and the most liquid seen behind it. */
-async function w82Probe(page: Page, selector: string, act: () => Promise<unknown>, step: (n: number) => Promise<unknown>): Promise<{ covered: number; frame: number; reached: number }> {
+/**
+ * The worst ink probe over `selector` at W82_PROBE_FRAMES after `act`, the most liquid seen behind it,
+ * and (W83 red: approved-test change, saga dec_6f6924ff) the fewest glyph-ink pixels the box held.
+ */
+async function w82Probe(page: Page, selector: string, act: () => Promise<unknown>, step: (n: number) => Promise<unknown>): Promise<{ covered: number; frame: number; reached: number; ink: number }> {
   await act();
   let at = 0;
   let covered = -1;
   let frame = 0;
   let reached = 0;
+  let ink = Number.POSITIVE_INFINITY;
   for (const f of W82_PROBE_FRAMES) {
     await step(f - at);
     at = f;
     const p = await inkCovered(page, selector);
     reached = Math.max(reached, p.changed);
+    ink = Math.min(ink, p.ink);
     if (p.covered > covered) {
       covered = p.covered;
       frame = f;
     }
   }
-  return { covered, frame, reached };
+  return { covered, frame, reached, ink };
 }
 
 test.describe("W82 – under the page (webgpu)", () => {
@@ -1326,6 +1332,9 @@ test.describe("W82 – under the page (webgpu)", () => {
     console.log(`W82 lede (webgpu): splash(2) covered ${splash.covered} at f${splash.frame} (reached ${splash.reached}); shake(2) covered ${shake.covered} at f${shake.frame} (reached ${shake.reached}); W82.0 at z 0: 78 / 128`);
     expect(splash.reached, "the splash reaches the lede").toBeGreaterThan(100);
     expect(shake.reached, "the shake reaches the lede").toBeGreaterThan(100);
+    // W83 red: approved-test change (saga dec_6f6924ff): the lede holds glyph ink, else no glyph can be covered.
+    expect(splash.ink, "glyph-ink pixels in the lede (splash)").toBeGreaterThan(MIN_INK_PX);
+    expect(shake.ink, "glyph-ink pixels in the lede (shake)").toBeGreaterThan(MIN_INK_PX);
     expect(splash.covered, `splash: covered ink px at f${splash.frame}`).toBeLessThanOrEqual(MAX_COVERED_INK_PX);
     expect(shake.covered, `shake: covered ink px at f${shake.frame}`).toBeLessThanOrEqual(MAX_COVERED_INK_PX);
   });
@@ -1350,6 +1359,31 @@ test.describe("W82 – under the page (webgpu)", () => {
     );
     console.log(`W82 container (isolate, webgpu): covered ${probe.covered} at f${probe.frame}; reached ${probe.reached}`);
     expect(probe.reached, "the splash reaches the paragraph").toBeGreaterThan(100);
+    // W83 red: approved-test change (saga dec_6f6924ff).
+    expect(probe.ink, "glyph-ink pixels in #note").toBeGreaterThan(MIN_INK_PX);
     expect(probe.covered).toBeLessThanOrEqual(MAX_COVERED_INK_PX);
+  });
+});
+
+// =============================================================================
+// W83 (slice 6) – gravity and tilt in WebGPU (D83-1), webgpu-hw only.
+// =============================================================================
+const W83_HW_ONLY = "W83: WebGPU on the hardware adapter; local webgpu-hw project only (fallback B)";
+
+test.describe("W83 – gravity and tilt (webgpu)", () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== HW_PROJECT, W83_HW_ONLY);
+  });
+
+  test("W83 D83-1 – given renderer webgpu on the tilt scene when gravity turns 90° then the liquid leans, none leaves its rect + 8 px, every restAlpha is 1 within 3 s and the settled frame equals the frame before the tilt", async ({ page }) => {
+    await gotoTilt(page, "webgpu");
+    expect(await page.evaluate(() => window.__tilt!.activeRenderer)).toBe("webgpu");
+    const run = await tiltAndSettle(page, 90);
+    console.log(`W83 tilt 90° (webgpu): min restAlpha ${run.minAlpha}, outside ${run.outsideBefore} → peak ${run.outsidePeak} px, rest after ${run.restFrame} frames`);
+    expect(run.minAlpha, "the tilt leans the liquid (restAlpha < 1)").toBeLessThan(1);
+    expect(run.outsidePeak, "no liquid beyond the rects + 8 px").toBe(run.outsideBefore);
+    expect(run.restFrame, "every restAlpha back to 1").toBeGreaterThan(0);
+    expect(run.restFrame, "within 3 s").toBeLessThanOrEqual(TILT_BUDGET_FRAMES);
+    expect(run.hashAfter, "the settled frame equals the frame before the tilt").toBe(run.hashBefore);
   });
 });

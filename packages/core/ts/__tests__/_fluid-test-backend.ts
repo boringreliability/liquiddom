@@ -236,6 +236,10 @@ export function createTestBackend(opts: TestBackendOptions = {}): TestBackend {
     set_viewport(w: number, h: number): void {
       record(`set_viewport:${w}:${h}`);
     }
+    /** W83 (D83-4): recorded only (the test backend has no gravity). */
+    seed_gravity(gx: number, gy: number): void {
+      record(`seed_gravity:${gx}:${gy}`);
+    }
     free(): void {
       this.freed = true;
       record("free");

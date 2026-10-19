@@ -12,7 +12,7 @@ import { FluidBridge } from "./fluid-bridge";
 import { El, ELEMENT_STRIDE, roundedRectArea, St, STATE_STRIDE, Stat } from "./fluid-layout";
 import { DEFAULT_MATERIAL, type Material } from "./material";
 import { SplashInput, rectCentre, type ClientPoint } from "./input";
-import { DEFAULT_STRENGTH, type ElementOptions } from "./options";
+import { DEFAULT_STRENGTH, type ElementOptions, type ResolvedGravity } from "./options";
 import type { ElementPaint, RenderFrame, Renderer, RenderViewport, TextAtlasFrame } from "./renderers/frame";
 import { ATLAS_MAX_SIZE_PX, TextAtlas, type AtlasCanvasFactory, type AtlasRect } from "./renderers/webgpu/text-atlas";
 import { clearTextClasses, releaseTextClass, syncTextClasses, type TextToggleArgs } from "./text-toggle";
@@ -70,6 +70,8 @@ export interface FluidRuntimeOptions {
   silentFallback?: boolean;
   /** @internal W74 (D74-5): jsdom tests inject the atlas canvas (jsdom has no OffscreenCanvas). */
   textAtlasCanvas?: AtlasCanvasFactory;
+  /** W83 (D83-1 … D83-5): the resolved gravity (the facade validates). Default: none. */
+  gravity?: Readonly<ResolvedGravity>;
 }
 
 export interface FluidElementState {
@@ -128,6 +130,8 @@ export interface FluidRuntime {
   shake(strength: number): void;
   /** W68: forward a resolved, validated material to the core (the facade validates). */
   setMaterial(m: Readonly<Material>): void;
+  /** W83 (D83-3): a resolved, validated gravity (the facade validates); it reaches the core with the next frame's tick. */
+  setGravity(g: Readonly<ResolvedGravity>): void;
   /** Idempotent. */
   destroy(): void;
 }
@@ -974,6 +978,9 @@ function buildRuntime(
       // W67 ward-fix (3861e77): no core calls after a failed frame (the core may be poisoned).
       if (destroyed || failed) return;
       core.set_material(m.viscosity, m.cohesion, m.recovery);
+    },
+    setGravity(g: Readonly<ResolvedGravity>): void {
+      void g; // W83.1 red stub: W83.3 hands it to the GravityInput
     },
     frame,
     elementState(el) {

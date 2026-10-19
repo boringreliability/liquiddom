@@ -177,6 +177,16 @@ function resolveGravity(v: unknown): ResolvedGravity {
   return { source, vector, strength };
 }
 
+/**
+ * W83 (D83-3): `setGravity(partial)`. Reads every own key of `partial` once (getters included),
+ * merges it over `base` and validates the result like create()'s `gravity` (a TypeError names the
+ * problem; unknown keys throw). Returns a fresh ResolvedGravity; `base` is never changed.
+ */
+export function mergeGravity(base: Readonly<ResolvedGravity>, partial: unknown): ResolvedGravity {
+  void partial; // W83.1 red stub: W83.3 reads, merges and validates the partial
+  return { source: base.source, vector: [base.vector[0], base.vector[1]], strength: base.strength };
+}
+
 function resolveContainer(v: unknown): HTMLElement | undefined {
   if (v === undefined) return undefined;
   if (typeof HTMLElement === "undefined" || !(v instanceof HTMLElement)) fail(`container must be an HTMLElement, got ${show(v)}`);

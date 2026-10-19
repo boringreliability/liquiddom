@@ -279,3 +279,26 @@ export interface UnderPageHook {
   /** `instance.splash(#pill, { strength })`. */
   splash(strength: number): void;
 }
+
+/**
+ * W83 (D83-1 … D83-5): `window.__tilt` on demo/scenes/tilt.html (the acceptance layout, observed with
+ * autoObserve). `?clock=manual` for advance(); `?renderer=canvas2d|webgpu|auto` (default canvas2d);
+ * `?gravity=fixed|none|orientation` (default fixed); `?angle=<deg>` the fixed vector at create().
+ */
+export interface TiltHook {
+  readonly ready: Promise<void>;
+  /** Manual-clock frames of 1000/60 ms (throws without ?clock=manual); snapshots the canvas when a frame rendered (W71 pixels() rule). */
+  advance(frames: number): void;
+  /** restAlpha of every observed element in DOM order (NaN if unknown). */
+  restAlpha(): number[];
+  /** `instance.setGravity({ source: 'fixed', vector })` for `deg` degrees from straight down, clockwise (+90: to the right). */
+  setAngle(deg: number): void;
+  /** Dispatches a `deviceorientation` event (β, γ in degrees) on the window. */
+  orient(beta: number, gamma: number): void;
+  /** FNV-1a (hex) of the last snapshot's pixels. */
+  hash(): string;
+  /** Snapshot pixels with alpha > 128 outside every observed element's rect grown by `marginPx`. */
+  outside(marginPx: number): number;
+  /** The instance's active renderer ("none" before create() resolved). */
+  readonly activeRenderer: string;
+}
