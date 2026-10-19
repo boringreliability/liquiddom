@@ -6,7 +6,7 @@ epic: "fluid-engine"
 status: "planned"
 dependencies: [82]
 layer: "both"
-estimated_tests: 32
+estimated_tests: 33
 created: "2026-10-14"
 completed: null
 ---
@@ -118,6 +118,7 @@ Decision: APPROVED 2026-10-14 — beta/gamma projection rotated by screen.orient
 | 30 | e2e tilt (canvas2d): D83-4 – given a fixed vector at create() when the scene loads then every restAlpha is 1 from the first frame and the canvas equals the same scene with gravity none | D83-4 | ✅ passes (guard) |
 | 31 | e2e tilt (canvas2d): D83-5 – given gravity orientation when the first deviceorientation reading arrives then nothing moves, and a 30° tilt leans the liquid and every restAlpha is 1 within 3 s | D83-5 in the browser | ❌ "the 30° tilt leans the liquid": 1 |
 | 32 | e2e webgpu-robust (webgpu-hw): W83 D83-1 – given renderer webgpu on the tilt scene when gravity turns 90° then the liquid leans, none leaves its rect + 8 px, every restAlpha is 1 within 3 s and the settled frame equals the frame before the tilt | D83-1 in WebGPU | ❌ restAlpha stays 1 |
+| 33 | gravity.rs: given_ticks_of_different_length_when_gravity_turns_then_the_low_pass_advances_once_per_fixed_step_not_per_tick | D83-2 tau per fixed step, frame-rate independent (red fix round 1) | ❌ the stub seed sanitises to (0, 0) |
 
 Approved-test changes at red (Dennis approves with the tests): `gravity.test.ts` (rows 17–21: the zero-gravity test keeps only `none`; the four `it.skip` rewritten to the high-pass and un-skipped; header and describe name), `scenario_tests.rs` (rows 11–12: the D67-2 test seeds its constant gravity; the ignored slice-6 scenario becomes slosh-then-rest), `__fixtures__/api-migration-types/index.ts` (`setGravity` lines checked by the existing tsc test), and the W82 ink floor carried from Dennis' approval of 2026-10-14 (saga dec_6f6924ff): `e2e/under-page.spec.ts` (three probes) and `e2e/webgpu-robust.spec.ts` (`w82Probe` returns `ink`; three probes) require more than `MIN_INK_PX` (200, `e2e/under-page.ts`) glyph-ink pixels.
 
