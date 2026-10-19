@@ -17,6 +17,7 @@ test.describe("W83 – gravity and tilt (canvas2d)", () => {
     await gotoTilt(page, "canvas2d");
     const run = await tiltAndSettle(page, 90);
     console.log(`W83 tilt 90° (canvas2d): min restAlpha ${run.minAlpha}, outside ${run.outsideBefore} → peak ${run.outsidePeak} px, rest after ${run.restFrame} frames`);
+    expect(run.outsideBefore, "no liquid outside the rects before the tilt").toBe(0);
     expect(run.minAlpha, "the tilt leans the liquid (restAlpha < 1)").toBeLessThan(1);
     expect(run.outsidePeak, "no liquid beyond the rects + 8 px").toBe(run.outsideBefore);
     expect(run.restFrame, "every restAlpha back to 1").toBeGreaterThan(0);

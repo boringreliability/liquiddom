@@ -40,6 +40,11 @@ describe("W83 gravity helpers (D83-3, D83-5)", () => {
       ["landscape, top to the right (angle -90)", 0, 90, -90, [0, 980]],
       ["portrait upside down", -90, 0, 180, [0, 980]],
       ["the W46 test pose", 45, -45, 0, [-490, 980 * Math.SQRT1_2]],
+      // dy·sin θ ≠ 0: px = cosβ·sinγ, py = sinβ, gx = s(px cosθ + py sinθ), gy = s(−px sinθ + py cosθ)
+      ["landscape 90, tilted (β 30, γ −60)", 30, -60, 90, [490, 980 * Math.cos(30 * rad) * Math.sin(60 * rad)]],
+      ["landscape 270, tilted (β 30, γ 60)", 30, 60, 270, [-490, 735]],
+      ["landscape -90, tilted (β 30, γ 60)", 30, 60, -90, [-490, 735]],
+      ["upside down, lateral (β -60, γ 30)", -60, 30, 180, [-245, 980 * Math.sin(60 * rad)]],
     ];
     for (const [name, beta, gamma, angle, [ex, ey]] of cases) {
       const [gx, gy] = orientationGravity(beta, gamma, angle, S);
@@ -68,6 +73,10 @@ describe("W83 gravity helpers (D83-3, D83-5)", () => {
       orient(win, b, g);
       expect(input.sample(false), `sensor noise (${b}, ${g}) stays bit-quiet`).toEqual({ gx: 0, gy: 0, seed: false });
     }
+    for (const g of [1.5, 1.9]) {
+      orient(win, 0, g); // measured against the held direction, not the last reading
+      expect(input.sample(false), `${g}° from the held direction stays bit-quiet`).toEqual({ gx: 0, gy: 0, seed: false });
+    }
     orient(win, 0, 3); // 3° turns the held direction past the 2° band
     const s = input.sample(false);
     expect(s.seed).toBe(false);
@@ -76,6 +85,19 @@ describe("W83 gravity helpers (D83-3, D83-5)", () => {
     expect(input.sample(true), "reduced motion: no gravity").toEqual({ gx: 0, gy: 0, seed: false });
     expect(input.sample(false).seed, "reduced motion ended: seed").toBe(true);
     input.destroy();
+    // Just past the band acts, without a seed (a second input, so the held direction starts at flat).
+    const fresh = new GravityInput(win, { source: "orientation", vector: [0, 0], strength: 980 });
+    fresh.sample(false);
+    orient(win, 0, 0);
+    expect(fresh.sample(false).seed).toBe(true);
+    orient(win, 0, 1.5);
+    orient(win, 0, 1.9);
+    expect(fresh.sample(false)).toEqual({ gx: 0, gy: 0, seed: false });
+    orient(win, 0, 2.1);
+    const past = fresh.sample(false);
+    expect(past.seed).toBe(false);
+    expect(past.gx, "2.1° acts").toBeCloseTo(980 * Math.sin((2.1 * Math.PI) / 180), 6);
+    fresh.destroy();
     orient(win, 60, 0);
     expect(input.sample(false).gx, "destroyed: the listener is gone").toBeCloseTo(980 * Math.sin((3 * Math.PI) / 180), 6);
   });

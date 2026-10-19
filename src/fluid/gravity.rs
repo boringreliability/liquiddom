@@ -323,6 +323,38 @@ mod tests {
     }
 
     #[test]
+    fn given_ticks_of_different_length_when_gravity_turns_then_the_low_pass_advances_once_per_fixed_step_not_per_tick()
+     {
+        let mut a = acceptance_core(1);
+        a.seed_gravity(DOWN.0, DOWN.1);
+        a.tick(0.0, -1.0e4, -1.0e4, 0.0, 0.0, false, SIDE.0, SIDE.1);
+        assert_eq!(
+            a.gravity_of().low_pass(),
+            (f64::from(DOWN.0), f64::from(DOWN.1)),
+            "a 0-step tick changes nothing"
+        );
+        let mut b = acceptance_core(1);
+        b.seed_gravity(DOWN.0, DOWN.1);
+        let steps = b.tick(3.0 * DT, -1.0e4, -1.0e4, 0.0, 0.0, false, SIDE.0, SIDE.1);
+        assert!(steps >= 2, "one long tick runs several fixed steps: {steps}");
+        let mut c = acceptance_core(1);
+        c.seed_gravity(DOWN.0, DOWN.1);
+        for _ in 0..steps {
+            tick_g(&mut c, SIDE);
+        }
+        assert_ne!(
+            b.gravity_of().low_pass(),
+            (f64::from(DOWN.0), f64::from(DOWN.1)),
+            "the steps advanced the low-pass"
+        );
+        assert_eq!(
+            b.gravity_of().low_pass(),
+            c.gravity_of().low_pass(),
+            "one tick of N steps equals N ticks of one step"
+        );
+    }
+
+    #[test]
     fn given_non_finite_gravity_when_seeded_and_ticked_then_nothing_panics_and_the_core_equals_one_without_gravity()
      {
         let run = |g: (f32, f32)| {

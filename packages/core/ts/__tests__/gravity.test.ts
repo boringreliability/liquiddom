@@ -97,9 +97,13 @@ describe("Gravity (W46 API, W83 high-pass)", () => {
   it("given_gravity_none_when_ticking_then_the_low_pass_is_seeded_with_zero_once_and_every_tick_receives_zero_gravity_even_after_an_orientation_event", async () => {
     const sb = spyBackend();
     const clock = createManualClock();
+    const add = vi.spyOn(window, "addEventListener");
     instance = await LiquidDOM.create({ ...base, testBackend: sb.backend, clock, gravity: { source: "none" } });
     dispatchOrientation(45, -45);
     clock.advance(3);
+    const listened = add.mock.calls.filter((c) => c[0] === "deviceorientation").length;
+    add.mockRestore();
+    expect(listened, "source none adds no orientation listener").toBe(0);
     const calls = gravityCalls(sb);
     expect(calls[0]).toBe("seed:0:0");
     expect(calls.length).toBeGreaterThan(1);
@@ -114,11 +118,18 @@ describe("Gravity (W46 API, W83 high-pass)", () => {
     instance = await LiquidDOM.create({ ...base, testBackend: sb.backend, clock, gravity: { source: "fixed", vector: [50, 980] } });
     clock.advance(2);
     const len = Math.hypot(50, 980);
-    const g = `${(50 / len) * 980}:${(980 / len) * 980}`;
     const calls = gravityCalls(sb);
-    expect(calls[0]).toBe(`seed:${g}`);
+    const args = (c: string): number[] => c.split(":").slice(1).map(Number);
+    expect(calls[0]!.startsWith("seed:")).toBe(true);
+    const seed = args(calls[0]!);
+    expect(seed[0]!).toBeCloseTo((50 / len) * 980, 9);
+    expect(seed[1]!).toBeCloseTo((980 / len) * 980, 9);
     expect(calls.length).toBeGreaterThan(1);
-    expect(calls.slice(1).every((c) => c === `tick:${g}`), calls.join(" ")).toBe(true);
+    for (const c of calls.slice(1)) {
+      expect(c.startsWith("tick:"), calls.join(" ")).toBe(true);
+      const t = args(c);
+      expect(Object.is(t[0], seed[0]) && Object.is(t[1], seed[1]), `tick args equal the seed args: ${c}`).toBe(true);
+    }
   });
 
   // W83 red: approved-test change (D83-5): β 45, γ −45 maps to (−490, 692.96) by the approved projection
@@ -209,6 +220,10 @@ describe("W83 setGravity and the gravity sources (D83-3 … D83-5)", () => {
     instance.setGravity({ vector: [1, 0] });
     clock.advance(2);
     expect(gravityCalls(sb, n), "a change within the source acts (D83-1)").toEqual(["tick:980:0", "tick:980:0"]);
+    const m = sb.calls.length;
+    instance.setGravity({ source: "fixed", vector: [1, 0] }); // same source: no seed
+    clock.advance(1);
+    expect(gravityCalls(sb, m), "restating the source is not a switch").toEqual(["tick:980:0"]);
   });
 
   it("given_a_source_switch_when_setGravity_then_the_low_pass_is_seeded_before_the_next_tick_and_the_orientation_listener_follows_the_source", async () => {
@@ -236,6 +251,11 @@ describe("W83 setGravity and the gravity sources (D83-3 … D83-5)", () => {
       n = sb.calls.length;
       clock.advance(1);
       expect(gravityCalls(sb, n), "back to fixed (0, 1) · 980: seeded, so it starts at rest").toEqual(["seed:0:980", "tick:0:980"]);
+      instance.setGravity({ source: "orientation" });
+      instance.destroy();
+      instance = null;
+      expect(orientationListeners(add)).toHaveLength(2);
+      expect(orientationListeners(remove), "destroy removes the second listener too").toEqual(orientationListeners(add));
     } finally {
       add.mockRestore();
       remove.mockRestore();
@@ -254,6 +274,7 @@ describe("W83 setGravity and the gravity sources (D83-3 … D83-5)", () => {
       [{ source: "sideways" }, /gravity\.source/],
       [{ vector: [1, Number.NaN] }, /gravity\.vector/],
       [{ strength: -1 }, /gravity\.strength/],
+      [{ vector: [1, 0], strength: -1 }, /gravity\.strength/], // the valid half is not applied either
     ];
     for (const [bad, message] of cases) {
       expect(() => instance!.setGravity(bad as never), String(message)).toThrow(TypeError);
@@ -320,5 +341,17 @@ describe("W83 setGravity and the gravity sources (D83-3 … D83-5)", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]!.startsWith("tick:0:")).toBe(true);
     expect(ticksOf(sb).at(-1)![7]).toBeCloseTo(980 * Math.sin(Math.PI / 3), 6);
+    // A strength change is a change within the source: no seed, and still the one listener.
+    const add = vi.spyOn(window, "addEventListener");
+    n = sb.calls.length;
+    instance.setGravity({ strength: 500 });
+    clock.advance(1);
+    const after = gravityCalls(sb, n);
+    const added = add.mock.calls.filter((c) => c[0] === "deviceorientation").length;
+    add.mockRestore();
+    expect(after).toHaveLength(1);
+    expect(after[0]!.startsWith("tick:")).toBe(true);
+    expect(added, "no second listener").toBe(0);
+    expect(ticksOf(sb).at(-1)![7]).toBeCloseTo(500 * Math.sin(Math.PI / 3), 6);
   });
 });
