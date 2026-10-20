@@ -173,7 +173,7 @@ F's cost (+4 floats of SoA plus an SVD per substep) is benchmarked in slice 4. I
 | `click` on an observed element | `splash` at the pointer position. **If `event.detail === 0`** (a keyboard-triggered click from Enter or Space on a focusable element), the splash is at the rect centre instead. Native activation is never prevented, so there is never a double splash |
 | Drag (mouse or pen pointerdown, primary button; pointer capture once the pointer is > 4 px away, W78 D78-2) | `home_dx/dy` follow the pointer while the DOM stays put. After the threshold, the following click splash is suppressed (swallowed once). On release `home_dx/dy` → 0 and the liquid crawls home; `pointercancel`, blur, Escape, `unobserve`, `destroy` and reduced motion cancel the same way. No touch or keyboard drag in slice 5 (amended 2026-10-11, slice-5 design, D78-2, D78-6). Slice 6: touch drags after a 350 ms long-press (movement > 8 px cancels it and the page scrolls); `observe(el, { drag: false })` opts an element out (amended 2026-10-13, slice-6 design, D84-1, D84-2) |
 | `shake(strength)` | Global impulse: a seeded direction `d` and phase `φ` per element, speed profile `1 + 0.35·sin(π·u + φ)` across the element (`u = (x − cx)/(w/2)`), no per-particle noise, no rotation (amended in W70, D70-1; amended in W73, D73-1; amended in W77, D77-2). Everything goes soft |
-| Gravity | `(gx, gy)` in the grid update. Clamped to 0 under reduced motion. Only changes act (a high-pass): a tilt sloshes the liquid, which then rests at home; scaled so the liquid never leaves its element (amended 2026-10-13, slice-6 design, D83-1) |
+| Gravity | `(gx, gy)` in the grid update. Clamped to 0 under reduced motion. Only changes act (a high-pass): a tilt sloshes the liquid, which then rests at home; scaled so the liquid never leaves its element (amended 2026-10-13, slice-6 design, D83-1). W83: a per-core low-pass `g_lp` (τ 0.5 s, advanced per fixed step); `1.5 · (g − g_lp)`, clamped to 2000 px/s², is added to the grid velocities of cells with mass after momentum → velocity and before the walls and the CFL cap; below 0.5 px/s² it snaps to exactly 0, so the engine is bit-identical to one without gravity ≈ 4 s after a change; the home spring is unchanged (a subtle lean, ≈ 6 px for a 90° tilt; D83-1, D83-2). `seed_gravity` starts a gravity at rest: at `create()`, on a source switch, on the first orientation reading and when reduced motion ends (D83-4) |
 | Scroll | The scroll delta moves particles and previous home rects rigidly (`scroll_shift`), so a scroll does not excite the liquid: particles move by whole cells and the lattice origin by the rest, so the simulation equals the unscrolled one up to f32 rounding; a dragged element is not shifted and its drag offset grows by the scroll; an element whose rect did not move with the scroll (`position: fixed`, a stuck `sticky`) is not shifted either, read per element and frame from the rects (W80 ward review I1); a light, capped share of the scroll distance is added as inertia, `Δ · 60 · SCROLL_INERTIA` px/s (amended 2026-10-13, slice-6 design, D80-1; W80, D80-1, D80-2) |
 | Droplets | Particles flung far away are ordinary liquid that crawls home. There is no separate entity type |
 
@@ -223,6 +223,7 @@ This is a coordinated contract change. It replaces the 9-float soft-body layout.
    - `scroll_shift(dx, dy, ivx, ivy)`: the frame's scroll delta (px) and inertia (px/s), after the rects are written and before `tick` (W80, D80-1)
    - `resize_world(w, h) -> bool`: grows the grid when the viewport outgrew the world, outside `tick`; true when it grew (W81, D81-2)
    - `set_viewport(w, h)`: the visible window in buffer px (`innerWidth × innerHeight`, or the container's client box), at `create()` and whenever a resize changes it, outside `tick`; sanitised (a non-finite or non-positive extent is unknown). `shake` mirrors the outward component of an element's direction when its home rect lies within 80 px of a viewport edge (W82, D82-5)
+   - `seed_gravity(gx, gy)`: the gravity low-pass jumps to `(gx, gy)` px/s² (sanitised like `tick`'s), so the next `tick` with that gravity adds nothing; right before the tick of a frame whose gravity starts fresh (W83, D83-4)
 
 The stride constants live in both `src/` (Rust) and the TS bridge, and MUST stay in sync. A test asserts they match.
 
@@ -376,6 +377,7 @@ liquid.unobserve(el);
 liquid.splash(el, { strength?: number /* 0–2, default 1 */, at?: { x: number, y: number } /* client px, default rect centre */ });
 liquid.shake(strength? /* 0–2, default 1 */);
 liquid.setMaterial(partial); liquid.getMaterial();
+liquid.setGravity(partial);  // W83, D83-3
 liquid.refresh(el);
 liquid.pause(); liquid.resume(); liquid.destroy();
 liquid.requestOrientationPermission();
@@ -384,6 +386,8 @@ liquid.isPaused; liquid.activeRenderer; liquid.particleCapacity; liquid.elementC
 ```
 
 `splash.at` is converted from client px into buffer space by TS, including the container offset.
+
+**Gravity (W83, D83-1 … D83-5).** Only changes in gravity act: a change sloshes the liquid, which then rests at home; a constant gravity never leans it. `none` is no gravity; `fixed` is `normalize(vector) · strength` (a zero vector is none); `orientation` projects the device's gravity onto the screen from `deviceorientation` β, γ (`px = cos β · sin γ`, `py = sin β`), rotated by `screen.orientation.angle`, times `strength`, with a 2° dead band on the direction; its listener exists only for `orientation` and is removed on `destroy()`. The gravity given at `create()`, a source switch and the first orientation reading start at rest (the core's low-pass is seeded), so a `fixed` vector acts only through `setGravity(partial)`, which is validated, merged and applied atomically like `setMaterial`. Reduced motion: no gravity. `requestOrientationPermission()` (iOS) is unchanged.
 
 ### Old to new
 
@@ -499,7 +503,7 @@ Slices 1–2 are detailed in the plan. Slices 3–6 are re-planned after each wh
 | 6 | **The world** | Scroll (incl. the 1-frame risk), resize, container, parking, gravity/tilt scene, adapters, site rebuilt and re-enabled. Followed by a **whole-picture check** (amended 2026-10-13: W80 scroll follows, W81 parking and resize, W82 under the page, W83 gravity and tilt, W84 touch and opt-out, W85 adapters, W86 the site, W87 whole picture; design `2026-10-13-liquiddom-slice-6-world-design.md`) |
 
 **Interim state for kept features in slices 1–5:**
-- **Gravity:** the option is accepted and validated, but has no effect until slice 6. Its tests are marked `skip` with a reference to the slice-6 ward.
+- **Gravity:** the option was accepted and validated but inert until W83, which made it act (a high-pass, §2 and §5) and rewrote the tests that had been marked `skip`.
 - **Container mode:** works from slice 1 (rects and offset are kept). Scroll inside a container is only verified in slice 6.
 - **Adapters:** compiled against the new API from slice 1 (`liquidType` → opts). Tests are updated in slice 1.
 - **Pause/resume and visibility:** work from slice 1.

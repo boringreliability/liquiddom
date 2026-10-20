@@ -1,15 +1,15 @@
 # Context — liquiddom
 
 ## Last Updated
-Ward 82 — 2026-10-14 (under the page). Next: W83 gravity and tilt.
+Ward 83 — 2026-10-20 (gravity and tilt). Next: W84 touch, opt-out.
 
 ## Current State
-Epic 15 (Fluid Engine). `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. The soft-body engine is the tag `softbody-final`. Packages `0.3.0-alpha.x` (pre mode `alpha`), unpublished; `site/` frozen until slice 6. Test totals: `.wdd/PROGRESS.md`, ward gold notes.
+Epic 15 (Fluid Engine). `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. Soft-body: tag `softbody-final`. Packages `0.3.0-alpha.x` (pre mode `alpha`), unpublished; `site/` frozen until slice 6. Test totals: `.wdd/PROGRESS.md`, ward gold notes.
 
 Canonical vision, acceptance scene (8 steps), slice matrix: `.wdd/NORTH-STAR.md`. Binding design: `docs/superpowers/specs/2026-10-02-liquiddom-fluid-design.md`. Execution ledger, rulings: `.superpowers/sdd/README/progress.md` (git-ignored).
 
 ## Architecture Decisions Made
-Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Active fluid decisions (full text `ward-063..066.md`, log in NORTH-STAR "Plan decisions"):
+Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Fluid decisions: `ward-NNN.md`, log in NORTH-STAR "Plan decisions":
 
 | Decision | Rationale | Ward |
 |-|-|-|
@@ -20,11 +20,11 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Active fluid decisions
 | Injected `@layer liquiddom` stylesheet with `!important`, paint/stacking in `@media screen and (forced-colors: none)`; print/forced-colors hide the canvas | `revert-layer` fell to the UA default in print | W66 (D66-15 amended) |
 | Shared refcounts: one stylesheet per document, one decoration per element across instances; colour snapshot lifts the class via `transition: none` | Multi-instance correctness | W66 |
 | Canvas z -1; opaque ancestor or non-stacking container → warn, z 0 + D7 | Liquid under page text | W82 |
-| `LoopController`: user pause and hidden tab are separate sources; dt reset on resume; first throwing frame stops the instance for good | No silent re-arm | W66 (D66-12) |
+| `LoopController`: user pause and hidden tab are separate sources; dt reset on resume; first throwing frame stops it for good | No silent re-arm | W66 (D66-12) |
 | WebGPU liquid: splat into T0 rgba16float + T0a r16float, composite with an fwidth edge, rest SDF overlay at restAlpha; T2 deferred | No 32-bit targets; Canvas2D parity via kernel-params.ts and Σw·a | W71 (D71-3…6) |
-| `'auto'` = WebGPU on a hardware adapter, else Canvas2D (unavailable, software adapter or unusable surface) on a remounted canvas, one `console.info` unless `silentFallback`; explicit `'webgpu'` accepts SwiftShader; `device.lost` → in-place Canvas2D rebuild, one `console.warn` | WebGPU by default, nobody breaks | W72 (D72-1, D72-2, D72-3) |
+| `'auto'` = WebGPU on a hardware adapter, else Canvas2D (unavailable, software adapter or unusable surface) on a remounted canvas, one `console.info` unless `silentFallback`; explicit `'webgpu'` accepts SwiftShader; `device.lost` → in-place Canvas2D rebuild, one `console.warn` | WebGPU by default, nobody breaks | W72 (D72-1…3) |
 | Liquid text in WebGPU: render-only F (every substep, σ clamp, sticky torn), rest needs max‖F − I‖ < 0.05, runtime-built atlas, T1/T1w at 1× in own pass, text composite after the rest SDF, refcounted liquid-text (fail-safe); damage drops restAlpha to 0 | Text flows, DOM text never hidden | W74 (D74-1…7) |
-| Per-element MutationObserver (first old value per batch, own classes ignored); colour re-read on own class/style or a colour transitionend, deferred while a CSS transition runs; atlas re-render on text/fonts/DPR, one upload in flight | Text and colours stay true to the DOM | W75 (D75-1, D75-2) |
+| Per-element MutationObserver (first old value per batch, own classes ignored); colour re-read on own class/style or a colour transitionend, deferred while a CSS transition runs; atlas re-render on text/fonts/DPR, one upload in flight | Text and colours follow the DOM | W75 (D75-1, -2) |
 | Canvas2D DOM-text halo: liquid-halo + one data-liquid-id rule per element in the refcounted sheet, background-colour text-shadow while moving | Readable DOM text, no inline style | W75 (D75-3) |
 | Playwright guards visuals/behaviour; Linux baselines from the pinned image, committed only after a vision check | jsdom sees no cascade | W65 (D65-7) |
 
@@ -39,11 +39,10 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Active fluid decisions
 | Metric | Value | Ward |
 |-|-|-|
 | Particles (default) | 8000 (range 256–65536) | W66 |
-| Fixed-step p95 (local, 4 elements; W67) | ~3.6 ms | W67 |
-| RAF p95 (local) | 3.40 ms | W66 |
+| Fixed-step p95 (local, 4 elements) | ~3.6 ms | W67 |
+| RAF p95 local, canvas2d / webgpu | 3.40 / 3.815 ms | W66 / W72 |
 | WASM size (opt-level 3) | ~85 kB | W65 |
-| Splat overdraw estimate, shake peak (webgpu, Metal; D72-4) | max 402341 fragments/frame | W72 |
-| RAF p95 webgpu | 3.815 ms | W72 |
+| Splat overdraw est., shake peak (Metal; D72-4) | max 402341 fragments/frame | W72 |
 
 ## Known Limitations
 - Pointer idle decay (D68-4): ×0.8 per frame; at 120 Hz the tail decays twice as fast.
@@ -52,7 +51,7 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Active fluid decisions
 - Drag (W78): mouse/pen only, no opt-out; re-form ≥ ≈113 frames; `recovery` > ≈1.1 s cannot re-form in 3 s (D78-5).
 - Drag press: `selectstart` blocked document-wide (no drag-select in observed `<input>`/contenteditable, D78-2); if `setPointerCapture` throws (Firefox) the ending click may hit an ancestor, unswallowed; any keydown clears an armed swallow; in a pending Canvas2D rebuild a new drag may hide the label early; nested instances: a press drags both.
 - Container mode: positioned + a stacking context (`isolation: isolate`), else warn + z 0 (W82); never restyled.
-- Gravity: validated, inert until W83.
+- Gravity (W83): high-pass, τ 0.5 s, ×1.5 ≤ 2000 px/s², seeded at create/switch; ≈ 6 px lean at 90°; iOS prompt untested.
 - Scroll (W80): rigid shift + capped inertia (D80-2); fixed/stuck-sticky elements not shifted. While scrolling, DOM labels sit 60–100 px off their liquid for a frame per scroll step, both renderers; none at rest (D80-4).
 - Parking (W81): outside world + margin an element is not simulated, re-enters at rest; partly outside keeps wall-clamped liquid. A translated container canvas keeps its scroll range after the content shrinks (W80).
 - `resize_world` (W81): a margin near 8192 px needs ≈ 450 MB of grid (200 px: ≈ 55 MB).
@@ -71,5 +70,5 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Active fluid decisions
 - Stacking check (W82): stacking-context `<body>` + opaque html/body falls back (z 0); negative-z ancestor contexts and ancestors beyond a shadow host are missed (canvas may cover their text).
 
 ## What Comes Next
-- Slices 1–5 closed (whole pictures: `.wdd/memory/whole-picture/`). Slice 6: W80–W82 done; next W83.
+- Slices 1–5 closed (whole pictures: `.wdd/memory/whole-picture/`). Slice 6: W80–W83 done; next W84.
 - Open: fate of the published `0.2.0-rc.0` (spec §7); publishing `0.3.0-alpha.x` is Dennis' call.
