@@ -15,12 +15,16 @@ export interface ElementOptions {
   recovery?: number;
 }
 
-/** W46 shape. Accepted and validated; no effect until slice 6. */
+/**
+ * W46 shape. W83 (D83-1 … D83-5): only changes in gravity act (a high-pass). A change sloshes the
+ * liquid, which then rests at home; a constant gravity never leans it. The gravity given at
+ * create() and a source switch start at rest; setGravity() changes and device tilts act.
+ */
 export interface GravityOptions {
   source: "none" | "fixed" | "orientation";
-  /** px/s² for `source: 'fixed'`. Default [0, 0]. */
+  /** The direction for `source: 'fixed'` (normalised; [0, 0] = no gravity). Default [0, 0]. */
   vector?: [number, number];
-  /** px/s² multiplier for `source: 'orientation'`. Default 980. */
+  /** |g| in px/s² for 'fixed' and 'orientation' (a flat phone feels none). Default 980. */
   strength?: number;
 }
 
@@ -149,6 +153,8 @@ function randomSeed(): number {
   return Math.floor(Math.random() * 0x1_0000_0000) >>> 0;
 }
 
+const GRAVITY_KEYS = ["source", "vector", "strength"] as const;
+
 function resolveGravity(v: unknown): ResolvedGravity {
   if (v === undefined) return { source: "none", vector: [0, 0], strength: DEFAULT_GRAVITY_STRENGTH };
   if (!isPlainObject(v)) fail(`gravity must be an object, got ${show(v)}`);
@@ -183,8 +189,14 @@ function resolveGravity(v: unknown): ResolvedGravity {
  * problem; unknown keys throw). Returns a fresh ResolvedGravity; `base` is never changed.
  */
 export function mergeGravity(base: Readonly<ResolvedGravity>, partial: unknown): ResolvedGravity {
-  void partial; // W83.1 red stub: W83.3 reads, merges and validates the partial
-  return { source: base.source, vector: [base.vector[0], base.vector[1]], strength: base.strength };
+  if (!isPlainObject(partial)) fail(`setGravity(partial): partial must be an object, got ${show(partial)}`);
+  const merged: Record<string, unknown> = { source: base.source, vector: [base.vector[0], base.vector[1]], strength: base.strength };
+  for (const key of Object.keys(partial)) {
+    const v = partial[key];
+    // An unknown key is kept even when undefined, so resolveGravity names it.
+    if (v !== undefined || !(GRAVITY_KEYS as readonly string[]).includes(key)) merged[key] = v;
+  }
+  return resolveGravity(merged);
 }
 
 function resolveContainer(v: unknown): HTMLElement | undefined {

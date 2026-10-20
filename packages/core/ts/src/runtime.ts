@@ -22,6 +22,7 @@ import { clearHaloClasses, releaseHaloClass, syncHaloClasses, type HaloSyncArgs 
 import { LoopController } from "./loop-control";
 import { PointerTracker } from "./pointer-tracker";
 import { DragTracker } from "./drag-tracker";
+import { GravityInput } from "./gravity";
 import { ScrollTracker } from "./scroll-tracker";
 import { clampWorld, grownWorld, measureWorld, WORLD_RESIZE_INFO, type WorldSize } from "./world";
 import { CANVAS_Z_FALLBACK, CANVAS_Z_UNDER, acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas } from "./stylesheet";
@@ -568,6 +569,8 @@ function buildRuntime(
   );
   // W80 (D80-1): the scroll of the window (body mode) or of the container, read once per frame.
   const scrollTracker = new ScrollTracker(pointerDoc.defaultView ?? window, container);
+  // W83 (D83-1 … D83-5): the gravity source; `orientation` listens on the same window.
+  const gravityInput = new GravityInput(pointerDoc.defaultView ?? window, opts.gravity ?? { source: "none", vector: [0, 0], strength: 0 });
   const syncAway = (): void => {
     awayStateView = bridge.stateView();
     awayArgs.entries = registry.entries();
@@ -782,6 +785,11 @@ function buildRuntime(
       // W68: soft pointer field input, gated by reduced motion (D68-5).
       const ptr = pointer.sample(nowMs, frameOffset);
       const pointerOn = ptr.active && !reducedMotion;
+      // W83 (D83-1, D83-4): this frame's gravity (0 under reduced motion). A gravity that starts fresh
+      // (create, a source switch, the first orientation reading, the end of reduced motion) seeds the
+      // core's low-pass first, so it starts at rest; only later changes act.
+      const g = gravityInput.sample(reducedMotion);
+      if (g.seed) core.seed_gravity(g.gx, g.gy);
       core.tick(
         dtS,
         pointerOn ? ptr.x : 0,
@@ -789,8 +797,8 @@ function buildRuntime(
         pointerOn ? ptr.vx : 0,
         pointerOn ? ptr.vy : 0,
         pointerOn,
-        0,
-        0,
+        g.gx,
+        g.gy,
       );
       // W75 amendment B (D75-1): at most one atlas upload in flight. While one awaits its error
       // scope no page is built; `stale` (or atlasDeferred) stays set and the build runs on the
@@ -980,7 +988,8 @@ function buildRuntime(
       core.set_material(m.viscosity, m.cohesion, m.recovery);
     },
     setGravity(g: Readonly<ResolvedGravity>): void {
-      void g; // W83.1 red stub: W83.3 hands it to the GravityInput
+      if (destroyed) return;
+      gravityInput.set(g);
     },
     frame,
     elementState(el) {
@@ -1070,6 +1079,7 @@ function buildRuntime(
       registry.unobserveAll();
       releaseStyles();
       mql?.removeEventListener("change", onMotionChange);
+      gravityInput.destroy(); // W83 (D83-5): the deviceorientation listener goes with the instance
       detachPointer();
       resizeObserver?.disconnect();
       window.removeEventListener("resize", resizeCanvas);
