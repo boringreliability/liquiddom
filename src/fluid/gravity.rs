@@ -366,7 +366,10 @@ mod tests {
         let mut b = acceptance_core(1);
         b.seed_gravity(DOWN.0, DOWN.1);
         let steps = b.tick(3.0 * DT, -1.0e4, -1.0e4, 0.0, 0.0, false, SIDE.0, SIDE.1);
-        assert!(steps >= 2, "one long tick runs several fixed steps: {steps}");
+        assert!(
+            steps >= 2,
+            "one long tick runs several fixed steps: {steps}"
+        );
         let mut c = acceptance_core(1);
         c.seed_gravity(DOWN.0, DOWN.1);
         for _ in 0..steps {
