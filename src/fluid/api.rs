@@ -193,7 +193,10 @@ impl FluidCore {
 
     /// Advances by the raw RAF dt (Rust owns the accumulator) and returns the fixed
     /// steps simulated: 0–3, always 0 under reduced motion (D64-4). The pointer drives
-    /// the soft pointer field (W68, D68-3); gravity (slice 6, D67-2) is accepted and unused.
+    /// the soft pointer field (W68, D68-3). Gravity `(gx, gy)` px/s² acts as a high-pass
+    /// (W83, D83-1): each fixed step adds `1.5 · (g − g_lp)` (clamped to 2000 px/s²) to the
+    /// grid velocities with mass; a constant gravity moves nothing (`gravity.rs`). Under
+    /// reduced motion the low-pass follows g, so no gravity acts and none is stored up.
     #[allow(clippy::too_many_arguments)]
     pub fn tick(
         &mut self,
@@ -203,8 +206,8 @@ impl FluidCore {
         pvx: f32,
         pvy: f32,
         pointer_active: bool,
-        _gx: f32,
-        _gy: f32,
+        gx: f32,
+        gy: f32,
     ) -> u32 {
         let steps = self.clock.advance(raw_dt_s);
         if raw_dt_s.is_finite() && raw_dt_s > 0.0 {
@@ -227,6 +230,8 @@ impl FluidCore {
         if self.settings.reduced_motion {
             // Spec §2: no simulation; follow rects instantly, even on a 0-step tick.
             // dt 0 keeps prev_* current with velocity 0 (no spike when motion returns).
+            // W83 (D83-1): no gravity acts, and the low-pass follows g (no slosh when motion returns).
+            self.gravity.seed(gx, gy);
             self.elements.update_velocities(0.0);
             self.vel_wall_s = 0.0;
             solver::compute_targets(
@@ -266,6 +271,11 @@ impl FluidCore {
             self.vel_wall_s = 0.0;
         }
         for step in 0..steps {
+            // W83 (D83-1): this fixed step's high-passed gravity in grid units (cells/s²); every
+            // substep's grid update adds it to the cells with mass. Exactly 0 once settled.
+            let (ax, ay) = self.gravity.step(gx, gy);
+            let inv = self.grid.inv_cell;
+            self.grid.set_body_accel(ax * inv, ay * inv);
             #[cfg(test)]
             self.step_vel_trace
                 .push((rd(&self.elements.vel_x, 0), rd(&self.elements.vel_y, 0)));

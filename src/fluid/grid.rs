@@ -121,6 +121,9 @@ pub struct Grid {
     pub region: Region,
     /// Diagnostic counter (B6 test): cells cleared plus cells updated.
     pub cells_touched: u64,
+    /// W83 (D83-1): the fixed step's body acceleration in cells/s² (the high-passed gravity,
+    /// `set_body_accel`); `(0, 0)` adds nothing.
+    pub body_accel: (f32, f32),
 }
 
 impl Grid {
@@ -175,7 +178,15 @@ impl Grid {
             mvy: vec![0.0; n],
             region: Region::default(),
             cells_touched: 0,
+            body_accel: (0.0, 0.0),
         }
+    }
+
+    /// W83 (D83-1): the body acceleration (cells/s²) every following `update_velocities` adds to
+    /// the cells with mass. Non-finite components give 0.
+    pub fn set_body_accel(&mut self, ax: f32, ay: f32) {
+        let finite = |v: f32| if v.is_finite() { v } else { 0.0 };
+        self.body_accel = (finite(ax), finite(ay));
     }
 
     /// W80 (D80-1): a scroll moved the content by `(−dx, −dy)` px. Splits each delta into whole
@@ -347,11 +358,15 @@ impl Grid {
         }
     }
 
-    /// Momentum → velocity inside the dirty region, with slip walls at the grid
-    /// edges and the W67 CFL cap `vmax_cells` (cells/s; the solver passes
-    /// `MAX_CELLS_PER_SUBSTEP / dt`). `_dt` is for gravity (slice 6).
-    pub fn update_velocities(&mut self, _dt: f32, vmax_cells: f32) {
+    /// Momentum → velocity inside the dirty region, plus W83's body acceleration
+    /// (`body_accel · dt`, cells with mass only; D83-1), then slip walls at the grid edges and
+    /// the W67 CFL cap `vmax_cells` (cells/s; the solver passes `MAX_CELLS_PER_SUBSTEP / dt`).
+    /// A zero body acceleration adds nothing, so the result is bit-identical to W82's.
+    pub fn update_velocities(&mut self, dt: f32, vmax_cells: f32) {
         let r = self.region;
+        let (bx, by) = self.body_accel;
+        let body = bx != 0.0 || by != 0.0;
+        let (dvx, dvy) = (bx * dt, by * dt);
         for y in r.y0..r.y1 {
             for x in r.x0..r.x1 {
                 let idx = y * self.w + x;
@@ -361,6 +376,10 @@ impl Grid {
                 }
                 let mut vx = rd(&self.mvx, idx) / m;
                 let mut vy = rd(&self.mvy, idx) / m;
+                if body {
+                    vx += dvx;
+                    vy += dvy;
+                }
                 if (x < WALL_CELLS && vx < 0.0) || (x + WALL_CELLS + 1 > self.w && vx > 0.0) {
                     vx = 0.0;
                 }

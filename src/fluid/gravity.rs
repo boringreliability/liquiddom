@@ -30,8 +30,19 @@ pub const GRAVITY_INPUT_MAX_PX_S2: f32 = 1.0e5;
 
 /// Per axis: a finite value is clamped to ±`GRAVITY_INPUT_MAX_PX_S2`; NaN and ±Inf give 0.
 pub fn sanitized(gx: f32, gy: f32) -> (f32, f32) {
-    let _ = (gx, gy, GRAVITY_INPUT_MAX_PX_S2); // W83.1 red stub: W83.2 keeps finite input
-    (0.0, 0.0)
+    let axis = |v: f32| {
+        if v.is_finite() {
+            v.clamp(-GRAVITY_INPUT_MAX_PX_S2, GRAVITY_INPUT_MAX_PX_S2)
+        } else {
+            0.0
+        }
+    };
+    (axis(gx), axis(gy))
+}
+
+/// The low-pass step `a = 1 − exp(−FIXED_DT/τ)` (per fixed step).
+fn low_pass_alpha() -> f64 {
+    1.0 - (-f64::from(FIXED_DT_S) / f64::from(GRAVITY_TAU_S)).exp()
 }
 
 /// The per-core gravity low-pass of D83-1 (px/s², f64).
@@ -69,9 +80,28 @@ impl HighPass {
     /// (px/s²), then advances the low-pass by `a · (g − g_lp)`. Below `GRAVITY_SNAP_PX_S2` it sets
     /// `g_lp = g` and returns exactly `(0, 0)`.
     pub fn step(&mut self, gx: f32, gy: f32) -> (f32, f32) {
-        let _ = (gx, gy, FIXED_DT_S, GRAVITY_TAU_S, GRAVITY_SCALE); // W83.1 red stub: W83.2 high-passes
-        let _ = (GRAVITY_CLAMP_PX_S2, GRAVITY_SNAP_PX_S2);
-        (0.0, 0.0)
+        let (x, y) = sanitized(gx, gy);
+        let (gx, gy) = (f64::from(x), f64::from(y));
+        let (hx, hy) = (gx - self.lp_x, gy - self.lp_y);
+        let snap = f64::from(GRAVITY_SNAP_PX_S2);
+        if hx * hx + hy * hy < snap * snap {
+            // W83.0 Q4: exactly 0 from here on, so the grid skips gravity bit for bit.
+            self.lp_x = gx;
+            self.lp_y = gy;
+            return (0.0, 0.0);
+        }
+        let scale = f64::from(GRAVITY_SCALE);
+        let (mut ax, mut ay) = (scale * hx, scale * hy);
+        let norm = ax.hypot(ay);
+        let clamp = f64::from(GRAVITY_CLAMP_PX_S2);
+        if norm > clamp {
+            ax *= clamp / norm;
+            ay *= clamp / norm;
+        }
+        let a = low_pass_alpha();
+        self.lp_x += a * hx;
+        self.lp_y += a * hy;
+        (ax as f32, ay as f32)
     }
 }
 
