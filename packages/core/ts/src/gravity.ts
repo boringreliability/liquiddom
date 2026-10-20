@@ -29,10 +29,14 @@ export interface GravitySample {
 
 /** D83-3: `normalize(vector) · strength`; a zero vector or strength 0 is no gravity. */
 export function fixedGravity(vector: readonly [number, number], strength: number): [number, number] {
-  const len = Math.hypot(vector[0], vector[1]);
-  if (!(len > 0) || !Number.isFinite(len) || !(strength > 0)) return [0, 0];
+  // Scale by the larger component first, so a huge finite vector cannot overflow the length.
+  const m = Math.max(Math.abs(vector[0]), Math.abs(vector[1]));
+  if (!(m > 0) || !Number.isFinite(m) || !(strength > 0)) return [0, 0];
+  const ux = vector[0] / m;
+  const uy = vector[1] / m;
+  const len = Math.hypot(ux, uy);
   // `+ 0` turns a -0 into 0, so a sign never leaks into the FFI or the tests.
-  return [(vector[0] / len) * strength + 0, (vector[1] / len) * strength + 0];
+  return [(ux / len) * strength + 0, (uy / len) * strength + 0];
 }
 
 /**

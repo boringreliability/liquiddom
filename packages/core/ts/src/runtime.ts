@@ -839,6 +839,7 @@ function buildRuntime(
     failed = true;
     clearTextClasses(textHeld); // W74: a stopped instance never leaves text hidden
     dragTracker.destroy(); // W78: a stopped instance takes no more drags
+    gravityInput.destroy(); // W83: a stopped instance drops its deviceorientation listener (idempotent)
     loop.destroy();
     clearHaloClasses(haloHeld); // W75: a stopped instance leaves no halo behind
     clearAwayClasses(awayHeld); // W78: a stopped instance hides no label

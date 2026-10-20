@@ -355,3 +355,54 @@ describe("W83 setGravity and the gravity sources (D83-3 … D83-5)", () => {
     expect(ticksOf(sb).at(-1)![7]).toBeCloseTo(500 * Math.sin(Math.PI / 3), 6);
   });
 });
+
+describe("W83.3 fix round 1: hardening", () => {
+  it("given_an_orientation_instance_when_a_frame_throws_then_the_deviceorientation_listener_is_removed_and_destroy_stays_safe", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const sb = spyBackend();
+    const clock = createManualClock();
+    const add = vi.spyOn(window, "addEventListener");
+    const remove = vi.spyOn(window, "removeEventListener");
+    instance = await LiquidDOM.create({ ...base, testBackend: sb.backend, clock, gravity: { source: "orientation", strength: 980 } });
+    const added = add.mock.calls.filter((c) => c[0] === "deviceorientation").map((c) => c[1]);
+    expect(added).toHaveLength(1);
+    (sb.cores[0] as unknown as { tick: () => never }).tick = () => {
+      throw new Error("tick failed");
+    };
+    clock.advance(1);
+    const removed = remove.mock.calls.filter((c) => c[0] === "deviceorientation").map((c) => c[1]);
+    expect(removed).toEqual(added);
+    expect(() => instance!.destroy()).not.toThrow();
+    expect(remove.mock.calls.filter((c) => c[0] === "deviceorientation")).toHaveLength(1);
+  });
+
+  it("given_a_huge_finite_fixed_vector_when_create_runs_then_gravity_is_the_unit_direction_times_strength", async () => {
+    const sb = spyBackend();
+    const clock = createManualClock();
+    instance = await LiquidDOM.create({ ...base, testBackend: sb.backend, clock, gravity: { source: "fixed", vector: [1e308, 1e308], strength: 980 } });
+    clock.advance(1);
+    const t = ticksOf(sb).at(-1)!;
+    expect(t[6]).toBeCloseTo(692.96, 1);
+    expect(t[7]).toBeCloseTo(692.96, 1);
+  });
+
+  it("given_a_vector_whose_elements_are_getters_when_setGravity_runs_then_each_element_is_read_once", async () => {
+    const sb = spyBackend();
+    const clock = createManualClock();
+    instance = await LiquidDOM.create({ ...base, testBackend: sb.backend, clock });
+    const reads = [0, 0];
+    const vec: number[] = [0, 0];
+    for (const i of [0, 1]) {
+      Object.defineProperty(vec, i, {
+        get: () => (reads[i]!++ === 0 ? 1 : Number.NaN),
+        enumerable: true,
+      });
+    }
+    expect(() => instance!.setGravity({ source: "fixed", vector: vec as unknown as [number, number], strength: 100 })).not.toThrow();
+    expect(reads).toEqual([1, 1]);
+    clock.advance(1);
+    const t = ticksOf(sb).at(-1)!;
+    expect(t[6]).toBeCloseTo(70.71, 1);
+    expect(t[7]).toBeCloseTo(70.71, 1);
+  });
+});

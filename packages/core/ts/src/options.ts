@@ -168,10 +168,13 @@ function resolveGravity(v: unknown): ResolvedGravity {
   let vector: [number, number] = [0, 0];
   if (v.vector !== undefined) {
     const vec: unknown = v.vector;
-    if (!Array.isArray(vec) || vec.length !== 2 || !vec.every((n: unknown) => typeof n === "number" && Number.isFinite(n))) {
+    // Each element is read once (getters included), then validated and used as read.
+    const x: unknown = Array.isArray(vec) && vec.length === 2 ? vec[0] : undefined;
+    const y: unknown = Array.isArray(vec) && vec.length === 2 ? vec[1] : undefined;
+    if (typeof x !== "number" || !Number.isFinite(x) || typeof y !== "number" || !Number.isFinite(y)) {
       fail(`gravity.vector must be [x, y] with finite numbers (px/s²), got ${show(vec)}`);
     }
-    vector = [vec[0] as number, vec[1] as number];
+    vector = [x, y];
   }
   let strength = DEFAULT_GRAVITY_STRENGTH;
   if (v.strength !== undefined) {
