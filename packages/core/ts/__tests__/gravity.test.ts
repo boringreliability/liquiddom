@@ -376,6 +376,22 @@ describe("W83.3 fix round 1: hardening", () => {
     expect(remove.mock.calls.filter((c) => c[0] === "deviceorientation")).toHaveLength(1);
   });
 
+  it("given_a_stopped_instance_after_a_failed_frame_when_setGravity_orientation_runs_then_no_deviceorientation_listener_is_added", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const sb = spyBackend();
+    const clock = createManualClock();
+    instance = await LiquidDOM.create({ ...base, testBackend: sb.backend, clock });
+    (sb.cores[0] as unknown as { tick: () => never }).tick = () => {
+      throw new Error("tick failed");
+    };
+    clock.advance(1);
+    const add = vi.spyOn(window, "addEventListener");
+    add.mockClear(); // an earlier test's spy on window may still be installed
+    expect(() => instance!.setGravity({ source: "orientation", strength: 980 })).not.toThrow();
+    expect(add.mock.calls.filter((c) => c[0] === "deviceorientation")).toHaveLength(0);
+    expect(() => instance!.destroy()).not.toThrow();
+  });
+
   it("given_a_huge_finite_fixed_vector_when_create_runs_then_gravity_is_the_unit_direction_times_strength", async () => {
     const sb = spyBackend();
     const clock = createManualClock();

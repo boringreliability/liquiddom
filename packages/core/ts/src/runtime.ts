@@ -882,6 +882,7 @@ function buildRuntime(
     if (destroyed || failed) return;
     failed = true;
     dragTracker.destroy(); // W78: a stopped instance takes no more drags
+    gravityInput.destroy(); // W83 ward review (M2): a stopped instance drops its deviceorientation listener
     loop.destroy();
     resyncStopped();
     console.error(
@@ -989,7 +990,8 @@ function buildRuntime(
       core.set_material(m.viscosity, m.cohesion, m.recovery);
     },
     setGravity(g: Readonly<ResolvedGravity>): void {
-      if (destroyed) return;
+      // W83 ward review (M1): like setMaterial, nothing after a failed frame (no listener comes back).
+      if (destroyed || failed) return;
       gravityInput.set(g);
     },
     frame,
