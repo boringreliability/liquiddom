@@ -3,12 +3,12 @@ ward: 83
 revision: null
 name: "Gravity and tilt"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [82]
 layer: "both"
 estimated_tests: 33
 created: "2026-10-14"
-completed: null
+completed: "2026-10-20"
 ---
 # Ward 083: Gravity and tilt
 
@@ -127,6 +127,8 @@ Fix round 1 (task review) added assertions inside the rows above, and one Rust t
 Red run (W83.1, before fix round 1): cargo 232 passed, 7 failed, 1 ignored (rows 2, 3, 4, 7, 8, 10, 12); after fix round 1 cargo is 232 passed, 8 failed; vitest 3 files failed, 15 tests failed, 752 passed (767) (rows 13–19, 21–28); e2e canvas2d rows 29 and 31 fail, 30 passes, `under-page.spec.ts` 9/9 pass with the ink floor (lede 1399 ink px, `#note` 2446); webgpu-hw row 32 fails, the two W82 tests pass. All counts equal the plan's expectation; no deviation. `--list`: canvas2d 97, webgpu 51, webgpu-hw 98, perf 6.
 
 Gold run (W83.5, 2026-10-20): all 33 rows pass. cargo 240 passed, 0 failed, 1 ignored (the 239 the plan validated plus row 33); vitest 772 passed (772), 76 files: 767 at the plan plus five tests added after red, each failing before its fix: three in the W83.3 task review (a stopped instance drops its deviceorientation listener; a huge finite vector normalises overflow-safely; `vector` elements are read once) and two in the ward review (no listener comes back through `setGravity` after a failed frame; a failed rebuild after a lost device drops it); clippy and `cargo fmt --check` clean; wdd-docs 35/35. e2e (macOS): canvas2d 82 passed, 15 skipped; webgpu-hw (Metal) 54 passed, 44 skipped. 90° tilt, canvas2d and Metal: min restAlpha 0, outside rect + 8 px 0 → 0 px, rest after 119 frames, the settled frame equals the frame before (Rust: peak lean 6.44 px). Orientation: the first reading leaves everything at rest, the 30° tilt rests after 74 frames. W82 ink floor: lede 1399, `#note` 2446 ink px, 0 covered. Docker (pinned image, canvas2d, no `--update-snapshots`): 95 passed, 2 skipped, 0 failed; `e2e/__screenshots__` unchanged. Vision (W83.4, approved by Dennis 2026-10-20): every element leans a few px toward the new gravity with ragged edges, WebGPU's atlas text rides the liquid, nothing far outside an element, the settled frame crisp and equal to before; `?angle=90` crisp from the first frame; a quick 180° flip sloshes and rests, a slow move only leans. Ward review (opus): no critical or high; Review Focus 1–5 true in code and pinned; medium 1–2 (listener lifetime on a stopped instance) fixed in 76e0e2f; low: README rest time 2 s → 3 s and the spec's interim gravity sentence fixed; parked: a `strength` above f32 max gives no gravity instead of the clamp (harmless), the demo slider from `?gravity=none` seeds its first move (demo only); a dragged element's liquid feels the tilt like every other (cells with mass, as decided). Manual smoke: pending Dennis.
+
+**Resolved at gold (Dennis, 2026-10-20):** gold approved after a live smoke test (saga dec_f9a1400a). Open for W84: touch drag and the per-element opt-out; gravity acts on a dragged element's liquid like on every other (cells with mass, as decided). Parked: a `strength` above f32 max gives no gravity instead of the clamp; the demo slider from `?gravity=none` seeds its first move. Carried: the Canvas2D scroll-frame cost (W80); the W82 stacking limits; iOS `requestOrientationPermission()` and real sensor noise untested.
 
 ## Must NOT
 - Change the FFI layout or the 7-arg constructor (gravity travels through `tick`'s `gx, gy`).

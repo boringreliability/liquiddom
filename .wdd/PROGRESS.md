@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-80 of 82 Wards complete · 1313 estimated tests · 1 blocked
+81 of 83 Wards complete · 1346 estimated tests · 1 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -88,6 +88,7 @@
 | 080 | Scroll follows | 60 | ✅ Complete | 2026-10-14 |
 | 081 | Parking and resize | 36 | ✅ Complete | 2026-10-14 |
 | 082 | Under the page | 31 | ✅ Complete | 2026-10-14 |
+| 083 | Gravity and tilt | 33 | ✅ Complete | 2026-10-20 |
 
 ## Test Summary
-- Estimated total: 1313
+- Estimated total: 1346
