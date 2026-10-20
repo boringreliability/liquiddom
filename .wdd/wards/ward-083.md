@@ -3,7 +3,7 @@ ward: 83
 revision: null
 name: "Gravity and tilt"
 epic: "fluid-engine"
-status: "approved"
+status: "gold"
 dependencies: [82]
 layer: "both"
 estimated_tests: 33
