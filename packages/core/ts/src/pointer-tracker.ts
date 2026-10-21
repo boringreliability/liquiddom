@@ -13,6 +13,14 @@ export const POINTER_SMOOTHING = 0.5;
 export const POINTER_IDLE_MS = 120;
 export const POINTER_IDLE_DECAY = 0.8;
 export const POINTER_MIN_DT_S = 1 / 240;
+/** W84 (D84-3): |e − 1| below this snaps the decay exponent to exactly 1, so a 60 Hz frame decays by exactly 0.8. */
+export const IDLE_DECAY_SNAP = 1e-9;
+
+/** W84 (D84-3): the idle decay over a frame of `frameMs`. W84.1 red stub: per frame, as W68; W84.3 decays per time. */
+export function idleDecay(frameMs: number): number {
+  void frameMs;
+  return POINTER_IDLE_DECAY;
+}
 
 export interface PointerSample {
   readonly x: number;

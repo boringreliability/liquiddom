@@ -3,7 +3,7 @@ ward: 84
 revision: null
 name: "Touch and opt-out"
 epic: "fluid-engine"
-status: "planned"
+status: "approved"
 dependencies: [83]
 layer: "both"
 estimated_tests: 32
@@ -122,12 +122,12 @@ Harness: `page.waitForFunction` and CDP `Log.enable` add document touch listener
 | 24 | touch-runtime.test: given_observe_with_drag_false_when_pressed_by_mouse_or_touch_then_slots_stay_idle_the_click_splashes_the_menu_stays_and_a_later_observe_cannot_change_it | D84-2, D84-5 through the runtime, RF3, RF4 | ❌ no `data-liquid-drag` |
 | 25 | touch-runtime.test: given_a_pending_touch_press_when_the_instance_is_destroyed_the_element_is_unobserved_or_reduced_motion_switches_on_then_no_timer_is_left_and_no_frame_drags | RF1 | ❌ "destroy: the long-press timer runs": 0 |
 | 26 | api-migration.test: given_api_migration_type_fixture_when_tsc_checks_it_then_exit_code_0 (approved-test change: `drag` lines in the fixture) | D84-2 type | ✅ passes (guard; the type is red scaffolding) |
-| 27 | e2e touch (canvas2d): D84-1 – given the Split pill when a finger holds it 350 ms and moves 120 px up then its liquid follows the finger, the page does not scroll, no pointercancel or intervention, and the release lets it go without a click | D84-1 in Chromium, RF5 | ❌ "Split is dragged": 0 (the page scrolls 105 px) |
-| 28 | e2e touch (canvas2d): D84-1 – given the card's heading when a finger holds it 350 ms and moves 120 px up then the card (its observed ancestor) is dragged and stays dragged until the release | a press on a child | ❌ card not dragged |
+| 27 | e2e touch (canvas2d): D84-1 – given the Split pill when a finger holds it 350 ms and moves 120 px up then its liquid follows the finger, the page does not scroll, no pointercancel or intervention, and the release lets it go without a click | D84-1 in Chromium, RF5 | ❌ "the long-press fires while the finger holds still": 0 after 3 s |
+| 28 | e2e touch (canvas2d): D84-1 – given the card's heading when a finger holds it 350 ms and moves 120 px up then the card (its observed ancestor) is dragged and stays dragged until the release | a press on a child | ❌ "the long-press fires while the finger holds still": 0 after 3 s |
 | 29 | e2e touch (canvas2d): D84-1 – given the Split pill when a finger swipes 30 px up within 100 ms then the page scrolls and nothing is dragged, also after the long-press time | D84-1 swipe, RF5 | ✅ passes (guard; scrollY 15) |
 | 30 | e2e touch (canvas2d): D84-1 – given the Splash pill when a finger taps it then exactly one click arrives and nothing is dragged | tap = click | ✅ passes (guard) |
 | 31 | e2e touch (canvas2d): D84-2 – given Split observed with drag false when a finger holds it and moves or the mouse drags it then its liquid never moves and the finger scrolls the page | D84-2 in Chromium, RF3 | ❌ the scene fails to start: unknown element option "drag" |
-| 32 | e2e webgpu-robust (webgpu-hw): W84 D84-1 – given renderer webgpu when a finger holds Split 350 ms and moves 120 px up then its liquid follows the finger, the page does not scroll and no pointercancel or intervention arrives | D84-1 in WebGPU | ❌ not dragged (scroll 105 px) |
+| 32 | e2e webgpu-robust (webgpu-hw): W84 D84-1 – given renderer webgpu when a finger holds Split 350 ms and moves 120 px up then its liquid follows the finger, the page does not scroll and no pointercancel or intervention arrives | D84-1 in WebGPU | ❌ "the long-press fires while the finger holds still": 0 after 3 s |
 
 Approved-test changes at red (Dennis approves with the tests): `drag-tracker.test.ts` test 2 (name and message only: a touch press that moves 30 px at once still never drags, but touch now drags after a long-press) and `__fixtures__/api-migration-types/index.ts` (`{ drag: false }` compiles, `{ drag: "no" }` does not; checked by row 26).
 

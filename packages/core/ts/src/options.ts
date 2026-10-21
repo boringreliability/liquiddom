@@ -7,12 +7,17 @@ import type { FluidBackend } from "./wasm-loader";
 import type { RendererChoice } from "./renderers/select";
 import { DEFAULT_MATERIAL, MATERIAL_RANGES, mergeMaterial, validateMaterial, type Material } from "./material";
 
-/** Per-element overrides (FFI slots 8–9). Omitted = material default. */
+/** Per-element options: overrides for FFI slots 8–9 (omitted = material default) and, W84, `drag`. Captured once per observation. */
 export interface ElementOptions {
   /** [0, 1]. */
   viscosity?: number;
   /** Seconds, [0.2, 3]. */
   recovery?: number;
+  /**
+   * W84 (D84-2): `false` opts the element out of every drag (mouse, pen and touch); it keeps the
+   * browser's own long-press menu and callout. Default `true`.
+   */
+  drag?: boolean;
 }
 
 /**

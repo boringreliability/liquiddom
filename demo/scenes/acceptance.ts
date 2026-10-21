@@ -8,6 +8,7 @@
  *   ?rm=1               forceReducedMotion
  *   ?test=1             install window.__liquidTest
  *   ?perf=1             tick/RAF perf probe (RAF clock only, D65-8)
+ *   ?nodrag=split,card  observe these [data-liquid] ids with { drag: false } (W84, D84-2)
  */
 import { LiquidDOM, type LiquidDOMInstance } from "liquiddom";
 import { runtimeOf } from "../../packages/core/ts/src/internal";
@@ -33,6 +34,17 @@ const params = {
   reducedMotion: parsed.reducedMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches,
 };
 const elements = Array.from(document.querySelectorAll<HTMLElement>("[data-liquid]"));
+/** W84 (D84-2): the elements `?nodrag=` names; re-observed with { drag: false } through the public facade. */
+const noDrag = parseNoDrag(new URLSearchParams(window.location.search).get("nodrag"));
+
+function parseNoDrag(raw: string | null): HTMLElement[] {
+  if (raw === null) return [];
+  return raw.split(",").map((id) => {
+    const el = elements.find((e) => e.id === id);
+    if (!el) throw new TypeError(`[acceptance] ?nodrag must name [data-liquid] ids (splash, split, merge, card), got "${id}"`);
+    return el;
+  });
+}
 const manual: RenderCountingClock | null = params.clock === "manual" ? createRenderCountingClock(createManualClock(0)) : null;
 
 // ---- perf probe state (D65-8) ----
@@ -117,6 +129,11 @@ async function start(): Promise<FluidRuntime> {
     renderer: params.renderer,
     webgpuT0Scale: params.t0Scale,
   });
+  for (const el of noDrag) {
+    // W84 (D84-2): through the public facade, so the option is validated as an author's would be.
+    sceneInstance!.unobserve(el);
+    sceneInstance!.observe(el, { drag: false });
+  }
   slotIds = elements.map((el) => rt.observe(el));
   await new Promise<void>((resolve) => queueMicrotask(resolve)); // let the batched redistribute run
   if (params.perf) installTickProbe(rt);

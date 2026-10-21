@@ -98,9 +98,15 @@ const options: LiquidOptions = {
   gravity: { source: "fixed", vector: [0, 980], strength: 980 }, seed: 1, autoObserve: true, forceReducedMotion: false, silentFallback: false,
 };
 const elementOptions: ElementOptions = { viscosity: 0.3, recovery: 1.2 };
+// W84 red: approved-test change (D84-2): the drag opt-out is a boolean element option.
+const optedOut: ElementOptions = { drag: false };
+// @ts-expect-error drag is a boolean
+const badDrag: ElementOptions = { drag: "no" };
 const material: Material = { viscosity: 0.5, cohesion: 0.5, recovery: 0.7 };
 const gravity: GravityOptions = { source: "orientation", strength: 600 };
 const id: number = inst.observe(el, elementOptions);
+inst.observe(el, optedOut);
+void badDrag;
 const capacities: number = inst.particleCapacity + inst.elementCapacity;
 const renderer: "canvas2d" | "webgpu" = inst.activeRenderer;
 const created: Promise<LiquidDOMInstance> = LiquidDOM.create(options);

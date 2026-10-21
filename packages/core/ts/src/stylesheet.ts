@@ -20,6 +20,8 @@ export const ELEMENT_CLASS = "liquid-element";
 export const TEXT_CLASS = "liquid-text";
 export const CANVAS_CLASS = "liquid-canvas";
 export const STACK_ATTR = "data-liquid-stack";
+/** W84 (D84-2, D84-5): "off" on an observed element while every instance that observes it opted out of drag; the callout rule skips it. */
+export const DRAG_ATTR = "data-liquid-drag";
 /** W75 (D75-3): the Canvas2D halo class, set by the runtime while an element moves under Canvas2D. */
 export const HALO_CLASS = "liquid-halo";
 /** W75 (D75-3): the document-unique key of an element's halo rule (`h<n>`); never the slot id (the sheet is shared). */
@@ -338,6 +340,18 @@ export function releaseStacking(el: HTMLElement): void {
   stackHolds.delete(el);
   if (hold.prev === null) el.removeAttribute(STACK_ATTR);
   else el.setAttribute(STACK_ATTR, hold.prev);
+}
+
+/** W84 (D84-2, D84-5): one observer's hold of an element's drag mode. W84.1 red stub: W84.2 writes `data-liquid-drag`. */
+export function holdDragMode(el: HTMLElement, draggable: boolean): void {
+  void el;
+  void draggable;
+}
+
+/** W84 (D84-2, D84-5): releases one hold. W84.1 red stub. */
+export function releaseDragMode(el: HTMLElement, draggable: boolean): void {
+  void el;
+  void draggable;
 }
 
 const textHolds = classHolds(TEXT_CLASS);

@@ -33,6 +33,7 @@ import { VISUAL_ENABLED, VISUAL_SKIP_REASON, canvasPixelAt, cssAlpha } from "./s
 import { ACCEPTANCE_FILL, FILL_MIN, scrollPath, scrollPathFills, worstFrame, type FillSpec } from "./scroll";
 import { MAX_COVERED_INK_PX, MIN_INK_PX, inkCovered } from "./under-page";
 import { TILT_BUDGET_FRAMES, gotoTilt, tiltAndSettle } from "./tilt";
+import { DRAGGED, SLOT, STEPS, STEP_PX, centreOf, gotoTouchScene, longPressMove, probe, touch } from "./touch";
 
 const FPS = 60;
 const IDLE_FRAMES = 2 * FPS;
@@ -1386,5 +1387,32 @@ test.describe("W83 – gravity and tilt (webgpu)", () => {
     expect(run.restFrame, "every restAlpha back to 1").toBeGreaterThan(0);
     expect(run.restFrame, "within 3 s").toBeLessThanOrEqual(TILT_BUDGET_FRAMES);
     expect(run.hashAfter, "the settled frame equals the frame before the tilt").toBe(run.hashBefore);
+  });
+});
+
+// =============================================================================
+// W84 (slice 6) – a touch long-press drag in WebGPU (D84-1), webgpu-hw only.
+// =============================================================================
+const W84_HW_ONLY = "W84: WebGPU on the hardware adapter; local webgpu-hw project only (fallback B)";
+
+test.describe("W84 – touch long-press (webgpu)", () => {
+  test.use({ hasTouch: true });
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== HW_PROJECT, W84_HW_ONLY);
+  });
+
+  test("W84 D84-1 – given renderer webgpu when a finger holds Split 350 ms and moves 120 px up then its liquid follows the finger, the page does not scroll and no pointercancel or intervention arrives", async ({ page }) => {
+    const cdp = await gotoTouchScene(page, "webgpu");
+    expect(await page.evaluate(() => (window.__liquidTest!.instance as { activeRenderer: string }).activeRenderer)).toBe("webgpu");
+    const run = await longPressMove(page, cdp, await centreOf(page, "#split"), SLOT.split, true);
+    console.log(`W84 long-press (webgpu): scroll ${run.scroll.join(",")}; split ${JSON.stringify(run.mid[SLOT.split])}`);
+    expect(run.mid[SLOT.split]!.interaction).toBe(DRAGGED);
+    expect(run.mid[SLOT.split]!.homeDy).toBe(STEP_PX * STEPS);
+    expect(Math.max(...run.scroll)).toBe(0);
+    await touch(cdp, "touchEnd");
+    await expect.poll(async () => (await page.evaluate(() => window.__liquidTest!.slots!()))[SLOT.split]!.interaction, { timeout: 2_000 }).not.toBe(DRAGGED);
+    const p = await probe(page);
+    expect(p.cancels).toBe(0);
+    expect(p.interventions).toEqual([]);
   });
 });

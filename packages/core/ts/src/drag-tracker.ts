@@ -17,6 +17,10 @@
  * The DOM, focus and hit areas never move: drag is decoration. Touch and keyboard never drag.
  */
 export const DRAG_THRESHOLD_PX = 4;
+/** W84 (D84-1): a primary touch press held this long (ms, a real timer) becomes a drag. */
+export const LONG_PRESS_MS = 350;
+/** W84 (D84-1): a touch press that moves more than this (px) before the long-press fires is a scroll. */
+export const TOUCH_SLOP_PX = 8;
 
 export type DragEnd = "release" | "cancel";
 
@@ -69,8 +73,9 @@ export class DragTracker {
     private readonly win: Window,
   ) {}
 
-  /** Idempotent. */
-  attach(el: HTMLElement): void {
+  /** Idempotent. W84.1 red stub: `draggable` is ignored until W84.2. */
+  attach(el: HTMLElement, draggable = true): void {
+    void draggable;
     if (this.destroyed || this.downListeners.has(el)) return;
     const onDown = (e: PointerEvent): void => this.onDown(el, e);
     this.downListeners.set(el, onDown);
