@@ -5,7 +5,9 @@
  * (container offset). Velocity is estimated once per frame from the runtime
  * clock, never from event timestamps, so a manual clock gives deterministic input:
  *   v ← 0.5·v + 0.5·Δpos/Δt   when the pointer moved since the last moving sample
- *   v ← 0.8·v                 when it has not moved for more than 120 ms
+ *   v ← 0.8^e·v               when it has not moved for more than 120 ms, e = Δt / (1/60 s)
+ *                             (W84, D84-3: per time, e snapped to 1 within 1e-9, so a 60 Hz
+ *                             frame is exactly ×0.8 and 120 Hz has the same tail in wall time)
  *   v unchanged               otherwise (held between sparse events)
  * Δt is floored at 1/240 s. Rust sanitises and clamps again (POINTER_VMAX_PX_S).
  */
@@ -16,10 +18,16 @@ export const POINTER_MIN_DT_S = 1 / 240;
 /** W84 (D84-3): |e − 1| below this snaps the decay exponent to exactly 1, so a 60 Hz frame decays by exactly 0.8. */
 export const IDLE_DECAY_SNAP = 1e-9;
 
-/** W84 (D84-3): the idle decay over a frame of `frameMs`. W84.1 red stub: per frame, as W68; W84.3 decays per time. */
+/**
+ * W84 (D84-3): the idle decay over a frame of `frameMs` (the runtime clock's ms since the previous
+ * sample): `0.8^e` with `e = frameMs · 0.06`, snapped to exactly 0.8 when `|e − 1| < 1e-9` (the
+ * manual clock accumulates 1/60 s steps, so its frames differ from 1000/60 by a few ulps). A zero,
+ * negative or non-finite frame decays nothing.
+ */
 export function idleDecay(frameMs: number): number {
-  void frameMs;
-  return POINTER_IDLE_DECAY;
+  if (!Number.isFinite(frameMs) || frameMs <= 0) return 1;
+  const e = frameMs * 0.06;
+  return Math.abs(e - 1) < IDLE_DECAY_SNAP ? POINTER_IDLE_DECAY : POINTER_IDLE_DECAY ** e;
 }
 
 export interface PointerSample {
@@ -53,6 +61,8 @@ export class PointerTracker {
   private sx = 0;
   private sy = 0;
   private sampleT = 0;
+  /** W84 (D84-3): the time of the previous sample() while the pointer is inside. */
+  private lastT = 0;
   private vx = 0;
   private vy = 0;
 
@@ -89,6 +99,8 @@ export class PointerTracker {
       return out;
     }
     const now = Number.isFinite(nowMs) ? nowMs : this.sampleT;
+    const frameMs = now - this.lastT; // set by every sample since the move that made it inside
+    this.lastT = now;
     if (this.moved) {
       this.moved = false;
       if (this.hasSample) {
@@ -103,11 +115,10 @@ export class PointerTracker {
       this.sampleT = now;
       this.hasSample = true;
     } else if (now - this.sampleT > POINTER_IDLE_MS) {
-      // Known limitation (D68-4 notes): the ×0.8 is applied per sampled frame, not per unit
-      // of time, so the idle tail is display-rate dependent: at 120 Hz it decays twice as
-      // fast in wall time as at 60 Hz. The 120 ms hold before it is time-based.
-      this.vx *= POINTER_IDLE_DECAY;
-      this.vy *= POINTER_IDLE_DECAY;
+      // W84 (D84-3): per unit of time (closes D68-4's limitation); the 120 ms hold before it is unchanged.
+      const k = idleDecay(frameMs);
+      this.vx *= k;
+      this.vy *= k;
     }
     out.x = this.cx - offset.x;
     out.y = this.cy - offset.y;
