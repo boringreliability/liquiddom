@@ -219,7 +219,7 @@ export class ElementRegistry {
       // W75 (D75-3): one halo rule claim per registry and element, released with the decoration.
       acquireHaloRule(el, background);
       // W84 (D84-2, D84-5): released with the decoration; `drag` is captured with this observation.
-      holdDragMode(el, opts.drag !== false);
+      holdDragMode(el, rec.opts.drag !== false); // the snapshot, so the release reads the same value
       this.decorated.add(el);
     }
     if (this.deps.stacked?.() === true) this.stack(el);
