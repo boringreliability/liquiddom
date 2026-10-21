@@ -250,3 +250,8 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D83-3 | setGravity(partial) atomic like setMaterial; fixed g = normalize(vector)·strength | W83 | dec_993e915c |
 | D83-4 | Low-pass seeded at create() and on a source switch: a fixed vector starts at rest | W83 | dec_f274696e |
 | D83-5 | Orientation: beta/gamma projection rotated by screen.orientation.angle, 2° dead band, listener removed on destroy | W83 | dec_ec44cc30 |
+| D84-1 | Touch drag: 350 ms long-press, 8 px cancel, non-passive touchmove per draggable observed element (prevents only while live); tap stays a click | W84 | dec_6a102bba |
+| D84-2 | Opt-out: observe(el, { drag: false }), captured once; nested opt-out drags nothing | W84 | dec_a530a18b |
+| D84-3 | Pointer idle decay per time: 0.8^(dtMs·0.06), exponent snapped to 1 within 1e-9 | W84 | dec_09b1860f |
+| D84-4 | Long-press feedback: none beyond W78's hold (no swell, no vibrate) | W84 | dec_afacafb2 |
+| D84-5 | contextmenu prevented only during a live touch press on a draggable element; touch-callout none on draggable elements | W84 | dec_bfdd623c |
