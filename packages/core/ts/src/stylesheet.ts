@@ -12,6 +12,7 @@
  * W78 (D78-1): `liquid-away` hides a dragged element's glyphs under Canvas2D with the same declarations; screen + forced-colors: none only.
  * W75 (D75-3): the sheet also holds one halo rule per observed element (`liquid-halo` + `data-liquid-id`), rewritten when an element is observed, re-coloured or unobserved; never per frame.
  * W82 (D82-1, D82-3): the canvas sits at z-index -1, under the page, and no element needs the D7 rules. An instance whose page or container cannot take that (stacking.ts) mounts its canvas at 0 and holds `data-liquid-stack` on its elements (holdStacking); the rules key on the attribute, so the sheet is the same for both.
+ * W84 (D84-5): observed elements get `-webkit-touch-callout: none` (no iOS callout or link preview on a long-press), except those every observing instance opted out of drag (`data-liquid-drag="off"`, holdDragMode).
  */
 import type { RGBA } from "./color";
 
@@ -51,6 +52,8 @@ export const LIQUID_CSS = [
   `    .${AWAY_CLASS}, .${AWAY_CLASS} * { -webkit-text-fill-color: transparent !important; text-decoration-color: transparent !important; text-shadow: none !important; }`,
   // A halo held by another Canvas2D instance (0,2,0) never draws around glyphs liquid-away hides (M7's pattern).
   `    .${AWAY_CLASS}.${HALO_CLASS}[${HALO_ID_ATTR}], .${AWAY_CLASS} .${HALO_CLASS}[${HALO_ID_ATTR}] { text-shadow: none !important; }`,
+  // W84 (D84-5): no long-press callout on a draggable observed element; `drag: false` keeps the browser's.
+  `    .${ELEMENT_CLASS}:not([${DRAG_ATTR}="off"]) { -webkit-touch-callout: none !important; }`,
   "  }",
   "  @media print, (forced-colors: active) {",
   "    canvas.liquid-canvas { display: none !important; }",
@@ -342,16 +345,56 @@ export function releaseStacking(el: HTMLElement): void {
   else el.setAttribute(STACK_ATTR, hold.prev);
 }
 
-/** W84 (D84-2, D84-5): one observer's hold of an element's drag mode. W84.1 red stub: W84.2 writes `data-liquid-drag`. */
-export function holdDragMode(el: HTMLElement, draggable: boolean): void {
-  void el;
-  void draggable;
+interface DragHold {
+  draggable: number;
+  optedOut: number;
+  /** The attribute the first hold found (the author's own, or null). */
+  readonly prev: string | null;
+}
+const dragHolds = new WeakMap<HTMLElement, DragHold>();
+
+function writeDragMode(el: HTMLElement, hold: DragHold): void {
+  if (hold.draggable === 0) el.setAttribute(DRAG_ATTR, "off");
+  else if (hold.prev === null) el.removeAttribute(DRAG_ATTR);
+  else el.setAttribute(DRAG_ATTR, hold.prev);
 }
 
-/** W84 (D84-2, D84-5): releases one hold. W84.1 red stub. */
+/**
+ * W84 (D84-2, D84-5): one observing instance's drag mode for `el` (`drag: false` → not draggable),
+ * refcounted per element across instances like the decoration. `data-liquid-drag="off"` (the
+ * callout rule skips it) holds while every observing instance opted out; while any one drags the
+ * element the first hold's attribute stands (none for an element without one), and the last release
+ * restores it.
+ */
+export function holdDragMode(el: HTMLElement, draggable: boolean): void {
+  let hold = dragHolds.get(el);
+  if (!hold) {
+    hold = { draggable: 0, optedOut: 0, prev: el.getAttribute(DRAG_ATTR) };
+    dragHolds.set(el, hold);
+  }
+  if (draggable) hold.draggable += 1;
+  else hold.optedOut += 1;
+  writeDragMode(el, hold);
+}
+
+/** W84 (D84-2, D84-5): releases one hold; an unbalanced release is a no-op. */
 export function releaseDragMode(el: HTMLElement, draggable: boolean): void {
-  void el;
-  void draggable;
+  const hold = dragHolds.get(el);
+  if (!hold) return;
+  if (draggable) {
+    if (hold.draggable === 0) return;
+    hold.draggable -= 1;
+  } else {
+    if (hold.optedOut === 0) return;
+    hold.optedOut -= 1;
+  }
+  if (hold.draggable + hold.optedOut > 0) {
+    writeDragMode(el, hold);
+    return;
+  }
+  dragHolds.delete(el);
+  if (hold.prev === null) el.removeAttribute(DRAG_ATTR);
+  else el.setAttribute(DRAG_ATTR, hold.prev);
 }
 
 const textHolds = classHolds(TEXT_CLASS);

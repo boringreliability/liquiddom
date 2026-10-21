@@ -1,6 +1,6 @@
 /**
  * Public options (spec §5) and their validation (W66: D66-1, D66-6, D66-7, D66-14, B11, B13, C3).
- * `ElementOptions` was created in W64 (A5) and is unchanged.
+ * `ElementOptions` was created in W64 (A5); W84 (D84-2) adds `drag`.
  */
 import type { FrameClock } from "./clock";
 import type { FluidBackend } from "./wasm-loader";
@@ -288,10 +288,11 @@ export function validateElementOptions(opts: unknown): asserts opts is ElementOp
   if (!isPlainObject(opts)) fail(`element options must be an object, got ${show(opts)}`);
   for (const key of Object.keys(opts)) {
     if (key === "liquidType") fail('element option "liquidType" was removed in 0.3: the liquid behaviour is uniform; use { viscosity?, recovery? }');
-    if (key !== "viscosity" && key !== "recovery") fail(`unknown element option "${key}" (allowed: viscosity, recovery)`);
+    if (key !== "viscosity" && key !== "recovery" && key !== "drag") fail(`unknown element option "${key}" (allowed: viscosity, recovery, drag)`);
   }
   checkFiniteIn("viscosity", opts.viscosity, MATERIAL_RANGES.viscosity[0], MATERIAL_RANGES.viscosity[1]);
   checkFiniteIn("recovery", opts.recovery, MATERIAL_RANGES.recovery[0], MATERIAL_RANGES.recovery[1]);
+  booleanOr("drag", opts.drag, true); // W84 (D84-2): "drag must be a boolean"
 }
 
 // ---- W67: splash() / shake() options (spec §5; D67-4, D67-8; B9) -----------

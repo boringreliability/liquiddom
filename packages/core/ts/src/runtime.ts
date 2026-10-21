@@ -966,7 +966,8 @@ function buildRuntime(
         }
       }
       splashInput.attach(el);
-      dragTracker.attach(el); // W78
+      // W78; W84 (D84-2): draggable unless this instance observed `el` with { drag: false } (captured once).
+      dragTracker.attach(el, registry.get(id)?.opts.drag !== false);
       watchElement(el); // W75 (D75-1, D75-2)
       return id;
     },

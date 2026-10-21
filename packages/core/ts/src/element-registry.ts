@@ -9,7 +9,9 @@ import {
   ELEMENT_CLASS,
   acquireHaloRule,
   decorateElement,
+  holdDragMode,
   holdStacking,
+  releaseDragMode,
   releaseHaloRule,
   releaseStacking,
   undecorateElement,
@@ -216,6 +218,8 @@ export class ElementRegistry {
       decorateElement(el);
       // W75 (D75-3): one halo rule claim per registry and element, released with the decoration.
       acquireHaloRule(el, background);
+      // W84 (D84-2, D84-5): released with the decoration; `drag` is captured with this observation.
+      holdDragMode(el, opts.drag !== false);
       this.decorated.add(el);
     }
     if (this.deps.stacked?.() === true) this.stack(el);
@@ -234,6 +238,7 @@ export class ElementRegistry {
     this.bridge.elementView().fill(0, o, o + ELEMENT_STRIDE);
     if (this.stacked.delete(el)) releaseStacking(el); // W82 (D82-3)
     if (this.decorated.delete(el)) {
+      releaseDragMode(el, rec.opts.drag !== false); // W84
       releaseHaloRule(el);
       undecorateElement(el);
     }
