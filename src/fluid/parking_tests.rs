@@ -322,7 +322,12 @@ fn golden_hash(run: &(Vec<u32>, Vec<u32>, Vec<u32>)) -> u64 {
 }
 
 /// Captured at the W81 red, where the stubs carry the W80 numerics (parking is not wired into the
-/// tick yet), by hashing `run(false)` of the test below. It must never change in W81.
+/// tick yet), by hashing `run(false)` of the test below. It must never change in W81. Checked on
+/// macOS arm64 only, where it was captured.
+#[cfg_attr(
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    allow(dead_code)
+)]
 const W80_GOLDEN: u64 = 1_710_035_767_997_873_519;
 
 #[test]
@@ -360,14 +365,17 @@ fn given_no_element_ever_leaves_the_bound_when_splashing_shaking_and_scrolling_3
     let off = run(false);
     let on = run(true);
     assert_eq!(
+        golden_hash(&on),
+        golden_hash(&off),
+        "parking changes nothing while no element is parked (W80 bit-identity)"
+    );
+    // The golden is platform-bound: libm's f32 sin/exp differ in the last bits between macOS
+    // arm64 (where it was captured) and Linux x86_64 CI (PR #4, approved by Dennis 2026-10-21).
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    assert_eq!(
         golden_hash(&off),
         W80_GOLDEN,
         "parking off equals the W80 engine"
-    );
-    assert_eq!(
-        golden_hash(&on),
-        W80_GOLDEN,
-        "parking changes nothing while no element is parked (W80 bit-identity)"
     );
 }
 
