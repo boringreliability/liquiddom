@@ -5,15 +5,20 @@
 //! interaction RNG stream: same seed + same call sequence = bit-identical velocities.
 //! W70: shake is a spatially coherent field per element (D70-1), W73 amends it to amplitude 0.5
 //! (D73-1) and cap 0.3 (D73-2) so the card no longer tears into a lace.
+//! W77 lowers the amplitude to 0.35 (D77-2) together with a higher stretch yield, so the sheet
+//! thins instead of tearing.
+//! W78 holds a dragged element at s ≤ 0.5 every substep (D78-3); W79 softens the neighbours
+//! under the dragged home to s ≤ 0.2 and gives the elements of a merge the merge slip (D79-2).
 
 use std::f32::consts::{PI, TAU};
 
 use super::access::{add, rd, rd_u32, wr};
-use super::elements::{Elements, S_FLOOR};
+use super::elements::{Elements, S_FLOOR, rects_overlap};
 use super::grid::Grid;
 use super::particles::Particles;
 use super::rng::Rng;
 use super::solver::{PointerField, PointerGrid};
+use super::viewport::{Viewport, mirror_outward};
 
 /// Splash speed at strength 1, px/s (D67-3).
 pub const SPLASH_SPEED_PX_S: f32 = 950.0;
@@ -24,11 +29,56 @@ pub const SPLASH_RADIUS_PER_DIAGONAL: f32 = 0.75;
 pub const SPLASH_ANGLE_JITTER_RAD: f32 = 0.45;
 /// Shake speed at strength 1, px/s (D67-3).
 pub const SHAKE_SPEED_PX_S: f32 = 520.0;
-/// D73-1 (amends D70-1's 0.8): amplitude `A` of the coherent speed profile
-/// `1 + A · sin(π · u + φ)` across an element.
-pub const SHAKE_PROFILE_AMPLITUDE: f32 = 0.5;
+/// D77-2 (amends D73-1's 0.5, which amended D70-1's 0.8): amplitude `A` of the coherent speed
+/// profile `1 + A · sin(π · u + φ)` across an element.
+pub const SHAKE_PROFILE_AMPLITUDE: f32 = 0.35;
 /// D73-2 (amends D70-2's 0.2, which amended spec §2's 0.4): shake sets s ← min(s, 0.3).
 pub const SHAKE_STIFFNESS_CAP: f32 = 0.3;
+/// W78 (D78-3, spec §2 damage rules): drag sets `s ← min(s, 0.5)` while dragging.
+pub const DRAG_STIFFNESS_CAP: f32 = 0.5;
+
+/// W79 (D79-2): an element whose home rect overlaps the dragged home rect grown by this margin
+/// on every side is a neighbour under the drag. 16 px is the renderers' kernel cap (W77, D77-1):
+/// liquid closer than that already blends with the dragged liquid on screen.
+pub const NEIGHBOUR_MARGIN_PX: f32 = 16.0;
+/// W79 (D79-2, spike W78.0 answer 1): a neighbour under the drag is held at `s ≤ 0.2`, so it
+/// makes room (a displacement merge) instead of pushing the dragged liquid back.
+pub const NEIGHBOUR_STIFFNESS_CAP: f32 = 0.2;
+
+/// W78 (D78-3, D78-5; spec §2 damage rules): `damage(id, DRAG_STIFFNESS_CAP)` for every active
+/// element whose slot 5 is DRAGGED. W79 (D79-2): every other active, non-dragged element whose
+/// home rect overlaps that dragged home rect grown by `NEIGHBOUR_MARGIN_PX` (`rects_overlap`;
+/// both rects as the engine holds them, offset and hover swell included) gets
+/// `damage(n, NEIGHBOUR_STIFFNESS_CAP)`, and the dragged element and those neighbours get the
+/// merge slip until they rest again. The api calls it in every substep right after
+/// `update_stiffness`, so no substep sees a dragged element stiffer than 0.5 or an overlapped
+/// neighbour stiffer than 0.2; the damage stops in the first substep without the overlap
+/// (release, or the drag moved on) and `s` recovers as after a splash. Reduced motion never
+/// reaches it: `FluidCore::tick` returns before the substeps. O(dragged x slots) per substep,
+/// no allocation.
+pub fn hold_dragged(e: &mut Elements) {
+    for d in 0..e.cap {
+        if !(e.is_active(d) && e.is_dragged(d)) {
+            continue;
+        }
+        e.damage(d, DRAG_STIFFNESS_CAP);
+        e.set_merge_slip(d, true);
+        let Some(home) = e.home_rect(d, false) else {
+            continue;
+        };
+        for n in 0..e.cap {
+            if n == d || e.is_dragged(n) || e.is_parked(n) {
+                continue;
+            }
+            if let Some(r) = e.home_rect(n, false)
+                && rects_overlap(&home, &r, NEIGHBOUR_MARGIN_PX)
+            {
+                e.damage(n, NEIGHBOUR_STIFFNESS_CAP);
+                e.set_merge_slip(n, true);
+            }
+        }
+    }
+}
 pub const STRENGTH_MAX: f32 = 2.0;
 
 /// The scalars of `FluidCore::splash` (buffer-space px).
@@ -99,6 +149,10 @@ pub fn splash(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, at: 
     let Some(rect) = e.rect(id) else {
         return false;
     };
+    // W81 (D81-1): a parked element is off-screen and not simulated; a splash on it is ignored.
+    if e.is_parked(id) {
+        return false;
+    }
     // W67 ward-review fix: no particles assigned (e.g. before the first redistribute)
     // means nothing to hit, so no damage either.
     if rd_u32(&e.counts, id) == 0 {
@@ -159,8 +213,8 @@ pub(crate) fn shake_field(stream: u32, id: usize) -> ShakeField {
     }
 }
 
-/// D70-1/D73-1 gain at the element-local position `u = (x − cx) / (w / 2)`: `1 + A · sin(π · u + φ)`,
-/// in [1 − A, 1 + A] = [0.5, 1.5], so no part of the element reverses. Non-finite input gives 1.
+/// D70-1/D73-1/D77-2 gain at the element-local position `u = (x − cx) / (w / 2)`: `1 + A · sin(π · u + φ)`,
+/// in [1 − A, 1 + A] = [0.65, 1.35], so no part of the element reverses. Non-finite input gives 1.
 #[inline]
 pub fn shake_gain(u: f32, phase: f32) -> f32 {
     if !(u.is_finite() && phase.is_finite()) {
@@ -179,13 +233,20 @@ struct ShakeSlot {
 }
 
 /// `None` for an inactive element. `shake` never runs under reduced motion (`FluidCore::shake`
-/// returns early), so the home rect is the one the targets use, hover swell included.
-fn shake_slot(stream: u32, id: usize, e: &Elements, g: &Grid) -> Option<ShakeSlot> {
+/// returns early), so the home rect is the one the targets use, hover swell included. W82 (D82-5):
+/// the direction's outward components are mirrored when that home rect lies within
+/// `EDGE_MIRROR_PX` of a viewport edge (`viewport::mirror_outward`); farther away it is unchanged.
+fn shake_slot(stream: u32, id: usize, e: &Elements, g: &Grid, vp: Viewport) -> Option<ShakeSlot> {
+    if e.is_parked(id) {
+        return None; // W81 (D81-1): a parked element does not shake
+    }
     let r = e.home_rect(id, false)?;
     let (cx, _) = g.to_grid(r.x + 0.5 * r.w, r.y);
     let half_w = 0.5 * r.w * g.inv_cell;
+    let mut field = shake_field(stream, id);
+    (field.dir_x, field.dir_y) = mirror_outward(field.dir_x, field.dir_y, &r, vp);
     Some(ShakeSlot {
-        field: shake_field(stream, id),
+        field,
         cx,
         inv_half_w: if half_w > 0.0 { 1.0 / half_w } else { 0.0 },
     })
@@ -195,8 +256,16 @@ fn shake_slot(stream: u32, id: usize, e: &Elements, g: &Grid) -> Option<ShakeSlo
 /// spatially coherent speed profile across its width, `d · speed · (1 + A · sin(π · u + φ))`, so
 /// it bends and waves instead of sliding intact. There is no per-particle noise (it averaged out)
 /// and no rotation term (that would be rigid motion). Every active element goes soft:
-/// s ← min(s, `SHAKE_STIFFNESS_CAP`).
-pub fn shake(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, strength: f32) -> bool {
+/// s ← min(s, `SHAKE_STIFFNESS_CAP`). W82 (D82-5): `vp` is the viewport TS set; an element within
+/// `EDGE_MIRROR_PX` of its edge sloshes inward (`shake_slot`). `Viewport::UNKNOWN` mirrors nothing.
+pub fn shake(
+    p: &mut Particles,
+    g: &Grid,
+    e: &mut Elements,
+    rng: &mut Rng,
+    strength: f32,
+    vp: Viewport,
+) -> bool {
     let Some(strength) = sanitize_strength(strength) else {
         return false;
     };
@@ -206,7 +275,7 @@ pub fn shake(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, stren
     // rect); stack table, no allocation. `None` = inactive.
     let mut slots = [None::<ShakeSlot>; SHAKE_TABLE];
     for (id, slot) in slots.iter_mut().enumerate().take(e.cap) {
-        *slot = shake_slot(stream, id, e, g);
+        *slot = shake_slot(stream, id, e, g, vp);
     }
     for i in 0..p.cap {
         let Some(h) = p.home_of(i) else {
@@ -215,7 +284,7 @@ pub fn shake(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, stren
         let slot = match slots.get(h) {
             Some(s) => *s,
             // Beyond the table (cap > ELEMENTS_MAX, tests only): derive in place.
-            None => shake_slot(stream, h, e, g),
+            None => shake_slot(stream, h, e, g, vp),
         };
         let Some(s) = slot else {
             continue;
@@ -226,7 +295,7 @@ pub fn shake(p: &mut Particles, g: &Grid, e: &mut Elements, rng: &mut Rng, stren
         add(&mut p.vy, i, s.field.dir_y * k);
     }
     for id in 0..e.cap {
-        if e.is_active(id) {
+        if e.is_active(id) && !e.is_parked(id) {
             e.damage(id, SHAKE_STIFFNESS_CAP);
         }
     }
@@ -425,8 +494,9 @@ mod w67_tests {
     fn given_shake_when_applied_then_each_element_moves_along_one_seeded_direction_with_a_coherent_sine_profile_across_u_and_no_particle_noise()
      {
         // W73 red: approved-test change (D73-1/D73-2, Dennis approves at W73 red)
-        // D73-1 (amends D70-1): v = d · 520 · (1 + 0.5 · sin(π·u + φ)), u = (x − cx) / (w / 2). Fit
-        // s = v·d/520 − 1 = a·sin(πu) + b·cos(πu); amplitude hypot(a, b) = 0.5, and no particle
+        // W77 red: approved-test change (D77-2, approved 2026-10-10, saga dec_3ba590a1)
+        // D77-2 (amends D73-1): v = d · 520 · (1 + 0.35 · sin(π·u + φ)), u = (x − cx) / (w / 2). Fit
+        // s = v·d/520 − 1 = a·sin(πu) + b·cos(πu); amplitude hypot(a, b) = 0.35, and no particle
         // may deviate from the fit (white noise did, by ±0.45 · 520 px/s).
         let mut core = two_button_core(7);
         core.shake(1.0);
@@ -477,8 +547,8 @@ mod w67_tests {
                 })
                 .fold(0.0f64, f64::max);
             assert!(
-                (a.hypot(b) - 0.5).abs() < 2e-3, // W73 red: approved-test change (D73-1/D73-2, Dennis approves at W73 red)
-                "element {id}: profile amplitude {} (D73-1: 0.5)",
+                (a.hypot(b) - 0.35).abs() < 2e-3, // W77 red: approved-test change (D77-2, approved 2026-10-10, saga dec_3ba590a1)
+                "element {id}: profile amplitude {} (D77-2: 0.35)",
                 a.hypot(b)
             );
             assert!(
@@ -519,19 +589,19 @@ mod w67_tests {
     }
 
     #[test]
-    fn given_shake_gain_when_evaluated_across_u_then_it_is_1_plus_0_5_sin_pi_u_plus_phase_within_0_5_and_1_5()
+    fn given_shake_gain_when_evaluated_across_u_then_it_is_1_plus_0_35_sin_pi_u_plus_phase_within_0_65_and_1_35()
      {
-        // W73 red: approved-test change (D73-1/D73-2, Dennis approves at W73 red)
-        // D73-1: 1 + 0.5 · sin(π·u + φ), in [0.5, 1.5] (was D70-1: 0.8, [0.2, 1.8]).
+        // W77 red: approved-test change (D77-2, approved 2026-10-10, saga dec_3ba590a1)
+        // D77-2: 1 + 0.35 · sin(π·u + φ), in [0.65, 1.35] (D73-1: 0.5, [0.5, 1.5]; D70-1: 0.8, [0.2, 1.8]).
         use crate::fluid::interaction::shake_gain;
         use std::f32::consts::{FRAC_PI_2, PI};
         let close = |a: f32, b: f32| (a - b).abs() < 1e-5;
         // φ = 0: sin(π·u). The two halves move at different speeds: the element shears.
         for (u, g) in [
             (-1.0f32, 1.0f32),
-            (-0.5, 0.5),
+            (-0.5, 0.65),
             (0.0, 1.0),
-            (0.5, 1.5),
+            (0.5, 1.35),
             (1.0, 1.0),
         ] {
             assert!(
@@ -541,16 +611,16 @@ mod w67_tests {
             );
         }
         // φ = π/2: cos(π·u). The centre leads and both ends lag: the element bends.
-        assert!(close(shake_gain(0.0, FRAC_PI_2), 1.5));
-        assert!(close(shake_gain(-1.0, FRAC_PI_2), 0.5));
-        assert!(close(shake_gain(1.0, FRAC_PI_2), 0.5));
+        assert!(close(shake_gain(0.0, FRAC_PI_2), 1.35));
+        assert!(close(shake_gain(-1.0, FRAC_PI_2), 0.65));
+        assert!(close(shake_gain(1.0, FRAC_PI_2), 0.65));
         // Never reverses: every part of the element moves along d.
         for k in 0..=200 {
             let u = -1.0 + k as f32 / 100.0;
             for phase in [0.0f32, 1.0, PI, 5.0] {
                 let g = shake_gain(u, phase);
                 assert!(
-                    (0.5 - 1e-5..=1.5 + 1e-5).contains(&g),
+                    (0.65 - 1e-5..=1.35 + 1e-5).contains(&g),
                     "u {u}, φ {phase}: {g}"
                 );
             }
@@ -670,7 +740,8 @@ mod w67_tests {
         assert_eq!(SPLASH_RADIUS_PER_DIAGONAL, 0.75);
         assert_eq!(SHAKE_SPEED_PX_S, 520.0);
         // W73 red: approved-test change (D73-1/D73-2, Dennis approves at W73 red)
-        assert_eq!(SHAKE_PROFILE_AMPLITUDE, 0.5, "D73-1 (amends D70-1)");
+        // W77 red: approved-test change (D77-2, approved 2026-10-10, saga dec_3ba590a1)
+        assert_eq!(SHAKE_PROFILE_AMPLITUDE, 0.35, "D77-2 (amends D73-1's 0.5)");
         assert_eq!(
             SHAKE_STIFFNESS_CAP, 0.3,
             "D73-2 (amends D70-2): removes the f40 void tail; held by the re-form budget (<= 180 frames)"

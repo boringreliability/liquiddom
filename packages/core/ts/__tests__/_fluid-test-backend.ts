@@ -35,6 +35,8 @@ export interface TestFluidCore extends FluidCoreLike {
   readonly ctorArgs: readonly number[];
   readonly freed: boolean;
   readonly reducedMotion: boolean;
+  /** W74: pin restAlpha of slot `id` to `alpha` on every tick (null = back to the default 1). */
+  forceRestAlpha(id: number, alpha: number | null): void;
 }
 
 export interface TestBackend extends FluidBackend {
@@ -104,6 +106,10 @@ export function createTestBackend(opts: TestBackendOptions = {}): TestBackend {
     private gen = 0;
     private active = 0;
     private acc = 0;
+    private readonly forced = new Map<number, number>();
+    /** W81 (D81-2): the world, clamped like Rust's `world_extent`. */
+    private worldW: number;
+    private worldH: number;
 
     constructor(
       particles: number,
@@ -115,6 +121,10 @@ export function createTestBackend(opts: TestBackendOptions = {}): TestBackend {
       seed: number,
     ) {
       this.ctorArgs = [particles, maxElements, worldWPx, worldHPx, areaHintPx2, maxElementHPx, seed];
+      const extent = (v: number, fallback: number): number =>
+        Number.isFinite(v) && v > 0 ? Math.min(8192, Math.max(64, v)) : fallback;
+      this.worldW = extent(worldWPx, 1280);
+      this.worldH = extent(worldHPx, 800);
       this.n = particles;
       this.m = maxElements;
       this.cell =
@@ -208,6 +218,28 @@ export function createTestBackend(opts: TestBackendOptions = {}): TestBackend {
       this.reducedMotion = on;
       record(`set_reduced_motion:${on}`);
     }
+    /** W80: recorded only; every tick pins the particles to the rects anyway. */
+    scroll_shift(dx: number, dy: number, ivx: number, ivy: number): void {
+      record(`scroll_shift:${dx}:${dy}:${ivx}:${ivy}`);
+    }
+    /** W81 (D81-2): Rust's rule (grow only, clamped to [64, 8192], a non-finite or ≤ 0 extent keeps its axis); recorded. */
+    resize_world(w: number, h: number): boolean {
+      record(`resize_world:${w}:${h}`);
+      const grow = (v: number, now: number): number =>
+        Number.isFinite(v) && v > 0 ? Math.max(now, Math.min(8192, Math.max(64, v))) : now;
+      const [w0, h0] = [this.worldW, this.worldH];
+      this.worldW = grow(w, w0);
+      this.worldH = grow(h, h0);
+      return this.worldW > w0 || this.worldH > h0;
+    }
+    /** W82 (D82-5): recorded only (the test backend has no shake physics). */
+    set_viewport(w: number, h: number): void {
+      record(`set_viewport:${w}:${h}`);
+    }
+    /** W83 (D83-4): recorded only (the test backend has no gravity). */
+    seed_gravity(gx: number, gy: number): void {
+      record(`seed_gravity:${gx}:${gy}`);
+    }
     free(): void {
       this.freed = true;
       record("free");
@@ -243,6 +275,12 @@ export function createTestBackend(opts: TestBackendOptions = {}): TestBackend {
       this.pin();
     }
 
+    forceRestAlpha(id: number, alpha: number | null): void {
+      if (alpha === null) this.forced.delete(id);
+      else this.forced.set(id, alpha);
+      this.pin();
+    }
+
     private pin(): void {
       const el = f32(this.elPtr, this.m * ELEMENT_STRIDE);
       const st = f32(this.statPtr, this.n * STATIC_FIELDS);
@@ -260,8 +298,8 @@ export function createTestBackend(opts: TestBackendOptions = {}): TestBackend {
         const o = id * STATE_STRIDE;
         s[o + St.S] = 1;
         s[o + St.MAX_DEV] = 0;
-        s[o + St.REST_ALPHA] = homeRect(el, id, false) ? 1 : 0;
-        s[o + St.RESERVED] = 0;
+        s[o + St.REST_ALPHA] = this.forced.get(id) ?? (homeRect(el, id, false) ? 1 : 0);
+        s[o + St.MAX_F_DEV] = 0;
       }
     }
   }

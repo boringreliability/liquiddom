@@ -13,11 +13,17 @@ import { LiquidDOM, type LiquidDOMInstance } from "liquiddom";
 import { runtimeOf } from "../../packages/core/ts/src/internal";
 import type { FluidRuntime, FluidRuntimeOptions } from "../../packages/core/ts/src/runtime";
 import { createManualClock, rafClock, type FrameClock } from "../../packages/core/ts/src/clock";
+import { El, ELEMENT_STRIDE } from "../../packages/core/ts/src/fluid-layout";
 import { createRenderCountingClock, type RenderCountingClock } from "../render-counting-clock";
 import type { LiquidTestHook, ScenePerfProbe, ScenePerfSnapshot } from "../test-hooks";
 import { parseSceneParams } from "./scene-params";
+import { summarizeTextIds, type TextIdCaptureLike } from "../text-id-report";
 
 const PARTICLES = 8000;
+/** W79: a canvas text pixel has every channel and alpha ≥ this (webgpu-robust.spec.ts CANVAS_TEXT_MIN). */
+const TEXT_ID_TEXT_MIN = 200;
+/** W79 red review (M2): the id readback must resolve within this many ms of the frame. */
+const TEXT_ID_TIMEOUT_MS = 2000;
 const MAX_ELEMENTS = 32;
 
 const parsed = parseSceneParams(window.location.search);
@@ -53,6 +59,7 @@ const timingClock: FrameClock = {
 
 const clock: FrameClock = manual ?? (params.perf ? timingClock : rafClock);
 let runtime: FluidRuntime | null = null;
+let slotIds: number[] = [];
 
 /** Wraps core.tick so each call's wall time is divided by the fixed steps it ran. */
 function installTickProbe(rt: FluidRuntime): void {
@@ -110,7 +117,7 @@ async function start(): Promise<FluidRuntime> {
     renderer: params.renderer,
     webgpuT0Scale: params.t0Scale,
   });
-  for (const el of elements) rt.observe(el);
+  slotIds = elements.map((el) => rt.observe(el));
   await new Promise<void>((resolve) => queueMicrotask(resolve)); // let the batched redistribute run
   if (params.perf) installTickProbe(rt);
   runtime = rt;
@@ -201,6 +208,52 @@ const hook: LiquidTestHook = {
   // W72 (D72-6): the DPR-2 e2e checks T0 = 0.5 × the backing px.
   get t0Size(): readonly [number, number] | null {
     return runtime?.t0Size ?? null;
+  },
+  // W75 (Review Focus 3, 5): atlas re-render requests issued by the runtime so far.
+  get textInvalidations(): number {
+    return runtime?.textInvalidations ?? 0;
+  },
+  // W78: slots 5–7 and s per [data-liquid] element, read back from the element and state views.
+  slots: () =>
+    elements.map((el, i) => {
+      const id = slotIds[i];
+      const st = runtime?.elementState(el);
+      if (!runtime || id === undefined || !st) return { interaction: Number.NaN, homeDx: Number.NaN, homeDy: Number.NaN, s: Number.NaN };
+      const v = runtime.bridge.elementView();
+      const o = id * ELEMENT_STRIDE;
+      return { interaction: v[o + El.INTERACTION], homeDx: v[o + El.HOME_DX], homeDy: v[o + El.HOME_DY], s: st.s };
+    }),
+  // W79 (D79-1): arm the capture, run one frame (its pixels are snapshotted in that task), read both.
+  textIds: async () => {
+    if (!manual) throw new Error("[acceptance] textIds() needs ?clock=manual");
+    const rt = runtime as (FluidRuntime & { captureTextIds?: () => Promise<TextIdCaptureLike | null> }) | null;
+    if (!rt?.captureTextIds) throw new Error("[acceptance] textIds(): FluidRuntime.captureTextIds is missing (W79.3)");
+    const pending = rt.captureTextIds();
+    hook.advance(1);
+    // W79 red review (M2): a capture that never resolves (device stall, no frame rendered) must fail loudly, not hang the e2e.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`[acceptance] textIds(): the id readback did not resolve within ${TEXT_ID_TIMEOUT_MS} ms`)), TEXT_ID_TIMEOUT_MS);
+    });
+    let capture: TextIdCaptureLike | null;
+    try {
+      capture = await Promise.race([pending, timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!capture) throw new Error(`[acceptance] textIds(): no capture (renderer ${rt.activeRenderer})`);
+    const report = summarizeTextIds(capture, hook.pixels(), TEXT_ID_TEXT_MIN);
+    const dom = (id: number): number => slotIds.indexOf(id);
+    const textPxByElement: Record<number, number> = {};
+    for (const [id, n] of Object.entries(report.textPxById)) {
+      const i = dom(Number(id));
+      if (i >= 0) textPxByElement[i] = n;
+    }
+    const pairs = report.pairs
+      .map(([lo, hi]) => [dom(lo), dom(hi)].sort((a, b) => a - b) as [number, number])
+      .filter(([a]) => a >= 0)
+      .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    return { ...report, elements: report.ids.map(dom).filter((i) => i >= 0), pairs, textPxByElement };
   },
 };
 

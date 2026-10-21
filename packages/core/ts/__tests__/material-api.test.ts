@@ -99,7 +99,8 @@ describe("material API (W68, D68-1, D68-9)", () => {
     expect(Object.keys(presets).sort()).toEqual(["honey", "jelly", "water"]);
     expect(Object.isFrozen(presets)).toBe(true);
     expect(presets.water).toEqual({ viscosity: 0.15, cohesion: 0.3, recovery: 0.5 });
-    expect(presets.honey).toEqual({ viscosity: 0.9, cohesion: 0.7, recovery: 1.6 });
+    // W77: approved-test change (D77-3, approved 2026-10-10, saga dec_f68c0534): honey retuned by the W77.3 procedure
+    expect(presets.honey).toEqual({ viscosity: 0.9, cohesion: 0.7, recovery: 0.8 });
     expect(presets.jelly).toEqual({ viscosity: 0.6, cohesion: 0.85, recovery: 0.4 });
     for (const p of Object.values(presets)) {
       expect(Object.isFrozen(p)).toBe(true);
@@ -112,7 +113,8 @@ describe("material API (W68, D68-1, D68-9)", () => {
     expect(first.setMaterial.mock.calls).toEqual([[0.15, 0.3, 0.5]]);
     first.setMaterial.mockClear();
     first.inst.setMaterial(presets.honey);
-    expect(first.setMaterial.mock.calls).toEqual([[0.9, 0.7, 1.6]]);
+    // W77: approved-test change (D77-3, approved 2026-10-10, saga dec_f68c0534): honey retuned by the W77.3 procedure
+    expect(first.setMaterial.mock.calls).toEqual([[0.9, 0.7, 0.8]]);
     expect(first.inst.getMaterial()).toEqual(presets.honey);
   });
 

@@ -81,7 +81,7 @@ The elements **are** liquid, and so is their text. They splash, split, merge wit
 2D MLS-MPM (Hu et al. 2018), re-implemented with `spike/fluid-mpm` as reference.
 
 **Inherited from the spike.** These parameters carry the feel and must not be lost:
-- Constitutive model: `σ = E(J−1)·I + μ(C + Cᵀ)`. J relaxes towards 1 (`J_RELAX`) and is clamped from below (`COMPRESS_MIN = 0.55`). The stretch cap (`TENSION_MAX`) works as plastic yield and gives cohesion.
+- Constitutive model: `σ = E(J−1)·I + μ(C + Cᵀ)`. J relaxes towards 1 (`J_RELAX`) and is clamped from below (`COMPRESS_MIN = 0.55`). The stretch cap (`TENSION_MAX`) works as plastic yield and gives cohesion. The yield range is 0.02–0.90 (amended in W77, D77-2; was 0.02–0.30).
 - 8 substeps per fixed step.
 - CFL velocity cap of 0.45 cells per substep, applied to particles **and** grid velocity (grid is new).
 - Air drag.
@@ -103,14 +103,17 @@ The elements **are** liquid, and so is their text. They splash, split, merge wit
 
 **Grid:**
 - The cell size is decided **once** at `create()` from the particle density, clamped to 4–8 px. It is independent of the viewport, so the numerical behaviour (and visual regression) does not depend on window size.
-- The grid is pre-allocated to cover `max(screen.width, innerWidth) × max(screen.height, innerHeight)` plus a margin (or the container's maximum in container mode).
-- A resize beyond that is clamped to the walls in slices 1–5. One explicit, logged reallocation is added in slice 6 (resize). *(Amended 2026-10-03 after plan verification.)*
+- The grid is pre-allocated to cover `max(screen.width, innerWidth) × max(screen.height, innerHeight)` plus a margin (in container mode the container's client box, its visible window since W80; amended W81, D81-3).
+- A resize beyond that is clamped to the walls in slices 1–5. One explicit, logged reallocation is added in slice 6 (resize). *(Amended 2026-10-03 after plan verification.)* It is `resize_world(w, h)`, called outside `tick` when the viewport outgrows the world, logged once, never shrinking, particles kept (amended 2026-10-13, slice-6 design, D81-2). W81: each outgrown axis grows to at least 1.25 × its extent (capped at 8192 px), from the resize handler, with one `console.info` per growth; the cell, the margin and the lattice origin stay.
 - Each grid substep only touches a dirty region: the particle AABB plus 2 cells.
+- The lattice origin follows a scroll by the sub-cell rest of each delta, so particles moved by whole cells keep their lattice phase; it stays within half a cell of `(−margin, −margin)` (W80, D80-1).
 
 **Walls and off-screen elements:**
 - The grid covers the viewport plus a margin of 1 element height, at least 200 px. Walls sit at the grid edges.
 - An element whose rect lies entirely outside viewport + margin is **parked**: its particles are not simulated.
 - When it re-enters the margin, its particles are placed at `rest` instantly. This is invisible because it happens off-screen.
+- Parked particles carry a `PARKED` flag that both renderers skip; re-entry needs the rect ≥ 64 px inside the bound (hysteresis); a dragged element is never parked (amended 2026-10-13, slice-6 design, D81-1).
+- W81 (D81-1): the bound is the world the grid covers plus its margin. The rect must lie 64 px inside it on every side, or overlap the world (a rect taller than the margin − 64 px would otherwise be on screen while parked); re-entry happens in that tick, with the element at rest and no previous rect sample. A parked element is not shifted, splashed or shaken, keeps its particle share, and its particles count as unplaced for the next redistribute. An inactive element is never parked; Canvas2D also skips an inactive slot's particles.
 
 ### T-1000 re-form
 
@@ -118,18 +121,18 @@ The elements **are** liquid, and so is their text. They splash, split, merge wit
 - **Target** = `rest_uv` mapped into the element's **current home rect** (slots 0–3 plus `home_dx/dy`, see the FFI section). A resize therefore changes the targets and the liquid gently follows the new shape. Scroll and drag become something the liquid follows.
 - **Stiffness:**
   - Each element has a stiffness `s ∈ [s_floor, 1]`, with `s_floor = 0.015`.
-  - Damage rules: `splash` sets `s ← min(s, 0.25·(2 − strength))` clamped to ≥ `s_floor`, `shake` sets `s ← min(s, 0.3)` (amended in W70, D70-2; amended in W73, D73-2), and drag sets `s ← min(s, 0.5)` while dragging.
+  - Damage rules: `splash` sets `s ← min(s, 0.25·(2 − strength))` clamped to ≥ `s_floor`, `shake` sets `s ← min(s, 0.3)` (amended in W70, D70-2; amended in W73, D73-2), and drag sets `s ← min(s, 0.5)` while dragging; elements whose home rect overlaps the dragged home rect grown by 16 px (the kernel cap) are held at `s ≤ 0.2` every substep (W79, D79-2), and a dragged element never reaches `restAlpha = 1` (amended 2026-10-11, slice-5 design, D78-5, D79-2). Splash and shake also set `restAlpha ← 0` at once, so the rest contour never fades over the hole they open (amended 2026-10-10, W74, D74-7).
   - Recovery: `ds/dt = (1 − s)/recovery`, with `recovery` defaulting to 0.7 s.
   - These are internal constants. Only `recovery` is a parameter.
-- **Slip drift** is kept: a grid-independent drift towards the target, scaled by `s²`, at rate 3/s, max 160 px/s. It is **documented as non-physical** (it does not conserve momentum). Without it, merged liquids never separate.
+- **Slip drift** is kept: a grid-independent drift towards the target, scaled by `s²`, at rate 3/s, max 160 px/s. It is **documented as non-physical** (it does not conserve momentum). Without it, merged liquids never separate. The elements of a merge (the dragged element and the neighbours softened under it, each until its restAlpha is 1 again) slip at 4.5/s, max 240 px/s; every other element keeps 3/s and 160 px/s, and F's slip stays 4.5/s (amended in W79, D79-2).
 - **Wobble** (1.1 px in the spike) is scaled by `(1 − restAlpha)`, so it is 0 at rest.
-- **Hover:** the home rect swells by 2% around its centre, a gentle bulge. Focus has no extra engine effect; the focus ring belongs to the DOM.
+- **Hover:** the home rect swells by 2% around its centre, a gentle bulge. Focus has no extra engine effect; the focus ring belongs to the DOM. Dragged beats hover, with no swell while dragged (amended 2026-10-11, slice-5 design, D78-4).
 
 ### Per-element rest state
 
 Rust owns it and exports it:
 - During G2P, Rust computes `maxDev` for each element: the max |x − target| over its particles, O(n).
-- `restAlpha ∈ [0,1]` rises towards 1 when `s > 0.95` (amended in W67, D67-1) and `maxDev < 0.75 px` have both held for at least 150 ms. It falls towards 0 immediately when either is broken. This hysteresis prevents flicker.
+- `restAlpha ∈ [0,1]` rises towards 1 when `s > 0.95` (amended in W67, D67-1) and `maxDev < 0.75 px` have both held for at least 150 ms; from slice 4 also per element `max‖F − I‖ < 0.05` (amended 2026-10-10, slice-4 design, D74-2). It falls towards 0 immediately when either is broken. This hysteresis prevents flicker.
 - The fade time is 120 ms both ways.
 
 ### Deformation gradient F (render-only)
@@ -137,12 +140,12 @@ Rust owns it and exports it:
 F is used **only** for the liquid text. It never enters the stress.
 
 Per substep:
-- `F ← (I + dt·C)·F`, followed by the slip term `F ← F + dt·SLIP_RATE·s²·(I − F)`, so F returns to I in step with the liquid.
+- `F ← (I + dt·C)·F`, followed by the slip term `F ← F + dt·F_SLIP_RATE·s²·(I − F)` with `F_SLIP_RATE = 1.5 × SLIP_RATE`, so F returns to I no later than the liquid (amended 2026-10-10, W74.0 measurement, D74-2).
 - No plastic projection and no J relaxation, because those would break the continuity of the text between neighbouring particles.
 
 Safety clamp:
 - Singular values are clamped to `σ ∈ [0.2, 5]` via a closed-form 2×2 SVD, and det < 0 is flipped to the nearest proper rotation.
-- Particles that hit the clamp get a `torn` flag (bit), and their text coverage fades out.
+- Particles that hit the clamp get a `torn` flag (bit), and their text coverage fades out. `torn` is sticky: it clears only when the singular values are back in `[0.67, 1.5]` (amended 2026-10-10, slice-4 design, D74-3).
 
 F's cost (+4 floats of SoA plus an SVD per substep) is benchmarked in slice 4. If it is too expensive, update F every 2nd substep.
 
@@ -168,9 +171,10 @@ F's cost (+4 floats of SoA plus an SVD per substep) is benchmarked in slice 4. I
 |---|---|
 | Pointer move | A soft velocity field: particles within a 70 px radius are pulled towards the pointer's velocity with weight `(1 − d/r)²`. This replaces the spike's hard radial push (`POINTER_PUSH_PX`), which caused the hole |
 | `click` on an observed element | `splash` at the pointer position. **If `event.detail === 0`** (a keyboard-triggered click from Enter or Space on a focusable element), the splash is at the rect centre instead. Native activation is never prevented, so there is never a double splash |
-| Drag (pointerdown + > 4 px movement) | `home_dx/dy` follow the pointer while the DOM stays put. After the threshold, the following click splash is suppressed. On release `home_dx/dy` → 0 and the liquid crawls home |
-| `shake(strength)` | Global impulse: a seeded direction `d` and phase `φ` per element, speed profile `1 + 0.5·sin(π·u + φ)` across the element (`u = (x − cx)/(w/2)`), no per-particle noise, no rotation (amended in W70, D70-1; amended in W73, D73-1). Everything goes soft |
-| Gravity | `(gx, gy)` in the grid update. Clamped to 0 under reduced motion |
+| Drag (mouse or pen pointerdown, primary button; pointer capture once the pointer is > 4 px away, W78 D78-2) | `home_dx/dy` follow the pointer while the DOM stays put. After the threshold, the following click splash is suppressed (swallowed once). On release `home_dx/dy` → 0 and the liquid crawls home; `pointercancel`, blur, Escape, `unobserve`, `destroy` and reduced motion cancel the same way. No touch or keyboard drag in slice 5 (amended 2026-10-11, slice-5 design, D78-2, D78-6). Slice 6: touch drags after a 350 ms long-press (movement > 8 px cancels it and the page scrolls); `observe(el, { drag: false })` opts an element out (amended 2026-10-13, slice-6 design, D84-1, D84-2) |
+| `shake(strength)` | Global impulse: a seeded direction `d` and phase `φ` per element, speed profile `1 + 0.35·sin(π·u + φ)` across the element (`u = (x − cx)/(w/2)`), no per-particle noise, no rotation (amended in W70, D70-1; amended in W73, D73-1; amended in W77, D77-2). Everything goes soft |
+| Gravity | `(gx, gy)` in the grid update. Clamped to 0 under reduced motion. Only changes act (a high-pass): a tilt sloshes the liquid, which then rests at home; scaled so the liquid never leaves its element (amended 2026-10-13, slice-6 design, D83-1). W83: a per-core low-pass `g_lp` (τ 0.5 s, advanced per fixed step); `1.5 · (g − g_lp)`, clamped to 2000 px/s², is added to the grid velocities of cells with mass after momentum → velocity and before the walls and the CFL cap; below 0.5 px/s² it snaps to exactly 0, so the engine is bit-identical to one without gravity ≈ 4 s after a change; the home spring is unchanged (a subtle lean, ≈ 6 px for a 90° tilt; D83-1, D83-2). `seed_gravity` starts a gravity at rest: at `create()`, on a source switch, on the first orientation reading and when reduced motion ends (D83-4) |
+| Scroll | The scroll delta moves particles and previous home rects rigidly (`scroll_shift`), so a scroll does not excite the liquid: particles move by whole cells and the lattice origin by the rest, so the simulation equals the unscrolled one up to f32 rounding; a dragged element is not shifted and its drag offset grows by the scroll; an element whose rect did not move with the scroll (`position: fixed`, a stuck `sticky`) is not shifted either, read per element and frame from the rects (W80 ward review I1); a light, capped share of the scroll distance is added as inertia, `Δ · 60 · SCROLL_INERTIA` px/s (amended 2026-10-13, slice-6 design, D80-1; W80, D80-1, D80-2) |
 | Droplets | Particles flung far away are ordinary liquid that crawls home. There is no separate entity type |
 
 ### Reduced motion
@@ -205,7 +209,7 @@ This is a coordinated contract change. It replaces the 9-float soft-body layout.
    | 8 | `viscosity` | Per-element override in [0,1]. NaN = material default |
    | 9 | `recovery` | Per-element override in seconds. NaN = material default |
 
-2. **Dynamic particle view**, written by Rust: SoA `x, y, f00, f01, f10, f11, flags` (7 floats per particle) as **one contiguous block**. `flags` sits here because `torn` is set during simulation. TS uploads it with a single `writeBuffer(buf, 0, memory.buffer, ptr, particleCapacity·7·4)` and takes the view from `WasmBridge` every frame, never a cached view.
+2. **Dynamic particle view**, written by Rust: SoA `x, y, f00, f01, f10, f11, flags` (7 floats per particle) as **one contiguous block**. `flags` sits here because `torn` (value 1, `FLAG_TORN`) is set during simulation; value 2 (`FLAG_PARKED`) is `parked` (W81, D81-1). TS uploads it with a single `writeBuffer(buf, 0, memory.buffer, ptr, particleCapacity·7·4)` and takes the view from `WasmBridge` every frame, never a cached view.
 3. **Static particle view**, written by Rust at redistribution: SoA `home, rest_u, rest_v`. TS reads it only when the generation counter changes.
 4. **Element state view**, written by Rust every step: 4 floats per element, `s, maxDev, restAlpha, reserved`.
 5. **Scalar calls** (no buffer, no JSON):
@@ -216,12 +220,16 @@ This is a coordinated contract change. It replaces the 9-float soft-body layout.
    - `redistribute()`
    - `generation()`
    - `set_reduced_motion(bool)`
+   - `scroll_shift(dx, dy, ivx, ivy)`: the frame's scroll delta (px) and inertia (px/s), after the rects are written and before `tick` (W80, D80-1)
+   - `resize_world(w, h) -> bool`: grows the grid when the viewport outgrew the world, outside `tick`; true when it grew (W81, D81-2)
+   - `set_viewport(w, h)`: the visible window in buffer px (`innerWidth × innerHeight`, or the container's client box), at `create()` and whenever a resize changes it, outside `tick`; sanitised (a non-finite or non-positive extent is unknown). `shake` mirrors the outward component of an element's direction when its home rect lies within 80 px of a viewport edge (W82, D82-5)
+   - `seed_gravity(gx, gy)`: the gravity low-pass jumps to `(gx, gy)` px/s² (sanitised like `tick`'s), so the next `tick` with that gravity adds nothing; right before the tick of a frame whose gravity starts fresh (W83, D83-4)
 
 The stride constants live in both `src/` (Rust) and the TS bridge, and MUST stay in sync. A test asserts they match.
 
 **Material parameters**, all normalised [0,1] except recovery:
 - `viscosity` maps to `VISCOSITY_PX` 100–2000 on a log scale, default 0.5 ≈ 450.
-- `cohesion` maps to `TENSION_MAX` 0.02–0.30, default 0.5 ≈ 0.16. **It is global only**, because cohesion between different elements is a property of the whole liquid.
+- `cohesion` maps to `TENSION_MAX` 0.02–0.90, default 0.5 ≈ 0.46 (amended in W77, D77-2: the sheet thins under the shake instead of tearing). **It is global only**, because cohesion between different elements is a property of the whole liquid.
 - `recovery` is in seconds, range 0.2–3, default 0.7.
 
 ## 3. Rendering and liquid text
@@ -241,19 +249,19 @@ The `Renderer` keeps its method shape. The new `RenderFrame` contains:
 
 1. **Splat.** Each particle is drawn as an instanced quad (instance data read from a storage buffer via `instance_index`) with a smooth kernel. It writes into three render targets, all using additive blending `{src: one, dst: one, op: add}`:
    - `T0 rgba16float`: `Σw·rgb` and `Σw` (density). Render scale 0.5× DPR. *(Amended 2026-10-07, slice-3 plan, D71-3: rgb is straight, not premultiplied, and a second target `T0a r16float` holds `Σw·a` at the same scale, so the composite gets the blended alpha `Σw·a/Σw` and translucent elements match Canvas2D. Slice 3 splats into T0 and T0a only: 10 B per sample.)*
-   - `T1 rgba16float`: `Σw·text_rgba_premul`, sampled from an RGBA atlas. 1× DPR. **Only particles from elements with `restAlpha < 1`** are splatted here.
-   - `T2 r16float`: `Σw·restAlpha`, used to cross-fade to the rest contour. **Deferred to slice 4** (amended 2026-10-06, slice-3 design, D71-3): slice 3 cross-fades per element from the element buffer's `restAlpha`, so its passes are splat (T0), composite and a rest SDF overlay.
+   - `T1 rgba16float`: `Σw·text_rgba_premul`, sampled from an RGBA atlas. 1× DPR. **Only particles from elements with `restAlpha < 1`** are splatted here. Because T0 is at `t0Scale` and all attachments of a pass share a size, T1 and a `T1w r16float` (Σw) are written in **their own pass** at 1× DPR, with the liquid's kernel (amended 2026-10-10, slice-4 design, D74-4).
+   - `T2 r16float`: `Σw·restAlpha`, used to cross-fade to the rest contour. **Deferred to slice 4** (amended 2026-10-06, slice-3 design, D71-3): slice 3 cross-fades per element from the element buffer's `restAlpha`, so its passes are splat (T0), composite and a rest SDF overlay. **Dropped in slice 4** (amended 2026-10-10, slice-4 design, D74-4): the per-element cross-fade (D71-6) needs no per-pixel restAlpha target.
 
    The targets total 24 B per sample (26 B with T0a, amended 2026-10-07). That is within the default `maxColorAttachmentBytesPerSample = 32`, and rgba16float is blendable in WebGPU core. **No 32-bit float targets.**
 
    **Per-element density normalisation:**
    - Each particle's splat mass is its element's area per particle.
-   - The kernel radius is proportional to the element's spacing (both passed as per-element uniforms), and is **capped at 8 px**.
+   - The kernel radius is proportional to the element's spacing (both passed as per-element uniforms), and is **capped at 16 px** (amended in W77, D77-1; was 8 px). The Canvas2D density cell follows the largest kernel radius, `max(2, ceil(R)/6)` px (amended in W82, D82-4; W77 had `ceil(R)/4`, whose 3.25–3.5 px cell showed as a stair-step edge on large kernels), but is never coarser than the finest particle spacing (in quarter px), so every kernel spans ≥ 2.3 cells per radius. Canvas2D samples the shared kernel at the cell size and WebGPU at 0.5× the backing size: a sampling difference, not a second kernel (D71-5).
    - The 0.5 threshold therefore lands on the rect edge for every element.
 2. **Composite.**
    - Density is thresholded into a silhouette with an anti-aliased edge (`fwidth`).
    - Colour is normalised (`Σw·rgb / Σw`), which **blends at boundaries** (no speckle, and the card no longer "swallows" the button).
-   - Text is composited from T1 in the text colour.
+   - Text is composited from T1 / T1w in the text colour, **after** the rest SDF overlay so it never blinks at the cross-fade (amended 2026-10-10, slice-4 design, D74-4). Where the text splats of two elements meet, no text is drawn: the text pass also writes, per texel, the smallest and the largest element id (`T1id rg16float`, `min` blending on `(id, −id)`), and the composite gives the text coverage 0 where they differ over its bilinear footprint, so no canvas pixel carries two elements' liquid text; the text-free band is up to one kernel radius (≤ 16 px) where two moving text liquids' kernels overlap (amended in W79, D79-1).
    - The context is configured with `alphaMode: 'premultiplied'`.
 
 ### Liquid text: the formula
@@ -264,8 +272,8 @@ uv = rest_uv_p + diag(1/w_rest, 1/h_rest) · F_p⁻¹ · (frag_px − x_p_px)
 ```
 - `w_rest, h_rest` come from the rect at redistribution, not the live rect.
 - `uv` is mapped into the atlas as `atlas_origin + uv · atlas_size`.
-- Coverage is 0 when `uv ∉ [0,1]²`. Atlas entries get a gutter of at least 1 kernel radius.
-- `F⁻¹` is computed once per instance in the vertex shader, and its norm is clamped so compression does not cause minification.
+- Coverage is 0 when `uv ∉ [0,1]²`, and `uv` is clamped to the entry, so the kernel's reach never samples a neighbouring entry. Atlas entries get a 10 px gutter (amended 2026-10-10, slice-4 design, D74-5) for bilinear filtering; since the kernel cap rose to 16 px it no longer spans a kernel radius, and the clamp, not the gutter, is the guarantee (amended in W77, D77-1).
+- `F⁻¹` is computed once per instance in the vertex shader, and its norm is clamped (to 2, (amended 2026-10-10, slice-4 design, D74-4) so compression does not cause minification.
 - Coverage is 0 when `|det F| < ε` or `torn` is set.
 
 The mapping direction is correct: `F = ∂x/∂X`, so a world offset is mapped back to rest through `F⁻¹`. Because neighbouring particles' patches agree, the text stretches and tears **continuously** with the liquid.
@@ -274,7 +282,7 @@ The mapping direction is correct: `F = ∂x/∂X`, so a world offset is mapped b
 
 When `restAlpha → 1`, the composite cross-fades to:
 1. the element's **analytic rounded-rect SDF contour**: one instanced quad per resting element, drawn over the composite at alpha `restAlpha` while its particles splat at full weight (the D70-4 rule; at `restAlpha = 1` only the SDF is drawn), so pills are real pills with no fur (amended 2026-10-06, slice-3 design, D71-6; was "adds SDF density into T0 and T2"), and
-2. **the real DOM text.** TS removes the `liquid-text` class (`color: transparent`) per element when `restAlpha = 1`, and puts it back as soon as `restAlpha < 1`. At the same moment the atlas is cross-faded out.
+2. **the real DOM text.** TS removes the `liquid-text` class per element when `restAlpha = 1`, and puts it back as soon as `restAlpha < 1` while the WebGPU renderer draws that element's atlas text, in the same frame as the renderer starts or stops drawing it (amended 2026-10-10, W74, D74-6).
 
 At rest, what you see is therefore pixel-exact the DOM text, with no atlas approximation.
 
@@ -282,6 +290,7 @@ At rest, what you see is therefore pixel-exact the DOM text, with no atlas appro
 
 - Built from `Range.getClientRects()` line boxes plus computed style (font, weight, size, letter/word spacing, text-transform, colour). It is **not** re-wrapped.
 - It is drawn with OffscreenCanvas `fillText` at the current DPR.
+- One shelf-packed page of at most 4096 × 4096 atlas px at the viewport DPR, built by the runtime (never the renderer) on every generation or paints change; an element that does not fit keeps its DOM text (amended 2026-10-10, W74, D74-5).
 - **Goal: visually matching the DOM text, not pixel-identical.** It is only seen while the element is moving, and at rest the real DOM text is shown.
 - It is re-rendered:
   - on the per-element MutationObserver, which is **extended** to `childList`, `characterData`, `subtree` and the `style`/`class` attributes,
@@ -317,21 +326,22 @@ At rest, what you see is therefore pixel-exact the DOM text, with no atlas appro
 - **Classes and an injected stylesheet** (one `<style>` per document, removed on the last `destroy()`):
   - `.liquid-element`
     - `background: transparent; border-color: transparent; box-shadow: none;` (D8)
-    - `position: relative; z-index: 1;` when the element's computed position is `static`. Otherwise only `z-index: 1` if `z-index` is `auto`.
-  - `.liquid-text { color: transparent; }`
+    - `position: relative; z-index: 1;` when the element's computed position is `static`. Otherwise only `z-index: 1` if `z-index` is `auto`. Since W82 (D82-3) only for the elements of an instance in the `z-index: 0` fallback (below); under the page no element needs it.
+  - `.liquid-text, .liquid-text * { -webkit-text-fill-color: transparent; text-decoration-color: transparent; text-shadow: none; }` (amended 2026-10-10, W74, D74-6: `color` stays for the atlas and `currentColor` icons)
     - Set **only** under WebGPU, and **only** while the element is moving (§3).
   - `@media (forced-colors: active)` and `@media print`: canvas `display: none`, and both classes neutralised with `!important`.
   - `unobserve` removes the classes. The element is then exactly as it was.
 - **Canvas:**
-  - `aria-hidden="true"` (new), `pointer-events: none`, `position: fixed`, `z-index: 0`.
+  - `aria-hidden="true"` (new), `pointer-events: none`, `position: fixed`, `z-index: 0`; slice 6 moves it to `z-index: -1` so escaped liquid goes under all page content; in container mode the container must be a stacking context (documented, warned, never restyled) (amended 2026-10-13, slice-6 design, D82-1).
   - It is a sibling at the end of `body`, or inside the container in container mode.
-  - Observed elements sit above it because of the injected stacking rule (D7). This is the mechanism W57 assumed but never guaranteed.
+  - W82 (D82-1, D82-2): the canvas mounts at `z-index: -1`. It falls back to `z-index: 0` for good, with one `console.warn` (naming the element and the fix for an opaque background, the fix for a container), when the container is not a stacking context (checked at `create()`), or when an opaque box lies between an observed element and the canvas's stacking context (`<body>` when `<html>` has its own background, at `create()`; any ancestor up to the container or `<html>` with a non-transparent `background-color` or a `background-image`, at `observe()`). Liquiddom never restyles the container, `<html>` or `<body>`. Known: a `<body>` that is itself a stacking context still triggers the fallback when `<html>` and `<body>` are both opaque (harmless, z 0); an ancestor stacking context with a negative `z-index` is not detected (the canvas at −1 can paint over its text); ancestors outside a shadow root's host are not walked.
+  - Observed elements sit above it: under the page every page box does; in the fallback the injected stacking rule (D7) lifts them. This is the mechanism W57 assumed but never guaranteed.
   - The `canvasZIndex` option is **removed**.
   - Focus rings (`:focus-visible`) are part of the DOM element and are always drawn above the liquid.
   - **Accepted limitations:**
     - liquid flying over other content that has its own stacking context or an opaque background can disappear behind it,
     - an observed element inside an ancestor with `transform`, `filter` or `overflow: hidden` can end up visually under other content.
-- **Drag moves the liquid, not the DOM.** There is no layout jump, no `position: fixed`, and labels can't end up on top of each other.
+- **Drag moves the liquid, not the DOM.** There is no layout jump, no `position: fixed`, and labels can't end up on top of each other. The label follows the liquid: WebGPU carries the atlas text; Canvas2D hides the dragged element's DOM glyphs with the class `liquid-away` (`-webkit-text-fill-color`, semantics untouched) until it is at rest again; a cancel shows them at once (W78, D78-1) (amended 2026-10-11, slice-5 design, D78-1).
 - **Keyboard:** see `click` with `event.detail === 0` in §2. It applies to focusable elements. Non-focusable elements (the card) can only be splashed with a pointer.
 - **Contrast:**
   - At rest the real DOM text is shown on an exact contour, so contrast is identical to the original.
@@ -345,7 +355,7 @@ At rest, what you see is therefore pixel-exact the DOM text, with no atlas appro
 | `device.lost` | Canvas2D rebuild. `liquid-text` removed |
 | `@media print` | Canvas hidden. DOM unchanged |
 | Zoom, font or text change | Text atlas re-rendered |
-| Scroll | The canvas is `fixed` and is redrawn in RAF. **Known risk:** the liquid can lag one frame behind native scroll. At rest the real DOM text means the text never lags. Measured in slice 6 |
+| Scroll | The canvas is `fixed` and is redrawn in RAF. **Known risk:** the liquid can lag one frame behind native scroll. At rest the real DOM text means the text never lags. Measured in W80.0 and accepted (D80-4): invisible at rest, but while scrolling the DOM labels can sit 60–100 px off their liquid for one frame per scroll step in both renderers; a canvas that scrolls with the content is the known alternative. Container mode keeps the canvas on the container's visible window with a `transform` on the canvas (W80) |
 
 ## 5. API and integration
 
@@ -362,11 +372,12 @@ const liquid = await LiquidDOM.create({
   forceReducedMotion: false,
   silentFallback: false,
 });
-liquid.observe(el, { viscosity?, recovery? });
+liquid.observe(el, { viscosity?, recovery?, drag? /* slice 6, D84-2 */ });
 liquid.unobserve(el);
 liquid.splash(el, { strength?: number /* 0–2, default 1 */, at?: { x: number, y: number } /* client px, default rect centre */ });
 liquid.shake(strength? /* 0–2, default 1 */);
 liquid.setMaterial(partial); liquid.getMaterial();
+liquid.setGravity(partial);  // W83, D83-3
 liquid.refresh(el);
 liquid.pause(); liquid.resume(); liquid.destroy();
 liquid.requestOrientationPermission();
@@ -375,6 +386,8 @@ liquid.isPaused; liquid.activeRenderer; liquid.particleCapacity; liquid.elementC
 ```
 
 `splash.at` is converted from client px into buffer space by TS, including the container offset.
+
+**Gravity (W83, D83-1 … D83-5).** Only changes in gravity act: a change sloshes the liquid, which then rests at home; a constant gravity never leans it. `none` is no gravity; `fixed` is `normalize(vector) · strength` (a zero vector is none); `orientation` projects the device's gravity onto the screen from `deviceorientation` β, γ (`px = cos β · sin γ`, `py = sin β`), rotated by `screen.orientation.angle`, times `strength`, with a 2° dead band on the direction; its listener exists only for `orientation` and is removed on `destroy()`. The gravity given at `create()`, a source switch and the first orientation reading start at rest (the core's low-pass is seeded), so a `fixed` vector acts only through `setGravity(partial)`, which is validated, merged and applied atomically like `setMaterial`. Reduced motion: no gravity. `requestOrientationPermission()` (iOS) is unchanged.
 
 ### Old to new
 
@@ -427,7 +440,7 @@ The page is `demo/scenes/acceptance.html`: three buttons ("Splash", "Split", "Me
 4. Tab + Enter on "Split": the same splash at the centre. The focus ring is visible throughout.
 5. Drag "Merge" into the card and release: displacement merge, separation, both re-form within **3 s**, and the labels never overlap.
 6. Shake: everything sloshes and re-forms within **3 s**.
-7. Scroll 300 px and back: the liquid follows with no snap.
+7. Scroll 300 px and back: the liquid follows with no snap and every element is at rest within **3 s** after the scroll.
 8. Reduced motion / forced colours / Canvas2D project / `device.lost`: each behaves as in §4.
 
 **Expected state per slice.** ✅ = must pass, ⏳ = not expected yet, W/C = per renderer project:
@@ -485,12 +498,12 @@ Slices 1–2 are detailed in the plan. Slices 3–6 are re-planned after each wh
 | 1 | **Liquid at rest** | Single-flight init + loud failure; MPM core in Rust (at rest only: sampling, home spring, reduced-motion path); new FFI; Canvas2D render with roundRect at rest; injected stylesheet + stacking + print; acceptance scene; Playwright harness + WebGPU smoke; multi-instance test; soft-body code, old scenes and site removed or frozen; `examples/react` ported |
 | 2 | **Liquid that reacts** | Full MPM dynamics, pointer field, click/keyboard splash, shake, stiffness/re-form/restAlpha, playground on material, splash scene. Followed by a **whole-picture check** |
 | 3 | **WebGPU liquid** | Splat/composite (T0), rest SDF overlay, blended colour, `device.lost`, overdraw logging (amended 2026-10-06: T2 deferred to slice 4; design `2026-10-06-liquiddom-slice-3-webgpu-design.md`) |
-| 4 | **Liquid text** | F with clamp/torn, text atlas + T1, the `liquid-text` toggle, extended MutationObserver, forced-colors. Followed by a **whole-picture check** |
-| 5 | **Drag and merge** | `home_dx/dy`, drag threshold, displacement merge, slip separation |
-| 6 | **The world** | Scroll (incl. the 1-frame risk), resize, container, parking, gravity/tilt scene, adapters, site rebuilt and re-enabled. Followed by a **whole-picture check** |
+| 4 | **Liquid text** | F with clamp/torn, text atlas + T1 (own pass, T2 dropped), the `liquid-text` toggle, extended MutationObserver, forced-colors, Canvas2D halo. Followed by a **whole-picture check** (amended 2026-10-10; design `2026-10-10-liquiddom-slice-4-liquid-text-design.md`) |
+| 5 | **Drag and merge** | `home_dx/dy`, drag threshold, displacement merge, slip separation (amended 2026-10-11: W78 drag the liquid incl. spike W78.0, W79 merge and separate; design `2026-10-11-liquiddom-slice-5-drag-merge-design.md`) |
+| 6 | **The world** | Scroll (incl. the 1-frame risk), resize, container, parking, gravity/tilt scene, adapters, site rebuilt and re-enabled. Followed by a **whole-picture check** (amended 2026-10-13: W80 scroll follows, W81 parking and resize, W82 under the page, W83 gravity and tilt, W84 touch and opt-out, W85 adapters, W86 the site, W87 whole picture; design `2026-10-13-liquiddom-slice-6-world-design.md`) |
 
 **Interim state for kept features in slices 1–5:**
-- **Gravity:** the option is accepted and validated, but has no effect until slice 6. Its tests are marked `skip` with a reference to the slice-6 ward.
+- **Gravity:** the option was accepted and validated but inert until W83, which made it act (a high-pass, §2 and §5) and rewrote the tests that had been marked `skip`.
 - **Container mode:** works from slice 1 (rects and offset are kept). Scroll inside a container is only verified in slice 6.
 - **Adapters:** compiled against the new API from slice 1 (`liquidType` → opts). Tests are updated in slice 1.
 - **Pause/resume and visibility:** work from slice 1.
@@ -515,7 +528,7 @@ Slices 1–2 are detailed in the plan. Slices 3–6 are re-planned after each wh
 | Slip drift looks "magical" in the wrong way | Tuned in the playground. Scaled by `s²` |
 | WebGPU in CI on SwiftShader is flaky or slow | Smoke job in slice 1. The project stays "soft" until 10 green runs. GPU perf is not measured there |
 | Too large an observed area for the pool (> ~256k px² at 8000/8 px) | Warning (once); the cell size chosen at `create()` stays and the liquid gets noisier. Documented limit. Consumers can raise `particles` |
-| Splat overdraw is heavy on mobile iGPUs (≈1.6M fragments at 1× DPR in the scene) | Kernel cap of 8 px, density at 0.5×, text only for moving elements. Fragments per frame logged |
+| Splat overdraw is heavy on mobile iGPUs (≈1.6M fragments at 1× DPR in the scene) | Kernel cap of 16 px (W77, D77-1: ≈2.4× overdraw on large-area pages, frame time unchanged on Metal), density at 0.5×, text only for moving elements. Fragments per frame logged |
 | The liquid lags 1 frame behind native scroll | DOM text at rest means the text never lags. Measured in slice 6. Alternative: a canvas that scrolls with the content |
 | Stacking contexts in consumer CSS | Documented. The injected rule covers the common case |
 
@@ -523,4 +536,4 @@ Slices 1–2 are detailed in the plan. Slices 3–6 are re-planned after each wh
 - Render scale for T0: 0.5× (decided at W71 gold, D71-4, side-by-side Metal crops; saga dec_2dc07861).
 - `opt-level` 3 vs `"s"`.
 - What happens to the published `0.2.0-rc.0` (npm deprecate or leave it) and to the CHANGELOGs.
-- Whether F is updated every substep or every 2nd substep (benchmark in slice 4).
+- Whether F is updated every substep or every 2nd substep: spike W74.0 measured +0.25 ms (every) vs +0.14 ms (every 2nd) per fixed step; decided in W74 (D74-1).

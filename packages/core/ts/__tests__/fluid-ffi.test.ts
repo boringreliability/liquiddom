@@ -13,6 +13,7 @@ import {
   Dyn,
   El,
   ELEMENT_STRIDE,
+  FLAG_PARKED,
   St,
   STATE_STRIDE,
   Stat,
@@ -151,5 +152,139 @@ describe("W64 FluidCore FFI (real wasm)", () => {
       if (y < 390 || y > 570) off += 1;
     }
     expect(off).toBe(0);
+  });
+
+  // W80 (D80-1): the scalar call through the real WASM export.
+  it("given_the_real_core_when_scroll_shift_runs_before_a_zero_step_tick_then_every_homed_particle_moves_by_minus_the_delta_in_the_dynamic_view", () => {
+    const { core, bridge } = acceptance();
+    core.redistribute();
+    bridge.syncGeneration();
+    expect(core.tick(1 / 60, 0, 0, 0, 0, false, 0, 0)).toBe(1);
+    const st = bridge.staticView();
+    const before = bridge.dynamicView().slice();
+    const v = bridge.elementView();
+    for (let id = 0; id < 4; id++) v[id * ELEMENT_STRIDE + El.Y] -= 30; // the page scrolled 30 px down
+    core.scroll_shift(0, 30, 0, 0);
+    expect(core.tick(0.001, 0, 0, 0, 0, false, 0, 0), "a 0-step tick only writes the dynamic view").toBe(0);
+    const d = bridge.dynamicView();
+    let worst = 0;
+    for (let i = 0; i < N; i++) {
+      if (!(st[Stat.HOME * N + i] >= 0)) continue;
+      worst = Math.max(worst, Math.abs(d[Dyn.X * N + i] - before[Dyn.X * N + i]), Math.abs(d[Dyn.Y * N + i] - (before[Dyn.Y * N + i] - 30)));
+    }
+    expect(worst, "every homed particle moved by (0, −30) px").toBeLessThan(0.01);
+    const s = bridge.stateView();
+    for (let id = 0; id < 4; id++) expect(s[id * STATE_STRIDE + St.REST_ALPHA], `element ${id} still at rest`).toBe(1);
+  });
+
+  // W81 (D81-1, D81-2): parking and resize_world through the real WASM exports.
+  it("given_the_real_core_with_a_card_below_the_world_when_ticked_then_its_particles_carry_flag_parked_and_resize_world_unparks_it_at_rest_with_the_view_pointers_unchanged", () => {
+    const { core, bridge } = acceptance();
+    bridge.elementView().set([480, 2400, 320, 160, 16, 0, 0, 0, NaN, NaN], 4 * ELEMENT_STRIDE);
+    core.redistribute();
+    bridge.syncGeneration();
+    expect(core.tick(1 / 60, 0, 0, 0, 0, false, 0, 0)).toBe(1);
+    const census = (): { mine: number; flagged: number; others: number } => {
+      const st = bridge.staticView();
+      const d = bridge.dynamicView();
+      let mine = 0;
+      let flagged = 0;
+      let others = 0;
+      for (let i = 0; i < N; i++) {
+        const parked = (d[Dyn.FLAGS * N + i] & FLAG_PARKED) !== 0;
+        if (st[Stat.HOME * N + i] === 4) {
+          mine += 1;
+          if (parked) flagged += 1;
+        } else if (parked) others += 1;
+      }
+      return { mine, flagged, others };
+    };
+    const before = census();
+    expect(before.mine, "the far card keeps its share of the budget").toBeGreaterThan(1000);
+    expect(before.flagged, "every one of its particles is parked").toBe(before.mine);
+    expect(before.others).toBe(0);
+    const ptrs = [core.elements_ptr(), core.dynamic_ptr(), core.static_ptr(), core.state_ptr()];
+    expect(core.resize_world(1280, 800), "the same world: no reallocation").toBe(false);
+    expect(core.resize_world(1280, 2600)).toBe(true);
+    expect([core.elements_ptr(), core.dynamic_ptr(), core.static_ptr(), core.state_ptr()], "the views' pointers stay").toEqual(ptrs);
+    expect(core.tick(1 / 60, 0, 0, 0, 0, false, 0, 0)).toBe(1);
+    expect(census().flagged, "unparked once the card overlaps the grown world").toBe(0);
+    expect(bridge.stateView()[4 * STATE_STRIDE + St.REST_ALPHA], "re-entered at rest").toBe(1);
+  });
+
+  // W82 (D82-5): set_viewport through the real WASM export; shake mirrors only near an edge.
+  it("given_the_real_core_with_a_pill_40_px_from_the_right_edge_when_shaken_after_set_viewport_then_an_outward_shake_turns_inward_and_the_acceptance_elements_stay_bit_identical", () => {
+    const PILL = 4;
+    /** The acceptance layout plus a pill 40 px from the right edge, one shake and one frame. */
+    const run = (seed: number, viewport: boolean): { d: Float32Array; st: Float32Array } => {
+      const core = new backend.FluidCore(N, 32, 1280, 800, 76_057, 180, seed);
+      live.push(core);
+      const bridge = new FluidBridge(backend, core);
+      const v = bridge.elementView();
+      LAYOUT.forEach(([x, y, w, h, r], id) => v.set([x, y, w, h, r, 0, 0, 0, NaN, NaN], id * ELEMENT_STRIDE));
+      v.set([1100, 600, 140, 48, 24, 0, 0, 0, NaN, NaN], PILL * ELEMENT_STRIDE);
+      core.redistribute();
+      bridge.syncGeneration();
+      core.set_viewport(Number.NaN, -1); // sanitised to "unknown": no mirror, no throw
+      if (viewport) core.set_viewport(1280, 800);
+      core.shake(1);
+      expect(core.tick(1 / 60, 0, 0, 0, 0, false, 0, 0)).toBe(1);
+      return { d: bridge.dynamicView().slice(), st: bridge.staticView().slice() };
+    };
+    const meanX = ({ d, st }: { d: Float32Array; st: Float32Array }): number => {
+      let sum = 0;
+      let n = 0;
+      for (let i = 0; i < N; i++) {
+        if (st[Stat.HOME * N + i] !== PILL) continue;
+        sum += d[Dyn.X * N + i];
+        n += 1;
+      }
+      return sum / Math.max(1, n);
+    };
+    let mirroredSeeds = 0;
+    for (let seed = 1; seed <= 8; seed++) {
+      const plain = run(seed, false);
+      const mirrored = run(seed, true);
+      let others = 0;
+      for (let i = 0; i < N; i++) {
+        const h = plain.st[Stat.HOME * N + i];
+        if (h === PILL || !(h >= 0)) continue;
+        if (mirrored.d[Dyn.X * N + i] !== plain.d[Dyn.X * N + i] || mirrored.d[Dyn.Y * N + i] !== plain.d[Dyn.Y * N + i]) others += 1;
+      }
+      expect(others, `seed ${seed}: elements farther than 80 px from every edge are bit-identical`).toBe(0);
+      const [p, m] = [meanX(plain), meanX(mirrored)];
+      if (p !== m) {
+        mirroredSeeds += 1;
+        expect(m, `seed ${seed}: the outward shake turned inward`).toBeLessThan(p);
+      }
+    }
+    expect(mirroredSeeds, "some of the 8 seeds shake the pill outward (right)").toBeGreaterThan(0);
+  });
+
+  // W83 (D83-1, D83-4): seed_gravity and tick's gx, gy through the real WASM export.
+  it("given_the_real_core_when_a_constant_gravity_is_seeded_then_it_is_bit_identical_to_none_and_a_90_degree_tilt_moves_the_liquid_to_the_right", () => {
+    const run = (seed: readonly [number, number] | null, g: (frame: number) => readonly [number, number]): Float32Array => {
+      const { core, bridge } = acceptance();
+      core.redistribute();
+      bridge.syncGeneration();
+      if (seed) core.seed_gravity(seed[0], seed[1]);
+      for (let f = 0; f < 30; f++) {
+        const [gx, gy] = g(f);
+        expect(core.tick(1 / 60, 0, 0, 0, 0, false, gx, gy)).toBe(1);
+      }
+      return bridge.dynamicView().slice();
+    };
+    const meanX = (d: Float32Array): number => {
+      let sum = 0;
+      for (let i = 0; i < N; i++) sum += d[Dyn.X * N + i];
+      return sum / N;
+    };
+    const none = run(null, () => [0, 0]);
+    const constant = run([0, 980], () => [0, 980]);
+    let differ = 0;
+    for (let i = 0; i < none.length; i++) if (!Object.is(none[i], constant[i])) differ += 1;
+    expect(differ, "a constant gravity seeded at create moves nothing").toBe(0);
+    const tilted = run([0, 980], (f) => (f < 5 ? [0, 980] : [980, 0]));
+    expect(meanX(tilted) - meanX(none), "a 90° tilt to the right leans the liquid right").toBeGreaterThan(0.5);
   });
 });

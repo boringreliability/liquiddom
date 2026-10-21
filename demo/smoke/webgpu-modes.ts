@@ -3,14 +3,15 @@
  * local webgpu-hw project only).
  *   ?mode=container  one instance, renderer 'auto', container #box-a (position: relative), observes #a1, #a2
  *   ?mode=multi      two instances, renderer 'webgpu', body mode; instance 0 observes #a1, #a2, instance 1 #b1
- * One manual render-counting clock drives every instance; advance(n) snapshots each instance's
+ * RAF clock by default (live in a browser); `?clock=manual` gives one manual render-counting clock
+ * for every instance (W81 carry-over), and advance(n) snapshots each instance's
  * current canvas in the task that rendered it (a WebGPU canvas is not readable later, W71).
  */
 import { LiquidDOM, type LiquidDOMInstance } from "liquiddom";
-import { createManualClock } from "../../packages/core/ts/src/clock";
+import { createManualClock, rafClock, type FrameClock } from "../../packages/core/ts/src/clock";
 import { runtimeOf } from "../../packages/core/ts/src/internal";
 import type { FluidRuntime } from "../../packages/core/ts/src/runtime";
-import { createRenderCountingClock } from "../render-counting-clock";
+import { createRenderCountingClock, type RenderCountingClock } from "../render-counting-clock";
 import type { WebGpuModesCanvas, WebGpuModesHook } from "../test-hooks";
 
 const modeRaw = new URLSearchParams(window.location.search).get("mode") ?? "container";
@@ -18,7 +19,9 @@ if (modeRaw !== "container" && modeRaw !== "multi") {
   throw new TypeError(`[webgpu-modes] ?mode must be "container" or "multi", got "${modeRaw}"`);
 }
 const mode: "container" | "multi" = modeRaw;
-const clock = createRenderCountingClock(createManualClock(0));
+const manual: RenderCountingClock | null =
+  new URLSearchParams(window.location.search).get("clock") === "manual" ? createRenderCountingClock(createManualClock(0)) : null;
+const clock: FrameClock = manual ?? rafClock;
 /** Observed element ids per instance, in creation order. */
 const GROUPS: ReadonlyArray<readonly string[]> = mode === "container" ? [["a1", "a2"]] : [["a1", "a2"], ["b1"]];
 const instances: LiquidDOMInstance[] = [];
@@ -94,7 +97,8 @@ const hook: WebGpuModesHook = {
   loseDevice: (i) => runtime(i).simulateDeviceLoss(),
   advance(frames) {
     // No frame rendered in this task: keep the previous snapshots (W71 ward-review M3).
-    if (clock.advance(frames) === 0) return;
+    if (!manual) throw new Error("[webgpu-modes] advance() needs ?clock=manual");
+    if (manual.advance(frames) === 0) return;
     for (let i = 0; i < instances.length; i++) capture(i);
   },
   restAlpha: (i) => (GROUPS[i] ?? []).map((id) => runtime(i).elementState(byId(id))?.restAlpha ?? Number.NaN),

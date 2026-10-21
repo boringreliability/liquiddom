@@ -105,6 +105,11 @@ const capacities: number = inst.particleCapacity + inst.elementCapacity;
 const renderer: "canvas2d" | "webgpu" = inst.activeRenderer;
 const created: Promise<LiquidDOMInstance> = LiquidDOM.create(options);
 inst.refresh(el);
+// W83 red: approved-test change (D83-3): setGravity(partial) compiles; a source outside the union does not.
+inst.setGravity({ vector: [0, 980] });
+inst.setGravity({ source: "orientation", strength: 600 });
+// @ts-expect-error gravity.source is "none" | "fixed" | "orientation"
+inst.setGravity({ source: "sideways" });
 
 // ── Adapter prop types keep their names but change shape (B10) ──────
 const reactRefOptions: UseLiquidRefOptions = { viscosity: 0.2, recovery: 0.9 };

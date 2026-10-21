@@ -217,6 +217,7 @@ describe("W72: WebGPURenderer lifecycle (D72-2, D72-3, D72-4)", () => {
 
   // ---- D72-1 / D72-2 as amended at the gate (W71.5 review, Part B) ----
 
+  // W74 red: approved-test change (D74-4: the text pipelines are built at init)
   it("given_a_working_surface_when_init_then_exactly_two_balanced_validation_scopes_the_surface_scope_first_and_no_error", async () => {
     // One extra push/pop pair around configure() + getCurrentTexture().createView(), before W71's pipeline scope.
     const g = withGpu();
@@ -229,6 +230,10 @@ describe("W72: WebGPURenderer lifecycle (D72-2, D72-3, D72-4)", () => {
       "createShaderModule",
       "createShaderModule",
       "createShaderModule",
+      "createShaderModule",
+      "createShaderModule",
+      "createRenderPipeline",
+      "createRenderPipeline",
       "createRenderPipeline",
       "createRenderPipeline",
       "createRenderPipeline",

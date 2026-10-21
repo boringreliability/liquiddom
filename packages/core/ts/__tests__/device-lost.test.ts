@@ -141,6 +141,8 @@ describe("W72: device.lost → Canvas2D rebuild (D72-3)", () => {
     // W72 red review I2: the rebuild remounts in container mode (remountLiquidCanvas(old, container)), never as a fixed body canvas.
     const container = document.body.appendChild(document.createElement("div"));
     container.style.position = "relative";
+    // W82 red: approved-test change (D82-1): a stacking context, so the only console.warn is the device-loss one.
+    container.style.zIndex = "0";
     const sb = spyBackend();
     const clock = createManualClock();
     const rt = await createFluidRuntime({ particles: 1024, maxElements: 4, seed: 1, testBackend: sb.backend, clock, renderer: "webgpu", container });
@@ -207,6 +209,28 @@ describe("W72: device.lost → Canvas2D rebuild (D72-3)", () => {
     expect(ticksOf(sb)).toHaveLength(ticks); // stopped for good, like a failed frame
     expect(() => rt.destroy()).not.toThrow();
     expect(document.querySelector("canvas")).toBeNull();
+  });
+
+  it("given_an_orientation_instance_when_the_canvas2d_rebuild_fails_then_the_deviceorientation_listener_is_removed", async () => {
+    const add = vi.spyOn(window, "addEventListener");
+    const remove = vi.spyOn(window, "removeEventListener");
+    const sb = spyBackend();
+    const rt = await createFluidRuntime({
+      particles: 1024,
+      maxElements: 4,
+      seed: 1,
+      testBackend: sb.backend,
+      clock: createManualClock(),
+      renderer: "webgpu",
+      gravity: { source: "orientation", vector: [0, 0], strength: 980 },
+    });
+    live.push(rt);
+    const added = add.mock.calls.filter((c) => c[0] === "deviceorientation").map((c) => c[1]);
+    expect(added).toHaveLength(1);
+    vi.spyOn(FluidCanvas2DRenderer.prototype, "init").mockRejectedValue(new Error("2d gone"));
+    gpu.lose("unknown", "gpu reset");
+    await vi.waitFor(() => expect(error).toHaveBeenCalledTimes(1));
+    expect(remove.mock.calls.filter((c) => c[0] === "deviceorientation").map((c) => c[1])).toEqual(added);
   });
 
   it("given_create_pending_on_webgpu_init_when_the_caller_destroys_as_soon_as_it_resolves_then_no_canvas_device_destroyed_and_no_warn", async () => {

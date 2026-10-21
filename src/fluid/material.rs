@@ -30,7 +30,10 @@ impl Default for Material {
 pub const VISCOSITY_MIN_PX2_S: f32 = 100.0;
 pub const VISCOSITY_MAX_PX2_S: f32 = 2000.0;
 pub const TENSION_MAX_MIN: f32 = 0.02;
-pub const TENSION_MAX_MAX: f32 = 0.30;
+/// W77 (D77-2, amends W67's 0.30): the default cohesion 0.5 now yields J ≤ 1.46, so the shake bend
+/// thins the sheet instead of tearing it into rows with diamond voids (W77 spike: acceptance card
+/// 1145 / 815 → 652 / 297 tear px at f10 / f20 on this lever alone).
+pub const TENSION_MAX_MAX: f32 = 0.90;
 pub const RECOVERY_MIN_S: f32 = 0.2;
 pub const RECOVERY_MAX_S: f32 = 3.0;
 
@@ -39,7 +42,7 @@ pub const RECOVERY_MAX_S: f32 = 3.0;
 pub struct MaterialParams {
     /// Kinematic viscosity in px²/s (log-mapped 100–2000).
     pub viscosity_px2_s: f32,
-    /// Plastic yield on stretch: J ≤ 1 + tension_max (linear 0.02–0.30).
+    /// Plastic yield on stretch: J ≤ 1 + tension_max (linear 0.02–0.90, W77 D77-2).
     pub tension_max: f32,
     /// Stiffness recovery time constant in seconds.
     pub recovery_s: f32,
@@ -59,7 +62,7 @@ pub fn map_viscosity(viscosity: f32) -> f32 {
     VISCOSITY_MIN_PX2_S * (VISCOSITY_MAX_PX2_S / VISCOSITY_MIN_PX2_S).powf(v)
 }
 
-/// `cohesion` [0,1] → TENSION_MAX, linear 0.02–0.30 (0.5 = 0.16).
+/// `cohesion` [0,1] → TENSION_MAX, linear 0.02–0.90 (0.5 = 0.46; W77, D77-2).
 pub fn map_cohesion(cohesion: f32) -> f32 {
     let c = unit_or(cohesion, DEFAULT_MATERIAL.cohesion);
     TENSION_MAX_MIN + (TENSION_MAX_MAX - TENSION_MAX_MIN) * c
@@ -109,14 +112,19 @@ mod w67_tests {
     }
 
     #[test]
-    fn given_cohesion_0_5_when_mapped_then_0_16_and_bounds_0_02_0_30() {
-        assert!((map_cohesion(0.5) - 0.16).abs() < 1e-6);
+    fn given_cohesion_0_5_when_mapped_then_0_46_and_bounds_0_02_0_90() {
+        // W77 red: approved-test change (D77-2, approved 2026-10-10, saga dec_3ba590a1)
+        // D77-2: TENSION_MAX_MAX 0.30 → 0.90, so the default cohesion 0.5 yields J ≤ 1.46 (was 1.16):
+        // the sheet thins under the shake bend instead of tearing into a lace.
+        assert_eq!(TENSION_MAX_MIN, 0.02);
+        assert_eq!(TENSION_MAX_MAX, 0.90, "D77-2 (amends W67's 0.30)");
+        assert!((map_cohesion(0.5) - 0.46).abs() < 1e-6);
         assert!((map_cohesion(0.0) - 0.02).abs() < 1e-6);
-        assert!((map_cohesion(1.0) - 0.30).abs() < 1e-6);
+        assert!((map_cohesion(1.0) - 0.90).abs() < 1e-6);
         assert!((map_cohesion(-3.0) - 0.02).abs() < 1e-6, "clamped below");
-        assert!((map_cohesion(7.0) - 0.30).abs() < 1e-6, "clamped above");
+        assert!((map_cohesion(7.0) - 0.90).abs() < 1e-6, "clamped above");
         assert!(
-            (map_cohesion(f32::NAN) - 0.16).abs() < 1e-6,
+            (map_cohesion(f32::NAN) - 0.46).abs() < 1e-6,
             "NaN → default 0.5"
         );
     }
@@ -135,7 +143,11 @@ mod w67_tests {
     fn given_default_material_when_mapped_then_params_match_spec_defaults() {
         let p = DEFAULT_MATERIAL.params();
         assert!((p.viscosity_px2_s - 447.21).abs() < 0.05);
-        assert!((p.tension_max - 0.16).abs() < 1e-6);
+        // W77 red: approved-test change (D77-2, approved 2026-10-10, saga dec_3ba590a1)
+        assert!(
+            (p.tension_max - 0.46).abs() < 1e-6,
+            "D77-2: default yield J ≤ 1.46"
+        );
         assert!((p.recovery_s - 0.7).abs() < 1e-6);
     }
 }

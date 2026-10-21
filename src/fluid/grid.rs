@@ -104,6 +104,14 @@ pub struct Grid {
     pub inv_cell: f32,
     pub origin_x_px: f32,
     pub origin_y_px: f32,
+    /// W80 (D80-1): the origin `new` chose (`−margin` on both axes); `scroll_origin` keeps the
+    /// origin within half a cell of it.
+    pub base_origin_px: f32,
+    /// W81 (D81-1, D81-2): the world the grid covers (px, clamped like `new`), and the margin
+    /// around it. The parking bound is the world plus the margin; `resize_world` grows the world.
+    pub world_w_px: f32,
+    pub world_h_px: f32,
+    pub margin_px: f32,
     pub w: usize,
     pub h: usize,
     pub mass: Vec<f32>,
@@ -113,6 +121,9 @@ pub struct Grid {
     pub region: Region,
     /// Diagnostic counter (B6 test): cells cleared plus cells updated.
     pub cells_touched: u64,
+    /// W83 (D83-1): the fixed step's body acceleration in cells/s² (the high-passed gravity,
+    /// `set_body_accel`); `(0, 0)` adds nothing.
+    pub body_accel: (f32, f32),
 }
 
 impl Grid {
@@ -156,6 +167,10 @@ impl Grid {
             inv_cell: inv,
             origin_x_px: -margin,
             origin_y_px: -margin,
+            base_origin_px: -margin,
+            world_w_px: ww,
+            world_h_px: wh,
+            margin_px: margin,
             w,
             h,
             mass: vec![0.0; n],
@@ -163,7 +178,74 @@ impl Grid {
             mvy: vec![0.0; n],
             region: Region::default(),
             cells_touched: 0,
+            body_accel: (0.0, 0.0),
         }
+    }
+
+    /// W83 (D83-1): the body acceleration (cells/s²) every following `update_velocities` adds to
+    /// the cells with mass. Non-finite components give 0.
+    pub fn set_body_accel(&mut self, ax: f32, ay: f32) {
+        let finite = |v: f32| if v.is_finite() { v } else { 0.0 };
+        self.body_accel = (finite(ax), finite(ay));
+    }
+
+    /// W80 (D80-1): a scroll moved the content by `(−dx, −dy)` px. Splits each delta into whole
+    /// cells `k` (the caller moves the particles by `−k` grid units) and a rest `f` px (the lattice
+    /// origin moves by `−f` here), so `k·cell + f = d` and the particles keep their phase on the
+    /// lattice: MLS-MPM's quadratic B-spline transfers are translation-invariant only by whole
+    /// cells, so a shift by a fraction of a cell would change the motion of liquid in flight. `k`
+    /// is chosen so the origin stays within half a cell of `base_origin_px` (the walls move by at
+    /// most that much). Returns `(kx, ky)` in cells. A non-finite delta moves nothing.
+    pub fn scroll_origin(&mut self, dx_px: f32, dy_px: f32) -> (f32, f32) {
+        let split = |d: f32, origin: f32| -> (f32, f32) {
+            if !d.is_finite() {
+                return (0.0, 0.0);
+            }
+            let drift = origin - self.base_origin_px;
+            let k = ((d - drift) * self.inv_cell).round();
+            (k, d - k * self.cell_px)
+        };
+        let (kx, fx) = split(dx_px, self.origin_x_px);
+        let (ky, fy) = split(dy_px, self.origin_y_px);
+        self.origin_x_px -= fx;
+        self.origin_y_px -= fy;
+        (kx, ky)
+    }
+
+    /// W81 (D81-2): grows the world to at least `world_w_px × world_h_px` (each clamped to
+    /// `[WORLD_MIN_PX, WORLD_MAX_PX]`; a non-finite or non-positive extent keeps that axis) and
+    /// reallocates the grid arrays for it. Never shrinks. The cell, the margin and the origin stay,
+    /// so every particle keeps its grid position and W80's lattice phase (`origin − base_origin_px`);
+    /// only the right and bottom walls move out. The region is reset (the caller invalidates the
+    /// fused AABB). Allocates: called outside `tick` only. Returns true when the world grew.
+    pub fn resize_world(&mut self, world_w_px: f32, world_h_px: f32) -> bool {
+        let grow = |v: f32, now: f32| {
+            if positive(v) {
+                v.clamp(WORLD_MIN_PX, WORLD_MAX_PX).max(now)
+            } else {
+                now
+            }
+        };
+        let ww = grow(world_w_px, self.world_w_px);
+        let wh = grow(world_h_px, self.world_h_px);
+        if ww <= self.world_w_px && wh <= self.world_h_px {
+            return false;
+        }
+        let cells = |extent: f32| {
+            ((extent + 2.0 * self.margin_px) * self.inv_cell).ceil() as usize + STENCIL_GUARD_CELLS
+        };
+        let w = cells(ww).max(self.w);
+        let h = cells(wh).max(self.h);
+        let n = w * h;
+        self.world_w_px = ww;
+        self.world_h_px = wh;
+        self.w = w;
+        self.h = h;
+        self.mass = vec![0.0; n];
+        self.mvx = vec![0.0; n];
+        self.mvy = vec![0.0; n];
+        self.region = Region::default();
+        true
     }
 
     #[inline]
@@ -276,11 +358,15 @@ impl Grid {
         }
     }
 
-    /// Momentum → velocity inside the dirty region, with slip walls at the grid
-    /// edges and the W67 CFL cap `vmax_cells` (cells/s; the solver passes
-    /// `MAX_CELLS_PER_SUBSTEP / dt`). `_dt` is for gravity (slice 6).
-    pub fn update_velocities(&mut self, _dt: f32, vmax_cells: f32) {
+    /// Momentum → velocity inside the dirty region, plus W83's body acceleration
+    /// (`body_accel · dt`, cells with mass only; D83-1), then slip walls at the grid edges and
+    /// the W67 CFL cap `vmax_cells` (cells/s; the solver passes `MAX_CELLS_PER_SUBSTEP / dt`).
+    /// A zero body acceleration adds nothing, so the result is bit-identical to W82's.
+    pub fn update_velocities(&mut self, dt: f32, vmax_cells: f32) {
         let r = self.region;
+        let (bx, by) = self.body_accel;
+        let body = bx != 0.0 || by != 0.0;
+        let (dvx, dvy) = (bx * dt, by * dt);
         for y in r.y0..r.y1 {
             for x in r.x0..r.x1 {
                 let idx = y * self.w + x;
@@ -290,6 +376,10 @@ impl Grid {
                 }
                 let mut vx = rd(&self.mvx, idx) / m;
                 let mut vy = rd(&self.mvy, idx) / m;
+                if body {
+                    vx += dvx;
+                    vy += dvy;
+                }
                 if (x < WALL_CELLS && vx < 0.0) || (x + WALL_CELLS + 1 > self.w && vx > 0.0) {
                     vx = 0.0;
                 }

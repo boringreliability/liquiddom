@@ -35,7 +35,7 @@ What a person sees and feels. Every ward moves at least one of these closer, or 
 4. Tab + Enter on "Split": the same splash at the centre. The focus ring is visible throughout.
 5. Drag "Merge" into the card and release: displacement merge, separation, both re-form within **3 s**, and the labels never overlap.
 6. Shake: everything sloshes and re-forms within **3 s**.
-7. Scroll 300 px and back: the liquid follows with no snap.
+7. Scroll 300 px and back: the liquid follows with no snap and every element is at rest within **3 s** after the scroll.
 8. Reduced motion / forced colours / Canvas2D project / `device.lost`: each behaves as in §4.
 
 ### Slice matrix
@@ -60,8 +60,8 @@ What a person sees and feels. Every ward moves at least one of these closer, or 
 | 2 | Liquid that reacts | W67 splash and shake · W68 pointer, hover and material · W69 playground + whole-picture check | 2, 3 (C, no text), 4, 6 |
 | 3 | WebGPU liquid | planned after the slice-2 whole-picture check | 1–3 in W, `device.lost` |
 | 4 | Liquid text | planned later | 3 with text, forced colours |
-| 5 | Drag and merge | planned later | 5 |
-| 6 | The world | planned later | 7, adapters, site |
+| 5 | Drag and merge | W78 drag the liquid (spike W78.0 first) · W79 merge and separate (step 5 ✅ by Dennis at W79 gold 2026-10-12; design `2026-10-11-liquiddom-slice-5-drag-merge-design.md`) | 5 |
+| 6 | The world | W80 scroll follows (spike W80.0 first) · W81 parking and resize · W82 under the page · W83 gravity and tilt · W84 touch and opt-out · W85 adapters · W86 the site · W87 whole picture (design `2026-10-13-liquiddom-slice-6-world-design.md`) | 7, adapters, site |
 
 ## How wards use this file
 1. Every ward spec has a line `North star: <scene steps this ward moves>` directly under its title.
@@ -76,8 +76,8 @@ What a person sees and feels. Every ward moves at least one of these closer, or 
 | After | Ward | What is recorded | Where |
 |---|---|---|---|
 | Slice 2 | W69 | The acceptance scene, steps 1–4, 6 and 8, recorded with the RAF clock in canvas2d only (no WebGPU fluid renderer exists before slice 3), plus status per scene step against the matrix | `.wdd/memory/whole-picture/slice-2.md`, `docs/superpowers/whole-picture/slice-2-canvas2d.gif` |
-| Slice 4 | (planned later) | Every renderer that exists at that point (canvas2d and webgpu) | `.wdd/memory/whole-picture/slice-4.md` |
-| Slice 6 | (planned later) | Every renderer, all 8 steps | `.wdd/memory/whole-picture/slice-6.md` |
+| Slice 4 | W76 | The acceptance scene, steps 1–4, 6 and 8 plus a card-text splash (3b) and forced colours switched on live mid-splash, recorded with the RAF clock in canvas2d and webgpu (Metal), plus status per scene step and renderer against the matrix | `.wdd/memory/whole-picture/slice-4.md`, `docs/superpowers/whole-picture/slice-4-canvas2d.gif`, `docs/superpowers/whole-picture/slice-4-webgpu.gif` |
+| Slice 6 | W87 | Every renderer, all 8 steps | `.wdd/memory/whole-picture/slice-6.md` |
 
 The recording is inspected with vision before the status is written. Each status is ✅, ⏳ or ❌ per step, measured against that slice's column.
 
@@ -204,3 +204,49 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D73-1 | Shake profile amplitude 0.8 → 0.5 (amends D70-1; W73 sweep) | W73 | dec_4772155d |
 | D73-2 | Shake stiffness cap 0.2 → 0.3, tension unchanged (amends D70-2) | W73 | dec_08c9b89c |
 | D73-3 | Blocking Canvas2D lace guard at f10/f20 (≤ 1.5 × measured, ≤ 50 % of today) | W73 | dec_81494c68 |
+| D74-1 | F update every substep (fallback every 2nd if p95 ratio > 1.2) | W74 | dec_020dbc51 |
+| D74-2 | Rest needs F ≈ I: AMENDED — max‖F−I‖ < 0.05 with an F-only slip 1.5 × SLIP_RATE (W74.0: shared slip gave 218 frames, dec_52b5d447) | W74 | dec_f34db06a |
+| D74-3 | torn hysteresis (clear at σ ∈ [0.67, 1.5]) | W74 | dec_579f4895 |
+| D74-4 | Text pass: T1/T1w own pass at 1×, text after the SDF, T2 dropped | W74 | dec_a39f7e75 |
+| D74-5 | Text atlas (word-wise fillText, ≤ 4096², gutter 10 px) | W74 | dec_44a29006 |
+| D74-6 | liquid-text toggle with fail-safe (text-fill-color) | W74 | dec_8a76bea3 |
+| D74-7 | Splash ghost pill: damage() drops restAlpha to 0 at once | W74 | dec_f2bdd4d3 |
+| D75-1 | Per-element MutationObserver, atlas invalidate: AMENDED — a changed element is masked and drops liquid-text until the new page is confirmed (A); one atlas upload in flight (B) | W75 | dec_25b4cea6, dec_b2499bfc |
+| D75-2 | Colour auto-refresh: AMENDED (B) — own class/style only, deferred while the element animates; refresh(el) kept (was dec_86b58e7b) | W75 | dec_b2499bfc |
+| D75-3 | Canvas2D DOM-text halo (liquid-halo text-shadow rule per element) | W75 | dec_c537bf43 |
+| D76-1 | Whole picture after slice 4 in both renderers (W69 template, step 3b, live forced colours) | W76 | dec_7c523bfc |
+| D76-2 | One-screen landing page scene as a foreign test page (recorded, report section, canvas2d smoke) | W76 | dec_506a5e00, dec_d2aca357 |
+| D77-1 | Kernel reach follows spacing: cap 8 → 16 px, Canvas2D grid scales with R (amends D71-5) | W77 | dec_279c7763 |
+| D77-2 | Sheet thins instead of tearing: tension 0.46, shake amplitude 0.35 (amends D73-1); W70 slosh floors 20/10 (2026-10-11) | W77 | dec_3ba590a1, dec_a99cad59 |
+| D77-3 | Honey re-forms within 3 s | W77 | dec_f68c0534 |
+| D77-4 | Demo index opens scenes with ?renderer=auto | W77 | dec_eab87afb |
+| D78-1 | Label follows the liquid: WebGPU atlas text, Canvas2D hides the DOM glyphs (`liquid-away`) until rest | W78 | dec_ef69b009 |
+| D78-2 | Mouse/pen drag, primary button, capture past 4 px; no touch or keyboard drag | W78 | dec_4ee820b6 |
+| D78-3 | Spec physics: s ≤ 0.5 every substep, home velocity with the offset; spike W78.0 first | W78 | dec_b42edab8 |
+| D78-4 | DRAGGED > hover > focus > idle; pointer field skips the dragged liquid | W78 | dec_c999105a |
+| D78-5 | A dragged element never rests | W78 | dec_a7ad4b5d |
+| D78-6 | The click that ends a drag is swallowed once | W78 | dec_38ad086a |
+| D79-1 | Labels never overlap: per-texel element-id target, no text where ids differ | W79 | dec_62c643f9 |
+| D79-2 | Neighbours under the drag at s ≤ 0.2; merge slip only for elements in a merge | W79 | dec_3209c60d |
+| D79-3 | Merge perf ≤ 1.15 × a card-splash frame | W79 | dec_3209c60d |
+| D79-4 | Merge checks hold the drag 90 frames | W79 | dec_3209c60d |
+| D79-5 | Torn card text after release: no extra mechanism, vision at gold | W79 | dec_3209c60d |
+| D79-6 | @internal id-target readback for the e2e | W79 | dec_3209c60d |
+| D80-1 | Scroll model: viewport space + rigid scroll_shift (whole cells + lattice-origin rest) + light inertia; dragged element not shifted; container canvas transform | W80 | dec_bf3e91f4 |
+| D80-2 | Inertia Δ·60·SCROLL_INERTIA (0.02), capped at SCROLL_INERTIA_MAX_PX_S (30) · dt · 60 per call, 0 without elapsed time or under reduced motion (amended at the gate, W80.0) | W80 | dec_67a169e6 |
+| D80-3 | Step-7 budget: at rest within 3 s after the scroll; per-frame fill ≥ FILL_MIN 0.85; step-7 speeds 1, 10, 30, 300 px/frame | W80 | dec_08b53a98 |
+| D80-4 | 1-frame lag accepted (invisible at rest, W80.0; in motion one frame per scroll step); logged probe, never gated; a canvas that scrolls with the content revisited at W87 | W80 | dec_f06ddc93 |
+| D81-1 | Parking: not simulated outside world + grid margin (FLAG_PARKED, both renderers skip); unpark 64 px inside on every side or overlapping the world; re-entry at rest; dragged/inactive never parked; Canvas2D skips inactive slots | W81 | dec_8e1fb156 |
+| D81-2 | Resize: resize_world(w, h) grows the grid arrays only (lattice phase kept), never shrinks; TS grows an outgrown axis to ≥ 1.25 × from the resize handler, one console.info per growth | W81 | dec_bffbacf6 |
+| D81-3 | Container world = the container's client box (its visible window since W80), not its scroll range | W81 | dec_0831a6b4 |
+| D82-1 | Stacking: canvas at z-index -1 (body); container -1 only as a stacking context, else warn + z-index 0 fallback; container/html/body never restyled | W82 | dec_5cee9fcb |
+| D82-2 | Opaque ancestor backgrounds: chain check at create() and observe() (body only when html has its own); first hit = one console.warn + z-index 0 fallback with the D7 rules | W82 | dec_aee06d64 |
+| D82-3 | D7 data-liquid-stack rules dropped at z-index -1, kept for a z-index 0 fallback instance | W82 | dec_94c7834f |
+| D82-4 | Canvas2D density cell ceil(R)/6 (2 px floor kept, EDGE_SOFTNESS 0.1) | W82 | dec_34ee6dd6 |
+| D82-5 | Shake mirrors outward direction within 80 px of a viewport edge; set_viewport(w, h) scalar call | W82 | dec_adb31552 |
+| D82-6 | Book a demo bead chain under shake accepted as a known limitation | W82 | dec_09c2f0ea |
+| D83-1 | High-pass gravity: per-core low-pass, scale·g_hp·dt on grid velocities with mass, clamp 2000 px/s², snap < 0.5; home spring unchanged (subtle lean); reduced motion g = 0 | W83 | dec_1b0ca2b0 |
+| D83-2 | Gravity tau 0.5 s, scale 1.5, clamp 2000 px/s² | W83 | dec_92788d5a |
+| D83-3 | setGravity(partial) atomic like setMaterial; fixed g = normalize(vector)·strength | W83 | dec_993e915c |
+| D83-4 | Low-pass seeded at create() and on a source switch: a fixed vector starts at rest | W83 | dec_f274696e |
+| D83-5 | Orientation: beta/gamma projection rotated by screen.orientation.angle, 2° dead band, listener removed on destroy | W83 | dec_ec44cc30 |

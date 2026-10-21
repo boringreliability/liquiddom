@@ -121,6 +121,9 @@ pub fn redistribute(
         wr_u32(&mut p.home, i, u32::try_from(cursor).unwrap_or(NO_HOME));
         wr_u32(&mut p.rank, i, k);
         wr_u32(&mut s.next, cursor, k.saturating_add(1));
+        // W74 (D74-2, D74-3): a refilled particle gets a new rest_uv, so its old render-only F
+        // means nothing there: it starts at F = I, not torn (positions and velocities stay).
+        p.reset_deformation(i);
     }
 
     // 5. Rest uv, per-generation mass (B4) and first placement.

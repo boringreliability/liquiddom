@@ -103,7 +103,8 @@ test.describe("step 8 – modes (slice 1)", () => {
     const printBg = await splash.evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(printBg).not.toBe("rgba(0, 0, 0, 0)"); // classes neutralised: the author background is back
     for (const el of await page.locator("[data-liquid]").all()) {
-      await expect(el).not.toHaveClass(/liquid-text/);
+      // W74 red: approved-test change (Dennis approves at W74 red) — message only (D74-6)
+      await expect(el, "Canvas2D never sets liquid-text (W74, D74-6)").not.toHaveClass(/liquid-text/);
     }
   });
 

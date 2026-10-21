@@ -278,18 +278,18 @@ mod w67 {
 
     const FPS: f32 = 60.0;
     /// D67-1 option 1: spec §6 step 3, amended in W67.
-    const REFORM_SPLASH_BUDGET_S: f32 = 3.0;
+    pub(super) const REFORM_SPLASH_BUDGET_S: f32 = 3.0;
     /// Spec §6 step 6.
     const REFORM_SHAKE_BUDGET_S: f32 = 3.0;
-    const SPLASH: usize = 0;
+    pub(super) const SPLASH: usize = 0;
     const SPLIT: usize = 1;
 
-    fn centre(id: usize) -> (f32, f32) {
+    pub(super) fn centre(id: usize) -> (f32, f32) {
         let [x, y, w, h, _] = LAYOUT[id];
         (x + 0.5 * w, y + 0.5 * h)
     }
 
-    fn frame(core: &mut FluidCore) {
+    pub(super) fn frame(core: &mut FluidCore) {
         assert_eq!(
             core.tick(1.0 / 60.0, -1.0e4, -1.0e4, 0.0, 0.0, false, 0.0, 0.0),
             1
@@ -301,14 +301,14 @@ mod w67 {
         a.len() == 4 && a.iter().all(|&x| x >= 1.0)
     }
 
-    fn frames_until_rest(core: &mut FluidCore, max: u32) -> Option<u32> {
+    pub(super) fn frames_until_rest(core: &mut FluidCore, max: u32) -> Option<u32> {
         (1..=max).find(|_| {
             frame(core);
             all_at_rest(core)
         })
     }
 
-    fn settled_core(seed: u32) -> FluidCore {
+    pub(super) fn settled_core(seed: u32) -> FluidCore {
         let mut core = acceptance_core(seed);
         for _ in 0..60 {
             frame(&mut core);
@@ -321,7 +321,7 @@ mod w67 {
         core
     }
 
-    fn budget_frames(seconds: f32, already: u32) -> u32 {
+    pub(super) fn budget_frames(seconds: f32, already: u32) -> u32 {
         ((seconds * FPS).round() as u32).saturating_sub(already)
     }
 
@@ -330,7 +330,7 @@ mod w67 {
     }
 
     /// `run_stress`, calling `observe` with the core after every tick (and its injections).
-    fn run_stress_observed(core: &mut FluidCore, mut observe: impl FnMut(&FluidCore)) {
+    pub(super) fn run_stress_observed(core: &mut FluidCore, mut observe: impl FnMut(&FluidCore)) {
         for f in 0..600u32 {
             let [x, y, w, h, r] = LAYOUT[SPLASH];
             let dx = if (420..480).contains(&f) {
@@ -460,9 +460,14 @@ mod w67 {
     }
 
     #[test]
-    fn given_gravity_args_when_ticking_then_positions_identical_to_zero_gravity_until_slice_6() {
+    fn given_a_constant_gravity_seeded_at_create_when_ticking_then_positions_identical_to_zero_gravity()
+     {
+        // W83 red: approved-test change (D83-1, D83-4): gravity acts now, but only its changes do.
+        // A constant gravity seeded like TS seeds it at create() moves nothing. Until W83 this test
+        // (D67-2) passed 980 unseeded and expected no effect at all.
         let mut a = settled_core(5);
         let mut b = settled_core(5);
+        a.seed_gravity(0.0, 980.0);
         let (cx, cy) = centre(SPLIT);
         a.splash(SPLIT as u32, cx, cy, 1.0);
         b.splash(SPLIT as u32, cx, cy, 1.0);
@@ -473,27 +478,73 @@ mod w67 {
         assert_eq!(
             a.position_bits(),
             b.position_bits(),
-            "D67-2: gravity has no effect before slice 6"
+            "D83-1: a constant gravity moves nothing"
         );
     }
 
+    /// W83 (D83-1): the acceptance layout's kernel radius, 2.3 × its particle spacing (W83.0 Q1).
+    const TILT_KERNEL_PX: f32 = 7.09;
+
     #[test]
-    #[ignore = "slice 6: gravity in the grid update (spec §6 interim state, D67-2)"]
-    fn given_gravity_when_ticking_then_liquid_falls() {
+    fn given_a_90_degree_tilt_on_the_settled_acceptance_layout_when_ticking_then_the_liquid_leans_inside_rect_plus_kernel_rests_within_3_s_and_no_deviation_persists()
+     {
+        // W83 red: approved-test change (D83-1): this slice-6 scenario (ignored until W83) expected
+        // the card's liquid to sag under gravity and stay down. Gravity is a high-pass now: a tilt
+        // sloshes the liquid inside its element and it rests at home again.
         let mut core = settled_core(5);
-        let ids = core.particle_indices_of(CARD as u32);
-        let mean_y = |c: &FluidCore| {
-            ids.iter().map(|&i| c.particle_px(i).1).sum::<f32>() / ids.len().max(1) as f32
+        core.seed_gravity(0.0, 980.0);
+        let centroids = |c: &FluidCore| -> Vec<(f32, f32)> {
+            (0..4u32)
+                .map(|id| {
+                    let ids = c.particle_indices_of(id);
+                    let n = ids.len().max(1) as f32;
+                    let (sx, sy) = ids.iter().fold((0.0f32, 0.0f32), |(ax, ay), &i| {
+                        let (x, y) = c.particle_px(i);
+                        (ax + x, ay + y)
+                    });
+                    (sx / n, sy / n)
+                })
+                .collect()
         };
-        let before = mean_y(&core);
-        core.shake(0.5);
-        for _ in 0..60 {
-            core.tick(1.0 / 60.0, -1.0e4, -1.0e4, 0.0, 0.0, false, 0.0, 980.0);
+        let before = centroids(&core);
+        let k = TILT_KERNEL_PX;
+        let mut peak = 0.0f32;
+        let mut rest_at = None;
+        for f in 1..=budget_frames(3.0, 0) {
+            // Straight down → to the right: a 90° tilt step.
+            assert_eq!(
+                core.tick(1.0 / 60.0, -1.0e4, -1.0e4, 0.0, 0.0, false, 980.0, 0.0),
+                1
+            );
+            peak = core.max_dev_px().into_iter().fold(peak, f32::max);
+            for i in 0..core.particle_capacity() as usize {
+                let [x0, y0, w, h, r] = LAYOUT[core.home(i) as usize];
+                let (x, y) = core.particle_px(i);
+                assert!(
+                    crate::fluid::sampling::inside_rounded_rect(
+                        x - (x0 - k),
+                        y - (y0 - k),
+                        w + 2.0 * k,
+                        h + 2.0 * k,
+                        r + k
+                    ),
+                    "frame {f}, particle {i}: ({x}, {y}) leaves its element's rect + kernel"
+                );
+            }
+            if rest_at.is_none() && peak > 1.0 && all_at_rest(&core) {
+                rest_at = Some(f);
+            }
         }
-        assert!(
-            mean_y(&core) > before + 5.0,
-            "the card's liquid sags under gravity"
-        );
+        eprintln!("W83 D83-1 evidence: 90° tilt peak {peak} px, rest after {rest_at:?} frames");
+        assert!(peak > 1.0, "the tilt leans the liquid: peak {peak} px");
+        assert!(rest_at.is_some(), "every restAlpha back to 1 within 3 s");
+        for (id, (a, b)) in before.iter().zip(centroids(&core)).enumerate() {
+            let d = (a.0 - b.0).hypot(a.1 - b.1);
+            assert!(
+                d <= 0.05,
+                "element {id}: its centroid sits {d} px from where it rested before the tilt, 3 s later"
+            );
+        }
     }
 
     // ---- W67 amendment: D67-13 edge metric and D67-15 lock probe ---------------------
@@ -614,17 +665,28 @@ mod w67 {
     fn given_element_moved_1000px_away_and_back_when_ticking_then_every_rest_alpha_1_within_5_s() {
         let mut core = settled_core(1);
         let home = LAYOUT[SPLASH];
-        // +1000 px ploughs through the Split and Merge liquid; −1000 px leaves the world (clamped).
+        // +1000 px ploughs through the Split and Merge liquid; −1000 px leaves the world and parks (W81).
         for dx in [1000.0f32, -1000.0] {
             let [x, y, w, h, r] = home;
             core.write_element(SPLASH, slot([x + dx, y, w, h, r]));
             for _ in 0..60 {
                 frame(&mut core);
             }
-            assert!(
-                core.rest_alphas()[SPLASH] < 1.0,
-                "dx {dx}: the Splash liquid left its home"
-            );
+            if dx > 0.0 {
+                assert!(
+                    core.rest_alphas()[SPLASH] < 1.0,
+                    "dx {dx}: the Splash liquid left its home"
+                );
+            } else {
+                // W81 red: approved-test change (D81-1): −1000 px is entirely outside the world
+                // plus the margin, so the element parks at rest instead of clamping to the wall.
+                assert!(core.is_parked_of(SPLASH), "dx {dx}: parked (W81)");
+                assert_eq!(
+                    core.rest_alphas()[SPLASH],
+                    1.0,
+                    "dx {dx}: held at rest while parked"
+                );
+            }
             core.write_element(SPLASH, slot(home));
             let frames = frames_until_rest(&mut core, budget_frames(LOCK_PROBE_BUDGET_S, 0));
             eprintln!(
@@ -653,8 +715,14 @@ mod w70 {
     /// at 6.64 px (max pill) and 5.87 px (card); the coherent field at cap 0.2 gives ≥ 23.67 px
     /// on every pill (min) and 61.68 px on the card (W70, amplitude 0.8). W73 (amplitude 0.5,
     /// cap 0.3; D73-1/2) measured card 30.7 px / pills 14.9 px at the worst of seeds 1–3.
-    const SLOSH_CARD_MIN_PX: f32 = 24.0;
-    const SLOSH_PILL_MIN_PX: f32 = 12.0;
+    /// W77 red: approved-test change (D77-2 consequence "shake slosh drops ≈30 % but stays visibly
+    /// a bend", approved 2026-10-10, saga dec_3ba590a1; the floors 20 / 10 themselves approved by
+    /// Dennis 2026-10-11, saga dec_a99cad59, recorded on D77-2's Decision line). W77.0 measured seed 1 at D77-2's constants (TENSION_MAX_MAX 0.90,
+    /// amplitude 0.35): [Splash, Split, Merge, card] = [16.46, 11.52, 21.90, 25.39] px (today
+    /// [21.42, 14.88, 31.59, 36.65]); the floors drop 24 → 20 and 12 → 10, still 1.5× W67's
+    /// white-noise peak (6.64 px), so a sliding-intact element still fails.
+    const SLOSH_CARD_MIN_PX: f32 = 20.0;
+    const SLOSH_PILL_MIN_PX: f32 = 10.0;
     /// The shake peak lies in frames 10–24 (measured).
     const SLOSH_FRAMES: u32 = 30;
 
@@ -798,5 +866,211 @@ mod w70 {
                 "element {id}: peak non-rigid RMS {p} px < {min} px (sliding intact, not sloshing)"
             );
         }
+    }
+}
+
+// ---- W74: F, the F rest condition and the ghost pill (D74-1, D74-2, D74-3, D74-7) ------
+mod w74 {
+    use super::w67::{
+        REFORM_SPLASH_BUDGET_S, SPLASH, budget_frames, centre, frame, frames_until_rest,
+        run_stress_observed, settled_core,
+    };
+    use super::{CARD, LAYOUT, acceptance_core, slot};
+    use crate::fluid::api::FStats;
+    use crate::fluid::fmath::{F_REST_TOL, F_SIGMA_MAX, F_SIGMA_MIN};
+
+    #[test]
+    fn given_stress_sequence_when_run_then_every_f_stays_finite_with_det_above_0_and_sigma_within_the_clamp_d74_1()
+     {
+        let mut core = acceptance_core(1);
+        let mut worst = FStats::NONE;
+        let mut torn_peak = 0usize;
+        run_stress_observed(&mut core, |c| {
+            let s = c.f_stats();
+            worst = worst.worst(s);
+            torn_peak = torn_peak.max(s.torn);
+        });
+        eprintln!("W74 D74-1 evidence: worst F {worst:?}, torn peak {torn_peak}");
+        assert_eq!(worst.non_finite, 0, "no non-finite F");
+        assert!(
+            worst.min_det > 0.0,
+            "det F > 0 everywhere: {}",
+            worst.min_det
+        );
+        assert!(
+            worst.max_sigma <= F_SIGMA_MAX + 1e-3,
+            "σ1 ≤ 5: {}",
+            worst.max_sigma
+        );
+        assert!(
+            worst.min_sigma >= F_SIGMA_MIN - 1e-3,
+            "σ2 ≥ 0.2: {}",
+            worst.min_sigma
+        );
+        // No upper bound: the strength-2 card splash shreds most of the card, and torn heals only
+        // in σ ∈ [0.67, 1.5] (D74-3), so ~40 % of the particles can be torn at the peak (plan
+        // validation 2026-10-10: 3376 of 8000; the spike's 242 came from a softer sequence).
+        // Test 14 pins that every tear heals by rest.
+        assert!(
+            torn_peak > 0,
+            "the strength-2 card splash tears some liquid"
+        );
+    }
+
+    #[test]
+    fn given_stress_sequence_then_idle_when_every_element_is_at_rest_then_no_particle_is_torn_and_slot_3_is_below_0_05_d74_3()
+     {
+        let mut core = acceptance_core(1);
+        let mut moved = 0.0f32;
+        run_stress_observed(&mut core, |c| {
+            moved = c.f_devs().into_iter().fold(moved, f32::max);
+        });
+        assert!(
+            moved > F_REST_TOL,
+            "the stress deforms F (max slot 3 {moved})"
+        );
+        let frames = frames_until_rest(&mut core, 600);
+        eprintln!("W74 D74-3 evidence: at rest {frames:?} frames after the stress");
+        assert!(frames.is_some(), "the scene comes to rest after the stress");
+        assert_eq!(core.f_stats().torn, 0, "nothing is torn at rest");
+        let devs = core.f_devs();
+        assert!(
+            devs.iter().all(|&d| d < F_REST_TOL),
+            "slot 3 at rest {devs:?}"
+        );
+    }
+
+    #[test]
+    fn given_a_strength_1_splash_when_re_forming_then_rest_alpha_is_1_only_with_slot_3_below_0_05_and_within_3_s_d74_2()
+     {
+        let mut core = settled_core(1);
+        assert!(
+            core.f_devs().iter().all(|&d| d < F_REST_TOL),
+            "settled: F ≈ I"
+        );
+        let (cx, cy) = centre(SPLASH);
+        core.splash(SPLASH as u32, cx, cy, 1.0);
+        let mut peak = 0.0f32;
+        let mut rested = None;
+        for f in 1..=budget_frames(REFORM_SPLASH_BUDGET_S, 0) {
+            frame(&mut core);
+            let (alphas, devs) = (core.rest_alphas(), core.f_devs());
+            peak = peak.max(devs[SPLASH]);
+            for (id, (&a, &d)) in alphas.iter().zip(&devs).enumerate() {
+                assert!(
+                    a < 1.0 || d < F_REST_TOL,
+                    "frame {f}: element {id} at rest with ‖F − I‖ {d}"
+                );
+            }
+            if alphas.iter().all(|&a| a >= 1.0) {
+                rested = Some(f);
+                break;
+            }
+        }
+        eprintln!(
+            "W74 D74-2 evidence: splash re-form after {rested:?} frames, peak slot 3 of Splash {peak}"
+        );
+        assert!(peak > F_REST_TOL, "the splash deforms F");
+        assert!(
+            rested.is_some(),
+            "every restAlpha back to 1 within {REFORM_SPLASH_BUDGET_S} s"
+        );
+    }
+
+    #[test]
+    fn given_a_splash_or_shake_on_resting_elements_when_applied_then_their_rest_alpha_is_0_before_and_after_the_next_frame_d74_7()
+     {
+        let mut core = settled_core(1);
+        let (cx, cy) = centre(SPLASH);
+        core.splash(SPLASH as u32, cx, cy, 1.0);
+        assert_eq!(
+            core.rest_alphas()[SPLASH],
+            0.0,
+            "damage drops restAlpha at once"
+        );
+        frame(&mut core);
+        assert_eq!(
+            core.rest_alphas()[SPLASH],
+            0.0,
+            "no rest contour fades over the hole"
+        );
+        let mut shaken = settled_core(1);
+        shaken.shake(1.0);
+        assert_eq!(
+            shaken.rest_alphas(),
+            vec![0.0; 4],
+            "a shake damages every element"
+        );
+        frame(&mut shaken);
+        assert_eq!(shaken.rest_alphas(), vec![0.0; 4]);
+    }
+
+    /// D74-1: ms per fixed step for F off / every substep / every 2nd substep over the stress
+    /// inputs. Release only: `cargo test --release --lib bench_f_update_cost -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "benchmark (D74-1): cargo test --release --lib bench_f_update_cost -- --ignored --nocapture"]
+    fn bench_f_update_cost_every_vs_every_2nd_substep_d74_1() {
+        use std::time::Instant;
+        const ROUNDS: usize = 3;
+        let variants: [(&str, u32); 3] = [
+            ("F off", 0),
+            ("F every substep", 1),
+            ("F every 2nd substep", 2),
+        ];
+        let mut ms = vec![Vec::<f64>::new(); variants.len()];
+        for _ in 0..ROUNDS {
+            for (k, &(_, every)) in variants.iter().enumerate() {
+                let mut core = acceptance_core(1);
+                core.set_f_every(every);
+                for f in 0..600u32 {
+                    let [x, y, w, h, r] = LAYOUT[SPLASH];
+                    let dx = if (420..480).contains(&f) {
+                        (f - 420) as f32 / 60.0 * 164.0
+                    } else {
+                        0.0
+                    };
+                    core.write_element(SPLASH, slot([x + dx, y, w, h, r]));
+                    let px = 300.0 + ((f * 7) % 700) as f32;
+                    let t = Instant::now();
+                    let steps = core.tick(1.0 / 60.0, px, 284.0, 420.0, 0.0, true, 0.0, 0.0);
+                    if steps > 0 {
+                        ms[k].push(t.elapsed().as_secs_f64() * 1e3 / f64::from(steps));
+                    }
+                    match f {
+                        60 => {
+                            let (cx, cy) = centre(SPLASH);
+                            core.splash(SPLASH as u32, cx, cy, 1.0);
+                        }
+                        200 => {
+                            let (cx, cy) = centre(CARD);
+                            core.splash(CARD as u32, cx, cy, 2.0);
+                        }
+                        330 => core.shake(1.0),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        let summary: Vec<(f64, f64)> = ms
+            .iter_mut()
+            .map(|v| {
+                v.sort_by(f64::total_cmp);
+                let mean = v.iter().sum::<f64>() / v.len() as f64;
+                let p95 = v[((v.len() as f64 * 0.95).ceil() as usize).saturating_sub(1)];
+                (mean, p95)
+            })
+            .collect();
+        for ((name, _), (mean, p95)) in variants.iter().zip(&summary) {
+            eprintln!("W74 D74-1 bench: {name}: mean {mean:.3} ms, p95 {p95:.3} ms per fixed step");
+        }
+        let ratio = summary[1].1 / summary[0].1;
+        eprintln!(
+            "W74 D74-1 bench: p95 every/off = {ratio:.3} (D74-1: every 2nd substep only above 1.2)"
+        );
+        assert!(
+            summary
+                .iter()
+                .all(|&(m, p)| m.is_finite() && p.is_finite() && m > 0.0)
+        );
     }
 }

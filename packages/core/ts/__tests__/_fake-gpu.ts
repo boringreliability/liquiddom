@@ -32,6 +32,10 @@ export interface FakeGpuOptions {
   holdInit?: boolean;
   /** W71.4 review fix: `adapter.limits.maxTextureDimension2D` (default 8192, the WebGPU default limit). */
   maxTextureDimension2D?: number;
+  /** W74: thrown by `queue.copyExternalImageToTexture()` (a detached or unusable source). */
+  copyExternalError?: Error;
+  /** W74 review: raised by `queue.copyExternalImageToTexture()` into the innermost open error scope (a device-timeline validation error: the call itself does not throw). */
+  copyExternalValidationError?: string;
 }
 
 export interface FakeBuffer {
@@ -40,6 +44,11 @@ export interface FakeBuffer {
   readonly usage: number;
   destroyed: boolean;
   destroy(): void;
+  /** W79: resolves at once (rejects when destroyed); a buffer without MAP_READ records an error. */
+  mapAsync(mode: number): Promise<void>;
+  /** W79: zero-filled, `size` bytes. */
+  getMappedRange(): ArrayBuffer;
+  unmap(): void;
 }
 
 export interface FakeTexture {
@@ -80,6 +89,35 @@ export interface FakeWrite {
   readonly values: number[];
 }
 
+/** W74: one `queue.copyExternalImageToTexture()` call. */
+export interface FakeExternalCopy {
+  readonly source: unknown;
+  readonly texture: FakeTexture;
+  readonly width: number;
+  readonly height: number;
+  readonly premultipliedAlpha: boolean;
+}
+
+/** W74 ward-review (I1): one `encoder.copyTextureToTexture()` call (the atlas swap). */
+export interface FakeTextureCopy {
+  readonly source: FakeTexture;
+  readonly destination: FakeTexture;
+  readonly width: number;
+  readonly height: number;
+}
+
+/** W79 (D79-1): one `encoder.copyTextureToBuffer()` call (the text id readback). */
+export interface FakeBufferCopy {
+  readonly texture: FakeTexture;
+  readonly buffer: FakeBuffer;
+  readonly bytesPerRow: number;
+  readonly rowsPerImage: number;
+  readonly width: number;
+  readonly height: number;
+  /** Render passes begun before the copy (all passes of its frame when it is encoded last). */
+  readonly passIndex: number;
+}
+
 /** What `createRenderPipeline` returns: the descriptor it was called with. */
 export interface FakePipeline {
   readonly descriptor: GPURenderPipelineDescriptor;
@@ -112,6 +150,11 @@ export interface FakeGpuCalls {
   textures: FakeTexture[];
   bindGroups: GPUBindGroupDescriptor[];
   writes: FakeWrite[];
+  externalCopies: FakeExternalCopy[];
+  /** W74 ward-review (I1): encoder.copyTextureToTexture() calls, in order. */
+  textureCopies: FakeTextureCopy[];
+  /** W79 (D79-1): encoder.copyTextureToBuffer() calls, in order. */
+  bufferCopies: FakeBufferCopy[];
   passes: FakePass[];
   submits: number;
   deviceDestroyed: number;
@@ -144,14 +187,18 @@ const GPU_GLOBALS: Readonly<Record<string, Readonly<Record<string, number>>>> = 
   },
   GPUTextureUsage: { COPY_SRC: 0x1, COPY_DST: 0x2, TEXTURE_BINDING: 0x4, STORAGE_BINDING: 0x8, RENDER_ATTACHMENT: 0x10 },
   GPUShaderStage: { VERTEX: 0x1, FRAGMENT: 0x2, COMPUTE: 0x4 },
+  GPUMapMode: { READ: 0x1, WRITE: 0x2 },
 };
+
+/** W79: bytes per texel of the formats the fake copies into buffers. */
+const TEXEL_BYTES: Readonly<Record<string, number>> = { rg16float: 4, r16float: 2, rgba16float: 8, rgba8unorm: 4 };
 
 const PREFERRED_FORMAT = "bgra8unorm";
 
 export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
   const calls: FakeGpuCalls = {
     requestAdapter: 0, requestDevice: 0, deviceDescriptors: [], configure: [], shaderModules: [], bindGroupLayouts: [], pipelines: [],
-    buffers: [], textures: [], bindGroups: [], writes: [], passes: [], submits: 0, deviceDestroyed: 0, getContextWebgpu: 0, log: [], errors: [],
+    buffers: [], textures: [], bindGroups: [], writes: [], externalCopies: [], textureCopies: [], bufferCopies: [], passes: [], submits: 0, deviceDestroyed: 0, getContextWebgpu: 0, log: [], errors: [],
   };
   const adapterError = new Error("adapter exploded");
   const deviceError = new Error("device exploded");
@@ -236,6 +283,22 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
           if (offset + bytes > buffer.size) calls.errors.push(`writeBuffer(${name}): ${offset} + ${bytes} > ${buffer.size}`);
           calls.writes.push({ buffer, offset, bytes, values: Array.from(data.subarray(dataOffset, dataOffset + elements)) });
         },
+        copyExternalImageToTexture: (
+          src: { source: unknown },
+          dest: { texture: FakeTexture; premultipliedAlpha?: boolean },
+          size: number[] | GPUExtent3DDict,
+        ) => {
+          if (opts.copyExternalError) throw opts.copyExternalError;
+          if (opts.copyExternalValidationError) raise(opts.copyExternalValidationError);
+          const [w, h] = Array.isArray(size) ? [size[0] ?? 0, size[1] ?? 1] : [size.width, size.height ?? 1];
+          const t = dest.texture;
+          const name = t.label ?? "";
+          // WebGPU: the destination needs COPY_DST and RENDER_ATTACHMENT (0x2 | 0x10).
+          if ((t.usage & 0x12) !== 0x12) calls.errors.push(`copyExternalImageToTexture(${name}): usage lacks COPY_DST | RENDER_ATTACHMENT`);
+          if (t.destroyed) calls.errors.push(`copyExternalImageToTexture(${name}): destroyed texture`);
+          if (w > t.width || h > t.height) calls.errors.push(`copyExternalImageToTexture(${name}): ${w}x${h} exceeds ${t.width}x${t.height}`);
+          calls.externalCopies.push({ source: src.source, texture: t, width: w, height: h, premultipliedAlpha: dest.premultipliedAlpha === true });
+        },
       },
       destroy: () => {
         calls.deviceDestroyed += 1;
@@ -269,6 +332,13 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
           destroy: () => {
             buffer.destroyed = true;
           },
+          // W79: WebGPU maps only a MAP_READ buffer for reading, and never a destroyed one.
+          mapAsync: (mode: number) => {
+            if ((d.usage & 0x1) === 0 || mode !== 0x1) calls.errors.push(`mapAsync(${d.label ?? ""}): needs MAP_READ and GPUMapMode.READ`);
+            return buffer.destroyed ? Promise.reject(new Error("mapAsync: destroyed buffer")) : Promise.resolve();
+          },
+          getMappedRange: () => new ArrayBuffer(d.size),
+          unmap: () => {},
         };
         calls.buffers.push(buffer);
         return buffer;
@@ -327,6 +397,38 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
               pass.ended = true;
             },
           };
+        },
+        copyTextureToBuffer: (
+          src: { texture: FakeTexture },
+          dst: { buffer: FakeBuffer; bytesPerRow: number; rowsPerImage?: number },
+          size: number[] | GPUExtent3DDict,
+        ) => {
+          const [w, h] = Array.isArray(size) ? [size[0] ?? 0, size[1] ?? 1] : [size.width, size.height ?? 1];
+          const t = src.texture;
+          const b = dst.buffer;
+          // WebGPU: COPY_SRC on the texture, COPY_DST on the buffer, bytesPerRow a multiple of 256 and ≥ one row, the buffer large enough.
+          if ((t.usage & 0x1) === 0) calls.errors.push(`copyTextureToBuffer(${t.label ?? ""}): texture usage lacks COPY_SRC`);
+          if ((b.usage & 0x8) === 0) calls.errors.push(`copyTextureToBuffer(${b.label ?? ""}): buffer usage lacks COPY_DST`);
+          if (dst.bytesPerRow % 256 !== 0) calls.errors.push(`copyTextureToBuffer: bytesPerRow ${dst.bytesPerRow} is not a multiple of 256`);
+          if (dst.bytesPerRow < w * (TEXEL_BYTES[t.format] ?? 4)) calls.errors.push(`copyTextureToBuffer: bytesPerRow ${dst.bytesPerRow} < one row`);
+          if (b.size < dst.bytesPerRow * h) calls.errors.push(`copyTextureToBuffer: buffer ${b.size} B < ${dst.bytesPerRow * h} B`);
+          if (w > t.width || h > t.height) calls.errors.push(`copyTextureToBuffer: ${w}x${h} exceeds ${t.width}x${t.height}`);
+          if (t.destroyed || b.destroyed) calls.errors.push("copyTextureToBuffer: destroyed texture or buffer");
+          calls.bufferCopies.push({ texture: t, buffer: b, bytesPerRow: dst.bytesPerRow, rowsPerImage: dst.rowsPerImage ?? h, width: w, height: h, passIndex: calls.passes.length });
+        },
+        copyTextureToTexture: (src: { texture: FakeTexture }, dst: { texture: FakeTexture }, size: number[] | GPUExtent3DDict) => {
+          const [w, h] = Array.isArray(size) ? [size[0] ?? 0, size[1] ?? 1] : [size.width, size.height ?? 1];
+          const s = src.texture;
+          const d = dst.texture;
+          // WebGPU: the source needs COPY_SRC (0x1), the destination COPY_DST (0x2), one format, and the extent fits both.
+          if ((s.usage & 0x1) === 0) calls.errors.push(`copyTextureToTexture(${s.label ?? ""}): source usage lacks COPY_SRC`);
+          if ((d.usage & 0x2) === 0) calls.errors.push(`copyTextureToTexture(${d.label ?? ""}): destination usage lacks COPY_DST`);
+          if (s.format !== d.format) calls.errors.push(`copyTextureToTexture: formats differ (${s.format} → ${d.format})`);
+          if (s.destroyed || d.destroyed) calls.errors.push("copyTextureToTexture: destroyed texture");
+          if (w > s.width || h > s.height || w > d.width || h > d.height) {
+            calls.errors.push(`copyTextureToTexture: ${w}x${h} exceeds ${s.width}x${s.height} or ${d.width}x${d.height}`);
+          }
+          calls.textureCopies.push({ source: s, destination: d, width: w, height: h });
         },
         finish: () => ({}),
       }),

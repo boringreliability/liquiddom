@@ -3,13 +3,20 @@
 // Usage: node scripts/webm-to-gif.mjs <input.webm|manifest.json> <output.gif> [--width 640] [--fps 12]
 // Needs ffmpeg on PATH (local only; not assumed in CI).
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const DEFAULT_WIDTH = 640;
 export const DEFAULT_FPS = 12;
 export const MAX_GIF_BYTES = 10 * 1024 * 1024;
+/** W76: tried in order when no --width/--fps is given; the first that fits MAX_GIF_BYTES wins. */
+export const SIZE_LADDER = Object.freeze([
+  { width: DEFAULT_WIDTH, fps: DEFAULT_FPS },
+  { width: DEFAULT_WIDTH, fps: 10 },
+  { width: 560, fps: 10 },
+  { width: 480, fps: 8 },
+]);
 
 const USAGE =
   "usage: node scripts/webm-to-gif.mjs <input.webm|manifest.json> <output.gif> [--width 640] [--fps 12]";
@@ -60,6 +67,15 @@ export function buildFfmpegArgs({ input, output, width, fps }) {
   return ["-hide_banner", "-loglevel", "error", "-y", "-i", input, "-vf", filter, "-loop", "0", output];
 }
 
+/**
+ * The temp path of one conversion attempt: same directory (so the rename stays on one file system),
+ * still ending in `.gif` (ffmpeg picks the muxer from the extension).
+ * @param {string} output
+ */
+export function attemptPath(output) {
+  return `${output.replace(/\.gif$/i, "")}.partial-${process.pid}.gif`;
+}
+
 /** @param {string[]} argv @returns {number} exit code */
 function main(argv) {
   const args = parseArgs(argv);
@@ -74,22 +90,32 @@ function main(argv) {
     return 1;
   }
   mkdirSync(dirname(resolve(args.output)), { recursive: true });
-  const run = spawnSync("ffmpeg", buildFfmpegArgs({ ...args, input }), { stdio: "inherit" });
-  if (run.status !== 0) {
-    const why = run.error !== undefined ? run.error.message : `ffmpeg exited with ${String(run.status)}`;
-    console.error(`[webm-to-gif] ${why}`);
-    return 1;
+  // W76: with neither flag given, step down the size ladder until the GIF fits MAX_GIF_BYTES
+  // (the slice-4 recording is about twice as long as slice 2's). Explicit flags get one attempt.
+  const explicit = argv.includes("--width") || argv.includes("--fps");
+  const attempts = explicit ? [{ width: args.width, fps: args.fps }] : SIZE_LADDER;
+  // W76 review (finding 6): every attempt writes a temp GIF next to the output and only a GIF that
+  // fits is renamed onto the output, so a failing or oversized attempt never leaves its GIF there.
+  const temp = attemptPath(args.output);
+  for (const { width, fps } of attempts) {
+    const run = spawnSync("ffmpeg", buildFfmpegArgs({ input, output: temp, width, fps }), { stdio: "inherit" });
+    if (run.status !== 0) {
+      const why = run.error !== undefined ? run.error.message : `ffmpeg exited with ${String(run.status)}`;
+      console.error(`[webm-to-gif] ${why}`);
+      rmSync(temp, { force: true });
+      return 1;
+    }
+    const bytes = statSync(temp).size;
+    if (bytes <= MAX_GIF_BYTES) {
+      renameSync(temp, args.output);
+      console.log(`[webm-to-gif] wrote ${args.output} (${(bytes / 1048576).toFixed(2)} MiB, ${width}px, ${fps} fps)`);
+      return 0;
+    }
+    console.error(`[webm-to-gif] GIF exceeds ${MAX_GIF_BYTES} bytes at ${width}px, ${fps} fps (${(bytes / 1048576).toFixed(2)} MiB)`);
   }
-  const bytes = statSync(args.output).size;
-  console.log(
-    `[webm-to-gif] wrote ${args.output} (${(bytes / 1048576).toFixed(2)} MiB, ${args.width}px, ${args.fps} fps)`,
-  );
-  if (bytes > MAX_GIF_BYTES) {
-    console.error(`[webm-to-gif] GIF exceeds ${MAX_GIF_BYTES} bytes; re-run with --fps 8 or --width 480`);
-    unlinkSync(args.output);
-    return 2;
-  }
-  return 0;
+  rmSync(temp, { force: true });
+  console.error(`[webm-to-gif] no setting fits; ${args.output} left unchanged; re-run with a smaller --width or --fps`);
+  return 2;
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

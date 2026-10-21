@@ -20,11 +20,12 @@
 
 use super::access::{rd, rd_or, rd4, wr, wr4};
 use super::elements::Elements;
+use super::fmath::{f_dev, update_f};
 use super::grid::{Grid, cap_speed, norm_if_above};
 use super::interaction::{POINTER_RADIUS_PX, POINTER_VMAX_PX_S, pointer_accel_grid};
-use super::layout::{ST_REST_ALPHA, STATE_STRIDE};
+use super::layout::{FLAG_TORN, ST_REST_ALPHA, STATE_STRIDE};
 use super::material::{MaterialParams, map_viscosity};
-use super::particles::Particles;
+use super::particles::{IDENTITY, Particles};
 
 /// Home spring at full stiffness (1/s²), spike value.
 pub const SPRING_K: f32 = 220.0;
@@ -48,6 +49,12 @@ pub const WOBBLE_PX: f32 = 1.1;
 pub const SLIP_RATE_PER_S: f32 = 3.0;
 /// Slip drift cap (px/s).
 pub const SLIP_MAX_PX_S: f32 = 160.0;
+/// W79 (D79-2, spike W78.0 answer 1): the merge slip, rate at s = 1 (1/s) and cap (px/s), for
+/// the particles of an element with `Elements::merge_slip` set (dragged, or a neighbour under
+/// the drag, until it rests again), so merged liquids separate within 3 s. Every other element
+/// keeps SLIP_RATE_PER_S / SLIP_MAX_PX_S, so splash, shake and the pointer field are unchanged.
+pub const MERGE_SLIP_RATE_PER_S: f32 = 4.5;
+pub const MERGE_SLIP_MAX_PX_S: f32 = 240.0;
 
 /// The wobble's common period (s): 2.1·T = 42π and 1.7·T = 34π for T = 20π, so
 /// `wobble_offset_px(t)` repeats exactly every T.
@@ -199,6 +206,12 @@ struct ElRow {
     hvy: f32,
     /// Kinematic viscosity in cells²/s.
     mu: f32,
+    /// W78 (D78-4): slot 5 is DRAGGED; the soft pointer field skips this element's particles.
+    dragged: bool,
+    /// W79 (D79-2): slip rate at s = 1 (1/s) and slip cap (cells/s): the merge slip while
+    /// `Elements::merge_slip` is set, else SLIP_RATE_PER_S and SLIP_MAX_PX_S.
+    slip_rate: f32,
+    slip_max: f32,
 }
 
 impl ElRow {
@@ -213,6 +226,11 @@ impl ElRow {
             1.0
         };
         let k = SPRING_K * s;
+        let (slip_rate, slip_max_px_s) = if e.merge_slip(id) {
+            (MERGE_SLIP_RATE_PER_S, MERGE_SLIP_MAX_PX_S)
+        } else {
+            (SLIP_RATE_PER_S, SLIP_MAX_PX_S)
+        };
         ElRow {
             active: true,
             x: rect.x,
@@ -227,7 +245,16 @@ impl ElRow {
             hvx: rd(&e.vel_x, id) * inv,
             hvy: rd(&e.vel_y, id) * inv,
             mu: element_viscosity_px2_s(e, id, m) * inv * inv,
+            dragged: e.is_dragged(id),
+            slip_rate,
+            slip_max: slip_max_px_s * inv,
         }
+    }
+
+    /// W79 (D79-2): the slip towards the target at this row's rate and cap (cells/s).
+    #[inline]
+    fn slip(&self, offset: (f32, f32)) -> (f32, f32) {
+        slip_velocity_at(offset, self.stiff, self.slip_rate, self.slip_max)
     }
 
     /// `home_spring_accel` with this row's precomputed k, damping and a_max.
@@ -256,6 +283,8 @@ pub struct Scratch {
     pub tgt_y: Vec<f32>,
     /// Per element: max |x − target| in px.
     pub max_dev: Vec<f32>,
+    /// W74 (D74-2), per element: max ‖F − I‖_F (squared during G2P).
+    pub max_fdev: Vec<f32>,
     /// Perf round, per element: everything the particle loops need, built once per
     /// substep by `ElRow::build` (replaces W67's per-element `el_mu`).
     el: Vec<ElRow>,
@@ -280,6 +309,7 @@ impl Scratch {
             tgt_x: vec![f32::NAN; particles],
             tgt_y: vec![f32::NAN; particles],
             max_dev: vec![0.0; elements],
+            max_fdev: vec![0.0; elements],
             el: vec![ElRow::default(); elements],
             wob_key: vec![[f32::NAN; 2]; particles],
             wob_trig: vec![[0.0; 4]; particles],
@@ -311,6 +341,7 @@ impl Scratch {
             (self.tgt_x.capacity(), self.tgt_x.as_ptr() as usize),
             (self.tgt_y.capacity(), self.tgt_y.as_ptr() as usize),
             (self.max_dev.capacity(), self.max_dev.as_ptr() as usize),
+            (self.max_fdev.capacity(), self.max_fdev.as_ptr() as usize),
             (self.el.capacity(), self.el.as_ptr() as usize),
             (self.wob_key.capacity(), self.wob_key.as_ptr() as usize),
             (self.wob_trig.capacity(), self.wob_trig.as_ptr() as usize),
@@ -328,8 +359,10 @@ pub fn compute_targets(
     s: &mut Scratch,
 ) {
     for i in 0..p.cap {
+        // W81 (D81-1): a parked particle has no target (the pin and maxDev skip it).
         let target = p
             .home_of(i)
+            .filter(|_| !p.is_parked(i))
             .and_then(|h| e.target_px(h, rd(&p.rest_u, i), rd(&p.rest_v, i), reduced_motion));
         let (tx, ty) = match target {
             Some((x, y)) => {
@@ -346,7 +379,8 @@ pub fn compute_targets(
 fn particle_bounds(p: &Particles, g: &Grid) -> Option<(f32, f32, f32, f32)> {
     let mut bounds: Option<(f32, f32, f32, f32)> = None;
     for i in 0..p.cap {
-        if p.home_of(i).is_none() {
+        // W81 (D81-1): parked particles are not simulated, so they do not widen the region.
+        if p.home_of(i).is_none() || p.is_parked(i) {
             continue;
         }
         let (x, y) = g.clamp_pos(rd(&p.x, i), rd(&p.y, i));
@@ -411,7 +445,13 @@ pub fn home_spring_accel(
 
 /// Grid-independent drift towards the target: offset × 3/s × s², capped at `max`.
 pub fn slip_velocity(offset: (f32, f32), s: f32, max: f32) -> (f32, f32) {
-    let rate = SLIP_RATE_PER_S * s * s;
+    slip_velocity_at(offset, s, SLIP_RATE_PER_S, max)
+}
+
+/// W79 (D79-2): `slip_velocity` with the rate as a parameter: offset × `rate_per_s` × s², capped
+/// at `max`. With SLIP_RATE_PER_S it is W67's arithmetic, bit for bit.
+pub fn slip_velocity_at(offset: (f32, f32), s: f32, rate_per_s: f32, max: f32) -> (f32, f32) {
+    let rate = rate_per_s * s * s;
     let (sx, sy) = (offset.0 * rate, offset.1 * rate);
     match norm_if_above(sx, sy, max) {
         Some(m) => (sx * max / m, sy * max / m),
@@ -521,6 +561,9 @@ pub struct SubstepOpts {
     /// such path calls `Scratch::invalidate_bounds` (D68-10). The api sets it for every
     /// substep of a tick but the first.
     pub reuse_bounds: bool,
+    /// W74 (D74-1): dt for this substep's F update (`fmath::update_f`); 0 skips F. The api
+    /// passes the substep dt on every substep; the test-only benchmark thins it (`f_every`).
+    pub f_dt: f32,
 }
 
 /// One MLS-MPM substep over particles with a home. A particle whose home slot is
@@ -536,6 +579,7 @@ pub fn substep(
     let opts = SubstepOpts {
         measure_dev: true,
         reuse_bounds: false,
+        f_dt: inp.dt,
     };
     substep_with(p, g, e, m, inp, s, opts);
 }
@@ -574,8 +618,9 @@ pub fn substep_with(
         *row = ElRow::build(e, id, m, inv, inp.time_s);
     }
     if opts.measure_dev {
-        // Squared distances in cells² until the end of G2P (one sqrt per element).
+        // Squared distances in cells² (and W74's ‖F − I‖²) until the end of G2P (one sqrt per element).
         s.max_dev.fill(0.0);
+        s.max_fdev.fill(0.0);
     }
     let sound = SOUND_SPEED_PX_S * inv;
     let bulk = sound * sound;
@@ -591,6 +636,9 @@ pub fn substep_with(
         let Some(h) = p.home_of(i) else {
             continue;
         };
+        if p.is_parked(i) {
+            continue; // W81 (D81-1): not simulated
+        }
         let mass = rd(&p.mass, i);
         if mass <= 0.0 {
             continue;
@@ -619,8 +667,8 @@ pub fn substep_with(
         // spring's acceleration cap never clips the pointer coupling. Applies to
         // every homed particle; no radial term; a resting pointer only damps moving
         // liquid (−v·k). Skipped when the disc misses the AABB (the term would be
-        // (0, 0); see `PointerGrid::reaches`).
-        if pointer_on {
+        // (0, 0); see `PointerGrid::reaches`). W78: skipped for a dragged element (D78-4).
+        if pointer_on && !row.is_some_and(|r| r.dragged) {
             let (pax, pay) = pointer_accel_grid(x, y, vx, vy, pointer);
             vx += pax * dt;
             vy += pay * dt;
@@ -657,7 +705,6 @@ pub fn substep_with(
     g.update_velocities(dt, vmax);
 
     // ---- G2P ----
-    let slip_max = SLIP_MAX_PX_S * inv;
     // The AABB of the positions G2P leaves behind, i.e. what `particle_bounds` would
     // find at the start of the next substep (fused into this pass).
     let mut next_bounds: Option<(f32, f32, f32, f32)> = None;
@@ -665,6 +712,9 @@ pub fn substep_with(
         let Some(h) = p.home_of(i) else {
             continue;
         };
+        if p.is_parked(i) {
+            continue; // W81 (D81-1): not simulated, not in the fused AABB
+        }
         let (x, y) = g.clamp_pos(rd(&p.x, i), rd(&p.y, i));
         if rd(&p.mass, i) <= 0.0 {
             // Not moved: its stored position is what `particle_bounds` reads.
@@ -677,8 +727,8 @@ pub fn substep_with(
         let (tx, ty) = (rd_or(&s.tgt_x, i, f32::NAN), rd_or(&s.tgt_y, i, f32::NAN));
         let has_target = tx.is_finite() && ty.is_finite();
         let (sx, sy) = if has_target {
-            let stiff = s.el.get(h).map_or(1.0, |r| r.stiff);
-            slip_velocity((tx - x, ty - y), stiff, slip_max)
+            // W79 (D79-2): the row's own slip (a finite target implies an active row).
+            s.el.get(h).map_or((0.0, 0.0), |r| r.slip((tx - x, ty - y)))
         } else {
             (0.0, 0.0)
         };
@@ -691,6 +741,38 @@ pub fn substep_with(
         wr(&mut p.vy, i, vy);
         wr4(&mut p.c, i, c);
         wr(&mut p.j, i, nj);
+        if opts.f_dt > 0.0 {
+            // W74 (D74-1, D74-3): the render-only F (never in the stress), slipping towards I with
+            // the element's stiffness like the positions do; `torn` is sticky.
+            let stiff = s.el.get(h).map_or(1.0, |r| r.stiff);
+            let flags = p.flags.get(i).copied().unwrap_or(0);
+            let (nf, torn) = update_f(
+                rd4(&p.f, i, IDENTITY),
+                c,
+                opts.f_dt,
+                stiff,
+                flags & FLAG_TORN != 0,
+            );
+            wr4(&mut p.f, i, nf);
+            if let Some(slot) = p.flags.get_mut(i) {
+                *slot = if torn {
+                    flags | FLAG_TORN
+                } else {
+                    flags & !FLAG_TORN
+                };
+            }
+        }
+        if opts.measure_dev {
+            // W74 (D74-2): ‖F − I‖² per element, measured with maxDev on the last substep.
+            let [f00, f01, f10, f11] = rd4(&p.f, i, IDENTITY);
+            let fd2 = (f00 - 1.0) * (f00 - 1.0) + f01 * f01 + f10 * f10 + (f11 - 1.0) * (f11 - 1.0);
+            // W74 review: a NaN is taken (and stays: `x > NaN` is false) (the rest state maps it to f32::MAX).
+            if let Some(m) = s.max_fdev.get_mut(h)
+                && (fd2 > *m || fd2.is_nan())
+            {
+                *m = fd2;
+            }
+        }
         grow_bounds(&mut next_bounds, nx, ny);
         if opts.measure_dev && has_target {
             let (dx, dy) = (nx - tx, ny - ty);
@@ -705,6 +787,9 @@ pub fn substep_with(
     if opts.measure_dev {
         for md in s.max_dev.iter_mut() {
             *md = md.sqrt() * g.cell_px;
+        }
+        for fd in s.max_fdev.iter_mut() {
+            *fd = fd.sqrt();
         }
     }
     s.bounds = next_bounds;
@@ -742,6 +827,26 @@ pub fn measure_max_dev(p: &Particles, g: &Grid, tgt_x: &[f32], tgt_y: &[f32], ou
         let d = (rd(&p.x, i) - tx).hypot(rd(&p.y, i) - ty) * g.cell_px;
         if let Some(m) = out.get_mut(h)
             && d > *m
+        {
+            *m = d;
+        }
+    }
+}
+
+/// W74 (D74-2): per element, max ‖F − I‖_F over its particles, for the paths that re-measure
+/// outside a substep (reduced motion and redistribute, like `measure_max_dev`).
+pub fn measure_max_f_dev(p: &Particles, out: &mut [f32]) {
+    out.fill(0.0);
+    for i in 0..p.cap {
+        let Some(h) = p.home_of(i) else {
+            continue;
+        };
+        if p.is_parked(i) {
+            continue; // W81 (D81-1)
+        }
+        let d = f_dev(rd4(&p.f, i, IDENTITY));
+        if let Some(m) = out.get_mut(h)
+            && (d > *m || d.is_nan())
         {
             *m = d;
         }
@@ -835,6 +940,45 @@ mod w67_tests {
                 );
             }
         }
+    }
+
+    // W74 review
+    #[test]
+    fn given_a_particle_with_nan_f_when_measuring_then_slot_3_is_f32_max_and_the_element_does_not_rest()
+     {
+        use crate::fluid::layout::{ST_MAX_F_DEV, STATE_STRIDE};
+        let mut rig = Rig::block([170.0, 170.0, 60.0, 60.0], 4, 1.0, |_, _| (0.0, 0.0));
+        rig.p.f[3] = [f32::NAN; 4];
+        let inp = StepInput {
+            dt: DT,
+            time_s: 0.0,
+            pointer: PointerGrid::INACTIVE,
+        };
+        let opts = SubstepOpts {
+            measure_dev: true,
+            reuse_bounds: false,
+            f_dt: 0.0, // keep the NaN (update_f would heal it to I)
+        };
+        substep_with(
+            &mut rig.p, &mut rig.g, &rig.e, &rig.m, &inp, &mut rig.s, opts,
+        );
+        assert!(
+            !rig.s.max_fdev[0].is_finite(),
+            "NaN is not swallowed by the max"
+        );
+        let mut out = [0.0f32; 1];
+        measure_max_f_dev(&rig.p, &mut out);
+        assert!(!out[0].is_finite(), "measure_max_f_dev keeps the NaN too");
+        for _ in 0..40 {
+            rig.e
+                .update_rest_state_with_f(0, 0.0, rig.s.max_fdev[0], 1.0 / 60.0, false);
+        }
+        assert_eq!(rig.e.state[ST_MAX_F_DEV], f32::MAX);
+        assert_eq!(
+            rig.e.state[ST_REST_ALPHA], 0.0,
+            "never at rest with a NaN F"
+        );
+        let _ = STATE_STRIDE;
     }
 
     #[test]
@@ -1141,6 +1285,7 @@ mod w67_tests {
                 let opts = SubstepOpts {
                     measure_dev: sub == 7,
                     reuse_bounds: step > 0 || sub > 0,
+                    f_dt: DT,
                 };
                 substep_with(&mut b.p, &mut b.g, &b.e, &b.m, &inp, &mut b.s, opts);
             }
@@ -1199,6 +1344,7 @@ mod w67_tests {
         let fresh = SubstepOpts {
             measure_dev: true,
             reuse_bounds: false,
+            f_dt: DT,
         };
         substep_with(&mut b.p, &mut b.g, &b.e, &b.m, &first, &mut b.s, fresh);
         assert!(b.s.bounds_valid, "precondition: G2P left a fused AABB");
@@ -1218,6 +1364,7 @@ mod w67_tests {
         let reuse = SubstepOpts {
             measure_dev: true,
             reuse_bounds: true,
+            f_dt: DT,
         };
         substep_with(&mut b.p, &mut b.g, &b.e, &b.m, &second, &mut b.s, reuse);
         assert_eq!(
@@ -1255,6 +1402,7 @@ mod w67_tests {
                 let opts = SubstepOpts {
                     measure_dev: sub == 7,
                     reuse_bounds: step > 0 || sub > 0,
+                    f_dt: DT,
                 };
                 substep_with(&mut b.p, &mut b.g, &b.e, &b.m, &inp, &mut b.s, opts);
                 let still = w68_input(k, PointerField::default(), &off.g);
@@ -1382,6 +1530,7 @@ mod w67_tests {
                     let opts = SubstepOpts {
                         measure_dev: sub == 7,
                         reuse_bounds: step > 0 || sub > 0,
+                        f_dt: DT,
                     };
                     let inp = StepInput {
                         dt: DT,
@@ -1430,6 +1579,7 @@ mod w67_tests {
                     let opts = SubstepOpts {
                         measure_dev: sub == 7,
                         reuse_bounds: step > 0 || sub > 0,
+                        f_dt: DT,
                     };
                     let inp = StepInput {
                         dt: DT,
@@ -1526,5 +1676,67 @@ mod w67_tests {
         );
         // NaN keeps the field on (the per-particle checks decide).
         assert!(pg.reaches(f32::NAN, -1.0, 1.0, 1.0));
+    }
+}
+
+#[cfg(test)]
+mod w79_tests {
+    use super::*;
+    use crate::fluid::elements::Elements;
+    use crate::fluid::layout::ELEMENT_STRIDE;
+    use crate::fluid::material::Material;
+
+    const CELL: f32 = 6.0;
+
+    #[test]
+    fn given_one_element_with_the_merge_slip_and_one_without_when_their_rows_are_built_then_only_the_first_slips_at_4_5_per_s_capped_at_240_px_s()
+     {
+        let inv = 1.0 / CELL;
+        let mut e = Elements::new(2);
+        for (id, x) in [(0usize, 100.0f32), (1, 300.0)] {
+            let slot = [
+                x,
+                100.0,
+                140.0,
+                48.0,
+                24.0,
+                0.0,
+                0.0,
+                0.0,
+                f32::NAN,
+                f32::NAN,
+            ];
+            e.buf[id * ELEMENT_STRIDE..(id + 1) * ELEMENT_STRIDE].copy_from_slice(&slot);
+        }
+        e.set_merge_slip(0, true);
+        let m = Material::default().params();
+        let merge = ElRow::build(&e, 0, &m, inv, 0.0);
+        let plain = ElRow::build(&e, 1, &m, inv, 0.0);
+        let px = |r: &ElRow, d: f32| r.slip((d * inv, 0.0)).0 * CELL;
+        assert!(
+            (px(&merge, 10.0) - 45.0).abs() < 1e-3,
+            "4.5/s × 10 px: {}",
+            px(&merge, 10.0)
+        );
+        assert!(
+            (px(&merge, 100.0) - 240.0).abs() < 1e-3,
+            "capped at 240 px/s: {}",
+            px(&merge, 100.0)
+        );
+        assert!(
+            (px(&plain, 10.0) - 30.0).abs() < 1e-3,
+            "3/s × 10 px: {}",
+            px(&plain, 10.0)
+        );
+        assert!(
+            (px(&plain, 100.0) - 160.0).abs() < 1e-3,
+            "capped at 160 px/s: {}",
+            px(&plain, 100.0)
+        );
+        assert_eq!(
+            plain.slip((10.0 * inv, -2.0 * inv)),
+            slip_velocity((10.0 * inv, -2.0 * inv), 1.0, SLIP_MAX_PX_S * inv),
+            "an element without the merge slip keeps W67's arithmetic, bit for bit"
+        );
     }
 }

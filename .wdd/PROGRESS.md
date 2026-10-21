@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-71 of 73 Wards complete · 968 estimated tests · 1 blocked
+81 of 83 Wards complete · 1346 estimated tests · 1 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -79,6 +79,16 @@
 | 071 | Liquid in WebGPU | 41 | ✅ Complete | 2026-10-08 |
 | 072 | WebGPU by default, robust | 71 | ✅ Complete | 2026-10-08 |
 | 073 | Shake without lace | 3 | ✅ Complete | 2026-10-09 |
+| 074 | Text that flows | 62 | ✅ Complete | 2026-10-10 |
+| 075 | Text that stays true | 54 | ✅ Complete | 2026-10-10 |
+| 076 | Whole picture after slice 4 | 8 | ✅ Complete | 2026-10-10 |
+| 077 | Closed liquid under shake and splash | 10 | ✅ Complete | 2026-10-11 |
+| 078 | Drag the liquid | 58 | ✅ Complete | 2026-10-11 |
+| 079 | Merge and separate | 26 | ✅ Complete | 2026-10-12 |
+| 080 | Scroll follows | 60 | ✅ Complete | 2026-10-14 |
+| 081 | Parking and resize | 36 | ✅ Complete | 2026-10-14 |
+| 082 | Under the page | 31 | ✅ Complete | 2026-10-14 |
+| 083 | Gravity and tilt | 33 | ✅ Complete | 2026-10-20 |
 
 ## Test Summary
-- Estimated total: 968
+- Estimated total: 1346

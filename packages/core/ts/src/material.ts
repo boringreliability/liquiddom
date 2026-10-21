@@ -86,6 +86,6 @@ export const presets: {
   readonly jelly: Readonly<Material>;
 } = Object.freeze({
   water: Object.freeze({ viscosity: 0.15, cohesion: 0.3, recovery: 0.5 }),
-  honey: Object.freeze({ viscosity: 0.9, cohesion: 0.7, recovery: 1.6 }),
+  honey: Object.freeze({ viscosity: 0.9, cohesion: 0.7, recovery: 0.8 }),
   jelly: Object.freeze({ viscosity: 0.6, cohesion: 0.85, recovery: 0.4 }),
 });

@@ -32,7 +32,7 @@ Every `[data-liquid]` element is observed. Its computed `background-color` becom
 | `container` | none | Mount the canvas inside this element (container mode). The container must be a positioned element (e.g. `position: relative`): the canvas is absolutely positioned inside it. liquiddom does not restyle it; a static container logs a `console.warn` at `create()` |
 | `renderer` | `'auto'` | `'auto'`: WebGPU on a hardware adapter, Canvas2D otherwise (one `console.info` unless `silentFallback`). `'webgpu'`: WebGPU, also on a software adapter; `create()` rejects with `WebGPUUnavailableError` when there is none. `'canvas2d'`: never probes WebGPU. |
 | `material` | `{ viscosity: 0.5, cohesion: 0.5, recovery: 0.7 }` | viscosity and cohesion in [0, 1], recovery in seconds [0.2, 3] |
-| `gravity` | `{ source: 'none' }` | Accepted and validated; no effect yet |
+| `gravity` | `{ source: 'none' }` | `{ source: 'none' \| 'fixed' \| 'orientation', vector?, strength? }` (strength default 980 px/s²). Only changes in gravity act: see Gravity and tilt |
 | `seed` | random u32 | Same seed + inputs + viewport = same positions |
 | `autoObserve` | `true` | Observe `[data-liquid]` at create |
 | `forceReducedMotion` | `false` | Force the still, crisp reduced-motion mode |
@@ -45,7 +45,7 @@ Removed 0.2 options throw a `TypeError` that names the replacement.
 ```ts
 liquid.observe(el, { viscosity?, recovery? }); // returns the slot id
 liquid.unobserve(el);                            // restores the element exactly
-liquid.refresh(el);                              // re-read colours after a theme change
+liquid.refresh(el);                              // re-read colours after a change outside the element (e.g. a new stylesheet rule)
 liquid.pause(); liquid.resume(); liquid.destroy();
 liquid.autoDiscover(root?); liquid.stopAutoDiscover();
 await liquid.requestOrientationPermission();     // iOS, from a user gesture
@@ -78,10 +78,20 @@ liquid.shake(0.5);
 import { LiquidDOM, presets } from "liquiddom";
 const liquid = await LiquidDOM.create({ material: presets.honey });
 liquid.setMaterial({ cohesion: 0.8 }); // validated and merged atomically, TypeError on invalid input
-liquid.getMaterial();                  // { viscosity: 0.9, cohesion: 0.8, recovery: 1.6 }
+liquid.getMaterial();                  // { viscosity: 0.9, cohesion: 0.8, recovery: 0.8 }
 ```
 
 `viscosity` and `cohesion` are in [0, 1]; `recovery` is the re-form time in seconds, [0.2, 3]. Presets: `water`, `honey`, `jelly`. The 0.2 physics presets (`goo`, `jelly`, `firm` with `tension`, `damping`, …) no longer exist; passing their fields throws a `TypeError`.
+
+### Gravity and tilt
+
+```ts
+const liquid = await LiquidDOM.create({ gravity: { source: "fixed", vector: [0, 1] } }); // starts at rest
+liquid.setGravity({ vector: [1, 0] });           // a 90° tilt: the liquid sloshes, then rests at home
+liquid.setGravity({ source: "orientation" });    // follow the device tilt (call requestOrientationPermission() first on iOS)
+```
+
+Only changes in gravity act: a change sloshes the liquid inside its element, and it rests at home again within 3 s; a constant gravity never leans it. The gravity given at `create()` and a switch of `source` start at rest, so a `fixed` vector has a visible effect only when `setGravity()` changes it. `fixed` uses `normalize(vector) · strength` (`[0, 0]` is no gravity). `orientation` follows `deviceorientation` (rotated with the screen; a flat phone feels none; changes under 2° are ignored, so a phone lying still keeps the liquid quiet) and removes its listener on `destroy()`. `setGravity(partial)` is validated and applied atomically (`TypeError` on invalid input). Under reduced motion gravity is ignored.
 
 ### Pointer and hover
 
@@ -95,7 +105,7 @@ The liquid follows the pointer's motion within 70 px; a resting pointer only dam
 
 ## Known limitations (alpha)
 
-- Colours are snapshotted at `observe()`. Call `refresh(el)` after changing them.
+- Colours are snapshotted at `observe()` and re-read automatically when the element's own `class`/`style` changes or a `color`/`background-color` transition on it ends. Call `refresh(el)` after a change elsewhere (a new stylesheet rule, an ancestor class).
 - Only uniform circular `border-radius` is honoured. Borders and box-shadows of observed elements are not drawn.
 - An observed element inside an ancestor with `transform`, `filter` or `overflow: hidden` can end up under other content.
 

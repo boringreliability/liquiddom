@@ -10,14 +10,18 @@ use super::access::rd;
 use super::clock::MAX_STEPS_PER_TICK;
 use super::clock::{FIXED_DT_S, FixedClock, SUBSTEPS};
 use super::elements::Elements;
+use super::gravity::HighPass;
 use super::grid::{Grid, MIN_PARTICLES_PER_CELL};
 use super::interaction::{self, SplashAt};
 use super::layout::{DYNAMIC_FIELDS, ELEMENT_STRIDE, STATE_STRIDE, STATIC_FIELDS};
 use super::material::{DEFAULT_MATERIAL, Material};
+use super::parking;
 use super::particles::Particles;
 use super::pool::{self, PoolScratch};
 use super::rng::Rng;
+use super::scroll::{self, ScrollShift};
 use super::solver::{self, PointerField, PointerGrid, Scratch, StepInput, SubstepOpts};
+use super::viewport::Viewport;
 use super::views::Views;
 
 pub const PARTICLES_MIN: u32 = 16;
@@ -55,10 +59,21 @@ pub struct FluidCore {
     vel_wall_s: f64,
     /// W67: deterministic RNG for splash and shake.
     interaction_rng: Rng,
+    /// W82 (D82-5): the visible window in buffer px (`set_viewport`); unknown until TS sets it.
+    viewport: Viewport,
+    /// W83 (D83-1, D83-4): the gravity low-pass; only `g − g_lp` reaches the grid.
+    gravity: HighPass,
     /// Test-only (D67-14): element 0's rect velocity (px/s) as each fixed step of the
     /// last tick saw it. Pre-allocated to MAX_STEPS_PER_TICK, so it never reallocates.
     #[cfg(test)]
     step_vel_trace: Vec<(f32, f32)>,
+    /// Test-only (D74-1 benchmark): F is updated every `f_every`-th substep (0 = never,
+    /// 1 = production). Read by `f_dt_for`.
+    #[cfg(test)]
+    f_every: u32,
+    /// Test-only (W81): parking switched off, so a test can compare against the unparked engine.
+    #[cfg(test)]
+    parking_off: bool,
 }
 
 #[wasm_bindgen]
@@ -106,8 +121,14 @@ impl FluidCore {
             time_s: 0.0,
             vel_wall_s: 0.0,
             interaction_rng: Rng::derive(seed, RNG_STREAM_INTERACTION),
+            viewport: Viewport::UNKNOWN,
+            gravity: HighPass::default(),
             #[cfg(test)]
             step_vel_trace: Vec::with_capacity(MAX_STEPS_PER_TICK as usize),
+            #[cfg(test)]
+            f_every: 1,
+            #[cfg(test)]
+            parking_off: false,
         }
     }
 
@@ -172,7 +193,10 @@ impl FluidCore {
 
     /// Advances by the raw RAF dt (Rust owns the accumulator) and returns the fixed
     /// steps simulated: 0–3, always 0 under reduced motion (D64-4). The pointer drives
-    /// the soft pointer field (W68, D68-3); gravity (slice 6, D67-2) is accepted and unused.
+    /// the soft pointer field (W68, D68-3). Gravity `(gx, gy)` px/s² acts as a high-pass
+    /// (W83, D83-1): each fixed step adds `1.5 · (g − g_lp)` (clamped to 2000 px/s²) to the
+    /// grid velocities with mass; a constant gravity moves nothing (`gravity.rs`). Under
+    /// reduced motion the low-pass follows g, so no gravity acts and none is stored up.
     #[allow(clippy::too_many_arguments)]
     pub fn tick(
         &mut self,
@@ -182,18 +206,32 @@ impl FluidCore {
         pvx: f32,
         pvy: f32,
         pointer_active: bool,
-        _gx: f32,
-        _gy: f32,
+        gx: f32,
+        gy: f32,
     ) -> u32 {
         let steps = self.clock.advance(raw_dt_s);
         if raw_dt_s.is_finite() && raw_dt_s > 0.0 {
             self.vel_wall_s += f64::from(raw_dt_s);
+        }
+        // W81 (D81-1): park and unpark for this frame's rects, also on a 0-step tick, so an
+        // element that re-enters is at rest in the frame it re-enters.
+        if self.parking_on()
+            && parking::update(
+                &mut self.particles,
+                &self.grid,
+                &mut self.elements,
+                self.settings.reduced_motion,
+            )
+        {
+            self.scratch.invalidate_bounds(); // D68-10: placed particles, a changed simulated set
         }
         #[cfg(test)]
         self.step_vel_trace.clear();
         if self.settings.reduced_motion {
             // Spec §2: no simulation; follow rects instantly, even on a 0-step tick.
             // dt 0 keeps prev_* current with velocity 0 (no spike when motion returns).
+            // W83 (D83-1): no gravity acts, and the low-pass follows g (no slosh when motion returns).
+            self.gravity.seed(gx, gy);
             self.elements.update_velocities(0.0);
             self.vel_wall_s = 0.0;
             solver::compute_targets(
@@ -233,11 +271,19 @@ impl FluidCore {
             self.vel_wall_s = 0.0;
         }
         for step in 0..steps {
+            // W83 (D83-1): this fixed step's high-passed gravity in grid units (cells/s²); every
+            // substep's grid update adds it to the cells with mass. Exactly 0 once settled.
+            let (ax, ay) = self.gravity.step(gx, gy);
+            let inv = self.grid.inv_cell;
+            self.grid.set_body_accel(ax * inv, ay * inv);
             #[cfg(test)]
             self.step_vel_trace
                 .push((rd(&self.elements.vel_x, 0), rd(&self.elements.vel_y, 0)));
             for sub in 0..SUBSTEPS {
                 self.elements.update_stiffness(dt, params.recovery_s);
+                // W78 (D78-3, D78-5): after the recovery, so no substep sees a dragged element
+                // stiffer than DRAG_STIFFNESS_CAP; its restAlpha stays 0.
+                interaction::hold_dragged(&mut self.elements);
                 let input = StepInput {
                     dt,
                     time_s: solver::wobble_time_s(self.time_s),
@@ -250,6 +296,7 @@ impl FluidCore {
                 let opts = SubstepOpts {
                     measure_dev: sub + 1 == SUBSTEPS,
                     reuse_bounds: step > 0 || sub > 0,
+                    f_dt: self.f_dt_for(sub, dt),
                 };
                 solver::substep_with(
                     &mut self.particles,
@@ -301,6 +348,7 @@ impl FluidCore {
             &mut self.elements,
             &mut self.interaction_rng,
             strength,
+            self.viewport,
         );
         self.scratch.invalidate_bounds(); // D68-10
     }
@@ -321,6 +369,13 @@ impl FluidCore {
             rm,
             &mut self.pool_scratch,
         );
+        // W81 (D81-1): parking for the new rects, then every particle's flag for its new home.
+        if self.parking_on()
+            && !parking::update(&mut self.particles, &self.grid, &mut self.elements, rm)
+        {
+            // `update` already synced when an element changed.
+            parking::sync_particles(&mut self.particles, &self.grid, &self.elements, rm);
+        }
         self.generation = self.generation.wrapping_add(1);
         self.views.write_static(&self.particles);
         solver::compute_targets(
@@ -345,6 +400,62 @@ impl FluidCore {
     pub fn set_reduced_motion(&mut self, on: bool) {
         self.settings.reduced_motion = on;
     }
+
+    /// W80 (D80-1): the page (or the container) scrolled by `(dx, dy)` px since the last frame;
+    /// `(ivx, ivy)` px/s is the inertia TS derived from it (D80-2). Every particle and previous
+    /// home rect of an element that moves with the page shifts by `(−dx, −dy)` (whole cells for
+    /// the particles, the rest through the lattice origin), so the simulation is the unscrolled
+    /// one up to f32 rounding; the inertia is added to those particles' velocities. An element
+    /// moves with the page unless it is dragged or its rect did not move with the scroll
+    /// (`position: fixed` or stuck `sticky`; W80 ward review I1, `scroll::moved_with_scroll`).
+    /// TS calls it after writing this frame's rects and before `tick`. Sanitised (`ScrollShift::sanitized`);
+    /// reduced motion drops the inertia (the pin still follows the rects). A zero shift is a
+    /// no-op. The next `tick` writes the dynamic view.
+    pub fn scroll_shift(&mut self, dx: f32, dy: f32, ivx: f32, ivy: f32) {
+        let s = ScrollShift::sanitized(dx, dy, ivx, ivy, self.settings.reduced_motion);
+        if s.is_none() {
+            return;
+        }
+        scroll::apply(
+            &mut self.particles,
+            &mut self.grid,
+            &mut self.elements,
+            &s,
+            self.settings.reduced_motion,
+        );
+        self.scratch.invalidate_bounds(); // D68-10: the shift moved particles
+    }
+
+    /// W81 (D81-2): the viewport (or the container's window) outgrew the world given at
+    /// `create()`. Grows the grid to cover a world of at least `w × h` px (clamped to
+    /// [64, 8192] px per axis; never shrinks; a non-finite or non-positive extent keeps that
+    /// axis). Particles, the cell, the margin and the lattice origin are kept. The one allocation
+    /// outside the constructor: TS calls it outside `tick`, at most once per resize, and logs it.
+    /// Returns true when the grid grew.
+    pub fn resize_world(&mut self, w: f32, h: f32) -> bool {
+        let grew = self.grid.resize_world(w, h);
+        if grew {
+            self.scratch.invalidate_bounds(); // D68-10: a new grid, a new region
+        }
+        grew
+    }
+
+    /// W82 (D82-5): the visible window's size in buffer px (`innerWidth × innerHeight` in body
+    /// mode, the container's client box in container mode). TS calls it at `create()` and from
+    /// every resize, outside `tick`. Sanitised per axis (`Viewport::sanitized`: a non-finite or
+    /// non-positive extent is unknown, a finite one is clamped to `WORLD_MAX_PX`). `shake` mirrors
+    /// the outward direction of an element within `EDGE_MIRROR_PX` of an edge; nothing else reads it.
+    pub fn set_viewport(&mut self, w: f32, h: f32) {
+        self.viewport = Viewport::sanitized(w, h);
+    }
+
+    /// W83 (D83-4): the gravity low-pass jumps to `(gx, gy)` px/s² (sanitised like `tick`'s), so
+    /// a `tick` with the same gravity adds nothing. TS calls it outside `tick`, right before the
+    /// tick of a frame whose gravity starts fresh: at `create()`, on a gravity source switch, on
+    /// the first orientation reading and when reduced motion ends. No allocation.
+    pub fn seed_gravity(&mut self, gx: f32, gy: f32) {
+        self.gravity.seed(gx, gy);
+    }
 }
 
 /// Fix round (D67-14 hiccup): the time a tick's rect delta is divided by. Normally the
@@ -362,9 +473,10 @@ fn velocity_window_s(simulated_s: f32, wall_s: f64) -> f32 {
 }
 
 impl FluidCore {
-    /// Rest state of every slot from `scratch.max_dev`. With `measure`, maxDev is first
-    /// re-measured against the un-wobbled targets in `scratch.tgt_*` (reduced motion and
-    /// redistribute). Without it, it holds the G2P value of the last substep (D67-10).
+    /// Rest state of every slot from `scratch.max_dev` and (W74, D74-2) `scratch.max_fdev`.
+    /// With `measure`, both are first re-measured (against the un-wobbled targets in
+    /// `scratch.tgt_*` for maxDev): reduced motion and redistribute. Without it, they hold the
+    /// G2P values of the last substep (D67-10).
     fn refresh_rest_state(&mut self, reduced_motion: bool, dt: f32, measure: bool) {
         if measure {
             solver::measure_max_dev(
@@ -374,10 +486,42 @@ impl FluidCore {
                 &self.scratch.tgt_y,
                 &mut self.scratch.max_dev,
             );
+            solver::measure_max_f_dev(&self.particles, &mut self.scratch.max_fdev);
         }
         for id in 0..self.elements.cap {
             let dev = rd(&self.scratch.max_dev, id);
-            self.elements.update_rest_state(id, dev, dt, reduced_motion);
+            let fdev = rd(&self.scratch.max_fdev, id);
+            self.elements
+                .update_rest_state_with_f(id, dev, fdev, dt, reduced_motion);
+        }
+    }
+
+    /// W81: parking runs in production; a test can switch it off (`set_parking_off`).
+    #[cfg(not(test))]
+    #[inline]
+    fn parking_on(&self) -> bool {
+        true
+    }
+
+    #[cfg(test)]
+    fn parking_on(&self) -> bool {
+        !self.parking_off
+    }
+
+    /// D74-1: F is updated on every substep. Test builds can thin it to every n-th substep
+    /// (the `bench_f_update_cost` benchmark), with dt scaled so F integrates the same time.
+    #[cfg(not(test))]
+    #[inline]
+    fn f_dt_for(&self, _sub: u32, dt: f32) -> f32 {
+        dt
+    }
+
+    #[cfg(test)]
+    fn f_dt_for(&self, sub: u32, dt: f32) -> f32 {
+        match self.f_every {
+            0 => 0.0,
+            n if (sub + 1).is_multiple_of(n) => dt * n as f32,
+            _ => 0.0,
         }
     }
 }
@@ -473,6 +617,7 @@ impl FluidCore {
             e.prev_x,
             e.prev_y,
             e.has_prev,
+            e.parked,
             e.vel_x,
             e.vel_y,
             e.stiffness,
@@ -668,6 +813,16 @@ impl FluidCore {
         self.particles.j[i]
     }
 
+    /// W82 (D82-5): the viewport `set_viewport` stored.
+    pub(crate) fn viewport_of(&self) -> Viewport {
+        self.viewport
+    }
+
+    /// W83 (D83-1): the gravity low-pass (a copy).
+    pub(crate) fn gravity_of(&self) -> HighPass {
+        self.gravity
+    }
+
     pub(crate) fn set_particle_j(&mut self, i: usize, j: f32) {
         self.particles.j[i] = j;
     }
@@ -682,8 +837,45 @@ impl FluidCore {
             .collect()
     }
 
+    /// W79 (D79-2): the element's merge-slip flag.
+    pub(crate) fn merge_slip_of(&self, id: usize) -> bool {
+        self.elements.merge_slip(id)
+    }
+
+    /// W79 red review (I1): sets the element's merge-slip flag, so a test can prove G2P reads it.
+    pub(crate) fn set_merge_slip_of(&mut self, id: usize, on: bool) {
+        self.elements.set_merge_slip(id, on);
+    }
+
     pub(crate) fn stiffness_of(&self, id: usize) -> f32 {
         self.elements.stiffness[id]
+    }
+
+    /// W81: switch parking off (true) for a comparison run; on by default.
+    pub(crate) fn set_parking_off(&mut self, off: bool) {
+        self.parking_off = off;
+    }
+
+    /// W81: element `id` is parked.
+    pub(crate) fn is_parked_of(&self, id: usize) -> bool {
+        self.elements.is_parked(id)
+    }
+
+    /// W81: how many particles carry FLAG_PARKED.
+    pub(crate) fn parked_particles(&self) -> usize {
+        (0..self.particles.cap)
+            .filter(|&i| self.particles.is_parked(i))
+            .count()
+    }
+
+    /// W81: the world the grid covers (px).
+    pub(crate) fn world_px(&self) -> (f32, f32) {
+        (self.grid.world_w_px, self.grid.world_h_px)
+    }
+
+    /// W80: element `id`'s home velocity (px/s) as the last simulating tick computed it.
+    pub(crate) fn home_velocity_of(&self, id: usize) -> (f32, f32) {
+        (self.elements.vel_x[id], self.elements.vel_y[id])
     }
 
     pub(crate) fn material_params(&self) -> super::material::MaterialParams {
@@ -788,6 +980,81 @@ impl FluidCore {
     pub(crate) fn bounds_reusable(&self) -> bool {
         self.scratch.bounds_reusable()
     }
+
+    /// W74 (D74-1): F statistics over the homed particles (σ from the eigenvalues of FᵀF,
+    /// independent of `fmath::svd2`).
+    pub(crate) fn f_stats(&self) -> FStats {
+        let p = &self.particles;
+        let mut s = FStats::NONE;
+        for i in 0..p.cap {
+            if p.home_of(i).is_none() {
+                continue;
+            }
+            let [a, b, c, d] = p.f[i];
+            if !(a.is_finite() && b.is_finite() && c.is_finite() && d.is_finite()) {
+                s.non_finite += 1;
+                continue;
+            }
+            let (p00, p01, p11) = (a * a + c * c, a * b + c * d, b * b + d * d);
+            let half_tr = 0.5 * (p00 + p11);
+            let disc = (half_tr * half_tr - (p00 * p11 - p01 * p01))
+                .max(0.0)
+                .sqrt();
+            s.min_det = s.min_det.min(a * d - b * c);
+            s.max_sigma = s.max_sigma.max((half_tr + disc).sqrt());
+            s.min_sigma = s.min_sigma.min((half_tr - disc).max(0.0).sqrt());
+            if p.flags[i] & super::layout::FLAG_TORN != 0 {
+                s.torn += 1;
+            }
+        }
+        s
+    }
+
+    /// W74 (D74-2): state slot 3 (max ‖F − I‖) of every active element, in slot order.
+    pub(crate) fn f_devs(&self) -> Vec<f32> {
+        (0..self.elements.cap)
+            .filter(|&id| self.elements.is_active(id))
+            .map(|id| self.state(id)[super::layout::ST_MAX_F_DEV])
+            .collect()
+    }
+
+    /// W74 (D74-1 benchmark): update F every n-th substep (0 = never, 1 = production).
+    pub(crate) fn set_f_every(&mut self, n: u32) {
+        self.f_every = n;
+    }
+}
+
+/// W74 (D74-1): the worst F seen over a set of particles (test-only).
+#[cfg(test)]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FStats {
+    pub non_finite: usize,
+    pub min_det: f32,
+    pub max_sigma: f32,
+    pub min_sigma: f32,
+    pub torn: usize,
+}
+
+#[cfg(test)]
+impl FStats {
+    pub(crate) const NONE: FStats = FStats {
+        non_finite: 0,
+        min_det: f32::INFINITY,
+        max_sigma: 0.0,
+        min_sigma: f32::INFINITY,
+        torn: 0,
+    };
+
+    /// The worse of two snapshots, field by field (torn: the larger count).
+    pub(crate) fn worst(self, o: FStats) -> FStats {
+        FStats {
+            non_finite: self.non_finite.max(o.non_finite),
+            min_det: self.min_det.min(o.min_det),
+            max_sigma: self.max_sigma.max(o.max_sigma),
+            min_sigma: self.min_sigma.min(o.min_sigma),
+            torn: self.torn.max(o.torn),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -840,12 +1107,13 @@ mod w67_tests {
                 core.max_j()
             );
         }
+        // W77 red: approved-test change (D77-2, approved 2026-10-10, saga dec_3ba590a1): cohesion 1 → 0.90, NaN → 0.46.
         core.set_material(0.5, 1.0, 0.7);
-        assert!((core.material_params().tension_max - 0.30).abs() < 1e-6);
+        assert!((core.material_params().tension_max - 0.90).abs() < 1e-6);
         core.set_material(f32::NAN, f32::NAN, f32::NAN);
         let p = core.material_params();
         assert!(
-            (p.tension_max - 0.16).abs() < 1e-6 && (p.recovery_s - 0.7).abs() < 1e-6,
+            (p.tension_max - 0.46).abs() < 1e-6 && (p.recovery_s - 0.7).abs() < 1e-6,
             "NaN → defaults"
         );
     }

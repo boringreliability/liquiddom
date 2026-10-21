@@ -25,7 +25,7 @@ interface ElementStats {
 }
 
 async function open(page: Page, renderer: "webgpu" | "canvas2d"): Promise<void> {
-  await page.goto(`/smoke/webgpu-liquid.html?renderer=${renderer}`);
+  await page.goto(`/smoke/webgpu-liquid.html?renderer=${renderer}&clock=manual`);
   await page.waitForFunction(() => window.__webgpuLiquid !== undefined, undefined, { timeout: 15_000 });
   await page.evaluate(() => window.__webgpuLiquid!.ready);
   await page.evaluate((n) => window.__webgpuLiquid!.advance(n), IDLE_FRAMES);

@@ -21,7 +21,8 @@ pub const STATE_STRIDE: usize = 4;
 pub const ST_S: usize = 0;
 pub const ST_MAX_DEV: usize = 1;
 pub const ST_REST_ALPHA: usize = 2;
-pub const ST_RESERVED: usize = 3;
+/// W74 (D74-2): max ‖F − I‖_F over the element's particles (was reserved).
+pub const ST_MAX_F_DEV: usize = 3;
 
 // 2. Dynamic particle view (SoA, field stride = particle capacity), every tick.
 pub const DYNAMIC_FIELDS: usize = 7;
@@ -41,6 +42,8 @@ pub const STAT_REST_V: usize = 2;
 
 pub const HOME_NONE: f32 = -1.0;
 pub const FLAG_TORN: u32 = 1;
+/// W81 (D81-1): the particle's element is parked (not simulated); both renderers skip it.
+pub const FLAG_PARKED: u32 = 2;
 
 pub const INTERACTION_IDLE: f32 = 0.0;
 pub const INTERACTION_HOVER: f32 = 1.0;

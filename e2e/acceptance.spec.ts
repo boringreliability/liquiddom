@@ -1,8 +1,13 @@
 import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
-import { cardTearPixels } from "./lace";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { presets } from "../packages/core/ts/src/material";
+import { W77_CARD_LACE_MAX_TEAR, cardTearPixels, clientRectOf, regionHolePixels } from "./lace";
+import { NORTH_STAR_PATH, reformBudgetMs } from "./north-star";
 import { SWIFTSHADER_RUNS_LIQUID } from "./projects";
 import { IDLE_2S_FRAMES, VISUAL_ENABLED, VISUAL_SKIP_REASON, advance, cssAlpha, gotoScene, projectRenderer, restAlpha } from "./scene";
+import { ACCEPTANCE_FILL, FILL_MIN, W80_COLOURS, scrollPath, scrollPathFills, worstFrame, type FillFrame } from "./scroll";
 
 /** W71.0 fallback B: SwiftShader cannot carry the liquid, so there are no webgpu Linux baselines. */
 const WEBGPU_NO_BASELINES = "W71.0 fallback B: no webgpu Linux baselines (SWIFTSHADER_RUNS_LIQUID = false)";
@@ -47,7 +52,8 @@ test.describe("acceptance scene – step 1 (canvas2d and webgpu)", () => {
       const where = `${p.host} <${p.tag}>`;
       expect(p.text.length, `${where} has text`).toBeGreaterThan(0);
       expect(cssAlpha(p.color), `${where} text colour ${p.color} is opaque`).toBeGreaterThan(0);
-      expect(p.liquidText, `${where} has no liquid-text class`).toBe(false);
+      // W74 red: approved-test change (Dennis approves at W74 red) — message only (D74-6)
+      expect(p.liquidText, `${where} has no liquid-text class at rest (W74, D74-6: both renderers)`).toBe(false);
       expect(p.visible, `${where} is visible`).toBe(true);
     }
 
@@ -107,10 +113,15 @@ const W67_VISION_DIR = "test-results/vision-w67";
 // Sources (W73 session scratchpad): sweep/browser_metrics.jsonl (amp 0.5/T 0.16/cap 0.3, seed 1:
 // tear10 1133, tear20 610; WebGPU/Metal, the sweep has no Canvas2D runs — the investigation found
 // Canvas2D ≈ WebGPU within ~6 %) and tears_base.json runs/c2d_base (amp 0.8/cap 0.2: f10 4921, f20 2430).
-/** D73-3: min(1.5 × 1133, 0.5 × 4921) = min(1699.5, 2460.5). */
-const W73_LACE_MAX_TEAR_F10 = 1699;
-/** D73-3: min(1.5 × 610, 0.5 × 2430) = min(915, 1215). */
-const W73_LACE_MAX_TEAR_F20 = 915;
+// W77 red: approved-test change (D77-2, approved 2026-10-10, saga dec_3ba590a1): the guard tightens
+// to the closed sheet. W77.0 (canvas2d, seed 1): today 1175 / 831; the W77 spike at cap 16 +
+// tension 0.46 + amplitude 0.35 measured 99 / 176 (the acceptance kernel R 7.09 px stays below
+// both caps and its density grid stays 2 px, so D77-1 does not move this scene). Bound 300 at
+// both frames: 3.0× / 1.7× the spike's value, 26 % / 36 % of today's.
+/** D77-2 (was D73-3's 1699). */
+const W73_LACE_MAX_TEAR_F10 = W77_CARD_LACE_MAX_TEAR;
+/** D77-2 (was D73-3's 915). */
+const W73_LACE_MAX_TEAR_F20 = W77_CARD_LACE_MAX_TEAR;
 
 type W67Hook = {
   ready: Promise<void>;
@@ -363,7 +374,8 @@ test.describe("slice 2 – splash and shake (W67)", () => {
     await expect(page).toHaveScreenshot("acceptance-step6-shake-f20.png", { maxDiffPixelRatio: 0.01 });
   });
 
-  test("step 6 – given shake at seed 1 when ticking then the card shows no lace: tear pixels at f10 and f20 within the D73-3 bounds", async ({ page }) => {
+  // W77 red: approved-test change (D77-2): title and bounds (D73-3 → D77-2); method unchanged.
+  test("step 6 – given shake at seed 1 when ticking then the card shows no lace: tear pixels at f10 and f20 within the D77-2 bounds", async ({ page }) => {
     // D73-3: blocking in canvas2d only. Canvas2D shows the same lace as WebGPU at the same
     // manual frame (W73 investigation: f10 Canvas2D 4921 vs WebGPU 4650), so this covers both.
     test.skip(projectRenderer() !== "canvas2d", "D73-3: the lace guard runs in the canvas2d project");
@@ -373,9 +385,141 @@ test.describe("slice 2 – splash and shake (W67)", () => {
     const f10 = await cardTearPixels(page);
     await w67Advance(page, 10);
     const f20 = await cardTearPixels(page);
-    console.log(`W73 lace guard: card tear px f10 ${f10} (bound ${W73_LACE_MAX_TEAR_F10}), f20 ${f20} (bound ${W73_LACE_MAX_TEAR_F20})`);
-    expect.soft(f10, "card tear px at f10 (D73-3)").toBeLessThanOrEqual(W73_LACE_MAX_TEAR_F10);
-    expect(f20, "card tear px at f20 (D73-3)").toBeLessThanOrEqual(W73_LACE_MAX_TEAR_F20);
+    console.log(`W77 lace guard: card tear px f10 ${f10} (bound ${W73_LACE_MAX_TEAR_F10}), f20 ${f20} (bound ${W73_LACE_MAX_TEAR_F20})`);
+    expect.soft(f10, "card tear px at f10 (D77-2)").toBeLessThanOrEqual(W73_LACE_MAX_TEAR_F10);
+    expect(f20, "card tear px at f20 (D77-2)").toBeLessThanOrEqual(W73_LACE_MAX_TEAR_F20);
+  });
+});
+
+// =============================================================================
+// W77 (D77-2, D77-3): every preset re-forms within the NORTH-STAR budgets after the cohesion
+// remap, and honey re-forms within the splash budget while it stays slower than water.
+// =============================================================================
+const W77_NORTH_STAR = readFileSync(resolve(process.cwd(), NORTH_STAR_PATH), "utf8");
+/** NORTH-STAR step 3 (splash) and step 6 (shake), in 60 Hz frames (180 each today). */
+const W77_SPLASH_BUDGET_FRAMES = Math.round((reformBudgetMs(W77_NORTH_STAR, 3) / 1000) * W67_FPS);
+const W77_SHAKE_BUDGET_FRAMES = Math.round((reformBudgetMs(W77_NORTH_STAR, 6) / 1000) * W67_FPS);
+/** Frames the material settles after setMaterial before the splash (the W77.0 probe's value). */
+const W77_MATERIAL_SETTLE_FRAMES = 30;
+/**
+ * W77 red review (finding 8): honey's splash re-form is at least this multiple of water's, so it
+ * still reads slower and thicker (D77-3), not merely one frame slower. W77.0: 285 / 135 = 2.1.
+ */
+const W77_HONEY_OVER_WATER_MIN = 1.15;
+
+type W77Hook = W67Hook & { instance: W67Hook["instance"] & { setMaterial(m: unknown): void } };
+
+/** Frames from a splash on #splash (API, strength 1) until every restAlpha is 1, at most `budget`; -1 if it runs out. */
+async function w77SplashReform(page: Page, preset: keyof typeof presets, budget: number): Promise<number> {
+  await w67Open(page);
+  await page.evaluate((m) => (window as unknown as { __liquidTest: W77Hook }).__liquidTest.instance.setMaterial(m), { ...presets[preset] });
+  await w67Advance(page, W77_MATERIAL_SETTLE_FRAMES);
+  await page.evaluate(() => (window as unknown as { __liquidTest: W77Hook }).__liquidTest.instance.splash(document.getElementById("splash")!));
+  return w67FramesUntilAllRest(page, budget);
+}
+
+/** Frames from a shake (strength 1) until every restAlpha is 1, at most `budget`; -1 if it runs out. */
+async function w77ShakeReform(page: Page, preset: keyof typeof presets, budget: number): Promise<number> {
+  await w67Open(page);
+  await page.evaluate((m) => (window as unknown as { __liquidTest: W77Hook }).__liquidTest.instance.setMaterial(m), { ...presets[preset] });
+  await w67Advance(page, W77_MATERIAL_SETTLE_FRAMES);
+  await page.evaluate(() => (window as unknown as { __liquidTest: W77Hook }).__liquidTest.instance.shake());
+  return w67FramesUntilAllRest(page, budget);
+}
+
+test.describe("W77 – presets re-form within the budgets (D77-2, D77-3)", () => {
+  test.beforeEach(() => {
+    // The solver is shared by both renderers; webgpu-robust.spec.ts repeats this in webgpu-hw.
+    test.skip(projectRenderer() !== "canvas2d", "W77: canvas2d project (webgpu-hw: webgpu-robust.spec.ts W77 block)");
+  });
+
+  for (const preset of ["water", "honey", "jelly"] as const) {
+    test(`D77-3 – given the ${preset} preset when Splash is splashed then every restAlpha returns to 1 within the NORTH-STAR step-3 budget`, async ({ page }) => {
+      const frames = await w77SplashReform(page, preset, W77_SPLASH_BUDGET_FRAMES);
+      console.log(`W77 re-form: ${preset} splash ${frames} frames (budget ${W77_SPLASH_BUDGET_FRAMES}; W77.0: water 135, honey 285, jelly 123)`);
+      expect(frames, `${preset}: every restAlpha back to 1 within ${W77_SPLASH_BUDGET_FRAMES} frames after the splash`).toBeGreaterThan(0);
+    });
+
+    test(`D77-2 – given the ${preset} preset when the instance shakes then every restAlpha returns to 1 within the NORTH-STAR step-6 budget`, async ({ page }) => {
+      const frames = await w77ShakeReform(page, preset, W77_SHAKE_BUDGET_FRAMES);
+      // W77 red review (finding 12): this test shakes from rest (setMaterial, 30 frames, shake). Its own red run (W77.1): water 131,
+      // jelly 111, honey over the budget. The W77.0 probe's 129 / 279 / 106 shook 30 frames after its splash measurement.
+      console.log(`W77 re-form: ${preset} shake ${frames} frames (budget ${W77_SHAKE_BUDGET_FRAMES}; W77.1 red, from rest: water 131, jelly 111, honey > 180)`);
+      expect(frames, `${preset}: every restAlpha back to 1 within ${W77_SHAKE_BUDGET_FRAMES} frames after the shake`).toBeGreaterThan(0);
+    });
+  }
+
+  test("D77-3 – given honey and water when Splash is splashed then honey re-forms at least 1.15× as slowly as water (it still reads thicker)", async ({ page }) => {
+    const long = 3 * W77_SPLASH_BUDGET_FRAMES;
+    const water = await w77SplashReform(page, "water", long);
+    const honey = await w77SplashReform(page, "honey", long);
+    console.log(`W77 honey vs water: splash re-form ${honey} vs ${water} frames (ratio ${(honey / water).toFixed(2)}, min ${W77_HONEY_OVER_WATER_MIN})`);
+    expect(water, "water re-forms").toBeGreaterThan(0);
+    expect(honey, "honey re-forms").toBeGreaterThan(0);
+    expect(honey, `honey re-forms at least ${W77_HONEY_OVER_WATER_MIN}× as slowly as water`).toBeGreaterThanOrEqual(W77_HONEY_OVER_WATER_MIN * water);
+  });
+});
+
+// =============================================================================
+// W74 (slice 4) – Canvas2D never sets liquid-text (D74-6), and the splash ghost pill (D74-7).
+// =============================================================================
+/** D74-7: the alpha band of the pale rest overlay, calibrated in W74.0 (before ≥ 10 of 27 probes at f4–f7, after ≤ 3). */
+const GHOST_PALE_BAND: readonly [number, number] = [16, 160];
+const GHOST_MAX_PROBES = 4;
+
+/** Canvas alpha at a 9 × 3 probe grid 12 px inside #splash; returns how many fall in GHOST_PALE_BAND. */
+async function paleProbesInSplash(page: Page): Promise<number> {
+  return page.evaluate(([lo, hi]) => {
+    const img = window.__liquidTest!.pixels();
+    const c = document.querySelector<HTMLCanvasElement>("canvas.liquid-canvas");
+    const s = document.getElementById("splash");
+    if (!c || !s) throw new Error("W74: canvas or #splash missing");
+    const cr = c.getBoundingClientRect();
+    const b = s.getBoundingClientRect();
+    const sx = img.width / cr.width;
+    const sy = img.height / cr.height;
+    let pale = 0;
+    for (let j = 0; j < 3; j++) {
+      for (let i = 0; i < 9; i++) {
+        const x = b.left + 12 + ((b.width - 24) * i) / 8;
+        const y = b.top + 12 + ((b.height - 24) * j) / 2;
+        const px = Math.floor((x - cr.left) * sx);
+        const py = Math.floor((y - cr.top) * sy);
+        const a = img.data[(py * img.width + px) * 4 + 3];
+        if (a >= lo && a <= hi) pale++;
+      }
+    }
+    return pale;
+  }, GHOST_PALE_BAND);
+}
+
+test.describe("slice 4 – liquid text and the ghost pill (W74)", () => {
+  test("step 3 (canvas2d) – given a splash when ticking 30 frames then no element ever carries liquid-text (D74-6)", async ({ page }) => {
+    test.skip(projectRenderer() !== "canvas2d", "W74 (D74-6): the Canvas2D guarantee; WebGPU sets liquid-text while an element moves");
+    await w67Open(page);
+    await w67ClickSplash(page);
+    for (let f = 1; f <= 30; f++) {
+      await w67Advance(page, 1);
+      expect(await page.locator(".liquid-text").count(), `liquid-text at frame ${f}`).toBe(0);
+    }
+    expect(Math.min(...(await w67RestAlphas(page))), "the splash happened").toBeLessThan(1);
+  });
+
+  test("step 3 – given a splash at the centre of Splash when ticking 8 frames then its restAlpha is 0 from the first frame and no probe in the hole shows the pale rest overlay (D74-7)", async ({ page }) => {
+    await w67Open(page);
+    await page.mouse.move(1279, 799);
+    await page.evaluate(() => {
+      const el = document.getElementById("splash");
+      if (!el) throw new Error("W74: #splash not found");
+      (window as unknown as { __liquidTest: W67Hook }).__liquidTest.instance.splash(el);
+    });
+    let worst = 0;
+    for (let f = 1; f <= 8; f++) {
+      await w67Advance(page, 1);
+      expect((await w67RestAlphas(page))[0], `restAlpha of Splash at f${f}`).toBe(0);
+      worst = Math.max(worst, await paleProbesInSplash(page));
+    }
+    expect(worst, `probes inside Splash in the pale band ${GHOST_PALE_BAND.join("–")}`).toBeLessThanOrEqual(GHOST_MAX_PROBES);
   });
 });
 
@@ -758,5 +902,376 @@ test.describe("vision captures (W71 gold, VISION=1)", () => {
       }
       await page.screenshot({ path: `${dir}/step3-f030-card-crop.png`, clip: crop(card) });
     }
+  });
+});
+
+// =============================================================================
+// W78 (slice 5) – drag the liquid: step 5 without the merge (D78-1 … D78-6). The merge, the
+// closed-region check and step 5 ✅ are W79 (slice design §6).
+// =============================================================================
+/** Slice design §6: hold 30 frames before the release. */
+const W78_HOLD_FRAMES = 30;
+/** NORTH-STAR step 5: both re-form within 3 s. */
+const W78_REFORM_FRAMES = 180;
+/** Spec §2: a strength-1 splash sets s ≤ 0.25; a drag only ever holds s at 0.5. */
+const W78_SPLASH_S_MAX = 0.25;
+const MERGE_INDEX = 2;
+
+type W78Slot = { interaction: number; homeDx: number; homeDy: number; s: number };
+type W78Hook = W67Hook & { slots(): W78Slot[] };
+
+async function w78Slots(page: Page): Promise<W78Slot[]> {
+  return page.evaluate(() => (window as unknown as { __liquidTest: W78Hook }).__liquidTest.slots());
+}
+
+async function w78Centre(page: Page, selector: string): Promise<{ x: number; y: number }> {
+  const b = await page.locator(selector).boundingBox();
+  if (!b) throw new Error(`W78: ${selector} has no box`);
+  return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+}
+
+/** Mouse press on Merge's centre, 10 moves to the card's centre (one frame each), then `hold` frames; the button stays down. */
+async function w78DragMergeToCard(page: Page, hold = W78_HOLD_FRAMES, button: "left" | "right" = "left"): Promise<{ dx: number; dy: number; activeAtDown: string }> {
+  const from = await w78Centre(page, "#merge");
+  const to = await w78Centre(page, "#card");
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down({ button });
+  const activeAtDown = await w78Active(page); // the press itself may focus the button
+  for (let k = 1; k <= 10; k++) {
+    await page.mouse.move(from.x + ((to.x - from.x) * k) / 10, from.y + ((to.y - from.y) * k) / 10);
+    await w67Advance(page, 1);
+  }
+  await w67Advance(page, hold);
+  return { dx: to.x - from.x, dy: to.y - from.y, activeAtDown };
+}
+
+/** The focused element as tag#id, for "focus never moves during a drag". */
+async function w78Active(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const a = document.activeElement;
+    return a ? `${a.tagName.toLowerCase()}#${a.id}` : "none";
+  });
+}
+
+/** Merge's own label state: liquid-away and the computed text fill. */
+async function w78MergeFill(page: Page): Promise<{ away: boolean; fill: string }> {
+  return page.locator("#merge").evaluate((el) => ({
+    away: el.classList.contains("liquid-away"),
+    fill: getComputedStyle(el).getPropertyValue("-webkit-text-fill-color"),
+  }));
+}
+
+/** Counts the click events that reach the document's bubble phase from now on. */
+async function w78CountClicks(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as { __w78Clicks: number };
+    w.__w78Clicks = 0;
+    document.addEventListener("click", () => {
+      w.__w78Clicks += 1;
+    });
+  });
+}
+
+async function w78Clicks(page: Page): Promise<number> {
+  return page.evaluate(() => (window as unknown as { __w78Clicks: number }).__w78Clicks);
+}
+
+test.describe("W78 – drag the liquid (step 5 without the merge)", () => {
+  test.beforeEach(() => {
+    test.skip(projectRenderer() !== "canvas2d", "W78: canvas2d project (webgpu-hw: the webgpu-robust.spec.ts W78 block)");
+  });
+
+  test("step 5 – given Merge dragged into the card and held 30 frames when released then slots follow the drag, the click does not splash, Merge's DOM label hides while away and every restAlpha is 1 within 180 frames", async ({ page }, testInfo) => {
+    await w67Open(page);
+    await w78CountClicks(page);
+    const boxBefore = await page.locator("#merge").boundingBox();
+    const { dx, dy, activeAtDown } = await w78DragMergeToCard(page);
+    expect(await page.locator("#merge").boundingBox(), "the DOM box (and so the hit area) never moves during a drag").toEqual(boxBefore);
+    expect(await w78Active(page), "focus does not move between pointerdown and the hold").toBe(activeAtDown);
+    const held = await w78Slots(page);
+    expect(held[MERGE_INDEX].interaction, "Merge is DRAGGED (D78-4)").toBe(3);
+    expect(held[MERGE_INDEX].homeDx, "slot 6 = dx").toBeCloseTo(dx, 0);
+    expect(held[MERGE_INDEX].homeDy, "slot 7 = dy").toBeCloseTo(dy, 0);
+    for (const i of [0, 1, 3]) expect([held[i].homeDx, held[i].homeDy], `element ${i} has no offset`).toEqual([0, 0]);
+    expect(held[MERGE_INDEX].s, "s ≤ 0.5 while dragged (D78-3)").toBeLessThanOrEqual(0.5 + 1e-6);
+    expect((await w67RestAlphas(page))[MERGE_INDEX], "a dragged element never rests (D78-5)").toBe(0);
+    expect(await w78MergeFill(page), "Canvas2D hides Merge's DOM glyphs while away (D78-1)").toEqual({ away: true, fill: "rgba(0, 0, 0, 0)" });
+    await page.screenshot({ path: testInfo.outputPath("w78-canvas2d-drag-hold-f30.png") });
+
+    await page.mouse.up();
+    expect(await w78Clicks(page), "the click that ends a drag is swallowed (D78-6)").toBe(0);
+    expect((await w78Slots(page))[MERGE_INDEX].s, "no splash: s is the drag's 0.5, not a splash's ≤ 0.25").toBeGreaterThan(W78_SPLASH_S_MAX);
+    await w67Advance(page, 1);
+    const next = (await w78Slots(page))[MERGE_INDEX];
+    expect(next.interaction, "released: not DRAGGED").not.toBe(3);
+    expect([next.homeDx, next.homeDy], "offset 0 in the next frame (no TS glide)").toEqual([0, 0]);
+
+    const frames = await w67FramesUntilAllRest(page, W78_REFORM_FRAMES);
+    console.log(`W78 step 5 (canvas2d): every restAlpha 1 after ${frames} frames (budget ${W78_REFORM_FRAMES})`);
+    expect(frames, `every restAlpha back to 1 within ${W78_REFORM_FRAMES} frames after the release`).toBeGreaterThan(0);
+    const rest = await w78MergeFill(page);
+    expect(rest.away, "the DOM label is back at rest").toBe(false);
+    expect(cssAlpha(rest.fill), `Merge's text fill ${rest.fill} is opaque`).toBeGreaterThan(0);
+    await page.screenshot({ path: testInfo.outputPath("w78-canvas2d-reformed.png") });
+
+    // Positive control: swallowing is once per drag; a click in a later task reaches the document and splashes.
+    await page.evaluate(() => new Promise((r) => setTimeout(r)));
+    const c = await w78Centre(page, "#merge");
+    await page.mouse.click(c.x, c.y);
+    expect(await w78Clicks(page), "a later click reaches the document").toBe(1);
+    expect((await w78Slots(page))[MERGE_INDEX].s, "and splashes Merge (s ≤ 0.25)").toBeLessThanOrEqual(W78_SPLASH_S_MAX + 1e-6);
+  });
+
+  test("step 5 – given a press on Merge that moves 2 px when released then it stays a click splash and nothing drags", async ({ page }) => {
+    await w67Open(page);
+    const c = await w78Centre(page, "#merge");
+    await page.mouse.move(c.x, c.y);
+    await page.mouse.down();
+    await page.mouse.move(c.x + 2, c.y);
+    await w67Advance(page, 1);
+    expect((await w78Slots(page))[MERGE_INDEX].interaction, "below the threshold: not DRAGGED (D78-2)").not.toBe(3);
+    await page.mouse.up();
+    expect((await w78Slots(page))[MERGE_INDEX].s, "the click splashed Merge (s ≤ 0.25)").toBeLessThanOrEqual(W78_SPLASH_S_MAX + 1e-6);
+    expect((await w78MergeFill(page)).away).toBe(false);
+  });
+
+  test("step 5 – given Merge dragged into the card when Escape is pressed then the drag cancels: the label shows at once, slots are 0 in the next frame and every restAlpha is 1 within 180 frames", async ({ page }) => {
+    await w67Open(page);
+    await w78DragMergeToCard(page, 10);
+    expect((await w78Slots(page))[MERGE_INDEX].interaction, "precondition: dragging").toBe(3);
+    await page.keyboard.press("Escape");
+    expect((await w78MergeFill(page)).away, "a cancel shows the DOM label at once (slice design §4)").toBe(false);
+    await w67Advance(page, 1);
+    const s = (await w78Slots(page))[MERGE_INDEX];
+    expect([s.interaction === 3, s.homeDx, s.homeDy]).toEqual([false, 0, 0]);
+    await page.mouse.up();
+    const frames = await w67FramesUntilAllRest(page, W78_REFORM_FRAMES);
+    console.log(`W78 Escape cancel (canvas2d): every restAlpha 1 after ${frames} frames`);
+    expect(frames, "every restAlpha back to 1 within 180 frames after the cancel").toBeGreaterThan(0);
+  });
+
+  test("step 5 – given a right-button drag on Merge into the card when moved then nothing drags (primary button only)", async ({ page }) => {
+    await w67Open(page);
+    await w78DragMergeToCard(page, 5, "right");
+    const s = await w78Slots(page);
+    expect(s.map((x) => x.interaction === 3), "no element is DRAGGED (D78-2)").toEqual([false, false, false, false]);
+    expect(s.map((x) => [x.homeDx, x.homeDy])).toEqual([[0, 0], [0, 0], [0, 0], [0, 0]]);
+    expect((await w78MergeFill(page)).away).toBe(false);
+    await page.mouse.up({ button: "right" });
+  });
+
+  test("step 5 – given Merge dragged into the card and held 30 frames when screenshotted then it matches the baseline", async ({ page }) => {
+    test.skip(!VISUAL_ENABLED, VISUAL_SKIP_REASON);
+    await w67Open(page);
+    await w78DragMergeToCard(page);
+    await expect(page).toHaveScreenshot("acceptance-step5-drag-mid.png", { maxDiffPixelRatio: 0.01 });
+    await page.mouse.up();
+  });
+
+  test("step 5 – given the drag released when every restAlpha is 1 then it matches the baseline", async ({ page }) => {
+    test.skip(!VISUAL_ENABLED, VISUAL_SKIP_REASON);
+    await w67Open(page);
+    await w78DragMergeToCard(page);
+    await page.mouse.up();
+    expect(await w67FramesUntilAllRest(page, W78_REFORM_FRAMES), "re-formed").toBeGreaterThan(0);
+    // The pointer still rests on the card, so the card shows its hover swell (deterministic on the manual clock).
+    await expect(page).toHaveScreenshot("acceptance-step5-drag-reformed.png", { maxDiffPixelRatio: 0.01 });
+  });
+});
+
+// =============================================================================
+// W79 (slice 5) – merge and separate: step 5 ✅ in Canvas2D (D79-2, D79-4). WebGPU's "labels
+// never overlap" is the webgpu-robust.spec.ts W79 block (webgpu-hw); Canvas2D draws no liquid
+// text and hides Merge's DOM label while away (W78, D78-1), so its labels cannot overlap.
+// =============================================================================
+/** D79-4: the merge is held 90 frames (spike W78.0: a 30-frame hold is only a partial merge). */
+const W79_HOLD_FRAMES = 90;
+/** D79-2: a neighbour under the dragged home is held at s ≤ 0.2. */
+const W79_NEIGHBOUR_S_MAX = 0.2;
+const CARD_INDEX = 3;
+/** Frames read after the release before waiting for rest (the stills at rel f30). */
+const W79_AFTER_RELEASE_FRAMES = 30;
+/**
+ * W79.0 Step 4 (ward-079.md "W79.0 measurements"; seed 1, canvas2d, macOS, hold f90):
+ * `regionHolePixels` around the card with W78 alone (HEAD) and with the W79 scratch copy.
+ */
+const W79_0_HOLES = { w78: 6, w79: 55 } as const;
+/** Seam guard: at most 1.5 × the W79 copy's value, at least 20 px, rounded up to 10. */
+const W79_MERGE_HOLES_MAX = Math.max(20, Math.ceil((1.5 * W79_0_HOLES.w79) / 10) * 10);
+
+test.describe("W79 – merge and separate (step 5, canvas2d)", () => {
+  test.beforeEach(() => {
+    test.skip(projectRenderer() !== "canvas2d", "W79: canvas2d project (webgpu-hw: the webgpu-robust.spec.ts W79 block)");
+  });
+
+  test("step 5 – given Merge dragged into the card and held 90 frames when released then the card is softened while overlapped, the two liquids form one closed region and every restAlpha is 1 within 180 frames", async ({ page }, testInfo) => {
+    await w67Open(page);
+    await w78DragMergeToCard(page, W79_HOLD_FRAMES);
+    // Logged before any assertion, so W79.0 reads the same line from a W78-alone (red) copy.
+    const holes = await regionHolePixels(page, await clientRectOf(page, "#card"));
+    console.log(`W79 merge holes (canvas2d, hold f${W79_HOLD_FRAMES}): ${holes} (bound ${W79_MERGE_HOLES_MAX}; W79.0: W78 alone ${W79_0_HOLES.w78}, W79 ${W79_0_HOLES.w79})`);
+    const held = await w78Slots(page);
+    expect(held[MERGE_INDEX].interaction, "precondition: Merge is DRAGGED").toBe(3);
+    expect(held[CARD_INDEX].s, "the card under the dragged home is held at s ≤ 0.2 (D79-2)").toBeLessThanOrEqual(W79_NEIGHBOUR_S_MAX + 1e-6);
+    expect(held[0].s, "Splash is never under the drag").toBe(1);
+    expect(holes, "guard: no seam between the two liquids (hole pixels in the card region)").toBeLessThanOrEqual(W79_MERGE_HOLES_MAX);
+    await page.screenshot({ path: testInfo.outputPath("w79-canvas2d-merge-hold-f90.png") });
+    await page.mouse.up();
+    await w67Advance(page, W79_AFTER_RELEASE_FRAMES);
+    await page.screenshot({ path: testInfo.outputPath("w79-canvas2d-merge-rel-f30.png") });
+    const rest = await w67FramesUntilAllRest(page, W78_REFORM_FRAMES - W79_AFTER_RELEASE_FRAMES);
+    const frames = rest > 0 ? rest + W79_AFTER_RELEASE_FRAMES : -1;
+    console.log(`W79 step 5 (canvas2d): every restAlpha 1 after ${frames} frames (budget ${W78_REFORM_FRAMES})`);
+    expect(frames, `both re-form within ${W78_REFORM_FRAMES} frames after the release`).toBeGreaterThan(0);
+    expect((await w78MergeFill(page)).away, "Merge's DOM label is back at rest").toBe(false);
+    await page.screenshot({ path: testInfo.outputPath("w79-canvas2d-merge-reformed.png") });
+  });
+
+  test("step 5 – given Merge dragged into the card and held 90 frames when screenshotted then it matches the baseline", async ({ page }) => {
+    test.skip(!VISUAL_ENABLED, VISUAL_SKIP_REASON);
+    await w67Open(page);
+    await w78DragMergeToCard(page, W79_HOLD_FRAMES);
+    await expect(page).toHaveScreenshot("acceptance-step5-merge-mid.png", { maxDiffPixelRatio: 0.01 });
+    await page.mouse.up();
+  });
+});
+
+// =============================================================================
+// W80 (slice 6) – scroll follows: step 7 in Canvas2D (D80-1 … D80-3). WebGPU's step 7 and the
+// 1-frame-lag probe (D80-4) are the webgpu-robust.spec.ts W80 block (webgpu-hw); the container
+// scroll is e2e/scroll.spec.ts.
+// =============================================================================
+/** NORTH-STAR step 7: 300 px down and back. */
+const W80_SCROLL_PX = 300;
+/** D80-3: NORTH-STAR step 7's budget after the scroll back, in frames. */
+const W80_BUDGET_FRAMES = Math.round((reformBudgetMs(W77_NORTH_STAR, 7) / 1000) * W67_FPS);
+/** The W80.0 matrix speeds (px per frame) plus the gate's sustained fast scroll (30, D80-3); 300 is a jump in one frame. */
+const W80_SPEEDS = [1, 10, 30, 300] as const;
+/** Frames held at each end of the 300 px jump: past the 120 ms restAlpha fade (D70-4 draws the exact rect while restAlpha > 0.5, which would fill the shape wherever the liquid is). */
+const W80_JUMP_HOLD = 12;
+
+async function w80ScrollY(page: Page): Promise<number> {
+  return page.evaluate(() => window.scrollY);
+}
+
+test.describe("W80 – scroll follows (step 7, canvas2d)", () => {
+  test.beforeEach(() => {
+    test.skip(projectRenderer() !== "canvas2d", "W80: canvas2d project (webgpu-hw: the webgpu-robust.spec.ts W80 block)");
+  });
+
+  test("step 7 – given the acceptance scene when read then the page can scroll 300 px at 1280×800 and every element is at rest at the top", async ({ page }) => {
+    await w67Open(page);
+    const max = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+    expect(max, "the spacer lets the page scroll at least 300 px (slice design §3)").toBeGreaterThanOrEqual(W80_SCROLL_PX);
+    expect(await w80ScrollY(page)).toBe(0);
+    expect(W80_BUDGET_FRAMES, "NORTH-STAR step 7 carries a re-form budget (D80-3)").toBeGreaterThan(0);
+  });
+
+  for (const step of W80_SPEEDS) {
+    test(`step 7 – given a scroll of 300 px down and back at ${step} px per frame when ticking then every element's liquid fills its DOM shape in every frame and every restAlpha is 1 within the step-7 budget`, async ({ page }) => {
+      test.setTimeout(120_000);
+      await w67Open(page);
+      const path = step === W80_SCROLL_PX ? [W80_SCROLL_PX, ...Array<null>(W80_JUMP_HOLD).fill(null), 0, ...Array<null>(W80_JUMP_HOLD).fill(null)] : scrollPath(W80_SCROLL_PX, step);
+      const frames = await scrollPathFills(page, ACCEPTANCE_FILL, path);
+      const worst = worstFrame(frames);
+      const deepest = Math.max(...frames.map((f) => f.scroll));
+      console.log(`W80 step 7 (canvas2d, ${step} px/frame): ${frames.length} frames, lowest fill ${worst.min.toFixed(3)} (${worst.worst} at scroll ${worst.scroll}), bound ${FILL_MIN}`);
+      expect(deepest, "the page really scrolled 300 px").toBe(W80_SCROLL_PX);
+      expect(Math.min(...frames.filter((f) => f.scroll === W80_SCROLL_PX).map((f) => f.judged)), "at the extreme position at least one element is judged (the fill is not vacuous)").toBeGreaterThanOrEqual(1);
+      if (step === 1) expect(Math.min(...frames.map((f) => f.minRest)), "a slow scroll never leaves rest (D80-2: lag under 0.75 px)").toBe(1);
+      expect(frames.at(-1)?.scroll, "and back").toBe(0);
+      expect(worst.min, `no snap: every element's liquid fills its DOM shape (${worst.worst} at scroll ${worst.scroll})`).toBeGreaterThanOrEqual(FILL_MIN);
+      const rest = await w67FramesUntilAllRest(page, W80_BUDGET_FRAMES);
+      console.log(`W80 step 7 (canvas2d, ${step} px/frame): every restAlpha 1 after ${rest} frames (budget ${W80_BUDGET_FRAMES})`);
+      expect(rest, `every restAlpha 1 within ${W80_BUDGET_FRAMES} frames after the scroll back`).toBeGreaterThan(0);
+    });
+  }
+
+  test("step 7 – given a smooth scrollTo of 300 px when the browser animates it over real time then every frame's liquid fills its DOM shape and the scroll back re-forms within the budget (W80 RF4)", async ({ page }) => {
+    test.setTimeout(60_000);
+    await w67Open(page);
+    const frames: FillFrame[] = [];
+    for (const target of [W80_SCROLL_PX, 0]) {
+      await page.evaluate((y) => window.scrollTo({ top: y, behavior: "smooth" }), target);
+      for (let f = 0; f < 240; f++) {
+        await page.waitForTimeout(16);
+        const [frame] = await scrollPathFills(page, ACCEPTANCE_FILL, [null]);
+        frames.push(frame);
+        if (frame.scroll === target && f > 2) break;
+      }
+      expect(frames.at(-1)?.scroll, `the smooth scroll reached ${target}`).toBe(target);
+    }
+    const worst = worstFrame(frames);
+    console.log(`W80 smooth scroll (canvas2d): ${frames.length} frames, lowest fill ${worst.min.toFixed(3)} (${worst.worst} at scroll ${worst.scroll})`);
+    expect(worst.min).toBeGreaterThanOrEqual(FILL_MIN);
+    expect(await w67FramesUntilAllRest(page, W80_BUDGET_FRAMES)).toBeGreaterThan(0);
+  });
+
+  test("step 7 – given Merge dragged 30 px up when the page scrolls 40 px mid-drag then slot 7 grows by 40, the dragged liquid stays under the pointer, and after the release every restAlpha is 1 within 180 frames (D80-1)", async ({ page }) => {
+    await w67Open(page);
+    const c = await w78Centre(page, "#merge");
+    await page.mouse.move(c.x, c.y);
+    await page.mouse.down();
+    for (let k = 1; k <= 6; k++) {
+      await page.mouse.move(c.x, c.y - 5 * k);
+      await w67Advance(page, 1);
+    }
+    await w67Advance(page, 20);
+    const before = (await w78Slots(page))[MERGE_INDEX];
+    expect([before.interaction, before.homeDy], "precondition: dragging 30 px up").toEqual([3, -30]);
+    const fillAtPointer = async (): Promise<number> =>
+      page.evaluate(
+        ([px, py, [r, g, b]]) => {
+          const img = window.__liquidTest!.pixels();
+          let n = 0;
+          let hit = 0;
+          for (let y = py - 12; y < py + 12; y++) {
+            for (let x = px - 30; x < px + 30; x++) {
+              n++;
+              const o = (y * img.width + x) * 4;
+              const d = img.data;
+              if (d[o + 3] > 128 && Math.abs(d[o] - r) + Math.abs(d[o + 1] - g) + Math.abs(d[o + 2] - b) < 60) hit++;
+            }
+          }
+          return hit / n;
+        },
+        [Math.round(c.x), Math.round(c.y - 30), W80_COLOURS["#merge"]] as const,
+      );
+    const held = await fillAtPointer();
+    expect(held, "precondition: the dragged liquid fills the probe box").toBeGreaterThanOrEqual(0.5);
+    await page.evaluate(() => window.scrollTo({ top: 40, behavior: "instant" }));
+    await w67Advance(page, 1);
+    const after = (await w78Slots(page))[MERGE_INDEX];
+    expect([after.interaction, after.homeDy], "the drag offset grew by the scroll").toEqual([3, 10]);
+    await w67Advance(page, 10);
+    const scrolled = await fillAtPointer();
+    console.log(`W80 mid-drag scroll (canvas2d): Merge colour under the pointer ${held.toFixed(3)} before, ${scrolled.toFixed(3)} 10 frames after the 40 px scroll`);
+    expect(scrolled, "the dragged liquid is still under the pointer").toBeGreaterThanOrEqual(Math.min(0.5, held));
+    await page.mouse.up();
+    expect(await w67FramesUntilAllRest(page, W78_REFORM_FRAMES), "re-form after the release").toBeGreaterThan(0);
+  });
+
+  test("step 7 – given the page scrolled 150 px down at 10 px per frame when screenshotted then it matches the baseline", async ({ page }) => {
+    test.skip(!VISUAL_ENABLED, VISUAL_SKIP_REASON);
+    await w67Open(page);
+    await scrollPathFills(page, ACCEPTANCE_FILL, scrollPath(W80_SCROLL_PX, 10).slice(0, 15));
+    expect(await w80ScrollY(page)).toBe(150);
+    await expect(page).toHaveScreenshot("acceptance-step7-scroll-mid.png", { maxDiffPixelRatio: 0.01 });
+  });
+
+  test("step 7 – given the page scrolled 300 px down when every restAlpha is 1 then it matches the baseline", async ({ page }) => {
+    test.skip(!VISUAL_ENABLED, VISUAL_SKIP_REASON);
+    await w67Open(page);
+    await scrollPathFills(page, ACCEPTANCE_FILL, scrollPath(W80_SCROLL_PX, 10).slice(0, 30));
+    expect(await w67FramesUntilAllRest(page, W80_BUDGET_FRAMES)).toBeGreaterThan(0);
+    await expect(page).toHaveScreenshot("acceptance-step7-scrolled-300.png", { maxDiffPixelRatio: 0.01 });
+  });
+
+  test("step 7 – given the page scrolled 300 px and back when every restAlpha is 1 then it matches the step 1 baseline (no residue)", async ({ page }) => {
+    test.skip(!VISUAL_ENABLED, VISUAL_SKIP_REASON);
+    await w67Open(page);
+    await scrollPathFills(page, ACCEPTANCE_FILL, scrollPath(W80_SCROLL_PX, 10));
+    expect(await w67FramesUntilAllRest(page, W80_BUDGET_FRAMES)).toBeGreaterThan(0);
+    await expect(page).toHaveScreenshot("acceptance-step1.png", { maxDiffPixelRatio: 0.01 });
   });
 });

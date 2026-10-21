@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { snapshotColors, snapshotColorsWithout } from "../src/color";
-import { ELEMENT_CLASS } from "../src/stylesheet";
+import { ELEMENT_CLASS, LIQUID_CSS, TEXT_CLASS } from "../src/stylesheet";
 
 beforeEach(() => {
   document.head.replaceChildren();
@@ -84,5 +84,28 @@ describe("W66 ward-fix I1: transition-safe snapshot leaves the style attribute u
     expect(probe.seen?.transition).toBe("none|important");
     expect(el.getAttribute("style")).toBe(original);
     expect(el.getAttribute("class")).toBe(`btn ${ELEMENT_CLASS}`);
+  });
+});
+
+describe("W75: the colour snapshot under liquid-text (D75-2, W74's text-fill rule)", () => {
+  it("given_liquid_text_on_when_colours_are_snapshotted_lifting_only_liquid_element_then_the_author_text_colour_is_read_and_attributes_are_restored", () => {
+    // W74 (D74-6) hides glyphs with -webkit-text-fill-color; no liquiddom rule sets `color`, so neither
+    // the snapshot nor W74's atlas (which reads the computed `color`) needs a liquid-text lift.
+    expect(LIQUID_CSS).toContain(".liquid-text, .liquid-text * { -webkit-text-fill-color: transparent !important;");
+    expect(LIQUID_CSS, "a rule that sets color would make every snapshot and atlas rebuild read transparent text").not.toMatch(/[{;]\s*color\s*:/);
+    const style = document.createElement("style");
+    style.textContent = `.btn { background-color: rgb(9, 8, 7); color: rgb(250, 240, 230); } .${ELEMENT_CLASS} { background-color: transparent !important; } .${TEXT_CLASS}, .${TEXT_CLASS} * { -webkit-text-fill-color: transparent !important; }`;
+    document.head.appendChild(style);
+    const el = document.createElement("button");
+    el.className = `btn ${ELEMENT_CLASS} ${TEXT_CLASS}`;
+    el.setAttribute("style", "--x: 1");
+    document.body.appendChild(el);
+    const before = [el.getAttribute("class"), el.getAttribute("style")];
+    expect(snapshotColorsWithout(el, ELEMENT_CLASS)).toEqual({
+      background: [9, 8, 7, 1],
+      text: [250, 240, 230, 1],
+    });
+    expect([el.getAttribute("class"), el.getAttribute("style")]).toEqual(before);
+    expect(el.classList.contains(TEXT_CLASS), "liquid-text stays on: it is not lifted").toBe(true);
   });
 });

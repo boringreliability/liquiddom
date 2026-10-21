@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>liquiddom: scroll container scene</title>
+    <style>
+      /* W80 (D80-1): container mode inside a page that scrolls too (README RF3). */
+      body { margin: 0; background: #f3efe6; color: #1d1d1f; font: 16px/1.4 system-ui, sans-serif; }
+      .page { height: 2000px; padding-top: 120px; box-sizing: border-box; }
+      /* A positioned scroll container (liquiddom never restyles it). */
+      #box { position: relative; box-sizing: border-box; width: 640px; height: 360px; margin-left: 80px; overflow: auto; background: #ffffff; }
+      .content { height: 1200px; padding: 80px 0 0 80px; box-sizing: border-box; }
+      .el { display: block; box-sizing: border-box; border: 0; color: #ffffff; font: 600 16px/64px system-ui, sans-serif; text-align: center; }
+      #c1 { width: 200px; height: 64px; border-radius: 32px; background: #2f6fde; }
+      #c2 { width: 320px; height: 160px; margin-top: 56px; border-radius: 16px; background: #263238; }
+    </style>
+  </head>
+  <body data-scene="container">
+    <div class="page">
+      <div id="box">
+        <div class="content">
+          <button id="c1" class="el" type="button" data-liquid>Pill</button>
+          <div id="c2" class="el" data-liquid>Card</div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="./scroll-container.ts"></script>
+  </body>
+</html>

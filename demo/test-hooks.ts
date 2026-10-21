@@ -34,6 +34,34 @@ export interface ScenePerfProbe {
   stop(): ScenePerfSnapshot;
 }
 
+/** W78: slots 5–7 and the stiffness s of one observed element (acceptance scene). NaN when unknown. */
+export interface SceneSlot {
+  interaction: number;
+  homeDx: number;
+  homeDy: number;
+  s: number;
+}
+
+/** W79 (D79-1): one frame's text id target read against the same frame's pixels (acceptance scene, WebGPU). */
+export interface SceneTextIds {
+  /** False when that frame drew no liquid text (no text pass); every count is then 0. */
+  textPass: boolean;
+  /** Texels where the text splats of two or more elements met (smallest id < largest id). */
+  mixed: number;
+  /** Canvas text pixels (every channel and alpha ≥ 200) on mixed texels: 0 is D79-1. */
+  mixedTextPx: number;
+  /** Canvas text pixels anywhere. */
+  textPx: number;
+  /** Slot ids seen in the id target, ascending. */
+  ids: number[];
+  /** The same as DOM indices of [data-liquid] (#splash 0, #split 1, #merge 2, #card 3). */
+  elements: number[];
+  /** W79 red review (I3): the mixed (smallest, largest) pairs as DOM indices, each sorted ascending, pairs ascending. */
+  pairs: Array<[number, number]>;
+  /** W79 red review (M1): canvas text pixels where one element's text is alone (smallest == largest), by DOM index. */
+  textPxByElement: Record<number, number>;
+}
+
 export interface LiquidTestHook {
   /** Resolves when the runtime exists, all [data-liquid] elements are observed and the first redistribute ran. */
   readonly ready: Promise<void>;
@@ -64,6 +92,24 @@ export interface LiquidTestHook {
   readonly overdraw: number;
   /** W72 (D72-6): T0 size in px `[width, height]` under webgpu (0.5 × the backing px by default); null under canvas2d. */
   readonly t0Size: readonly [number, number] | null;
+  /**
+   * W75 (Review Focus 3, 5): atlas re-render requests the runtime issued so far (a text or colour
+   * change, a font that finished loading, a DPR change, refresh()). Liquiddom's own class writes
+   * never add to it.
+   */
+  readonly textInvalidations: number;
+  /** W82 (D82-4, landing scene): the Canvas2D density cell in CSS px of the last frame; null under WebGPU. */
+  readonly densityCellPx?: number | null;
+  /**
+   * W78 (acceptance scene only): slot 5 (interaction), slots 6–7 (home_dx, home_dy) and the state
+   * view's s per [data-liquid] element, DOM order (#splash, #split, #merge, #card).
+   */
+  slots?(): SceneSlot[];
+  /**
+   * W79 (D79-1, acceptance scene, WebGPU): runs one manual frame with the text id capture armed and
+   * reads that frame's id target against its pixels. Rejects under Canvas2D or without the capture.
+   */
+  textIds?(): Promise<SceneTextIds>;
 }
 
 export interface StressElementState {
@@ -169,4 +215,90 @@ export interface WebGpuModesHook {
   restAlpha(i: number): number[];
   /** Pixels with alpha > 128 inside element `id`'s rect, read from instance `i`'s last snapshot. */
   opaqueIn(i: number, id: string): number;
+}
+
+/**
+ * W80 (D80-1): `window.__scrollContainer` on demo/scenes/scroll-container.html (manual clock). One
+ * instance in container mode on #box (a positioned `overflow: auto` container inside a page that
+ * scrolls as well) observing #c1 (pill) and #c2 (card); `?renderer=canvas2d|webgpu|auto`. The same
+ * hook on demo/scenes/scroll-fixed.html (W80 ward review I1): body mode, a `position: fixed` pill #fx,
+ * a `position: sticky` pill #st and a normal card #nm.
+ */
+export interface ScrollContainerHook {
+  readonly ready: Promise<void>;
+  /** Manual-clock frames of 1000/60 ms; snapshots the canvas when a frame rendered (W71 pixels() rule). */
+  advance(frames: number): void;
+  /** RGBA8 copy of the container's liquid canvas from the last advance() that rendered. */
+  pixels(): ImageData;
+  /** restAlpha of the scene's observed elements in document order: #c1, #c2 (container scene) or #fx, #st, #nm (fixed scene; NaN if unknown). */
+  restAlpha(): number[];
+  /** The canvas's inline `transform` (W80: `translate(…)` while the container is scrolled, else ""). */
+  canvasTransform(): string;
+}
+
+/**
+ * W81 (D81-1, D81-2): `window.__longPage` on demo/scenes/long-page.html (body mode, a page about 5000 px
+ * tall). One instance observes #top, #hide (inside #wrap), #far1 and #far2, in this order; the far cards
+ * start parked. `?clock=manual` for advance(); `?compact=1` puts every element on the first screen.
+ */
+export interface LongPageHook {
+  readonly ready: Promise<void>;
+  /** Manual-clock frames of 1000/60 ms (throws without ?clock=manual); snapshots the canvas when a frame rendered (W71 pixels() rule). */
+  advance(frames: number): void;
+  /** RGBA8 copy of the liquid canvas from the last advance() that rendered. */
+  pixels(): ImageData;
+  /** restAlpha of #top, #hide, #far1, #far2 (NaN if unknown). */
+  restAlpha(): number[];
+  /** Per element, same order: it has particles and every one of them carries FLAG_PARKED in the dynamic view. */
+  parked(): boolean[];
+  /** The world the core's grid covers (`FluidRuntime.world`, @internal), px. */
+  world(): { w: number; h: number };
+  /** `instance.shake()` at strength 1. */
+  shake(): void;
+}
+
+/** W82: the variants of demo/scenes/under-page.html (`?page=`). */
+export type UnderPage = "body" | "opaque" | "wrapper" | "isolate" | "relative";
+
+/**
+ * W82 (D82-1, D82-2): `window.__underPage` on demo/scenes/under-page.html. One instance observes #pill;
+ * #note is an unobserved paragraph. body, opaque, wrapper: body mode; isolate, relative: container
+ * mode on #box. `?clock=manual` for advance(); `?renderer=canvas2d|webgpu|auto` (default canvas2d).
+ */
+export interface UnderPageHook {
+  readonly ready: Promise<void>;
+  readonly page: UnderPage;
+  /** Manual-clock frames of 1000/60 ms (throws without ?clock=manual). */
+  advance(frames: number): void;
+  /** restAlpha of #pill (NaN if unknown). */
+  restAlpha(): number[];
+  /** The computed z-index of the instance's current canvas ("-1" under the page, "0" in the fallback). */
+  canvasZ(): string;
+  /** #pill's data-liquid-stack (null under the page). */
+  stack(): string | null;
+  /** `instance.splash(#pill, { strength })`. */
+  splash(strength: number): void;
+}
+
+/**
+ * W83 (D83-1 … D83-5): `window.__tilt` on demo/scenes/tilt.html (the acceptance layout, observed with
+ * autoObserve). `?clock=manual` for advance(); `?renderer=canvas2d|webgpu|auto` (default canvas2d);
+ * `?gravity=fixed|none|orientation` (default fixed); `?angle=<deg>` the fixed vector at create().
+ */
+export interface TiltHook {
+  readonly ready: Promise<void>;
+  /** Manual-clock frames of 1000/60 ms (throws without ?clock=manual); snapshots the canvas when a frame rendered (W71 pixels() rule). */
+  advance(frames: number): void;
+  /** restAlpha of every observed element in DOM order (NaN if unknown). */
+  restAlpha(): number[];
+  /** `instance.setGravity({ source: 'fixed', vector })` for `deg` degrees from straight down, clockwise (+90: to the right). */
+  setAngle(deg: number): void;
+  /** Dispatches a `deviceorientation` event (β, γ in degrees) on the window. */
+  orient(beta: number, gamma: number): void;
+  /** FNV-1a (hex) of the last snapshot's pixels. */
+  hash(): string;
+  /** Snapshot pixels with alpha > 128 outside every observed element's rect grown by `marginPx`. */
+  outside(marginPx: number): number;
+  /** The instance's active renderer ("none" before create() resolved). */
+  readonly activeRenderer: string;
 }

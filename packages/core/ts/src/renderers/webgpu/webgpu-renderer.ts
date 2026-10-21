@@ -7,26 +7,85 @@
  *    `fwidth` edge, colour Σw·rgb/Σw, premultiplied by coverage × Σw·a/Σw), then one
  *    rounded-rect SDF quad per element is drawn over it at `restAlpha` × colour alpha.
  * An element's particles splat at full weight while its `restAlpha < 1` and are skipped at 1
- * (D71-6, the D70-4 rule). No 32-bit float targets; T2 is deferred to slice 4 (D71-3).
+ * (D71-6, the D70-4 rule). No 32-bit float targets.
+ * W74 (D74-4): while an element with atlas text moves, a third pass splats its text into T1
+ * (`rgba16float`, Σw·text_rgba_premul) and T1w (`r16float`, Σw) at 1× the backing size — its own
+ * pass, because every attachment of a pass shares one size and T0 is at `t0Scale` — and the screen
+ * pass draws the text composite after the rest SDF. T2 is dropped. The atlas page is uploaded
+ * once per version; `textReady(id)` tells the runtime whose text is drawn (D74-6).
+ * W79 (D79-1): the text pass has a third target, T1id (`rg16float`, min blending, cleared to
+ * TEXT_ID_EMPTY): per texel the smallest (r) and minus the largest (g) element id whose text splat
+ * reached it; the text composite drops the text where they differ, so no pixel carries two
+ * elements' text. `captureTextIds()` reads T1id back for the acceptance hook only.
+ * W74 ward-review (I1): once a page is confirmed, a new version goes into a staging texture and
+ * the confirmed page keeps drawing with its own text records until the new upload's error scope
+ * resolves; the swap then copies the staging page into the drawn texture and switches the records
+ * in one step, so a rebuild during motion never blinks the text.
  * Rendering never touches the DOM; the canvas element belongs to the runtime.
  */
 import { ELEMENT_STRIDE } from "../../fluid-layout";
-import type { RenderFrame, Renderer } from "../frame";
+import type { RenderFrame, Renderer, TextAtlasFrame } from "../frame";
 import { WebGPUUnavailableError } from "./errors";
-import { ELEMENT_GPU_FLOATS, packElements, packHomes, packParticles } from "./gpu-buffers";
-import { COMPOSITE_WGSL, REST_WGSL, SPLAT_WGSL } from "./shaders";
+import {
+  ELEMENT_GPU_FLOATS,
+  PARTICLE_GPU_FLOATS,
+  TEXT_INFO_FLOATS,
+  hasMovingText,
+  packElements,
+  packHomes,
+  packParticles,
+  packRestUV,
+  packTextInfo,
+} from "./gpu-buffers";
+import { COMPOSITE_WGSL, REST_WGSL, SPLAT_WGSL, TEXT_COMPOSITE_WGSL, TEXT_WGSL } from "./shaders";
 import { estimateSplatFragments } from "./overdraw";
 
 /** D71-4: T0 render scale relative to the canvas backing size. */
 export const T0_SCALE_DEFAULT = 0.5;
 /**
  * W72 (W71 ward-review M2): the smallest accepted T0 scale. Far below 0.5 a T0 texel grows past
- * the kernel radius (R ≤ 8 CSS px) and the thresholded edge turns blocky; D71-4 compared 0.5 and
+ * the kernel radius (R = 2.3 × spacing, ≤ 16 CSS px since W77) and the thresholded edge turns blocky; D71-4 compared 0.5 and
  * 0.75 only. The options validate the same range (`webgpuT0Scale`, options.ts).
  */
 export const T0_SCALE_MIN = 0.25;
 export const T0_FORMAT: GPUTextureFormat = "rgba16float";
 export const T0_ALPHA_FORMAT: GPUTextureFormat = "r16float";
+/** W74 (D74-4): the text pass targets (1× the backing size) and the atlas page texture. */
+export const T1_FORMAT: GPUTextureFormat = "rgba16float";
+export const T1_WEIGHT_FORMAT: GPUTextureFormat = "r16float";
+export const ATLAS_FORMAT: GPUTextureFormat = "rgba8unorm";
+/**
+ * W79 (D79-1): the text pass's id target. Per texel, r = the smallest and g = minus the largest
+ * element id of every text splat that reached it; both blend with `min`. rg16float is renderable
+ * and blendable in core WebGPU (r32float would need the float32-blendable feature).
+ */
+export const T1_ID_FORMAT: GPUTextureFormat = "rg16float";
+/** W79 (D79-1): the clear value of both id channels: no text splat. Exact in f16, above every slot id (maxElements ≤ 256). */
+export const TEXT_ID_EMPTY = 4096;
+/** W79 (D79-1): min blending; WebGPU requires both factors to be "one" for min and max. */
+export const MIN_BLEND: GPUBlendState = {
+  color: { srcFactor: "one", dstFactor: "one", operation: "min" },
+  alpha: { srcFactor: "one", dstFactor: "one", operation: "min" },
+};
+const TEXT_ID_CLEAR: GPUColorDict = { r: TEXT_ID_EMPTY, g: TEXT_ID_EMPTY, b: 0, a: 0 };
+/** Bytes per T1id texel (two f16). */
+const TEXT_ID_TEXEL_BYTES = 4;
+/** WebGPU: bytesPerRow of a texture-to-buffer copy is a multiple of this. */
+const COPY_ROW_ALIGN = 256;
+
+/** @internal W79 (D79-1): one frame's T1id, read back for the acceptance hook (`captureTextIds`). */
+export interface TextIdCapture {
+  /** False when that frame ran no text pass; width, height and bytesPerRow are then 0. */
+  readonly textPass: boolean;
+  readonly width: number;
+  readonly height: number;
+  /** Bytes per row of `data` (a multiple of 256). */
+  readonly bytesPerRow: number;
+  /** TEXT_ID_EMPTY: the value of a texel no text splat reached. */
+  readonly empty: number;
+  /** Raw rg16float texels row by row: r, g as IEEE half bits. */
+  readonly data: Uint16Array;
+}
 /** WGSL `struct View`: size_css (2), size_px (2), dpr, t0_scale, 2 × pad. */
 export const VIEW_UNIFORM_FLOATS = 8;
 /** WebGPU rejects zero-size storage bindings; no buffer is smaller than this (bytes). */
@@ -69,15 +128,20 @@ export interface LiquidPipelines {
   readonly splatLayout: GPUBindGroupLayout;
   readonly compositeLayout: GPUBindGroupLayout;
   readonly restLayout: GPUBindGroupLayout;
+  readonly textLayout: GPUBindGroupLayout;
+  readonly textCompositeLayout: GPUBindGroupLayout;
   readonly splat: GPURenderPipeline;
   readonly composite: GPURenderPipeline;
   readonly rest: GPURenderPipeline;
+  readonly text: GPURenderPipeline;
+  readonly textComposite: GPURenderPipeline;
 }
 
 /**
- * The splat, composite and rest pipelines with explicit bind group layouts (no `layout:
- * "auto"`). Creates GPU objects only: the caller owns the validation error scope (init, and
- * the e2e check page demo/smoke/webgpu-liquid.ts).
+ * The splat, composite, rest, text and text-composite pipelines with explicit bind group layouts
+ * (no `layout: "auto"`). Creates GPU objects only: the caller owns the validation error scope
+ * (init, and the e2e check page demo/smoke/webgpu-liquid.ts), so a text shader bug rejects
+ * create() like any other pipeline bug (W74, D74-4).
  */
 export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat): LiquidPipelines {
   const V = GPUShaderStage.VERTEX;
@@ -85,6 +149,8 @@ export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat
   const splatModule = device.createShaderModule({ label: "liquiddom splat", code: SPLAT_WGSL });
   const compositeModule = device.createShaderModule({ label: "liquiddom composite", code: COMPOSITE_WGSL });
   const restModule = device.createShaderModule({ label: "liquiddom rest", code: REST_WGSL });
+  const textModule = device.createShaderModule({ label: "liquiddom text", code: TEXT_WGSL });
+  const textCompositeModule = device.createShaderModule({ label: "liquiddom text composite", code: TEXT_COMPOSITE_WGSL });
   const splatLayout = device.createBindGroupLayout({
     label: "liquiddom splat",
     entries: [
@@ -108,6 +174,29 @@ export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat
     entries: [
       { binding: 0, visibility: V | F, buffer: { type: "uniform" } },
       { binding: 1, visibility: V, buffer: { type: "read-only-storage" } },
+    ],
+  });
+  const textLayout = device.createBindGroupLayout({
+    label: "liquiddom text",
+    entries: [
+      { binding: 0, visibility: V, buffer: { type: "uniform" } },
+      { binding: 1, visibility: V, buffer: { type: "read-only-storage" } },
+      { binding: 2, visibility: V, buffer: { type: "read-only-storage" } },
+      { binding: 3, visibility: V, buffer: { type: "read-only-storage" } },
+      { binding: 4, visibility: V, buffer: { type: "read-only-storage" } },
+      { binding: 5, visibility: V, buffer: { type: "read-only-storage" } },
+      { binding: 6, visibility: F, texture: { sampleType: "float" } },
+      { binding: 7, visibility: F, sampler: { type: "filtering" } },
+    ],
+  });
+  const textCompositeLayout = device.createBindGroupLayout({
+    label: "liquiddom text composite",
+    entries: [
+      { binding: 0, visibility: F, buffer: { type: "uniform" } },
+      { binding: 1, visibility: F, texture: { sampleType: "float" } },
+      { binding: 2, visibility: F, texture: { sampleType: "float" } },
+      { binding: 3, visibility: F, sampler: { type: "filtering" } },
+      { binding: 4, visibility: F, texture: { sampleType: "float" } }, // W79 (D79-1): T1id
     ],
   });
   const splat = device.createRenderPipeline({
@@ -138,14 +227,40 @@ export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat
     fragment: { module: restModule, entryPoint: "fs", targets: [{ format: canvasFormat, blend: OVER_BLEND }] },
     primitive: { topology: "triangle-list" },
   });
+  const text = device.createRenderPipeline({
+    label: "liquiddom text",
+    layout: device.createPipelineLayout({ bindGroupLayouts: [textLayout] }),
+    vertex: { module: textModule, entryPoint: "vs" },
+    fragment: {
+      module: textModule,
+      entryPoint: "fs",
+      targets: [
+        { format: T1_FORMAT, blend: ADDITIVE_BLEND },
+        { format: T1_WEIGHT_FORMAT, blend: ADDITIVE_BLEND },
+        { format: T1_ID_FORMAT, blend: MIN_BLEND }, // W79 (D79-1)
+      ],
+    },
+    primitive: { topology: "triangle-list" },
+  });
+  const textComposite = device.createRenderPipeline({
+    label: "liquiddom text composite",
+    layout: device.createPipelineLayout({ bindGroupLayouts: [textCompositeLayout] }),
+    vertex: { module: textCompositeModule, entryPoint: "vs" },
+    fragment: { module: textCompositeModule, entryPoint: "fs", targets: [{ format: canvasFormat, blend: OVER_BLEND }] },
+    primitive: { topology: "triangle-list" },
+  });
   return {
-    modules: [splatModule, compositeModule, restModule],
+    modules: [splatModule, compositeModule, restModule, textModule, textCompositeModule],
     splatLayout,
     compositeLayout,
     restLayout,
+    textLayout,
+    textCompositeLayout,
     splat,
     composite,
     rest,
+    text,
+    textComposite,
   };
 }
 
@@ -158,6 +273,12 @@ export function adapterIsFallback(adapter: GPUAdapter): boolean {
 
 /** Backing-store px: integers ≥ 1 (Review Focus 1: a 0×0 or sub-pixel canvas never yields a 0-size texture). */
 const pxOrOne = (v: number): number => (Number.isFinite(v) && v >= 1 ? Math.floor(v) : 1);
+
+/** W74 ward-review (I1): the paint owner of slots `[0, n)` at pack time (allocation-free once sized). */
+function recordOwners(frame: RenderFrame, out: Array<number | undefined>, n: number): void {
+  out.length = n;
+  for (let id = 0; id < n; id++) out[id] = frame.paints[id]?.owner;
+}
 
 export class WebGPURenderer implements Renderer {
   readonly t0Scale: number;
@@ -210,6 +331,61 @@ export class WebGPURenderer implements Renderer {
   private simulatedLoss = false;
   private initSettled = false;
   private lostDuringInit: GPUDeviceLostInfo | null = null;
+  // ---- W74 (D74-4): the text pass ----
+  private restUvBuffer: GPUBuffer | null = null;
+  /** The text records of the drawn page (binding 5 of the text group). */
+  private textInfoBuffer: GPUBuffer | null = null;
+  private restUvScratch = new Float32Array(0);
+  private textInfoScratch = new Float32Array(0);
+  /** Per slot: 1 while its text record is valid (packTextInfo); read by textReady(). */
+  private textOk = new Uint8Array(0);
+  private textInfoDirty = true;
+  private textInfoPaints: RenderFrame["paints"] | null = null;
+  private atlasTexture: GPUTexture | null = null;
+  private atlasView: GPUTextureView | null = null;
+  private atlasWidth = 0;
+  private atlasHeight = 0;
+  private atlasVersion = Number.NaN;
+  /** True once the copy of `atlasVersion` is confirmed by its error scope (W74 review). */
+  private atlasOk = false;
+  /** W74 review: bumped by every upload, drop and release, so a late error-scope result for an older upload is ignored. */
+  private atlasUploadSeq = 0;
+  /** W75 amendment B (D75-1): the seq of the upload whose error scope has not resolved yet (0: none). */
+  private inFlightSeq = 0;
+  // ---- W74 ward-review (I1): the staged page and its text records, swapped in once confirmed ----
+  private stagingTexture: GPUTexture | null = null;
+  private stagingWidth = 0;
+  private stagingHeight = 0;
+  /** True while a staged version awaits its error scope (the confirmed page keeps drawing). */
+  private staged = false;
+  /** The staged page's text records; created at the first staged upload, swapped with textInfoBuffer. */
+  private textInfoBackBuffer: GPUBuffer | null = null;
+  private pendingInfoScratch = new Float32Array(0);
+  private pendingOk = new Uint8Array(0);
+  private pendingInfoDirty = true;
+  private pendingInfoPaints: RenderFrame["paints"] | null = null;
+  /** Per slot: the paint owner each record was packed for (drawn / staged); a reused slot is masked while staged. */
+  private textOwners: Array<number | undefined> = [];
+  private pendingOwners: Array<number | undefined> = [];
+  private readonly swapEncoderDescriptor: GPUCommandEncoderDescriptor = { label: "liquiddom atlas swap" };
+  private readonly swapSubmitList: GPUCommandBuffer[] = [];
+  private t1: GPUTexture | null = null;
+  private t1Weight: GPUTexture | null = null;
+  /** W79 (D79-1): the id target, same size as T1. */
+  private t1Id: GPUTexture | null = null;
+  private t1Width = 0;
+  private t1Height = 0;
+  private textGroup: GPUBindGroup | null = null;
+  private textCompositeGroup: GPUBindGroup | null = null;
+  private readonly t1Attachment: GPURenderPassColorAttachment = { view: PLACEHOLDER_VIEW, clearValue: CLEAR, loadOp: "clear", storeOp: "store" };
+  private readonly t1WeightAttachment: GPURenderPassColorAttachment = { view: PLACEHOLDER_VIEW, clearValue: CLEAR, loadOp: "clear", storeOp: "store" };
+  private readonly t1IdAttachment: GPURenderPassColorAttachment = { view: PLACEHOLDER_VIEW, clearValue: TEXT_ID_CLEAR, loadOp: "clear", storeOp: "store" };
+  private readonly textPass: GPURenderPassDescriptor = {
+    label: "liquiddom text",
+    colorAttachments: [this.t1Attachment, this.t1WeightAttachment, this.t1IdAttachment],
+  };
+  /** @internal W79: the armed captureTextIds() resolver; settled by the next render(), a loss or destroy(). */
+  private textIdWaiter: ((capture: TextIdCapture | null) => void) | null = null;
 
   constructor(opts: WebGPURendererOptions = {}) {
     const s = opts.t0Scale ?? T0_SCALE_DEFAULT;
@@ -238,6 +414,25 @@ export class WebGPURenderer implements Renderer {
    */
   get t0Size(): readonly [number, number] | null {
     return this.t0 ? [this.t0Width, this.t0Height] : null;
+  }
+
+  /**
+   * W74 review: the device's maxTextureDimension2D (the WebGPU default 8192 before init and after
+   * destroy()). The runtime caps the text atlas page at min(ATLAS_MAX_SIZE_PX, this), so a page
+   * the device cannot hold is never built.
+   */
+  get maxTextureDimension(): number {
+    return this.maxTextureDim;
+  }
+
+  /**
+   * @internal W75 amendment B (D75-1, saga dec_b2499bfc): true while an atlas upload (staged or
+   * first) awaits its error scope. The runtime builds no new page meanwhile, so at most one upload
+   * is in flight and continuous text changes cannot supersede every upload before it confirms.
+   * False after a drop, a release, a loss or destroy() (each bumps the upload seq).
+   */
+  get atlasPending(): boolean {
+    return this.inFlightSeq !== 0 && this.inFlightSeq === this.atlasUploadSeq && this.device !== null && !this.lost;
   }
 
   async init(canvas: HTMLCanvasElement): Promise<void> {
@@ -329,6 +524,7 @@ export class WebGPURenderer implements Renderer {
     this.widthPx = pxOrOne(widthPx);
     this.heightPx = pxOrOne(heightPx);
     this.allocateTargets();
+    if (this.t1) this.allocateTextTargets(); // W74: T1/T1w follow once they exist
   }
 
   render(frame: RenderFrame): void {
@@ -336,21 +532,29 @@ export class WebGPURenderer implements Renderer {
     if (!device || !ctx || !pipelines || this.lost) return;
     this.fragmentEstimate = estimateSplatFragments(frame, this.t0Scale); // D72-4: logged, never gated
     this.ensureBuffers(frame);
-    const { particleBuffer, homeBuffer, elementBuffer, viewBuffer, t0View, t0AlphaView } = this;
+    const { particleBuffer, homeBuffer, restUvBuffer, elementBuffer, viewBuffer, t0View, t0AlphaView } = this;
     const { splatGroup, compositeGroup, restGroup } = this;
-    if (!particleBuffer || !homeBuffer || !elementBuffer || !viewBuffer || !t0View || !t0AlphaView) return;
+    if (!particleBuffer || !homeBuffer || !restUvBuffer || !elementBuffer || !viewBuffer || !t0View || !t0AlphaView) return;
     if (!splatGroup || !compositeGroup || !restGroup) return;
     const queue = device.queue;
 
-    const count = packParticles(frame, this.particleScratch);
-    if (count > 0) queue.writeBuffer(particleBuffer, 0, this.particleScratch, 0, count * 2);
+    // W74 (D74-4): the text pass decision comes first: F and flags are packed only in a frame that
+    // runs it (ward-review M1); the 8-float record layout stays.
+    const textMoves = this.prepareText(frame);
+    // W74 (D74-4): 8 floats per particle — position, F and flags — for the splat and the text pass.
+    const count = packParticles(frame, this.particleScratch, textMoves);
+    if (count > 0) queue.writeBuffer(particleBuffer, 0, this.particleScratch, 0, count * PARTICLE_GPU_FLOATS);
     if (
       frame.generation !== this.uploadedGeneration ||
       frame.paints !== this.uploadedPaints ||
       count !== this.uploadedHomeCount
     ) {
       packHomes(frame, this.homeScratch);
-      if (count > 0) queue.writeBuffer(homeBuffer, 0, this.homeScratch, 0, count);
+      packRestUV(frame, this.restUvScratch); // W74: rest UVs change only with the homes
+      if (count > 0) {
+        queue.writeBuffer(homeBuffer, 0, this.homeScratch, 0, count);
+        queue.writeBuffer(restUvBuffer, 0, this.restUvScratch, 0, count * 2);
+      }
       this.uploadedGeneration = frame.generation;
       this.uploadedPaints = frame.paints;
       this.uploadedHomeCount = count;
@@ -374,6 +578,8 @@ export class WebGPURenderer implements Renderer {
     v[6] = 0;
     v[7] = 0;
     queue.writeBuffer(viewBuffer, 0, v);
+    // Every write above lands before this frame's submit, so the text pass sees this frame's restAlpha.
+    const drawText = textMoves && count > 0;
 
     const encoder = device.createCommandEncoder(this.encoderDescriptor);
     const splat = encoder.beginRenderPass(this.splatPass);
@@ -383,6 +589,15 @@ export class WebGPURenderer implements Renderer {
       splat.draw(6, count);
     }
     splat.end();
+    const textRan = drawText && this.textGroup !== null;
+    if (drawText && this.textGroup) {
+      // W74 (D74-4): its own pass — T1/T1w are at 1×, and all attachments of a pass share one size.
+      const text = encoder.beginRenderPass(this.textPass);
+      text.setPipeline(pipelines.text);
+      text.setBindGroup(0, this.textGroup);
+      text.draw(6, count);
+      text.end();
+    }
     this.screenAttachment.view = ctx.getCurrentTexture().createView();
     const screen = encoder.beginRenderPass(this.screenPass);
     screen.setPipeline(pipelines.composite);
@@ -393,9 +608,107 @@ export class WebGPURenderer implements Renderer {
       screen.setBindGroup(0, restGroup);
       screen.draw(6, slots);
     }
+    if (drawText && this.textGroup && this.textCompositeGroup) {
+      // W74 (D74-4): after the rest SDF, so the text never blinks at the cross-fade.
+      screen.setPipeline(pipelines.textComposite);
+      screen.setBindGroup(0, this.textCompositeGroup);
+      screen.draw(3);
+    }
     screen.end();
-    this.submitList[0] = encoder.finish();
-    queue.submit(this.submitList);
+    // W79: only while the acceptance hook armed a capture (never in a normal frame).
+    const readback = this.textIdWaiter !== null ? this.encodeTextIdCopy(encoder, textRan) : null;
+    try {
+      this.submitList[0] = encoder.finish();
+      queue.submit(this.submitList);
+    } catch (err) {
+      readback?.abort(); // W79.3 review M2: the capture settles with null and its buffer is released
+      throw err;
+    }
+    readback?.run();
+  }
+
+  /**
+   * @internal W79 (D79-1) scene test hook: resolves with the next rendered frame's T1id (copied
+   * into a mappable buffer in that frame's own submit), `textPass` false when that frame drew no
+   * text, and null without a device, after a loss or destroy(). A second call while one is armed
+   * rejects at once with "already armed" and leaves the first untouched (W79 red review M3).
+   * Reached only through FluidRuntime.captureTextIds() (the acceptance hook); the readback buffer
+   * exists only for an armed capture, never in a normal frame.
+   */
+  captureTextIds(): Promise<TextIdCapture | null> {
+    if (!this.device || this.lost) return Promise.resolve(null);
+    if (this.textIdWaiter !== null) {
+      return Promise.reject(new Error("[liquiddom] captureTextIds(): a capture is already armed for the next frame"));
+    }
+    return new Promise<TextIdCapture | null>((resolve) => {
+      this.textIdWaiter = resolve;
+    });
+  }
+
+  private settleTextIds(capture: TextIdCapture | null): void {
+    const waiter = this.textIdWaiter;
+    this.textIdWaiter = null;
+    waiter?.(capture);
+  }
+
+  /**
+   * W79: encodes the T1id copy for an armed capture; returns `run` (after the submit) and `abort`
+   * (when finish or submit threw: settles the capture with null and releases the buffer).
+   */
+  private encodeTextIdCopy(encoder: GPUCommandEncoder, textRan: boolean): { run: () => void; abort: () => void } {
+    const resolve = this.textIdWaiter ?? (() => {});
+    this.textIdWaiter = null;
+    const { device, t1Id } = this;
+    if (!textRan || !device || !t1Id) {
+      const none: TextIdCapture = { textPass: false, width: 0, height: 0, bytesPerRow: 0, empty: TEXT_ID_EMPTY, data: new Uint16Array(0) };
+      return { run: () => resolve(none), abort: () => resolve(null) };
+    }
+    const width = this.t1Width;
+    const height = this.t1Height;
+    const bytesPerRow = Math.ceil((width * TEXT_ID_TEXEL_BYTES) / COPY_ROW_ALIGN) * COPY_ROW_ALIGN;
+    const buffer = device.createBuffer({
+      label: "liquiddom text id readback",
+      size: bytesPerRow * height,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+    encoder.copyTextureToBuffer({ texture: t1Id }, { buffer, bytesPerRow, rowsPerImage: height }, [width, height]);
+    return {
+      run: () => {
+        buffer.mapAsync(GPUMapMode.READ).then(
+          () => {
+            const data = new Uint16Array(buffer.getMappedRange().slice(0));
+            buffer.unmap();
+            buffer.destroy();
+            resolve({ textPass: true, width, height, bytesPerRow, empty: TEXT_ID_EMPTY, data });
+          },
+          () => {
+            buffer.destroy(); // a loss or destroy() during the map: no capture
+            resolve(null);
+          },
+        );
+      },
+      abort: () => {
+        buffer.destroy();
+        resolve(null);
+      },
+    };
+  }
+
+  /**
+   * W74 (D74-6): true when render() draws atlas text for slot `id` whenever its restAlpha < 1:
+   * the device is alive, the atlas page is uploaded and the slot's text record is valid. The
+   * runtime sets `liquid-text` only then.
+   */
+  textReady(id: number): boolean {
+    return (
+      this.device !== null &&
+      !this.lost &&
+      this.atlasOk &&
+      Number.isInteger(id) &&
+      id >= 0 &&
+      id < this.textOk.length &&
+      this.textOk[id] === 1
+    );
   }
 
   destroy(): void {
@@ -444,7 +757,7 @@ export class WebGPURenderer implements Renderer {
     });
   }
 
-  /** Storage buffers sized by the pools (fixed at create()); never smaller than MIN_BUFFER_BYTES (Review Focus 2). */
+  /** Storage buffers sized by the pools (fixed at create()); never smaller than one array element (Review Focus 2). */
   private ensureBuffers(frame: RenderFrame): void {
     const { device, pipelines, viewBuffer } = this;
     if (!device || !pipelines || !viewBuffer) return;
@@ -453,27 +766,47 @@ export class WebGPURenderer implements Renderer {
     if (this.particleBuffer && cap === this.bufferCapacity && slots === this.bufferSlots) return;
     this.particleBuffer?.destroy();
     this.homeBuffer?.destroy();
+    this.restUvBuffer?.destroy();
     this.elementBuffer?.destroy();
+    this.textInfoBuffer?.destroy();
+    this.textInfoBackBuffer?.destroy();
+    this.textInfoBackBuffer = null;
     const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST;
-    const particleBuffer = device.createBuffer({ label: "liquiddom particles", size: Math.max(MIN_BUFFER_BYTES, cap * 8), usage });
+    const particleBytes = PARTICLE_GPU_FLOATS * 4;
+    const textInfoBytes = TEXT_INFO_FLOATS * 4;
+    const particleBuffer = device.createBuffer({ label: "liquiddom particles", size: Math.max(particleBytes, cap * particleBytes), usage });
     const homeBuffer = device.createBuffer({ label: "liquiddom homes", size: Math.max(MIN_BUFFER_BYTES, cap * 4), usage });
+    const restUvBuffer = device.createBuffer({ label: "liquiddom rest uv", size: Math.max(MIN_BUFFER_BYTES, cap * 8), usage });
     const elementBuffer = device.createBuffer({
       label: "liquiddom elements",
       size: Math.max(ELEMENT_GPU_BYTES, slots * ELEMENT_GPU_BYTES),
       usage,
     });
+    const textInfoBuffer = device.createBuffer({ label: "liquiddom text info", size: Math.max(textInfoBytes, slots * textInfoBytes), usage });
     this.particleBuffer = particleBuffer;
     this.homeBuffer = homeBuffer;
+    this.restUvBuffer = restUvBuffer;
     this.elementBuffer = elementBuffer;
-    this.particleScratch = new Float32Array(cap * 2);
+    this.textInfoBuffer = textInfoBuffer;
+    this.particleScratch = new Float32Array(cap * PARTICLE_GPU_FLOATS);
     this.homeScratch = new Int32Array(cap);
+    this.restUvScratch = new Float32Array(cap * 2);
     this.elementScratch = new Float32Array(slots * ELEMENT_GPU_FLOATS);
+    this.textInfoScratch = new Float32Array(slots * TEXT_INFO_FLOATS);
+    this.textOk = new Uint8Array(slots);
+    this.pendingInfoScratch = new Float32Array(slots * TEXT_INFO_FLOATS);
+    this.pendingOk = new Uint8Array(slots);
+    this.pendingInfoDirty = true;
+    this.pendingInfoPaints = null;
     this.bufferCapacity = cap;
     this.bufferSlots = slots;
     this.uploadedGeneration = Number.NaN;
     this.uploadedPaints = null;
     this.uploadedHomeCount = -1;
     this.uploadedSlots = 0;
+    this.textInfoDirty = true;
+    this.textInfoPaints = null;
+    this.textGroup = null;
     this.splatGroup = device.createBindGroup({
       label: "liquiddom splat",
       layout: pipelines.splatLayout,
@@ -494,13 +827,306 @@ export class WebGPURenderer implements Renderer {
     });
   }
 
+  /**
+   * W74 (D74-4, D74-5, Review Focus 4): uploads the atlas page once per version, packs the text
+   * records when the page or the paints change, and allocates T1/T1w. True when at least one
+   * element with a valid text record has restAlpha < 1 this frame (the text pass then runs).
+   */
+  private prepareText(frame: RenderFrame): boolean {
+    const { device, pipelines, sampler, viewBuffer, particleBuffer, homeBuffer, elementBuffer, restUvBuffer, textInfoBuffer } = this;
+    if (!device || !pipelines || !sampler || !viewBuffer || !particleBuffer || !homeBuffer || !elementBuffer || !restUvBuffer || !textInfoBuffer) {
+      return false;
+    }
+    const atlas = frame.textAtlas ?? null;
+    if (atlas === null) {
+      this.dropAtlas();
+      return false;
+    }
+    if (atlas.version !== this.atlasVersion) this.uploadAtlas(device, atlas);
+    if (this.staged) {
+      // W74 ward-review (I1): the frame's paints carry the staged page's rects. They go into the
+      // back records; the drawn records stay with the drawn page and only lose unpainted slots.
+      if (this.textInfoDirty) {
+        this.textOk.fill(0); // the drawn records were lost with a buffer reallocation
+        this.textInfoPaints = frame.paints;
+        this.textInfoDirty = false;
+      }
+      if (this.pendingInfoDirty || frame.paints !== this.pendingInfoPaints) {
+        packTextInfo(frame, atlas, this.pendingInfoScratch, this.pendingOk);
+        device.queue.writeBuffer(this.ensureBackInfoBuffer(device), 0, this.pendingInfoScratch);
+        recordOwners(frame, this.pendingOwners, this.pendingOk.length);
+        this.pendingInfoPaints = frame.paints;
+        this.pendingInfoDirty = false;
+        // A slot that lost its paint, or now holds another element (unobserve + observe, ward
+        // review), must not show the drawn page's text: masked and its drawn record zeroed.
+        const ok = this.textOk;
+        let masked = false;
+        for (let id = 0; id < ok.length; id++) {
+          if (ok[id] !== 1) continue;
+          const p = frame.paints[id];
+          if (p !== undefined && p.owner === this.textOwners[id]) continue;
+          ok[id] = 0;
+          this.textInfoScratch.fill(0, id * TEXT_INFO_FLOATS, (id + 1) * TEXT_INFO_FLOATS);
+          masked = true;
+        }
+        if (masked) device.queue.writeBuffer(textInfoBuffer, 0, this.textInfoScratch);
+      }
+    } else if (this.textInfoDirty || frame.paints !== this.textInfoPaints) {
+      // Packed before the atlasOk check, so textReady() turns true as soon as the upload is confirmed.
+      packTextInfo(frame, atlas, this.textInfoScratch, this.textOk);
+      device.queue.writeBuffer(textInfoBuffer, 0, this.textInfoScratch);
+      recordOwners(frame, this.textOwners, this.textOk.length);
+      this.textInfoPaints = frame.paints;
+      this.textInfoDirty = false;
+    }
+    const atlasView = this.atlasView;
+    if (!this.atlasOk || !atlasView) return false;
+    if (!hasMovingText(frame, this.textOk)) return false;
+    this.allocateTextTargets();
+    if (!this.textGroup) {
+      this.textGroup = device.createBindGroup({
+        label: "liquiddom text",
+        layout: pipelines.textLayout,
+        entries: [
+          { binding: 0, resource: { buffer: viewBuffer } },
+          { binding: 1, resource: { buffer: particleBuffer } },
+          { binding: 2, resource: { buffer: homeBuffer } },
+          { binding: 3, resource: { buffer: elementBuffer } },
+          { binding: 4, resource: { buffer: restUvBuffer } },
+          { binding: 5, resource: { buffer: textInfoBuffer } },
+          { binding: 6, resource: atlasView },
+          { binding: 7, resource: sampler },
+        ],
+      });
+    }
+    return this.textCompositeGroup !== null;
+  }
+
+  /**
+   * W74 (Review Focus 4): a page larger than maxTextureDimension2D, or a copy that throws (a
+   * detached or unusable source), leaves no atlas: textReady turns false and the DOM text stays.
+   * A same-size page reuses the texture.
+   *
+   * W74 review (Review Focus 1): a device-timeline validation error does not throw here, so the
+   * copy runs in its own validation scope and a version counts only once `popErrorScope()`
+   * resolves without an error; on an error one console.warn is logged (never console.error: a
+   * failed atlas is not a failed frame) and the version is not retried.
+   *
+   * W74 ward-review (I1): with no confirmed page (the first version, or after a drop or a failure)
+   * the page is copied into the drawn texture and textReady stays false until it is confirmed.
+   * With a confirmed page, it is copied into the staging texture instead: the confirmed page and
+   * its records keep drawing (textReady stays true for their slots) until the scope resolves, then
+   * swapAtlas() switches both. A failed staged version drops all atlas text (both pages; rare).
+   */
+  private uploadAtlas(device: GPUDevice, atlas: TextAtlasFrame): void {
+    this.atlasVersion = atlas.version;
+    const seq = ++this.atlasUploadSeq;
+    const { width: w, height: h } = atlas;
+    const max = this.maxTextureDim;
+    if (!(Number.isInteger(w) && Number.isInteger(h) && w >= 1 && h >= 1 && w <= max && h <= max)) {
+      this.releaseAtlas();
+      return;
+    }
+    const staged = this.atlasOk && this.atlasTexture !== null;
+    let target: GPUTexture;
+    if (staged) {
+      if (!this.stagingTexture || w !== this.stagingWidth || h !== this.stagingHeight) {
+        this.stagingTexture?.destroy();
+        this.stagingTexture = device.createTexture({
+          label: "liquiddom atlas staging",
+          size: [w, h],
+          format: ATLAS_FORMAT,
+          usage: GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+        this.stagingWidth = w;
+        this.stagingHeight = h;
+      }
+      target = this.stagingTexture;
+      this.staged = true;
+      this.pendingInfoDirty = true;
+    } else {
+      this.atlasOk = false;
+      this.releaseStaging();
+      target = this.ensureAtlasTexture(device, w, h);
+      this.textInfoDirty = true;
+    }
+    device.pushErrorScope("validation");
+    try {
+      device.queue.copyExternalImageToTexture({ source: atlas.canvas }, { texture: target, premultipliedAlpha: true }, [w, h]);
+    } catch {
+      this.releaseAtlas(); // Review Focus 1: no atlas text; the runtime keeps the DOM text
+    }
+    this.inFlightSeq = seq;
+    const confirm = (ok: boolean, why: string): void => {
+      // superseded, dropped, destroyed or lost
+      if (seq !== this.atlasUploadSeq || this.device !== device || this.lost) return;
+      this.inFlightSeq = 0;
+      if (!ok) {
+        console.warn(`liquiddom: text atlas upload failed (${why}); the DOM text stays`);
+        this.releaseAtlas();
+        return;
+      }
+      if (staged) this.swapAtlas(device);
+      else this.atlasOk = true;
+    };
+    device.popErrorScope().then(
+      (err) => confirm(err === null, err?.message ?? ""),
+      (reason: unknown) => confirm(false, String(reason)),
+    );
+  }
+
+  /** The drawn atlas texture at w × h (a same-size texture is reused); the text group follows a new one. */
+  private ensureAtlasTexture(device: GPUDevice, w: number, h: number): GPUTexture {
+    if (this.atlasTexture && w === this.atlasWidth && h === this.atlasHeight) return this.atlasTexture;
+    this.atlasTexture?.destroy();
+    const texture = device.createTexture({
+      label: "liquiddom atlas",
+      size: [w, h],
+      format: ATLAS_FORMAT,
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    this.atlasTexture = texture;
+    this.atlasView = texture.createView();
+    this.atlasWidth = w;
+    this.atlasHeight = h;
+    this.textGroup = null;
+    return texture;
+  }
+
+  /** W74 ward-review (I1): the staged page's text records live here until the swap; created on first use. */
+  private ensureBackInfoBuffer(device: GPUDevice): GPUBuffer {
+    if (this.textInfoBackBuffer) return this.textInfoBackBuffer;
+    const bytes = TEXT_INFO_FLOATS * 4;
+    this.textInfoBackBuffer = device.createBuffer({
+      label: "liquiddom text info",
+      size: Math.max(bytes, this.pendingOk.length * bytes),
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    return this.textInfoBackBuffer;
+  }
+
+  /**
+   * W74 ward-review (I1): the staged version is confirmed. One submit copies the staging page into
+   * the drawn texture (reallocated when the size changed); the staged records become the drawn
+   * ones and the text group is rebuilt. Both take effect from the next frame on, together.
+   */
+  private swapAtlas(device: GPUDevice): void {
+    const staging = this.stagingTexture;
+    const back = this.textInfoBackBuffer;
+    if (!this.staged || !staging || !back) {
+      this.releaseAtlas();
+      return;
+    }
+    const w = this.stagingWidth;
+    const h = this.stagingHeight;
+    const front = this.ensureAtlasTexture(device, w, h);
+    const encoder = device.createCommandEncoder(this.swapEncoderDescriptor);
+    encoder.copyTextureToTexture({ texture: staging }, { texture: front }, [w, h]);
+    this.swapSubmitList[0] = encoder.finish();
+    device.queue.submit(this.swapSubmitList);
+    this.textInfoBackBuffer = this.textInfoBuffer;
+    this.textInfoBuffer = back;
+    const scratch = this.textInfoScratch;
+    this.textInfoScratch = this.pendingInfoScratch;
+    this.pendingInfoScratch = scratch;
+    const ok = this.textOk;
+    this.textOk = this.pendingOk;
+    this.pendingOk = ok;
+    const owners = this.textOwners;
+    this.textOwners = this.pendingOwners;
+    this.pendingOwners = owners;
+    this.textInfoPaints = this.pendingInfoPaints;
+    this.textInfoDirty = false;
+    this.pendingInfoDirty = true;
+    this.pendingInfoPaints = null;
+    this.staged = false;
+    this.textGroup = null;
+  }
+
+  /** W74: no atlas this frame (Canvas2D never gets here; WebGPU without OffscreenCanvas or after an atlas failure). */
+  private dropAtlas(): void {
+    this.atlasVersion = Number.NaN;
+    if (this.atlasTexture === null && this.stagingTexture === null && !this.atlasOk) return;
+    this.releaseAtlas();
+  }
+
+  /** No atlas text: both pages are released and every pending upload is ignored (the version is kept: no retry). */
+  private releaseAtlas(): void {
+    this.atlasTexture?.destroy();
+    this.atlasTexture = null;
+    this.atlasView = null;
+    this.atlasWidth = 0;
+    this.atlasHeight = 0;
+    this.releaseStaging();
+    this.atlasOk = false;
+    this.atlasUploadSeq += 1;
+    this.textOk.fill(0);
+    this.textGroup = null;
+  }
+
+  private releaseStaging(): void {
+    this.stagingTexture?.destroy();
+    this.stagingTexture = null;
+    this.stagingWidth = 0;
+    this.stagingHeight = 0;
+    this.staged = false;
+    this.pendingInfoDirty = true;
+    this.pendingInfoPaints = null;
+  }
+
+  /** W74 (D74-4): T1 and T1w at 1× the backing size, clamped to maxTextureDimension2D; the text composite group follows them. */
+  private allocateTextTargets(): void {
+    const { device, pipelines, sampler, viewBuffer } = this;
+    if (!device || !pipelines || !sampler || !viewBuffer) return;
+    const max = this.maxTextureDim;
+    const w = Math.min(max, this.widthPx);
+    const h = Math.min(max, this.heightPx);
+    if (this.t1 && w === this.t1Width && h === this.t1Height) return;
+    this.t1?.destroy();
+    this.t1Weight?.destroy();
+    this.t1Id?.destroy();
+    const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
+    this.t1 = device.createTexture({ label: "liquiddom T1", size: [w, h], format: T1_FORMAT, usage });
+    this.t1Weight = device.createTexture({ label: "liquiddom T1w", size: [w, h], format: T1_WEIGHT_FORMAT, usage });
+    // W79 (D79-1): COPY_SRC for captureTextIds() (the acceptance hook's readback).
+    this.t1Id = device.createTexture({ label: "liquiddom T1id", size: [w, h], format: T1_ID_FORMAT, usage: usage | GPUTextureUsage.COPY_SRC });
+    const t1View = this.t1.createView();
+    const t1WeightView = this.t1Weight.createView();
+    const t1IdView = this.t1Id.createView();
+    this.t1Attachment.view = t1View;
+    this.t1WeightAttachment.view = t1WeightView;
+    this.t1IdAttachment.view = t1IdView;
+    this.t1Width = w;
+    this.t1Height = h;
+    this.textCompositeGroup = device.createBindGroup({
+      label: "liquiddom text composite",
+      layout: pipelines.textCompositeLayout,
+      entries: [
+        { binding: 0, resource: { buffer: viewBuffer } },
+        { binding: 1, resource: t1View },
+        { binding: 2, resource: t1WeightView },
+        { binding: 3, resource: sampler },
+        { binding: 4, resource: t1IdView },
+      ],
+    });
+  }
+
   private releaseGpuObjects(): void {
     this.t0?.destroy();
     this.t0Alpha?.destroy();
     this.particleBuffer?.destroy();
     this.homeBuffer?.destroy();
     this.elementBuffer?.destroy();
+    this.restUvBuffer?.destroy();
+    this.textInfoBuffer?.destroy();
+    this.textInfoBackBuffer?.destroy();
+    this.atlasTexture?.destroy();
+    this.stagingTexture?.destroy();
+    this.t1?.destroy();
+    this.t1Weight?.destroy();
+    this.t1Id?.destroy();
     this.viewBuffer?.destroy();
+    this.settleTextIds(null); // W79: a pending capture never hangs
     this.device = null;
     this.ctx = null;
     this.pipelines = null;
@@ -516,6 +1142,42 @@ export class WebGPURenderer implements Renderer {
     this.splatGroup = null;
     this.compositeGroup = null;
     this.restGroup = null;
+    this.restUvBuffer = null;
+    this.textInfoBuffer = null;
+    this.restUvScratch = new Float32Array(0);
+    this.textInfoScratch = new Float32Array(0);
+    this.textOk = new Uint8Array(0);
+    this.textInfoDirty = true;
+    this.textInfoPaints = null;
+    this.atlasTexture = null;
+    this.atlasView = null;
+    this.atlasWidth = 0;
+    this.atlasHeight = 0;
+    this.atlasVersion = Number.NaN;
+    this.atlasOk = false;
+    this.atlasUploadSeq += 1;
+    this.textInfoBackBuffer = null;
+    this.stagingTexture = null;
+    this.stagingWidth = 0;
+    this.stagingHeight = 0;
+    this.staged = false;
+    this.pendingInfoScratch = new Float32Array(0);
+    this.pendingOk = new Uint8Array(0);
+    this.pendingInfoDirty = true;
+    this.pendingInfoPaints = null;
+    this.textOwners = [];
+    this.pendingOwners = [];
+    this.swapSubmitList.length = 0;
+    this.t1 = null;
+    this.t1Weight = null;
+    this.t1Id = null;
+    this.t1Width = 0;
+    this.t1Height = 0;
+    this.textGroup = null;
+    this.textCompositeGroup = null;
+    this.t1Attachment.view = PLACEHOLDER_VIEW;
+    this.t1WeightAttachment.view = PLACEHOLDER_VIEW;
+    this.t1IdAttachment.view = PLACEHOLDER_VIEW;
     this.bufferCapacity = -1;
     this.bufferSlots = -1;
     this.t0Width = 0;
@@ -546,6 +1208,7 @@ export class WebGPURenderer implements Renderer {
       // reason; a crashed GPU process reports "destroyed" too. Our own destroy() returned above.
       this.lost = true;
       this.fragmentEstimate = 0;
+      this.settleTextIds(null); // W79
       // The renderer never warns: the runtime owns the one console.warn (D72-3).
       this.deviceLostCallback?.(simulated ? simulatedLossInfo() : info);
     });

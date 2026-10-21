@@ -35,6 +35,14 @@ export interface FluidCoreLike {
   set_material(viscosity: number, cohesion: number, recovery: number): void;
   redistribute(): void;
   set_reduced_motion(on: boolean): void;
+  /** W80 (D80-1): the scroll since the last frame (px) and its inertia (px/s); before `tick`. */
+  scroll_shift(dx: number, dy: number, ivx: number, ivy: number): void;
+  /** W81 (D81-2): grows the grid to a world of at least w × h px (never shrinks); true when it grew. Outside `tick`. */
+  resize_world(w: number, h: number): boolean;
+  /** W82 (D82-5): the visible window in buffer px (sanitised in Rust); from resizeCanvas(), outside `tick`. */
+  set_viewport(w: number, h: number): void;
+  /** W83 (D83-4): the gravity low-pass jumps to (gx, gy) px/s², so the next tick with that gravity adds nothing; right before a frame's `tick`. */
+  seed_gravity(gx: number, gy: number): void;
   free(): void;
 }
 

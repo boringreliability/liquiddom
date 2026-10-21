@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>liquiddom: long page scene</title>
+    <style>
+      /* W81 (D81-1, D81-2): a page about 5000 px tall in body mode. #top and #hide (inside #wrap) sit on
+         the first screen; #far1 and #far2 lie 2000 px and 4000 px further down, beyond the world plus
+         the grid margin, so they park until the page scrolls to them. ?compact=1 (body.compact) pulls
+         them onto the first screen for the perf comparison. */
+      body { margin: 0; background: #f3efe6; color: #1d1d1f; font: 16px/1.4 system-ui, sans-serif; }
+      .page { padding: 120px 0 400px 120px; box-sizing: border-box; }
+      .el { display: block; box-sizing: border-box; border: 0; color: #ffffff; font: 600 16px/48px system-ui, sans-serif; text-align: center; }
+      .pill { width: 160px; height: 48px; border-radius: 24px; }
+      .card { width: 320px; height: 160px; border-radius: 16px; line-height: 160px; }
+      #wrap { margin-top: 40px; }
+      .gap { height: 2000px; }
+      body.compact .gap { height: 40px; }
+      #top { background: #2f6fde; }
+      #hide { background: #d93025; }
+      #far1 { background: #1a8361; }
+      #far2 { background: #e8710a; }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <button id="top" class="el pill" type="button" data-liquid>Top</button>
+      <div id="wrap"><button id="hide" class="el pill" type="button" data-liquid>Hide me</button></div>
+      <div class="gap"></div>
+      <div id="far1" class="el card" data-liquid>Far card</div>
+      <div class="gap"></div>
+      <div id="far2" class="el card" data-liquid>Farther card</div>
+    </main>
+    <script type="module" src="./long-page.ts"></script>
+  </body>
+</html>

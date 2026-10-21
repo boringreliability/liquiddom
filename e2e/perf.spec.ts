@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
 import { gotoScene } from "./scene";
 import { summarize } from "./stats";
@@ -115,4 +116,225 @@ test("perf – webgpu (local hardware adapter): RAF p95 and splat overdraw are l
     `[perf webgpu] raf mean ${report.raf.mean.toFixed(3)} p95 ${report.raf.p95.toFixed(3)} ms; ` +
       `overdraw mean ${Math.round(report.overdraw.mean)} p95 ${Math.round(report.overdraw.p95)} max ${report.overdraw.max} fragments/frame`,
   );
+});
+
+// W77 (D77-1): the Canvas2D frame on the landing shake costs at most the W77.0 baseline + 15 %.
+// Normalised by the acceptance shake, whose kernel (R 7.09 px) and 2 px grid D77-1 leaves alone,
+// so the bound holds on any machine. W77.0 (perf project, M4 Pro, 3 runs × 40 frames, median of
+// medians): acceptance 22.53 ms, landing 25.10 ms → ratio 1.114 (a first run: 1.122). Bound
+// 1.12 × 1.15 = 1.29. The W77 spike measured cap 16 without the grid scaling at 12.1 → 21.5 ms
+// on the landing page (+78 %), which this bound rejects.
+const W77_FRAME_RATIO_BASELINE = 1.12;
+const W77_FRAME_RATIO_MAX = 1.29;
+const W77_COST_FRAMES = 40;
+const W77_COST_RUNS = 3;
+
+/** Median wall ms of `advance(1)` over the first W77_COST_FRAMES frames after `shake()` (seed 1, manual clock). */
+async function shakeFrameMedianMs(page: Page, scene: "acceptance" | "landing"): Promise<number> {
+  await page.goto(`/scenes/${scene}.html?seed=1&renderer=canvas2d&clock=manual&test=1`);
+  await page.waitForFunction(() => window.__liquidTest !== undefined, undefined, { timeout: 15_000 });
+  await page.evaluate(() => window.__liquidTest!.ready);
+  await page.evaluate(() => window.__liquidTest!.advance(120));
+  await page.mouse.move(1279, 799);
+  const ms = await page.evaluate((n) => {
+    (window.__liquidTest!.instance as { shake(): void }).shake();
+    const out: number[] = [];
+    for (let f = 0; f < n; f++) {
+      const t = performance.now();
+      window.__liquidTest!.advance(1);
+      out.push(performance.now() - t);
+    }
+    return out.sort((a, b) => a - b);
+  }, W77_COST_FRAMES);
+  return ms[Math.floor(ms.length / 2)];
+}
+
+const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+
+test("perf – W77 D77-1: the Canvas2D frame on the landing shake costs at most the W77.0 baseline + 15 % (normalised by the acceptance shake)", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "perf", "the canvas2d frame-cost guard runs in the perf project");
+  test.setTimeout(180_000);
+  const acceptance: number[] = [];
+  const landing: number[] = [];
+  for (let k = 0; k < W77_COST_RUNS; k++) {
+    acceptance.push(await shakeFrameMedianMs(page, "acceptance"));
+    landing.push(await shakeFrameMedianMs(page, "landing"));
+  }
+  const ratio = median(landing) / median(acceptance);
+  console.log(
+    `[perf W77] canvas2d shake frame median: acceptance ${median(acceptance).toFixed(2)} ms, landing ${median(landing).toFixed(2)} ms, ` +
+      `ratio ${ratio.toFixed(3)} (baseline ${W77_FRAME_RATIO_BASELINE}, bound ${W77_FRAME_RATIO_MAX})`,
+  );
+  expect(ratio, "landing / acceptance Canvas2D shake frame cost (D77-1: ≤ baseline + 15 %)").toBeLessThanOrEqual(W77_FRAME_RATIO_MAX);
+});
+
+// W79 (D79-3): the Canvas2D frame during the merge costs at most 1.15 × a frame after a splash on the
+// card. Both move the card's liquid (its density splat dominates the Canvas2D frame), so the ratio
+// isolates what the merge adds per frame: the neighbour hold, the merge slip and the dragged home.
+// Median of W79_COST_FRAMES frames each (seed 1, manual clock), median of W79_COST_RUNS runs.
+const W79_MERGE_OVER_SPLASH_MAX = 1.15;
+const W79_COST_FRAMES = 40;
+const W79_COST_RUNS = 3;
+
+async function w79OpenCostScene(page: Page): Promise<void> {
+  await page.goto("/scenes/acceptance.html?seed=1&renderer=canvas2d&clock=manual&test=1");
+  await page.waitForFunction(() => window.__liquidTest !== undefined, undefined, { timeout: 15_000 });
+  await page.evaluate(() => window.__liquidTest!.ready);
+  await page.evaluate(() => window.__liquidTest!.advance(120));
+}
+
+/** Median wall ms of `advance(1)` over the first W79_COST_FRAMES frames after `splash()` on #card (strength 1). */
+async function cardSplashFrameMedianMs(page: Page): Promise<number> {
+  await w79OpenCostScene(page);
+  await page.mouse.move(1279, 799);
+  const ms = await page.evaluate((n) => {
+    (window.__liquidTest!.instance as { splash(el: Element): void }).splash(document.getElementById("card")!);
+    const out: number[] = [];
+    for (let f = 0; f < n; f++) {
+      const t = performance.now();
+      window.__liquidTest!.advance(1);
+      out.push(performance.now() - t);
+    }
+    return out;
+  }, W79_COST_FRAMES);
+  return median(ms);
+}
+
+/** Median wall ms of `advance(1)` over W79_COST_FRAMES frames of Merge dragged into the card (10 moves, then held). */
+async function mergeFrameMedianMs(page: Page): Promise<number> {
+  await w79OpenCostScene(page);
+  const centre = async (sel: string): Promise<{ x: number; y: number }> => {
+    const b = await page.locator(sel).boundingBox();
+    if (!b) throw new Error(`W79: ${sel} has no box`);
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  };
+  const from = await centre("#merge");
+  const to = await centre("#card");
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  const ms: number[] = [];
+  for (let k = 1; k <= W79_COST_FRAMES; k++) {
+    if (k <= 10) await page.mouse.move(from.x + ((to.x - from.x) * k) / 10, from.y + ((to.y - from.y) * k) / 10);
+    ms.push(
+      await page.evaluate(() => {
+        const t = performance.now();
+        window.__liquidTest!.advance(1);
+        return performance.now() - t;
+      }),
+    );
+  }
+  await page.mouse.up();
+  return median(ms);
+}
+
+test("perf – W79 D79-3: the Canvas2D frame during the merge costs at most 1.15 × a frame after a splash on the card", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "perf", "the canvas2d frame-cost guard runs in the perf project");
+  test.setTimeout(180_000);
+  const splash: number[] = [];
+  const merge: number[] = [];
+  for (let k = 0; k < W79_COST_RUNS; k++) {
+    splash.push(await cardSplashFrameMedianMs(page));
+    merge.push(await mergeFrameMedianMs(page));
+  }
+  const ratio = median(merge) / median(splash);
+  console.log(
+    `[perf W79] canvas2d frame median: card splash ${median(splash).toFixed(2)} ms, merge ${median(merge).toFixed(2)} ms, ` +
+      `ratio ${ratio.toFixed(3)} (bound ${W79_MERGE_OVER_SPLASH_MAX})`,
+  );
+  expect(ratio, "merge / card-splash Canvas2D frame cost (D79-3)").toBeLessThanOrEqual(W79_MERGE_OVER_SPLASH_MAX);
+});
+
+// W80 (slice design §11): a scroll frame costs at most 1.15 × the same frame without the scroll.
+// Both runs shake first, so both draw the density field: the ratio isolates what the scroll adds
+// per frame (the scroll read, the canvas placement, the rect re-layout after scrollTo,
+// scroll_shift). The at-rest ratio (scroll vs idle, where the inertia un-rests elements and Canvas2D
+// switches from rounded rects to the density) is logged, not gated.
+const W80_SCROLL_OVER_IDLE_MAX = 1.15;
+const W80_COST_FRAMES = 30;
+const W80_COST_RUNS = 3;
+
+/** Median wall ms of `advance(1)` over W80_COST_FRAMES frames, scrolling 10 px per frame or not, after a shake or at rest. */
+async function w80FrameMedianMs(page: Page, scroll: boolean, shake: boolean): Promise<number> {
+  await w79OpenCostScene(page);
+  await page.mouse.move(1279, 799);
+  return page.evaluate(
+    ([n, withScroll, withShake]) => {
+      if (withShake) (window.__liquidTest!.instance as { shake(): void }).shake();
+      const out: number[] = [];
+      for (let f = 1; f <= n; f++) {
+        if (withScroll) window.scrollTo({ top: f * 10, behavior: "instant" });
+        const t = performance.now();
+        window.__liquidTest!.advance(1);
+        out.push(performance.now() - t);
+      }
+      out.sort((a, b) => a - b);
+      return out[Math.floor(out.length / 2)];
+    },
+    [W80_COST_FRAMES, scroll, shake] as const,
+  );
+}
+
+test("perf – W80: a Canvas2D frame that scrolls 10 px costs at most 1.15 × the same frame without the scroll (both after a shake)", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "perf", "the canvas2d frame-cost guard runs in the perf project");
+  test.setTimeout(180_000);
+  const still: number[] = [];
+  const scrolled: number[] = [];
+  const idle: number[] = [];
+  const restScroll: number[] = [];
+  for (let k = 0; k < W80_COST_RUNS; k++) {
+    still.push(await w80FrameMedianMs(page, false, true));
+    scrolled.push(await w80FrameMedianMs(page, true, true));
+    idle.push(await w80FrameMedianMs(page, false, false));
+    restScroll.push(await w80FrameMedianMs(page, true, false));
+  }
+  const ratio = median(scrolled) / median(still);
+  console.log(
+    `[perf W80] canvas2d frame median after a shake: still ${median(still).toFixed(2)} ms, scrolling ${median(scrolled).toFixed(2)} ms, ratio ${ratio.toFixed(3)} (bound ${W80_SCROLL_OVER_IDLE_MAX}); ` +
+      `at rest: idle ${median(idle).toFixed(2)} ms, scrolling ${median(restScroll).toFixed(2)} ms, ratio ${(median(restScroll) / median(idle)).toFixed(3)} (logged)`,
+  );
+  expect(ratio, "scroll / still Canvas2D frame cost after a shake (W80)").toBeLessThanOrEqual(W80_SCROLL_OVER_IDLE_MAX);
+});
+
+// W81 (slice design §11): parking lowers the frame time on a long page. The long page at the top
+// (#far1 and #far2 parked: about 88 % of the particles, by area) against the same page with
+// ?compact=1 (all four elements on the first screen, nothing parked); both at rest on the manual
+// clock, so the ratio isolates the simulated particles (the Rust plan validation: 2.40 vs
+// 3.87 ms per frame with 40 % of the particles parked, native release build).
+const W81_PARKED_OVER_COMPACT_MAX = 0.6;
+const W81_COST_FRAMES = 60;
+const W81_COST_RUNS = 3;
+
+/** Median wall ms of `advance(1)` over W81_COST_FRAMES frames of the long page at rest. */
+async function w81FrameMedianMs(page: Page, compact: boolean): Promise<number> {
+  await page.goto(`/scenes/long-page.html?renderer=canvas2d&clock=manual${compact ? "&compact=1" : ""}`);
+  await page.waitForFunction(() => window.__longPage !== undefined, undefined, { timeout: 15_000 });
+  await page.evaluate(() => window.__longPage!.ready);
+  await page.evaluate(() => window.__longPage!.advance(120));
+  await page.mouse.move(1279, 799);
+  const parked = await page.evaluate(() => window.__longPage!.parked());
+  expect(parked, compact ? "compact: nothing parked" : "long page: the far cards parked").toEqual(compact ? [false, false, false, false] : [false, false, true, true]);
+  return page.evaluate((n) => {
+    const out: number[] = [];
+    for (let f = 0; f < n; f++) {
+      const t = performance.now();
+      window.__longPage!.advance(1);
+      out.push(performance.now() - t);
+    }
+    out.sort((a, b) => a - b);
+    return out[Math.floor(out.length / 2)];
+  }, W81_COST_FRAMES);
+}
+
+test("perf – W81: a Canvas2D frame of the long page with its far cards parked costs at most 0.6 × the same page with every element on screen", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "perf", "the canvas2d frame-cost guard runs in the perf project");
+  test.setTimeout(180_000);
+  const parked: number[] = [];
+  const compact: number[] = [];
+  for (let k = 0; k < W81_COST_RUNS; k++) {
+    parked.push(await w81FrameMedianMs(page, false));
+    compact.push(await w81FrameMedianMs(page, true));
+  }
+  const ratio = median(parked) / median(compact);
+  console.log(`[perf W81] canvas2d frame median at rest: parked ${median(parked).toFixed(2)} ms, compact ${median(compact).toFixed(2)} ms, ratio ${ratio.toFixed(3)} (bound ${W81_PARKED_OVER_COMPACT_MAX})`);
+  expect(ratio, "parked / compact Canvas2D frame cost (W81)").toBeLessThanOrEqual(W81_PARKED_OVER_COMPACT_MAX);
 });

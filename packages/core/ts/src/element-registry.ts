@@ -1,9 +1,20 @@
 import { parseBorderRadius } from "./border-radius";
 import { snapshotColorsWithout, type RGBA } from "./color";
+import type { ActiveDrag } from "./drag-tracker";
 import type { FluidBridge } from "./fluid-bridge";
 import { ELEMENT_STRIDE, El, Interaction, roundedRectArea } from "./fluid-layout";
 import type { ElementOptions } from "./options";
-import { ELEMENT_CLASS, decorateElement, undecorateElement } from "./stylesheet";
+import { movedWithScroll } from "./scroll-tracker";
+import {
+  ELEMENT_CLASS,
+  acquireHaloRule,
+  decorateElement,
+  holdStacking,
+  releaseHaloRule,
+  releaseStacking,
+  undecorateElement,
+  updateHaloRule,
+} from "./stylesheet";
 
 export interface ElementRecord {
   readonly id: number;
@@ -20,6 +31,10 @@ export interface RegistryDeps {
   scheduleRedistribute(): void;
   /** W68: live reduced-motion state; interaction is written as IDLE while true (D68-5). */
   reducedMotion?(): boolean;
+  /** W78 (D78-4): the instance's active drag (drag-tracker.ts), read every sync(); null when none. */
+  drag?(): ActiveDrag | null;
+  /** W82 (D82-3): true while the instance is in the z-index 0 fallback; its elements then hold `data-liquid-stack` (the D7 rules). */
+  stacked?(): boolean;
 }
 
 export interface MicrotaskBatcher {
@@ -69,6 +84,8 @@ export class ElementRegistry {
   private readonly byEl = new Map<HTMLElement, InternalRecord>();
   /** This registry's decoration claims; the refcount itself lives in stylesheet.ts (shared across instances). */
   private readonly decorated = new Set<HTMLElement>();
+  /** W82 (D82-3): this registry's stacking holds (refcounted across instances in stylesheet.ts). */
+  private readonly stacked = new Set<HTMLElement>();
 
   private readonly interactionListeners = new Map<
     HTMLElement,
@@ -121,11 +138,13 @@ export class ElementRegistry {
   }
 
   /**
-   * D68-2 (amended again 2026-10-06, saga dec_e431420b): hover beats focus until slice 5, so the
-   * click that focuses a hovered button keeps its swell; D68-5: IDLE under reduced motion.
+   * W78 (D78-4): DRAGGED beats hover beats focus beats idle. D68-2 (amended again 2026-10-06, saga
+   * dec_e431420b): hover beats focus, so the click that focuses a hovered button keeps its swell;
+   * D68-5: IDLE under reduced motion.
    */
-  private interactionCode(rec: InternalRecord): number {
+  private interactionCode(rec: InternalRecord, dragged: boolean): number {
     if (this.deps.reducedMotion?.() === true) return Interaction.IDLE;
+    if (dragged) return Interaction.DRAGGED;
     if (rec.hovered) return Interaction.HOVER;
     if (rec.focused) return Interaction.FOCUSED;
     return Interaction.IDLE;
@@ -195,8 +214,11 @@ export class ElementRegistry {
     this.writeRect(rec, v, this.deps.coordOffset());
     if (!this.decorated.has(el)) {
       decorateElement(el);
+      // W75 (D75-3): one halo rule claim per registry and element, released with the decoration.
+      acquireHaloRule(el, background);
       this.decorated.add(el);
     }
+    if (this.deps.stacked?.() === true) this.stack(el);
     this.deps.scheduleRedistribute();
     return id;
   }
@@ -210,37 +232,81 @@ export class ElementRegistry {
     this.slots[rec.id] = undefined;
     const o = rec.id * ELEMENT_STRIDE;
     this.bridge.elementView().fill(0, o, o + ELEMENT_STRIDE);
-    if (this.decorated.delete(el)) undecorateElement(el);
+    if (this.stacked.delete(el)) releaseStacking(el); // W82 (D82-3)
+    if (this.decorated.delete(el)) {
+      releaseHaloRule(el);
+      undecorateElement(el);
+    }
     this.deps.scheduleRedistribute();
   }
 
-  /** W66: re-snapshot an observed element's colours (D66-10: unobserved → no-op). */
-  refresh(el: HTMLElement): void {
-    for (const rec of this.entries()) {
-      if (rec.el !== el) continue;
-      const colors = snapshotColorsWithout(el, ELEMENT_CLASS);
-      rec.background = colors.background;
-      rec.text = colors.text;
-      return;
-    }
+  /**
+   * W66: re-snapshot an observed element's colours (D66-10: unobserved → no-op). W75: also re-colours the halo rule.
+   * Ward-review M4: a detached element is not read (its computed style is empty, which would parse to the
+   * fallback colours); its previous colours and halo rule are kept. Returns true when the colours were re-read.
+   */
+  refresh(el: HTMLElement): boolean {
+    const rec = this.byEl.get(el);
+    if (!rec || !el.isConnected) return false;
+    const colors = snapshotColorsWithout(el, ELEMENT_CLASS);
+    rec.background = colors.background;
+    rec.text = colors.text;
+    updateHaloRule(el, colors.background);
+    return true;
   }
 
   unobserveAll(): void {
     for (const el of [...this.byEl.keys()]) this.unobserve(el);
   }
 
-  /** Per frame: x, y, w, h (buffer space) and the radius for the current size. */
+  /** W82 (D82-2, D82-3): the instance fell back to z-index 0; every observed element holds the D7 stacking from now on. */
+  stackAll(): void {
+    for (const el of this.byEl.keys()) this.stack(el);
+  }
+
+  private stack(el: HTMLElement): void {
+    if (this.stacked.has(el)) return;
+    holdStacking(el);
+    this.stacked.add(el);
+  }
+
+  /**
+   * Per frame: x, y, w, h (buffer space), the radius for the current size, slot 5 and, W78 (D78-4),
+   * slots 6–7: the dragged element's offset, 0 for every other element and under reduced motion,
+   * so a release or cancel zeroes them in the same sync (no TS glide).
+   */
   sync(): void {
     if (this.byEl.size === 0) return;
     const v = this.bridge.elementView();
     const off = this.deps.coordOffset();
+    const drag = this.deps.reducedMotion?.() === true ? null : (this.deps.drag?.() ?? null);
     for (const rec of this.byEl.values()) {
       // Ward review: no pointerleave reaches a detached or disabled element, so hover would
       // stick. Checked only while hovered (usually one element), so the cost is one test a frame.
       if (rec.hovered && (!rec.el.isConnected || matchesDisabled(rec.el))) rec.hovered = false;
       this.writeRect(rec, v, off);
-      v[rec.id * ELEMENT_STRIDE + El.INTERACTION] = this.interactionCode(rec);
+      const o = rec.id * ELEMENT_STRIDE;
+      const dragged = drag !== null && drag.el === rec.el;
+      v[o + El.INTERACTION] = this.interactionCode(rec, dragged);
+      v[o + El.HOME_DX] = dragged ? drag.dx : 0;
+      v[o + El.HOME_DY] = dragged ? drag.dy : 0;
     }
+  }
+
+  /**
+   * W80 ward review I1: whether the observed `el` moved with this frame's scroll `(dx, dy)` since the
+   * last `sync()` (`movedWithScroll` on its buffer-space rect against the one that sync wrote). Call
+   * it within the frame, before `sync()`: it reads the one element's rect, which `sync()` reads again
+   * with no style write in between (one layout per frame). Not observed: false.
+   */
+  movedWithScroll(el: HTMLElement, dx: number, dy: number): boolean {
+    const rec = this.byEl.get(el);
+    if (!rec) return false;
+    const v = this.bridge.elementView();
+    const o = rec.id * ELEMENT_STRIDE;
+    const off = this.deps.coordOffset();
+    const r = el.getBoundingClientRect();
+    return movedWithScroll(r.left - off.x - v[o + El.X], r.top - off.y - v[o + El.Y], dx, dy);
   }
 
   /** Σ rounded-rect area of the observed elements (the density-budget warning). */

@@ -5,6 +5,7 @@
  */
 import { createFluidRuntime } from "./runtime";
 import {
+  mergeGravity,
   resolveOptions,
   validateElementOptions,
   validateShakeStrength,
@@ -12,6 +13,7 @@ import {
   type ElementOptions,
   type GravityOptions,
   type LiquidOptions,
+  type ResolvedGravity,
   type SplashOptions,
 } from "./options";
 import { mergeMaterial, snapshotMaterial, validateMaterial, type Material } from "./material";
@@ -28,7 +30,19 @@ export interface LiquidDOMInstance {
   observe(el: HTMLElement, opts?: ElementOptions): number;
   /** Stop observing; the element is restored exactly. Silent no-op after destroy(). */
   unobserve(el: HTMLElement): void;
-  /** Re-read the element's background-color and color (needed after colour changes until slice 4). */
+  /**
+   * Re-read the element's background-color and color now. Since W75 a change to the element's own
+   * `class`/`style` and the end of its own `color`/`background-color` transition are picked up
+   * without it, once the element runs no CSS transition (the re-read waits for running transitions,
+   * so it never cancels them) and while it is attached (a detached element keeps its colours until
+   * it is re-attached). A descendant's `class`/`style` change re-renders the text only.
+   *
+   * Call refresh() after a colour change from anywhere else: a new stylesheet rule, an ancestor
+   * class without a colour transition, a `:hover`/`:focus` colour change without a transition, or
+   * a CSS `@keyframes` colour animation (not followed). A `background-color` transition never fires
+   * while the element is observed (liquiddom makes its background transparent). A manual refresh()
+   * runs at once, even while the element runs a transition (that transition is then cut short).
+   */
   refresh(el: HTMLElement): void;
   /**
    * Splash an observed element (spec §5). `strength` 0–2 (default 1, 0 = no-op);
@@ -47,6 +61,13 @@ export interface LiquidDOMInstance {
   setMaterial(partial: Partial<Material>): void;
   /** A copy of the current material. */
   getMaterial(): Material;
+  /**
+   * W83 (D83-3): validate, merge and apply a gravity change atomically (TypeError on invalid input;
+   * the gravity stays as it was). Only changes in gravity act (D83-1): the liquid sloshes on a
+   * change and rests at home; a constant gravity, a source switch and the gravity given at
+   * create() start at rest. `fixed`: `normalize(vector) · strength` ([0, 0] = none).
+   */
+  setGravity(partial: Partial<GravityOptions>): void;
   pause(): void;
   resume(): void;
   destroy(): void;
@@ -79,8 +100,8 @@ export class LiquidDOM {
     const root: ParentNode = o.container ?? document;
     // D66-13: the autoObserve candidates are the runtime's initialElements (area_hint).
     const initial = o.autoObserve ? candidatesIn(root) : [];
-    // Gravity is resolved and validated but has no effect until slice 6 (spec §6 interim state).
     // W72 (D72-1): silentFallback hides the one console.info of an 'auto' fallback to Canvas2D.
+    // W83 (D83-1 … D83-5): the resolved gravity reaches every tick through the runtime.
     const runtime = await createFluidRuntime({
       particles: o.particles,
       maxElements: o.maxElements,
@@ -95,11 +116,14 @@ export class LiquidDOM {
       loader: o.loader,
       clock: o.clock,
       webgpuT0Scale: o.webgpuT0Scale,
+      gravity: o.gravity,
     });
 
     let destroyed = false;
     // W68 (D68-9): current material, the single source of truth for getMaterial().
     let material: Material = { ...o.material };
+    // W83 (D83-3): current gravity, the base every setGravity(partial) merges over.
+    let gravity: ResolvedGravity = o.gravity;
     let discovery: MutationObserver | null = null;
     let warnedOverflow = false;
 
@@ -179,6 +203,14 @@ export class LiquidDOM {
       getMaterial(): Material {
         live("getMaterial");
         return { ...material };
+      },
+
+      setGravity(partial: Partial<GravityOptions>): void {
+        live("setGravity");
+        // W83 (D83-3): every own key of `partial` is read once, then the merge is validated like create()'s.
+        const next = mergeGravity(gravity, partial);
+        runtime.setGravity(next);
+        gravity = next;
       },
 
       pause(): void {

@@ -88,6 +88,9 @@ describe("W72: renderer selection through the facade (D72-1, D72-2)", () => {
     // W72 red review I2: the fallback remount keeps container mode (remountLiquidCanvas(old, container)).
     const container = document.body.appendChild(document.createElement("div"));
     container.style.position = "relative";
+    // W82 red: approved-test change (D82-1): a stacking context, so the container mode runs under the page
+    // without the container warning (a plain positioned container now falls back with one console.warn).
+    container.style.zIndex = "0";
     const tail = document.body.appendChild(document.createElement("p"));
     const inst = tracker.track(await LiquidDOM.create({ ...base, testBackend: spyBackend().backend, container }));
     expect(inst.activeRenderer).toBe("canvas2d");
@@ -183,11 +186,12 @@ describe("W72: renderer selection through the facade (D72-1, D72-2)", () => {
   });
 
   // W71 (D71-2), kept: same assertions; only the fake and the file-level console.warn spy are this file's.
+  // W74 red: approved-test change (D74-4: the text pipelines are built at init)
   it("given_renderer_webgpu_available_when_create_then_activeRenderer_webgpu_the_liquid_pipelines_exist_and_no_warning_D71_2", async () => {
     const g = withGpu();
     const inst = tracker.track(await LiquidDOM.create({ ...base, testBackend: spyBackend().backend, renderer: "webgpu" }));
     expect(inst.activeRenderer).toBe("webgpu");
-    expect(g.calls.pipelines).toHaveLength(3);
+    expect(g.calls.pipelines).toHaveLength(5);
     expect(warn).not.toHaveBeenCalled();
   });
 

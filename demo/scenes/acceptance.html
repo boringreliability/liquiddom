@@ -81,6 +81,10 @@
         font-size: 16px;
         line-height: 24px;
       }
+      /* W80 (D80-3): room to scroll 300 px at 1280×800 (step 7): the document is 520 + 640 = 1160 px. */
+      .scroll-spacer {
+        height: 640px;
+      }
     </style>
   </head>
   <body>
@@ -96,6 +100,8 @@
         <p>The liquid only follows it.</p>
       </article>
     </main>
+    <!-- W80 (D80-3): empty and below the viewport at scroll 0, so no baseline moves. -->
+    <div class="scroll-spacer" aria-hidden="true"></div>
     <script type="module" src="./acceptance.ts"></script>
   </body>
 </html>

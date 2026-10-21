@@ -17,20 +17,33 @@ pub mod access;
 pub mod api;
 pub mod clock;
 pub mod elements;
+pub mod fmath;
+pub mod gravity;
 pub mod grid;
 pub mod interaction;
 pub mod layout;
 pub mod material;
+pub mod parking;
 pub mod particles;
 pub mod pool;
 pub mod rng;
 pub mod sampling;
+pub mod scroll;
 pub mod solver;
+pub mod viewport;
 pub mod views;
 
+#[cfg(test)]
+mod drag_tests;
+#[cfg(test)]
+mod merge_tests;
+#[cfg(test)]
+mod parking_tests;
 #[cfg(test)]
 mod pointer_hover_tests;
 #[cfg(test)]
 mod scenario_tests;
+#[cfg(test)]
+mod scroll_tests;
 
 pub use api::FluidCore;
