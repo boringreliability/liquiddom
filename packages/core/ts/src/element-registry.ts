@@ -325,6 +325,17 @@ export class ElementRegistry {
     return area;
   }
 
+  /** W85 (D85-4): the tallest observed element's height in px (B15's margin source); 0 when none. */
+  observedTallest(): number {
+    const v = this.bridge.elementView();
+    let tallest = 0;
+    for (const rec of this.byEl.values()) {
+      const h = v[rec.id * ELEMENT_STRIDE + El.H];
+      if (h > tallest) tallest = h;
+    }
+    return tallest;
+  }
+
   private writeRect(rec: InternalRecord, v: Float32Array, off: { x: number; y: number }): void {
     const r = rec.el.getBoundingClientRect();
     const o = rec.id * ELEMENT_STRIDE;

@@ -63,6 +63,10 @@ pub struct FluidCore {
     viewport: Viewport,
     /// W83 (D83-1, D83-4): the gravity low-pass; only `g − g_lp` reaches the grid.
     gravity: HighPass,
+    /// W85 (D85-4, design resolution 6): the sum of the sanitised scroll deltas `scroll_shift`
+    /// applied while no element was placed (generation 0), px. `set_area_hint` replays it on the
+    /// rebuilt grid's lattice; nothing else reads it.
+    pre_place_scroll_px: (f64, f64),
     /// Test-only (D67-14): element 0's rect velocity (px/s) as each fixed step of the
     /// last tick saw it. Pre-allocated to MAX_STEPS_PER_TICK, so it never reallocates.
     #[cfg(test)]
@@ -123,6 +127,7 @@ impl FluidCore {
             interaction_rng: Rng::derive(seed, RNG_STREAM_INTERACTION),
             viewport: Viewport::UNKNOWN,
             gravity: HighPass::default(),
+            pre_place_scroll_px: (0.0, 0.0),
             #[cfg(test)]
             step_vel_trace: Vec::with_capacity(MAX_STEPS_PER_TICK as usize),
             #[cfg(test)]
@@ -416,6 +421,11 @@ impl FluidCore {
         if s.is_none() {
             return;
         }
+        if self.generation == 0 {
+            // W85 (D85-4): a later set_area_hint replays this on its new lattice.
+            self.pre_place_scroll_px.0 += f64::from(s.dx_px);
+            self.pre_place_scroll_px.1 += f64::from(s.dy_px);
+        }
         scroll::apply(
             &mut self.particles,
             &mut self.grid,
@@ -457,11 +467,39 @@ impl FluidCore {
         self.gravity.seed(gx, gy);
     }
 
-    /// W85 (D85-4): the area hint of a core built without one. W85.1 red stub: W85.2 rebuilds the
-    /// grid while no element was ever placed (generation 0).
+    /// W85 (D85-4): the area hint of a core built without one (no `autoObserve` candidates, every
+    /// adapter app). Only while no element was ever placed (`generation() == 0`) it rebuilds the
+    /// grid as the constructor would have for this hint: the cell by B5 from `area_px2` (≤ 0, NaN
+    /// or ±Inf → 8 px), the margin by B15 from `max_element_h_px` (at least 200 px, NaN → 200), the
+    /// grid's current world (`resize_world` may have grown it); the viewport is kept. A scroll
+    /// applied before it is replayed on the new lattice (`Grid::scroll_origin`, design resolution
+    /// 6), so the lattice phase equals a hinted core's with the same scroll history up to f32
+    /// rounding. No particle has a home yet, so none moves; the dynamic view is rewritten.
+    /// Returns true. From the first `redistribute()` on it changes nothing and returns false.
+    /// Allocates the grid: TS calls it outside `tick`, at most once per instance. (`generation`
+    /// wraps after 2³² redistributes, so a core that wrapped would rebuild again: theoretical.)
     pub fn set_area_hint(&mut self, area_px2: f32, max_element_h_px: f32) -> bool {
-        let _ = (area_px2, max_element_h_px);
-        false
+        if self.generation != 0 {
+            return false;
+        }
+        let n = u32::try_from(self.particles.cap).unwrap_or(u32::MAX);
+        let mut grid = Grid::new(
+            self.grid.world_w_px,
+            self.grid.world_h_px,
+            Grid::choose_cell_px(n, area_px2),
+            Grid::margin_px(max_element_h_px),
+        );
+        let (sx, sy) = self.pre_place_scroll_px;
+        if sx != 0.0 || sy != 0.0 {
+            // Only the phase modulo the cell matters (whole cells only move homed particles, and there
+            // are none at generation 0); reducing in f64 keeps a long scroll's phase exact.
+            let cell = f64::from(grid.cell_px);
+            let _ = grid.scroll_origin(sx.rem_euclid(cell) as f32, sy.rem_euclid(cell) as f32);
+        }
+        self.grid = grid;
+        self.scratch.invalidate_bounds(); // D68-10: a new grid, a new region
+        self.views.write_dynamic(&self.particles, &self.grid);
+        true
     }
 }
 

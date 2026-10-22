@@ -45,6 +45,8 @@ export const TEXT_ATLAS_WARNING =
 /** W85 (D85-1): the one console.error when an onError handler throws (the stop itself was reported already). */
 export const ON_ERROR_THREW = "[liquiddom] the onError handler threw; ignored.";
 const NO_ATLAS_RECTS: ReadonlyMap<number, AtlasRect> = new Map();
+/** W85 (design resolution 12): relative slack of the over-budget check (f32 `max_area_px2` against the f64 area). */
+const BUDGET_ROUNDING = 1e-6;
 
 export interface FluidRuntimeOptions {
   /** Integer in [16, 65536]; the W66 facade narrows the public range. */
@@ -248,7 +250,7 @@ export async function createFluidRuntime(opts: FluidRuntimeOptions): Promise<Flu
       ...(opts.webgpuT0Scale === undefined ? {} : { t0Scale: opts.webgpuT0Scale }),
     });
     canvas = selected.canvas;
-    return startRuntime(opts, core, bridge, selected, relay, world, blocked);
+    return startRuntime(opts, core, bridge, selected, relay, world, blocked, hint.area);
   } catch (err) {
     canvas?.remove();
     core.free();
@@ -264,10 +266,11 @@ function startRuntime(
   relay: LossRelay,
   world: WorldSize,
   blocked: string | null,
+  areaHint: number,
 ): FluidRuntime {
   const releaseStyles = acquireLiquidStyles(document);
   try {
-    return buildRuntime(opts, core, bridge, selected, relay, releaseStyles, world, blocked);
+    return buildRuntime(opts, core, bridge, selected, relay, releaseStyles, world, blocked, areaHint);
   } catch (err) {
     // A synchronous failure after the styles/renderer were acquired: undo both,
     // createFluidRuntime's catch removes the canvas and frees the core.
@@ -286,6 +289,7 @@ function buildRuntime(
   releaseStyles: () => void,
   initialWorld: WorldSize,
   blocked: string | null,
+  areaHint: number,
 ): FluidRuntime {
   // W72 (D72-3): the renderer slot and the canvas are mutable. A lost WebGPU device swaps in
   // Canvas2D on a remounted canvas; the slot is null while that rebuild is in flight.
@@ -374,13 +378,36 @@ function buildRuntime(
     return container ? readOffset(container) : ZERO;
   };
 
+  /**
+   * W85 (D85-4): a core created without an area hint (no autoObserve candidates: every adapter app)
+   * takes its cell from the first batch whose observed area is > 0, once, through set_area_hint
+   * before that batch's redistribute (generation 0). Design resolution 4: per instance; while it is
+   * pending, a batch with area 0 has nothing to place and skips its redistribute, so the generation
+   * stays 0; the first batch with area > 0 clears it whatever the call returns. A core created with
+   * a hint never calls it and never skips (bit-identical to W84).
+   */
+  let hintPending = !(areaHint > 0);
   // One redistribution per microtask after a batch of observe/unobserve (D64-18).
   const batcher = createMicrotaskBatcher(() => {
-    if (destroyed) return;
+    // W85 (review M7): a stopped instance's core may be poisoned; its later batches call nothing.
+    if (destroyed || failed) return;
+    if (hintPending) {
+      const observed = registry.observedArea();
+      if (!(observed > 0)) return; // design resolution 4: nothing to place yet
+      hintPending = false;
+      try {
+        core.set_area_hint(observed, registry.observedTallest());
+      } catch (err) {
+        // Design resolution 7: an allocation failure stops the instance like resize_world's.
+        stopInstance("[liquiddom] rebuilding the grid for the area hint failed; the instance stopped. Call destroy() and create a new instance.", err);
+        return;
+      }
+    }
     core.redistribute();
     const area = registry.observedArea();
     const budget = core.max_area_px2();
-    if (!warnedArea && area > budget) {
+    // W85 (design resolution 12): a hinted budget is exactly 2 × the hinted area; rounding must not warn at equality.
+    if (!warnedArea && area > budget * (1 + BUDGET_ROUNDING)) {
       warnedArea = true;
       console.warn(
         `[liquiddom] observed area ${Math.round(area)} px² exceeds the particle budget ${Math.round(budget)} px² (particles × cell² / 2). The liquid will look noisier; raise \`particles\` or observe less area.`,
