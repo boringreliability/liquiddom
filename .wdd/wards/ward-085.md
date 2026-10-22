@@ -3,12 +3,12 @@ ward: 85
 revision: null
 name: "Adapters"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [84]
 layer: "both"
 estimated_tests: 48
 created: "2026-10-22"
-completed: null
+completed: "2026-10-22"
 ---
 # Ward 085: Adapters
 
@@ -149,6 +149,8 @@ Decision: APPROVED 2026-10-22 — examples/vue as render functions (no plugin, t
 cargo `245 passed; 0 failed; 1 ignored`; vitest `833 passed (833)`, 84 files (the slow `workspace-publish`/`runtime-truth` tests timed out once under the parallel run and passed alone, 29/29); clippy and `cargo fmt --check` clean; `e2e:typecheck` clean; the gate tests 47/47. `npm run e2e:dist` 2/2 (rows 44, 45: both examples from the published dist). macOS `--project=canvas2d` 87 passed, 15 skipped (the Linux-only visual specs; the scenes created without candidates take the hinted cell and keep their bounds). `npm run e2e:webgpu-hw` (Metal) 55 passed, 44 skipped, 0 failed. Docker (pinned linux/amd64 image, no `--update-snapshots`) `--project=canvas2d` 100 passed, 2 skipped; `e2e/__screenshots__` untouched. `package-lock.json` +16 lines (the `examples/vue` workspace link only). CONTEXT.md 8186 B. Vision (W85.4, seen by Dennis 2026-10-22): both examples at rest crisp; a splash ragged at the hinted 4 px cell (Canvas2D: the DOM label over its halo; WebGPU: the atlas text rides); the `useLiquidRef` pill dragged with the home spot empty (Canvas2D hides its label); the `drag={false}` pill holds; a forced stop (devtools `getBoundingClientRect` override) removes the canvas, restores plain buttons and shows "Liquid stopped: forced stop" with one `console.error`, in React and Vue. The first stills recorded under `'auto'` were WebGPU (the browser had an adapter); Canvas2D was re-shot with WebGPU disabled. The 404 on every preview load was the missing favicon: both examples now carry an inline SVG icon.
 
 Task reviews: W85.2 (approved; m1 the "bit-identical" wording: a hinted core rounds a half-cell scroll step away from zero, so its origin can sit one cell apart: worded in the Specification, the Rust docs, CLAUDE.md and the spec; the Decision line's wording goes to Dennis at gold), W85.3 (approved; Vue's create handlers as a `then` pair and twin notes fixed in 0a8471f; React keeps two `setState` calls because the approved W66 `provider-cleanup.test.tsx` pins them: under `createRoot` one render, under the legacy root one render with both null, in the React README). Ward review: NOT READY on docs only → 0 Critical, 1 Important (I1 the spec and CONTEXT omitted the `set_area_hint` stop: fixed), Minors: m1 the spec's half-cell caveat (fixed), m2 the over-budget slack in CLAUDE.md and the spec (fixed), m5 `onError` before `create()` resolves in the core README (fixed); m3 Vue has no twin of React's row 20 (a non-function `config.onError`; a new test needs Dennis), m4 a falsy thrown value reads as no error (parked). Smoke: pending (Dennis).
+
+**Resolved at gold (Dennis, 2026-10-22):** gold approved after the smoke of both examples from the published dist (saga dec_7c796cd1). D85-4's Decision line keeps its wording; the half-cell caveat lives in the Specification, the Rust docs, CLAUDE.md and the spec. Open for W86: the Vue twin of React's row 20 (a non-function `config.onError`); the site as the third 0.3 consumer (the hinted cell at its first batch, `onError` to hide its liquid UI); CONTEXT.md at 8186 of 8192 B. Parked: a falsy thrown value reads as no error; peak memory while `set_area_hint` holds both grids; React's two `setState` calls on a legacy root. Carried: the W84 touch limits, the Canvas2D scroll-frame cost (W80), the W82 stacking limits.
 
 Approved-test changes at red (Dennis approves with the tests): `options.test.ts` (the whitelist gains `onError`, row 32), `react-adapter.test.tsx` and `vue-adapter.test.ts` (the export lists gain `useLiquidError` and, in Vue, `LiquidErrorKey`; rows 33, 34), `__fixtures__/api-migration-types/index.ts` (`onError`, the `drag` prop and both error hooks type-check, a non-function `onError` and a non-boolean `drag` do not, `useLiquid()` keeps its type; row 35), `e2e-harness.test.ts` (the `e2e:dist:build` string and the Vue port and root; row 36), `workspace-publish.test.ts` (changesets ignores the Vue example, row 37; a new test for the Vue example's package, row 38) and `e2e/dist.spec.ts` (the React smoke checks the `drag={false}` pill, row 44). `ci-workflow.test.ts` needs no change: the dist steps keep their commands.
 
