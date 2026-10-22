@@ -34,6 +34,8 @@ pub mod viewport;
 pub mod views;
 
 #[cfg(test)]
+mod area_hint_tests;
+#[cfg(test)]
 mod drag_tests;
 #[cfg(test)]
 mod merge_tests;

@@ -20,6 +20,8 @@ import { LiquidDOM, type ElementOptions, type LiquidDOMInstance, type LiquidOpti
 
 /** Injection key used by both `<LiquidProvider>` and `LiquidPlugin`. */
 export const LiquidKey: InjectionKey<Ref<LiquidDOMInstance | null>> = Symbol("LiquidDOM");
+/** W85 (D85-2): injection key of the error that left the provider (or the plugin) without an instance. */
+export const LiquidErrorKey: InjectionKey<Ref<unknown>> = Symbol("LiquidDOMError");
 
 export const LiquidProvider = defineComponent({
   name: "LiquidProvider",
@@ -96,6 +98,11 @@ export const LiquidPlugin: Plugin<[LiquidOptions?]> = {
 /** Read the live instance from injection. Null ref outside a provider/plugin. */
 export function useLiquid(): Ref<LiquidDOMInstance | null> {
   return inject(LiquidKey, () => ref<LiquidDOMInstance | null>(null), true);
+}
+
+/** W85 (D85-2): the error that left the provider without an instance. W85.1 red stub: a null ref. */
+export function useLiquidError(): Ref<unknown> {
+  return ref<unknown>(null);
 }
 
 /** Element options (viscosity, recovery), captured once at setup (D66-4). */

@@ -69,6 +69,10 @@ export const WEBGPU_PROJECT_SPEC = /(?:acceptance|webgpu-liquid|webgpu-smoke)\.s
 export const DIST_PORT = 4174;
 /** W69 (D69-6): the example whose `dist/` the dist smoke serves. */
 export const DIST_EXAMPLE_ROOT = "examples/react";
+/** W85 (D85-5): vite preview port of the Vue example's dist smoke (4173 demo, 4174 React). */
+export const DIST_VUE_PORT = 4175;
+/** W85 (D85-5): the Vue example whose `dist/` the second dist smoke serves. */
+export const DIST_VUE_EXAMPLE_ROOT = "examples/vue";
 /** Playwright's default testMatch restricted to this repo's convention. */
 export const DEFAULT_SPEC = /\.spec\.ts$/;
 /** W72 (D72-1 … D72-4): WebGPU by default, robust — steps 4, 6, 8 + device.lost under renderer=webgpu, and the auto probe. */

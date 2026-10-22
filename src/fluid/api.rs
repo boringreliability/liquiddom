@@ -456,6 +456,13 @@ impl FluidCore {
     pub fn seed_gravity(&mut self, gx: f32, gy: f32) {
         self.gravity.seed(gx, gy);
     }
+
+    /// W85 (D85-4): the area hint of a core built without one. W85.1 red stub: W85.2 rebuilds the
+    /// grid while no element was ever placed (generation 0).
+    pub fn set_area_hint(&mut self, area_px2: f32, max_element_h_px: f32) -> bool {
+        let _ = (area_px2, max_element_h_px);
+        false
+    }
 }
 
 /// Fix round (D67-14 hiccup): the time a tick's rect delta is divided by. Normally the

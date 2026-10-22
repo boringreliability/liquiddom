@@ -111,7 +111,14 @@ export interface LiquidElementProps {
   viscosity?: number;
   /** Seconds in [0.2, 3]; captured at first attach. */
   recovery?: number;
+  /** W85 (D85-3): `false` opts the element out of every drag. W85.1 red stub: not consumed yet. */
+  drag?: boolean;
   children?: ReactNode;
+}
+
+/** W85 (D85-2): the error that left the provider without an instance. W85.1 red stub: always null. */
+export function useLiquidError(): unknown {
+  return null;
 }
 
 /**

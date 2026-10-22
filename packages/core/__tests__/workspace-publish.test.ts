@@ -28,6 +28,7 @@ const CORE = resolve(ROOT, "packages/core");
 const REACT = resolve(ROOT, "packages/react");
 const VUE = resolve(ROOT, "packages/vue");
 const EXAMPLE_REACT = resolve(ROOT, "examples/react");
+const EXAMPLE_VUE = resolve(ROOT, "examples/vue");
 
 function readJson(path: string): Record<string, unknown> {
   return JSON.parse(readFileSync(path, "utf-8"));
@@ -311,6 +312,8 @@ describe("Ward 051: Workspace topology + publishable shape", () => {
     // changesets rejects names that aren't actual workspace packages, and the
     // private root package.json isn't enumerated as one.
     expect(ignore).toContain("liquiddom-react-example");
+    // W85 red: approved-test change (D85-5): the Vue example is private and never released either.
+    expect(ignore).toContain("liquiddom-vue-example");
     expect(ignore).not.toContain("liquiddom-workspace");
   });
 
@@ -357,6 +360,20 @@ describe("W66: site freeze, versioning, pkg-specifier hygiene", () => {
     const deps = readJson(resolve(EXAMPLE_REACT, "package.json")).dependencies as Record<string, string>;
     expect(deps.liquiddom).toBe("*");
     expect(deps["@liquiddom/react"]).toBe("*");
+  });
+
+  it("given_example_vue_package_when_read_then_it_is_private_with_star_liquiddom_deps_the_root_vue_and_vite_and_no_vue_plugin_D85_5", () => {
+    const pkg = readJson(resolve(EXAMPLE_VUE, "package.json"));
+    expect(pkg.name).toBe("liquiddom-vue-example");
+    expect(pkg.private).toBe(true);
+    const deps = pkg.dependencies as Record<string, string>;
+    expect(deps.liquiddom).toBe("*");
+    expect(deps["@liquiddom/vue"]).toBe("*");
+    const all = { ...deps, ...(pkg.devDependencies as Record<string, string> | undefined) };
+    expect(Object.keys(all).sort(), "render functions: no @vitejs/plugin-vue, no new dependency").toEqual(["@liquiddom/vue", "liquiddom", "vite", "vue"]);
+    const scripts = pkg.scripts as Record<string, string>;
+    expect(scripts.prebuild).toBe("cd ../.. && npm run build:wasm");
+    expect(scripts.build).toBe("vite build");
   });
 
   it("given_publishable_packages_when_read_then_all_three_at_0_3_0_alpha_0_with_peers_caret_0_3_0_alpha_0", () => {

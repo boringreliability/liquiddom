@@ -16,7 +16,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { preview, type PreviewServer } from "vite";
 import { test, expect } from "./fixtures";
-import { DIST_EXAMPLE_ROOT, DIST_PORT } from "./projects";
+import { DIST_EXAMPLE_ROOT, DIST_PORT, DIST_VUE_EXAMPLE_ROOT, DIST_VUE_PORT } from "./projects";
 
 const ROOT = process.cwd();
 const EXAMPLE = resolve(ROOT, DIST_EXAMPLE_ROOT);
@@ -74,6 +74,9 @@ test("given the React example built against the published core dist when served 
   expect(fallbackInfos.length, `fallback infos: ${fallbackInfos.join(" | ")}`).toBeLessThanOrEqual(1);
   testInfo.annotations.push({ type: "renderer", description: fallbackInfos.length === 1 ? "canvas2d (auto fallback)" : "webgpu (hardware adapter)" });
   await expect(page.locator(".liquid-element")).toHaveCount(2); // useLiquidRef pill + LiquidElement pill
+  // W85 red: approved-test change (D85-5): the LiquidElement pill has drag={false}; the built adapter passes it to observe().
+  await expect(page.locator('.liquid-element[data-liquid-drag="off"]')).toHaveCount(1);
+  await expect(page.locator("[drag]"), "drag is consumed, never an attribute").toHaveCount(0);
 
   expect(wasm.length, "the published dist fetched its .wasm at runtime").toBeGreaterThan(0);
   for (const w of wasm) {
@@ -84,4 +87,66 @@ test("given the React example built against the published core dist when served 
   // Let ~30 frames run: a frame that throws logs one console.error (runtime.ts), which the guard catches.
   await page.waitForTimeout(500);
   await page.screenshot({ path: testInfo.outputPath("dist-react-example.png") });
+});
+
+// =============================================================================
+// W85 (D85-5): the Vue example (render functions, no SFC plugin) built against the published core
+// and @liquiddom/vue dist, served on its own port.
+// =============================================================================
+const VUE_EXAMPLE = resolve(ROOT, DIST_VUE_EXAMPLE_ROOT);
+const DIST_VUE_URL = `http://localhost:${DIST_VUE_PORT}/`;
+const BUILT_VUE = ["packages/vue/dist/index.js", `${DIST_VUE_EXAMPLE_ROOT}/dist/index.html`] as const;
+
+test.describe("W85 – the Vue example (D85-5)", () => {
+  let vueServer: PreviewServer | null = null;
+
+  test.beforeAll(async () => {
+    for (const rel of BUILT_VUE) {
+      if (!existsSync(resolve(ROOT, rel))) throw new Error(`missing ${rel}: run \`npm run e2e:dist:build\` first`);
+    }
+    vueServer = await preview({
+      root: VUE_EXAMPLE,
+      configFile: resolve(VUE_EXAMPLE, "vite.config.ts"),
+      logLevel: "warn",
+      preview: { port: DIST_VUE_PORT, strictPort: true, open: false },
+    });
+  });
+
+  test.afterAll(async () => {
+    await vueServer?.close();
+    vueServer = null;
+  });
+
+  test("given the Vue example built against the published core and @liquiddom/vue dist when served by vite preview then create() resolves, one canvas.liquid-canvas, two observed pills (one drag off), the wasm is application/wasm and no console error occurs", async ({ page }, testInfo) => {
+    const wasm: Array<{ url: string; status: number; type: string }> = [];
+    const fallbackInfos: string[] = [];
+    page.on("console", (m) => {
+      if (m.type() === "info" && m.text().startsWith(FALLBACK_INFO_PREFIX)) fallbackInfos.push(m.text());
+    });
+    page.on("response", (r) => {
+      if (new URL(r.url()).pathname.endsWith(".wasm")) {
+        wasm.push({ url: r.url(), status: r.status(), type: r.headers()["content-type"] ?? "" });
+      }
+    });
+
+    await page.goto(DIST_VUE_URL);
+    // App.ts sets data-liquid-ready once useLiquid().value is the instance, i.e. after create() resolved.
+    await expect(page.locator("main[data-liquid-ready='true']")).toHaveCount(1, { timeout: 15_000 });
+    await expect(page.locator("canvas.liquid-canvas")).toHaveCount(1);
+    expect(fallbackInfos.length, `fallback infos: ${fallbackInfos.join(" | ")}`).toBeLessThanOrEqual(1);
+    testInfo.annotations.push({ type: "renderer", description: fallbackInfos.length === 1 ? "canvas2d (auto fallback)" : "webgpu (hardware adapter)" });
+    await expect(page.locator(".liquid-element")).toHaveCount(2); // useLiquidRef pill + LiquidElement pill
+    await expect(page.locator('.liquid-element[data-liquid-drag="off"]')).toHaveCount(1);
+    await expect(page.locator("[drag]"), "drag is a prop, never an attribute").toHaveCount(0);
+    await expect(page.locator("[role='alert']"), "no error state").toHaveCount(0);
+
+    expect(wasm.length, "the published dist fetched its .wasm at runtime").toBeGreaterThan(0);
+    for (const w of wasm) {
+      expect(w.status, w.url).toBe(200);
+      expect(w.type, `${w.url} MIME (instantiateStreaming needs application/wasm)`).toContain("application/wasm");
+    }
+
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: testInfo.outputPath("dist-vue-example.png") });
+  });
 });

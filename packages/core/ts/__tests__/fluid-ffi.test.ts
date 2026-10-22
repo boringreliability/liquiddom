@@ -287,4 +287,18 @@ describe("W64 FluidCore FFI (real wasm)", () => {
     const tilted = run([0, 980], (f) => (f < 5 ? [0, 980] : [980, 0]));
     expect(meanX(tilted) - meanX(none), "a 90° tilt to the right leans the liquid right").toBeGreaterThan(0.5);
   });
+
+  // W85 (D85-4): set_area_hint through the real WASM export.
+  it("given_the_real_core_built_without_a_hint_when_set_area_hint_runs_before_any_redistribute_then_the_cell_and_the_budget_equal_a_hinted_core_and_after_a_redistribute_it_returns_false", () => {
+    const hinted = new backend.FluidCore(N, 32, 1280, 800, 76_057, 180, 1);
+    const core = new backend.FluidCore(N, 32, 1280, 800, 0, 0, 1);
+    live.push(hinted, core);
+    expect(core.cell_px()).toBe(8);
+    expect(core.set_area_hint(76_057, 180)).toBe(true);
+    expect(core.cell_px()).toBe(hinted.cell_px());
+    expect(core.max_area_px2()).toBe(hinted.max_area_px2());
+    core.redistribute();
+    expect(core.set_area_hint(1, 0)).toBe(false);
+    expect(core.cell_px()).toBe(hinted.cell_px());
+  });
 });

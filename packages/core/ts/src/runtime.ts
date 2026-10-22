@@ -42,6 +42,8 @@ export const DEVICE_LOST_WARNING = "[liquiddom] WebGPU device lost";
 /** W74 (D74-5): the one console.warn per instance when the text atlas cannot be built (no liquid text, DOM text stays). */
 export const TEXT_ATLAS_WARNING =
   "[liquiddom] the text atlas could not be built; the DOM text stays visible while elements move";
+/** W85 (D85-1): the one console.error when an onError handler throws (the stop itself was reported already). */
+export const ON_ERROR_THREW = "[liquiddom] the onError handler threw; ignored.";
 const NO_ATLAS_RECTS: ReadonlyMap<number, AtlasRect> = new Map();
 
 export interface FluidRuntimeOptions {
@@ -73,6 +75,8 @@ export interface FluidRuntimeOptions {
   textAtlasCanvas?: AtlasCanvasFactory;
   /** W83 (D83-1 … D83-5): the resolved gravity (the facade validates). Default: none. */
   gravity?: Readonly<ResolvedGravity>;
+  /** W85 (D85-1): called once when the instance stops (the facade validates). W85.1 red stub: never called. */
+  onError?: (err: unknown) => void;
 }
 
 export interface FluidElementState {

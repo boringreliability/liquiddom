@@ -10,6 +10,9 @@ import type * as Core from "liquiddom";
 import type { ElementOptions, GravityOptions, LiquidDOMInstance, LiquidOptions, Material } from "liquiddom";
 import type { LiquidElementProps, UseLiquidRefOptions } from "@liquiddom/react";
 import type { UseLiquidRefOptions as VueUseLiquidRefOptions } from "@liquiddom/vue";
+// W85 red: approved-test change (D85-1 … D85-3): the error hooks and useLiquid() as values.
+import { useLiquid as useReactLiquid, useLiquidError as useReactLiquidError } from "@liquiddom/react";
+import { LiquidErrorKey, useLiquid as useVueLiquid, useLiquidError as useVueLiquidError } from "@liquiddom/vue";
 
 // ── Removed type exports ─────────────────────────────────────────────
 // @ts-expect-error LiquidInstancePanicDetail is gone with the liquiddom:instance-panic event
@@ -125,6 +128,18 @@ const elementProps: LiquidElementProps = { as: "button", viscosity: 0.4, recover
 // @ts-expect-error <LiquidElement liquidType> is gone
 const oldElementProps: LiquidElementProps = { liquidType: 4 };
 const vueRefOptions: VueUseLiquidRefOptions = { recovery: 2 };
+// W85 red: approved-test change (D85-1 … D85-3): onError, the drag prop, the error hooks; useLiquid() keeps its type.
+const onErrorOptions: LiquidOptions = { onError: (err: unknown) => console.warn(err) };
+// @ts-expect-error onError is a function
+const badOnError: LiquidOptions = { onError: "log" };
+const dragProps: LiquidElementProps = { as: "button", drag: false };
+// @ts-expect-error drag is a boolean
+const badDragProps: LiquidElementProps = { drag: "off" };
+const reactLiquid: () => LiquidDOMInstance | null = useReactLiquid;
+const reactError: () => unknown = useReactLiquidError;
+const vueLiquid: () => { readonly value: LiquidDOMInstance | null } = useVueLiquid;
+const vueError: () => { readonly value: unknown } = useVueLiquidError;
+void [onErrorOptions, badOnError, dragProps, badDragProps, reactLiquid, reactError, vueLiquid, vueError, LiquidErrorKey];
 // @ts-expect-error Vue useLiquidRef({ liquidType }) is gone
 const vueOldRefOptions: VueUseLiquidRefOptions = { liquidType: 3 };
 

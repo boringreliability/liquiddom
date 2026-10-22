@@ -63,7 +63,8 @@ const slotsOf = (el: Element) => elementSlots(sb, sb.cores.at(-1)!, calls.filter
 
 describe("W66 T5: @liquiddom/vue", () => {
   it("given_adapter_index_when_imported_then_exports_are_kept", () => {
-    expect(Object.keys(adapter).sort()).toEqual(["LiquidElement", "LiquidKey", "LiquidPlugin", "LiquidProvider", "useLiquid", "useLiquidRef"]);
+    // W85 red: approved-test change (D85-2): LiquidErrorKey and useLiquidError join the exports.
+    expect(Object.keys(adapter).sort()).toEqual(["LiquidElement", "LiquidErrorKey", "LiquidKey", "LiquidPlugin", "LiquidProvider", "useLiquid", "useLiquidError", "useLiquidRef"]);
   });
 
   it("provider_creates_instance_after_mount", async () => {

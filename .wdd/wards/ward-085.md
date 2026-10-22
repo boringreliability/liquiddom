@@ -3,7 +3,7 @@ ward: 85
 revision: null
 name: "Adapters"
 epic: "fluid-engine"
-status: "planned"
+status: "approved"
 dependencies: [84]
 layer: "both"
 estimated_tests: 48

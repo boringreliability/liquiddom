@@ -53,6 +53,13 @@ export interface LiquidOptions {
   forceReducedMotion?: boolean;
   /** Hides the one console.info logged when 'auto' falls back to Canvas2D. Default false. */
   silentFallback?: boolean;
+  /**
+   * W85 (D85-1): called once when the instance stops for good (a frame that throws, a failed grid
+   * growth or area-hint rebuild, a failed Canvas2D rebuild after a lost WebGPU device), after the
+   * stop's cleanup and its console.error. Never for a create() rejection, an 'auto' fallback, a
+   * lost device that continues in Canvas2D, or after destroy(). Recovery: destroy() + create().
+   */
+  onError?: (err: unknown) => void;
   /** @internal jsdom/test backend instead of the WASM loader. */
   testBackend?: FluidBackend;
   /** @internal WASM loader override (the stress scene's counting loader). */

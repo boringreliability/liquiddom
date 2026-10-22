@@ -14,6 +14,8 @@ import {
   BASE_URL,
   DIST_EXAMPLE_ROOT,
   DIST_PORT,
+  DIST_VUE_EXAMPLE_ROOT,
+  DIST_VUE_PORT,
   PORT,
   PROJECT_FILES,
   PROJECT_RENDERER,
@@ -122,10 +124,14 @@ describe("W65 e2e harness", () => {
     expect(DIST_PORT).toBe(4174);
     expect(DIST_PORT).not.toBe(PORT);
     expect(DIST_EXAMPLE_ROOT).toBe("examples/react");
+    // W85 red: approved-test change (D85-5): the Vue example on its own port, built by the same script.
+    expect(DIST_VUE_PORT).toBe(4175);
+    expect(new Set([PORT, DIST_PORT, DIST_VUE_PORT]).size).toBe(3);
+    expect(DIST_VUE_EXAMPLE_ROOT).toBe("examples/vue");
     const pkg = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
-    // --ignore-scripts skips the example's prebuild (wasm-pack is not in the Playwright CI image).
+    // --ignore-scripts skips the examples' prebuild (wasm-pack is not in the Playwright CI image).
     expect(pkg.scripts["e2e:dist:build"]).toBe(
-      "npm run build -w liquiddom && npm run build -w @liquiddom/react && npm run build -w liquiddom-react-example --ignore-scripts",
+      "npm run build -w liquiddom && npm run build -w @liquiddom/react && npm run build -w @liquiddom/vue && npm run build -w liquiddom-react-example --ignore-scripts && npm run build -w liquiddom-vue-example --ignore-scripts",
     );
     expect(pkg.scripts["e2e:dist"]).toBe("npm run e2e:dist:build && playwright test --project=dist");
   });
