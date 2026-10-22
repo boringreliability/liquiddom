@@ -25,6 +25,7 @@ export const LiquidKey: InjectionKey<Ref<LiquidDOMInstance | null>> = Symbol("Li
 export const LiquidErrorKey: InjectionKey<Ref<unknown>> = Symbol("LiquidDOMError");
 
 /**
+ * Kept identical to withOnError in packages/react/src/index.tsx.
  * W85 (D85-2): `config` with the adapter's handler chained in front of `config.onError`, which is
  * still called, after it. An `onError` that is not a function is passed on unchanged, so create()
  * rejects with core's TypeError (design resolution 9).
@@ -65,8 +66,10 @@ function createInto(
     inst?.destroy();
     error.value = err;
   };
-  LiquidDOM.create(withOnError(config, onStop))
-    .then((inst) => {
+  // A then pair, not then/catch: a throw inside the resolve body (a user's flush:"sync" watcher)
+  // must not be reported as a create failure while the instance stays live.
+  LiquidDOM.create(withOnError(config, onStop)).then(
+    (inst) => {
       if (gone() || stopped) {
         // Race path: the owner unmounted before create() resolved — instance.value was never
         // assigned, so this branch owns the destroy (also for an instance that stopped meanwhile).
@@ -74,11 +77,12 @@ function createInto(
         return;
       }
       instance.value = inst;
-    })
-    .catch((err: unknown) => {
+    },
+    (err: unknown) => {
       console.error(`[liquiddom/vue] ${owner} failed to create instance:`, err);
       if (!gone()) error.value = err;
-    });
+    },
+  );
 }
 
 export const LiquidProvider = defineComponent({
@@ -150,7 +154,7 @@ export function useLiquidError(): Ref<unknown> {
 /** Element options (viscosity, recovery, drag), captured once at setup (D66-4). */
 export type UseLiquidRefOptions = ElementOptions;
 
-/** W85 (D85-3, design resolution 8): every own key whose value is defined; none → undefined. */
+/** Kept identical to pickElementOptions in packages/react/src/index.tsx. W85 (D85-3, design resolution 8): every own key whose value is defined; none → undefined. */
 function pickElementOptions(opts?: ElementOptions): ElementOptions | undefined {
   if (!opts) return undefined;
   const out: Record<string, unknown> = {};

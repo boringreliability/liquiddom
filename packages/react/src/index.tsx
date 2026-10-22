@@ -32,6 +32,7 @@ export interface LiquidProviderProps {
 }
 
 /**
+ * Kept identical to withOnError in packages/vue/src/index.ts.
  * W85 (D85-2): `config` with the provider's handler chained in front of `config.onError`, which is
  * still called, after it. An `onError` that is not a function is passed on unchanged, so create()
  * rejects with core's TypeError (design resolution 9).
@@ -131,7 +132,7 @@ export function useLiquidError(): unknown {
 /** Element options (viscosity, recovery, drag), captured at first attach (D66-4). */
 export type UseLiquidRefOptions = ElementOptions;
 
-/** W85 (D85-3, design resolution 8): every own key whose value is defined; none → undefined. */
+/** Kept identical to pickElementOptions in packages/vue/src/index.ts. W85 (D85-3, design resolution 8): every own key whose value is defined; none → undefined. */
 function pickElementOptions(opts?: ElementOptions): ElementOptions | undefined {
   if (!opts) return undefined;
   const out: Record<string, unknown> = {};
