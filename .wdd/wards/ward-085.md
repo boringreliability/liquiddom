@@ -35,27 +35,27 @@ Out of scope: the site (W86), publishing (W87, Dennis), an automatic re-create a
 ### D85-1: A stopped instance is reported (`onError`)
 Proposal: a new `create()` option `onError?: (err: unknown) => void`, validated as a function (TypeError otherwise) and called exactly once per instance when it stops: a throwing frame, a throwing `resize_world`, a failed rebuild after a lost device (`rebuildFailed` is folded into `stopInstance`, so every stop runs one path). It runs synchronously after the stop's cleanup and after its `console.error` (the message stays: an author without a handler still sees it). A throwing handler is caught and reported with one `console.error`. Never called for a `create()` rejection (the promise rejects), an `'auto'` fallback, a lost device that rebuilds as Canvas2D, or after `destroy()`.
 Consequence: one new public option and the whitelist grows; the runtime's three stop paths become one. No `instance.stopped` getter (the handler is the signal; YAGNI).
-Decision: PENDING
+Decision: APPROVED 2026-10-22 — onError(err) once per instance on every stop path (rebuildFailed on stopInstance), after the cleanup and the console.error; a throwing handler caught; never for a create() rejection, a fallback, a rebuilt device or after destroy() (saga dec_3039b876)
 
 ### D85-2: The providers' error state
 Proposal: React and Vue providers chain their own handler in front of `config.onError` (which is still called). On a stop the provider destroys the stopped instance, `useLiquid()` returns `null` and a new `useLiquidError()` returns the error (React: `unknown | null`; Vue: `Ref<unknown | null>`); a `create()` rejection sets the same error (its `console.error` stays). No automatic retry (a deterministic failure would loop); a remount (React `key`, Vue `v-if`/`key`) creates a new instance and clears the error. The Vue plugin (`LiquidPlugin.install`) behaves like the provider.
 Consequence: `useLiquid()` keeps its type (non-breaking); one new hook per adapter. Elements stay as the stop left them until the provider destroys the instance (then exactly restored).
-Decision: PENDING
+Decision: APPROVED 2026-10-22 — the providers destroy a stopped instance, useLiquid() null, useLiquidError() the error (also a create() rejection); config.onError still called; no retry, a remount clears; the Vue plugin likewise (saga dec_70e6753b)
 
 ### D85-3: `drag` in the adapters
 Proposal: `<LiquidElement drag={false}>` (React prop; Vue prop `{ type: Boolean, default: undefined }`, since Vue casts an absent Boolean prop to `false`) and `useLiquidRef({ drag })`, captured once at the first render/setup like `viscosity` (D66-4). `pickElementOptions` copies every `ElementOptions` key that is not `undefined` (`viscosity`, `recovery`, `drag`); `drag` is never spread onto the DOM.
 Consequence: an absent `drag` passes no key (W84: no `data-liquid-drag`); changing the prop after mount has no effect, as for `viscosity`.
-Decision: PENDING
+Decision: APPROVED 2026-10-22 — drag on LiquidElement and useLiquidRef, captured once; Vue Boolean prop with default undefined; pickElementOptions copies every defined key; never on the DOM (saga dec_eb4b4ea5)
 
 ### D85-4: The area hint without `autoObserve`
 Proposal: (a), from W85.0. Candidates: (a) a new scalar call `FluidCore::set_area_hint(area_px2, max_element_h_px)` that rebuilds the grid (cell by B5, margin by B15; world, viewport and lattice phase kept) and returns `true` only while no element has ever been placed (generation 0), otherwise does nothing and returns `false`; the runtime calls it once, at the first redistribute batch with observed area > 0, only when `create()` had hint 0; (b) build the core lazily at the first observe batch; (c) no change, document that `autoObserve` or observing before the first frame gives the finer liquid.
 Consequence: (a) one allocation outside `tick` (13 µs at 1280×800, 178 µs at 8192²) and one new FFI call (the 7-arg constructor stays); a core built with a hint is untouched; bit-identical to a hinted constructor (W85.0 Q2); adapter apps get the finer, more ragged liquid in motion that the engine was tuned at, and a smaller over-budget limit (`particles · cell² / 2`), so an app observing more area than its particles cover now gets the warning `autoObserve` would give. (b) restructures `create()` (renderer, bridge and loop wait for elements) for no gain. (c) adapter apps keep the 8 px cell: smoother, rounder liquid in motion, identical at rest.
-Decision: PENDING
+Decision: APPROVED 2026-10-22 — (a) FluidCore::set_area_hint(area_px2, max_element_h_px) rebuilds the grid only at generation 0, called once by the runtime at the first batch with area > 0 when create() had hint 0; a pre-batch origin drift is re-split with scroll_origin (saga dec_8655ba84)
 
 ### D85-5: `examples/vue` and the Vue dist e2e
 Proposal: `examples/vue` (private `liquiddom-vue-example`, render functions in `.ts`, no SFC, so no `@vitejs/plugin-vue` dependency; `vite.config.ts` defines Vue's three feature flags), the same two pills as `examples/react`; both examples give one pill `drag={false}` so the dist e2e also checks `data-liquid-drag="off"` from the built adapter. `e2e:dist:build` also builds `@liquiddom/vue` and the Vue example; `dist.spec.ts` gets a second test that serves `examples/vue/dist` with Vite's `preview()` on :4175 (`DIST_VUE_PORT`, `DIST_VUE_EXAMPLE_ROOT`); CI's dist step runs both; `.changeset/config.json` ignores the Vue example.
 Consequence: approved tests change at red (Dennis approves them with the red tests): `e2e-harness.test.ts` (the `e2e:dist:build` string, the dist constants), `ci-workflow.test.ts` (the dist step strings), `workspace-publish.test.ts` (the example set); the dist job gets slower by one adapter and one example build.
-Decision: PENDING
+Decision: APPROVED 2026-10-22 — examples/vue as render functions (no plugin, the three Vue feature-flag defines), one drag={false} pill in both examples, the Vue dist test on :4175, CI runs both; the pinned harness/CI/publish tests change at red (saga dec_f37258d2)
 
 ## Spike W85.0 result (2026-10-22, a throwaway copy of `c61bc5e`, deleted; stills inspected with vision)
 
