@@ -3,7 +3,7 @@ ward: 84
 revision: null
 name: "Touch and opt-out"
 epic: "fluid-engine"
-status: "approved"
+status: "gold"
 dependencies: [83]
 layer: "both"
 estimated_tests: 33
