@@ -1,7 +1,7 @@
 # Context — liquiddom
 
 ## Last Updated
-Ward 83 — 2026-10-20 (gravity and tilt). Next: W84 touch, opt-out.
+Ward 84 — 2026-10-21 (touch, opt-out). Next: W85 adapters.
 
 ## Current State
 Epic 15 (Fluid Engine). `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. Soft-body: tag `softbody-final`. Packages `0.3.0-alpha.x` (pre mode `alpha`), unpublished; `site/` frozen until slice 6. Test totals: `.wdd/PROGRESS.md`, ward gold notes.
@@ -16,7 +16,7 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Fluid decisions: `ward
 | MLS-MPM (APIC, quadratic B-splines) with home spring, chosen over PBF in a bake-off; Rust/WASM kept | Real fluid is the goal; spike is reference | D1–D2, W63 |
 | FFI: element stride 10, dynamic SoA 7, static SoA 3, state stride 4; 7-arg constructor frozen | Flat views, no JSON | W64 (D64-4) |
 | Rust owns the fixed-step accumulator (100 ms clamp, ≤ 3 × 1/60 s, 8 substeps), no hot-path allocation, `indexing_slicing` denied | Determinism, no JS-input panics | W64 |
-| Public facade: whitelist options (removed ones throw with replacement), `observe(el, { viscosity, recovery })` captured once, fixed pools, no `grow()` | 0.2 configs fail loudly | W66 (D66-1, -4, -10) |
+| Public facade: whitelist options (removed ones throw with replacement), `observe(el, { viscosity, recovery, drag })` captured once, fixed pools, no `grow()` | 0.2 configs fail loudly | W66 (D66-1, -4, -10) |
 | Injected `@layer liquiddom` stylesheet with `!important`, paint/stacking in `@media screen and (forced-colors: none)`; print/forced-colors hide the canvas | `revert-layer` fell to the UA default in print | W66 (D66-15 amended) |
 | Shared refcounts: one stylesheet per document, one decoration per element across instances; colour snapshot lifts the class via `transition: none` | Multi-instance correctness | W66 |
 | Canvas z -1; opaque ancestor or non-stacking container → warn, z 0 + D7 | Liquid under page text | W82 |
@@ -45,10 +45,9 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Fluid decisions: `ward
 | Splat overdraw est., shake peak (Metal; D72-4) | max 402341 fragments/frame | W72 |
 
 ## Known Limitations
-- Pointer idle decay (D68-4): ×0.8 per frame; at 120 Hz the tail decays twice as fast.
 - Pointer drag 12/s (W70): a fast sweep: trailing edge recedes ~8 px; holes at drag ≥ 18.
 - Shake (W77): `1 + 0.35·sin(π·u + φ)`, cap 0.3, default yield J ≤ 1.46; x-only profile. Mirrored near viewport edges (W82). "Book a demo" beads ≈ 5 frames (D82-6).
-- Drag (W78): mouse/pen only, no opt-out; re-form ≥ ≈113 frames; `recovery` > ≈1.1 s cannot re-form in 3 s (D78-5).
+- Drag (W78): touch after a 350 ms long-press (W84; iOS and swipe latency only on a phone), `drag: false` opts out; re-form ≥ ≈113 frames; `recovery` > ≈1.1 s cannot re-form in 3 s (D78-5).
 - Drag press: `selectstart` blocked document-wide (no drag-select in observed `<input>`/contenteditable, D78-2); if `setPointerCapture` throws (Firefox) the ending click may hit an ancestor, unswallowed; any keydown clears an armed swallow; in a pending Canvas2D rebuild a new drag may hide the label early; nested instances: a press drags both.
 - Container mode: positioned + a stacking context (`isolation: isolate`), else warn + z 0 (W82); never restyled.
 - Gravity (W83): high-pass, τ 0.5 s, ×1.5 ≤ 2000 px/s², seeded at create/switch; ≈ 6 px lean at 90°; iOS prompt untested.
@@ -70,5 +69,5 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Fluid decisions: `ward
 - Stacking check (W82): stacking-context `<body>` + opaque html/body falls back (z 0); negative-z ancestor contexts and ancestors beyond a shadow host are missed (canvas may cover their text).
 
 ## What Comes Next
-- Slices 1–5 closed (whole pictures: `.wdd/memory/whole-picture/`). Slice 6: W80–W83 done; next W84.
+- Slices 1–5 closed (whole pictures: `.wdd/memory/whole-picture/`). Slice 6: W80–W84 done; next W85.
 - Open: fate of the published `0.2.0-rc.0` (spec §7); publishing `0.3.0-alpha.x` is Dennis' call.
