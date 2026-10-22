@@ -24,7 +24,8 @@
  * on the element itself, a move with the primary button up, detach/unobserve, cancel() for reduced
  * motion, a lost device or a failed frame, frame() for a detached element, destroy) are the same for
  * the engine; `onEnd` tells the runtime which one it was. Every end clears the long-press timer. The
- * click that ends a drag is swallowed once at the window's capture phase (before every other
+ * click that ends a drag is swallowed once (not after a touch drag released within 8 px of where the
+ * finger rested and with no scroll: a slow tap stays a click) at the window's capture phase (before every other
  * listener, so the splash, the author's handlers and another instance's listeners all miss it); the
  * swallow clears in the task after the pointerup, or at the next press. Only a pointer's click
  * (detail >= 1) is swallowed: an AT or programmatic click passes. While a press is live,
@@ -72,6 +73,8 @@ interface Press {
   dx: number;
   dy: number;
   dragging: boolean;
+  /** W84 ward review I1: a touch drag whose finger went past the slop from where it rested at the fire (sticky). */
+  moved: boolean;
 }
 
 const THRESHOLD_SQ = DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX;
@@ -192,7 +195,7 @@ export class DragTracker {
     if (e.button !== 0 || !e.isPrimary) return; // D84-1: a second finger is never a press
     if (!Number.isFinite(e.clientX) || !Number.isFinite(e.clientY)) return;
     this.clearSwallow(); // a new press: a swallow left by a cancelled drag is stale
-    this.press = { el, pointerId: e.pointerId, touch, x0: e.clientX, y0: e.clientY, cx: 0, cy: 0, sx: 0, sy: 0, dx: 0, dy: 0, dragging: false };
+    this.press = { el, pointerId: e.pointerId, touch, x0: e.clientX, y0: e.clientY, cx: 0, cy: 0, sx: 0, sy: 0, dx: 0, dy: 0, dragging: false, moved: false };
     this.listen(true);
     if (touch) this.longPressTimer = setTimeout(this.onLongPress, LONG_PRESS_MS);
   }
@@ -244,9 +247,12 @@ export class DragTracker {
     p.cy = dy;
     p.dx = dx + p.sx;
     p.dy = dy + p.sy;
-    if (p.dragging) return;
     // W80: the threshold and the slop are the pointer's own motion; a scroll alone never starts or ends a press.
     const d2 = dx * dx + dy * dy;
+    if (p.dragging) {
+      if (p.touch && d2 > TOUCH_SLOP_SQ) p.moved = true; // W84 ward review I1: past the slop, it is a drag for good
+      return;
+    }
     if (p.touch) {
       if (d2 > TOUCH_SLOP_SQ) this.end("cancel"); // D84-1: a swipe, the page scrolls
     } else if (d2 > THRESHOLD_SQ) {
@@ -324,7 +330,7 @@ export class DragTracker {
       d.addEventListener("keydown", this.onKey, true); // capture: a stopPropagation cannot keep the drag alive
       d.addEventListener("selectstart", this.onSelect);
       d.addEventListener("dragstart", this.onSelect);
-      d.addEventListener("contextmenu", this.onContextMenu);
+      d.addEventListener("contextmenu", this.onContextMenu, true); // capture: an author's stopPropagation cannot open the menu mid-drag
       this.win.addEventListener("blur", this.onBlur);
     } else {
       d.removeEventListener("pointermove", this.onMove);
@@ -333,7 +339,7 @@ export class DragTracker {
       d.removeEventListener("keydown", this.onKey, true);
       d.removeEventListener("selectstart", this.onSelect);
       d.removeEventListener("dragstart", this.onSelect);
-      d.removeEventListener("contextmenu", this.onContextMenu);
+      d.removeEventListener("contextmenu", this.onContextMenu, true);
       this.win.removeEventListener("blur", this.onBlur);
     }
   }
@@ -352,6 +358,12 @@ export class DragTracker {
     this.listen(false);
     if (!p.dragging) return; // a pending press stays a click (D78-2) or a scroll (D84-1)
     p.el.removeEventListener("lostpointercapture", this.onLost);
+    // W84 ward review I1 (Dennis 2026-10-21): a touch drag released within the slop of where it rested,
+    // with no scroll since the down point, is a slow tap: its click passes, like a mouse press below 4 px.
+    if (how === "release" && p.touch && !p.moved && p.sx === 0 && p.sy === 0) {
+      this.deps.onEnd?.(p.el, how);
+      return;
+    }
     this.armSwallow(p.el);
     if (how === "release") {
       this.scheduleClear(); // the click follows this pointerup in the same task

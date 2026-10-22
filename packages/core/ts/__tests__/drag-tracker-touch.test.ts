@@ -347,4 +347,36 @@ describe("W84: the touch long-press (D84-1)", () => {
     expect(tracker.active).toBeNull();
     expect(ends).toEqual([[card, "cancel"]]);
   });
+
+  // 33 (W84 ward review I1, Dennis 2026-10-21, saga dec_6c3e126e)
+  it("given_a_slow_tap_held_past_the_fire_when_lifted_within_8_px_and_no_scroll_then_its_click_passes_and_a_drag_that_moved_or_scrolled_still_swallows_it", () => {
+    const el = observed();
+    tracker.attach(el);
+    down(el, 100, 50);
+    vi.advanceTimersByTime(LONG_PRESS_MS + 400);
+    expect(tracker.active, "the hold picked the liquid up").toMatchObject({ el, dx: 0, dy: 0 });
+    up(el, 100, 50);
+    expect(ends).toEqual([[el, "release"]]);
+    expect(click(el).defaultPrevented, "a slow tap stays a click").toBe(false);
+
+    down(el, 100, 50);
+    vi.advanceTimersByTime(LONG_PRESS_MS);
+    move(el, 100 + TOUCH_SLOP_PX, 50);
+    up(el, 100 + TOUCH_SLOP_PX, 50);
+    expect(click(el).defaultPrevented, "a drift of exactly 8 px after the fire is still a tap").toBe(false);
+
+    down(el, 100, 50);
+    vi.advanceTimersByTime(LONG_PRESS_MS);
+    move(el, 100, 20);
+    move(el, 100, 50);
+    up(el, 100, 50);
+    expect(click(el).defaultPrevented, "a drag that went 30 px away and came back is a drag: swallowed").toBe(true);
+    vi.advanceTimersByTime(1);
+
+    down(el, 100, 50);
+    vi.advanceTimersByTime(LONG_PRESS_MS);
+    tracker.scrolled(0, 20);
+    up(el, 100, 50);
+    expect(click(el).defaultPrevented, "a drag the page scrolled under is a drag: swallowed").toBe(true);
+  });
 });
