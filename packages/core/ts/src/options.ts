@@ -86,6 +86,7 @@ export interface ResolvedOptions {
   autoObserve: boolean;
   forceReducedMotion: boolean;
   silentFallback: boolean;
+  onError: ((err: unknown) => void) | undefined;
   container: HTMLElement | undefined;
   testBackend: FluidBackend | undefined;
   loader: (() => Promise<FluidBackend>) | undefined;
@@ -103,7 +104,7 @@ export const DEFAULT_GRAVITY_STRENGTH = 980;
 
 export const OPTION_KEYS = [
   "particles", "maxElements", "container", "renderer", "material", "gravity", "seed",
-  "autoObserve", "forceReducedMotion", "silentFallback", "testBackend", "loader", "clock", "webgpuT0Scale",
+  "autoObserve", "forceReducedMotion", "silentFallback", "onError", "testBackend", "loader", "clock", "webgpuT0Scale",
 ] as const satisfies readonly (keyof LiquidOptions)[];
 
 const COLOUR_HINT = "the liquid colour is each element's computed background-color (call refresh(el) after a theme change)";
@@ -214,6 +215,13 @@ export function mergeGravity(base: Readonly<ResolvedGravity>, partial: unknown):
   return resolveGravity(merged);
 }
 
+/** W85 (D85-1): `onError` is a function or absent. */
+function resolveOnError(v: unknown): ((err: unknown) => void) | undefined {
+  if (v === undefined) return undefined;
+  if (typeof v !== "function") fail(`onError must be a function (err) => void, got ${show(v)}`);
+  return v as (err: unknown) => void;
+}
+
 function resolveContainer(v: unknown): HTMLElement | undefined {
   if (v === undefined) return undefined;
   if (typeof HTMLElement === "undefined" || !(v instanceof HTMLElement)) fail(`container must be an HTMLElement, got ${show(v)}`);
@@ -278,6 +286,7 @@ export function resolveOptions(input?: LiquidOptions): ResolvedOptions {
     autoObserve: booleanOr("autoObserve", given.autoObserve, true),
     forceReducedMotion: booleanOr("forceReducedMotion", given.forceReducedMotion, false),
     silentFallback: booleanOr("silentFallback", given.silentFallback, false),
+    onError: resolveOnError(given.onError),
     container: resolveContainer(given.container),
     testBackend: resolveTestBackend(given.testBackend),
     loader: resolveLoader(given.loader),

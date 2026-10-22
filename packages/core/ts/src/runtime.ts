@@ -77,7 +77,7 @@ export interface FluidRuntimeOptions {
   textAtlasCanvas?: AtlasCanvasFactory;
   /** W83 (D83-1 … D83-5): the resolved gravity (the facade validates). Default: none. */
   gravity?: Readonly<ResolvedGravity>;
-  /** W85 (D85-1): called once when the instance stops (the facade validates). W85.1 red stub: never called. */
+  /** W85 (D85-1): called once, last, when the instance stops (the facade validates); a throw is caught. */
   onError?: (err: unknown) => void;
 }
 
@@ -865,8 +865,15 @@ function buildRuntime(
     }
   };
 
-  // Stops the instance for good with one console.error (a failed frame, or a throwing resize_world).
+  /**
+   * Stops the instance for good with one console.error: a failed frame, a throwing resize_world, a
+   * throwing set_area_hint (W85 design resolution 7) or, W85, a failed Canvas2D rebuild after a lost
+   * device (rebuildFailed comes here). Once per instance, never after destroy(). W85 (D85-1): last,
+   * `onError(err)`; a throwing handler is caught with one console.error. Last, so a handler may call
+   * destroy() (design resolution 1): every caller returns right after this.
+   */
   const stopInstance = (msg: string, err: unknown): void => {
+    if (failed || destroyed) return;
     failed = true;
     clearTextClasses(textHeld); // W74: a stopped instance never leaves text hidden
     dragTracker.destroy(); // W78: a stopped instance takes no more drags
@@ -876,6 +883,12 @@ function buildRuntime(
     clearAwayClasses(awayHeld); // W78: a stopped instance hides no label
     resyncStopped();
     console.error(msg, err);
+    if (opts.onError === undefined) return;
+    try {
+      opts.onError(err);
+    } catch (handlerErr) {
+      console.error(ON_ERROR_THREW, handlerErr);
+    }
   };
 
   const frame = (nowMs: number): void => {
@@ -911,12 +924,8 @@ function buildRuntime(
     clearHaloClasses(haloHeld); // W75: the halo may already apply while the Canvas2D rebuild was in flight
     clearAwayClasses(awayHeld); // W78
     if (destroyed || failed) return;
-    failed = true;
-    dragTracker.destroy(); // W78: a stopped instance takes no more drags
-    gravityInput.destroy(); // W83 ward review (M2): a stopped instance drops its deviceorientation listener
-    loop.destroy();
-    resyncStopped();
-    console.error(
+    // W85 (D85-1): the one stop path (its cleanup repeats the class clears above, idempotent, and reports onError).
+    stopInstance(
       "[liquiddom] the Canvas2D rebuild after a lost WebGPU device failed; the instance stopped. Call destroy() and create a new instance.",
       err,
     );

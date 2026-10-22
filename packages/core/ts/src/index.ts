@@ -117,6 +117,7 @@ export class LiquidDOM {
       clock: o.clock,
       webgpuT0Scale: o.webgpuT0Scale,
       gravity: o.gravity,
+      onError: o.onError, // W85 (D85-1)
     });
 
     let destroyed = false;
