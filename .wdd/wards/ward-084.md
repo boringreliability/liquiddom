@@ -3,12 +3,12 @@ ward: 84
 revision: null
 name: "Touch and opt-out"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [83]
 layer: "both"
 estimated_tests: 33
 created: "2026-10-21"
-completed: null
+completed: "2026-10-22"
 ---
 # Ward 084: Touch and opt-out
 
@@ -135,6 +135,8 @@ Harness: `page.waitForFunction` and CDP `Log.enable` add document touch listener
 cargo `240 passed; 0 failed; 1 ignored` (no Rust change); vitest `798 passed (798)`, 80 files (797 planned + test 33 from the ward review); clippy clean; `e2e:typecheck` clean. `npm run e2e:canvas2d` (macOS) 87 passed, 15 skipped (the Linux-only visual specs); `touch.spec.ts` 15/15 with `--repeat-each=3` after the ward-review fix. `npm run e2e:webgpu-hw` (Metal) 55 passed, 44 skipped, 0 failed; row 32: scroll 0 at every move, Split dragged by −120, no `pointercancel` or intervention. Docker (pinned linux/amd64 image, no `--update-snapshots`) `--project=canvas2d` 100 passed, 2 skipped, 0 failed; `e2e/__screenshots__` untouched (design resolution 7). Vision (W84.4, both renderers, approved by Dennis 2026-10-21): the hold reads as picked up from frame 0 (ragged rim; the Canvas2D label hides, the WebGPU text rides), the liquid follows the finger 120 px with the home spot empty, the card dragged by its heading merges with the pills (W79), `?nodrag=split` scrolls the page and drags nothing. One canvas2d run had a W82 `under-page` failure (0 pill px) while a stills recorder ran in parallel; the spec alone passed 45/45 (load flake). After the ward-review fix (1d21c70) `npm run e2e:canvas2d` passed 87, skipped 15; one earlier re-run lost a W82 page to a Vite full reload ("Execution context was destroyed") because a file in the repo was written during the run, and the untouched re-run was green.
 
 Task reviews: W84.1 (I1 the touch e2e waited on time: fixed, polls state), W84.2 (I1 the callout inherits in WebKit: counter-rule, cd263ec; M1 hold from the snapshot). Ward review: NOT READY → 0 Critical, 2 Important: I1 a slow tap (held past the fire, lifted in place) swallowed its click — fixed by Dennis' choice (1d21c70, test 33); I2 Windows/ChromeOS may fire `contextmenu` on lift after a touch drag — a known limitation (unverified; CLAUDE.md, README). Minors: M3 capture-phase `contextmenu` (fixed), M1/M2/M4/M6 documented, M5 dropped (the `liquidType` message names its replacement). Phone smoke: pending (Dennis).
+
+**Resolved at gold (Dennis, 2026-10-22):** gold approved after the phone smoke test (saga dec_18ba04a5). Open for W85: the adapters' `drag` prop (`pickElementOptions` copies only `viscosity` and `recovery`). Carried: the Windows/ChromeOS `contextmenu` on lift (I2), the callout counter-rule untested on iOS, the swipe latency of a non-passive `touchmove` listener; the Canvas2D scroll-frame cost (W80); the W82 stacking limits.
 
 Approved-test changes at red (Dennis approves with the tests): `drag-tracker.test.ts` test 2 (name and message only: a touch press that moves 30 px at once still never drags, but touch now drags after a long-press) and `__fixtures__/api-migration-types/index.ts` (`{ drag: false }` compiles, `{ drag: "no" }` does not; checked by row 26).
 

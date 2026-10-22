@@ -1,7 +1,7 @@
 # Context — liquiddom
 
 ## Last Updated
-Ward 84 — 2026-10-21 (touch, opt-out). Next: W85 adapters.
+Ward 84 — 2026-10-22 (touch, opt-out; complete). Next: W85 adapters.
 
 ## Current State
 Epic 15 (Fluid Engine). `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. Soft-body: tag `softbody-final`. Packages `0.3.0-alpha.x` (pre mode `alpha`), unpublished; `site/` frozen until slice 6. Test totals: `.wdd/PROGRESS.md`, ward gold notes.
