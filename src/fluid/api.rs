@@ -65,7 +65,10 @@ pub struct FluidCore {
     gravity: HighPass,
     /// W85 (D85-4, design resolution 6): the sum of the sanitised scroll deltas `scroll_shift`
     /// applied while no element was placed (generation 0), px. `set_area_hint` replays it on the
-    /// rebuilt grid's lattice; nothing else reads it.
+    /// rebuilt grid's lattice; nothing else reads it. The sum gives the same lattice phase as a
+    /// hinted core's step-wise origin; they differ by a whole cell only when a step lands exactly
+    /// on half a cell (a hinted core rounds that step away from zero, so its origin depends on
+    /// the order of the steps).
     pre_place_scroll_px: (f64, f64),
     /// Test-only (D67-14): element 0's rect velocity (px/s) as each fixed step of the
     /// last tick saw it. Pre-allocated to MAX_STEPS_PER_TICK, so it never reallocates.
@@ -473,8 +476,10 @@ impl FluidCore {
     /// or ±Inf → 8 px), the margin by B15 from `max_element_h_px` (at least 200 px, NaN → 200), the
     /// grid's current world (`resize_world` may have grown it); the viewport is kept. A scroll
     /// applied before it is replayed on the new lattice (`Grid::scroll_origin`, design resolution
-    /// 6), so the lattice phase equals a hinted core's with the same scroll history up to f32
-    /// rounding. No particle has a home yet, so none moves; the dynamic view is rewritten.
+    /// 6), so the lattice phase equals a hinted core's with the same scroll history and the result
+    /// is bit-identical, except when a step lands exactly on half a cell: a hinted core rounds
+    /// that step away from zero, so its origin depends on the order of the steps and may sit one
+    /// whole cell apart from this summed replay (walls in the margin, nothing visible). No particle has a home yet, so none moves; the dynamic view is rewritten.
     /// Returns true. From the first `redistribute()` on it changes nothing and returns false.
     /// Allocates the grid: TS calls it outside `tick`, at most once per instance. (`generation`
     /// wraps after 2³² redistributes, so a core that wrapped would rebuild again: theoretical.)

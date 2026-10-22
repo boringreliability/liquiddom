@@ -1,7 +1,7 @@
 # Context — liquiddom
 
 ## Last Updated
-Ward 84 — 2026-10-22 (touch, opt-out; complete). Next: W85 adapters.
+Ward 85 — 2026-10-22 (adapters). Next: W86 site.
 
 ## Current State
 Epic 15 (Fluid Engine). `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. Soft-body: tag `softbody-final`. Packages `0.3.0-alpha.x` (pre mode `alpha`), unpublished; `site/` frozen until slice 6. Test totals: `.wdd/PROGRESS.md`, ward gold notes.
@@ -54,8 +54,8 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Fluid decisions: `ward
 - Scroll (W80): rigid shift + capped inertia (D80-2); fixed/stuck-sticky elements not shifted. While scrolling, DOM labels sit 60–100 px off their liquid for a frame per scroll step, both renderers; none at rest (D80-4).
 - Parking (W81): outside world + margin an element is not simulated, re-enters at rest; partly outside keeps wall-clamped liquid. A translated container canvas keeps its scroll range after the content shrinks (W80).
 - `resize_world` (W81): a margin near 8192 px needs ≈ 450 MB of grid (200 px: ≈ 55 MB).
-- Edge ring (D67-13): spacing cell/2 from the area hint; a far-off hint changes density.
-- The first throwing frame (or a failing `resize_world`) stops the instance; adapters do not react.
+- Edge ring (D67-13): spacing cell/2 from the area hint (W85: set at the first batch without one).
+- A stop (frame, grid growth or hint, rebuild) calls `onError` once; providers show `useLiquidError()` (W85).
 - WebGPU e2e local only (`e2e:webgpu`, `-hw` on Metal); CI: soft smoke; no webgpu Linux baselines.
 - A WebGPU canvas reads only in its render task; e2e uses `__liquidTest.pixels()`.
 - Text while away: WebGPU carries it on its liquid (W74); Canvas2D adds a 1–8 px background-colour halo (W75), no solid backdrop for thin glyphs.
@@ -69,5 +69,5 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Fluid decisions: `ward
 - Stacking check (W82): stacking-context `<body>` + opaque html/body falls back (z 0); negative-z ancestor contexts and ancestors beyond a shadow host are missed (canvas may cover their text).
 
 ## What Comes Next
-- Slices 1–5 closed (whole pictures: `.wdd/memory/whole-picture/`). Slice 6: W80–W84 done; next W85.
+- Slices 1–5 closed (whole pictures: `.wdd/memory/whole-picture/`). Slice 6: W80–W85 done; next W86.
 - Open: fate of the published `0.2.0-rc.0` (spec §7); publishing `0.3.0-alpha.x` is Dennis' call.

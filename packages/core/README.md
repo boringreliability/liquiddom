@@ -37,6 +37,7 @@ Every `[data-liquid]` element is observed. Its computed `background-color` becom
 | `autoObserve` | `true` | Observe `[data-liquid]` at create |
 | `forceReducedMotion` | `false` | Force the still, crisp reduced-motion mode |
 | `silentFallback` | `false` | Hides the `console.info` logged when `'auto'` falls back to Canvas2D |
+| `onError` | none | `(err) => void`, called once when the instance stops for good (a frame that throws, a failed grid allocation for a growth or the first area hint, a failed rebuild after a lost WebGPU device), after its `console.error`; it can run before `create()` resolves (then `create()` resolves with the stopped instance). Not called for a `create()` rejection, a fallback or after `destroy()`. Recovery: `destroy()` + `create()` |
 
 Removed 0.2 options throw a `TypeError` that names the replacement.
 
