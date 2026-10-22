@@ -258,5 +258,5 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D85-1 | Stopped instance: create() option onError(err), once per instance on every stop path; console.error kept | W85 | dec_3039b876 |
 | D85-2 | Providers: a stopped instance is destroyed, useLiquid() null, useLiquidError() the error (also create() rejection); no retry, remount clears | W85 | dec_70e6753b |
 | D85-3 | drag prop on LiquidElement and useLiquidRef, captured once, never on the DOM | W85 | dec_eb4b4ea5 |
-| D85-4 | Area hint without autoObserve: set_area_hint rebuilds the grid at generation 0, once, at the first batch with area > 0 | W85 | dec_8655ba84 |
+| D85-4 | Area hint without autoObserve: set_area_hint rebuilds the grid at generation 0, once, at the first batch with area > 0 (zero-area batches skip redistribute while pending); the pre-placement scroll is summed and replayed (amended 2026-10-22) | W85 | dec_8655ba84, dec_19811b35 |
 | D85-5 | examples/vue (render functions, no plugin) and the Vue dist e2e; a drag={false} pill in both examples | W85 | dec_f37258d2 |
