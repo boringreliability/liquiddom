@@ -94,10 +94,12 @@ Throwaway copy of `ef7e197` (deleted), rough Astro site with the design's nine c
 
 Written after the W86.0 gate (part 2 of the plan).
 
+**After W86 (gold run, `d7d644b`):** cargo `245 passed; 0 failed; 1 ignored` (unchanged); vitest `862 passed (862)`, 88 files (the plan's 861 + the W86.2 fleet test); Playwright `--list` canvas2d 101 / webgpu 51 / webgpu-hw 99 / perf 6 / dist 2 / site 7 (record 2, record-webgpu 2; total 270 tests in 21 files).
+
 ## Tests
 Red results were measured after W86.1 (stubs in place, `npm run build` then `npm test`: 861 tests, 836 passed, 25 failed, 88 files; every failure is an assertion, none an import or syntax error). Gold is after W86.4.
 
-| # | Test (file: name) | Verifies | Red (measured) | Gold |
+| # | Test (file: name) | Verifies | Red (measured) | Gold (measured 2026-10-23, after `d7d644b`) |
 |---|---|---|---|---|
 | 1 | color.test: given_a_colour_parseCssColor_cannot_read_when_parsed_then_the_probe_result_is_used | D86-9 | ❌ `parseCssColor` returns null, the probe is never called | ✅ |
 | 2 | color.test: given_the_probe_rejects_the_string_when_parsed_then_null | D86-9, `garbage` stays null | ✅ | ✅ |
@@ -143,15 +145,18 @@ Red results were measured after W86.1 (stubs in place, `npm run build` then `npm
 | (v) | e2e-harness (changed pin, `:86`): canvas2d runs every spec except smoke, webgpu liquid, perf, record, dist and site | resolution 8 (v) | ❌ `site.spec.ts` still routes to canvas2d | ✅ |
 | (v) | e2e-harness (changed pin, `:97-104`): blocking projects are canvas2d, dist, site | resolution 8 (v) | ❌ `['canvas2d', 'dist']` | ✅ |
 | (vi) | e2e-harness (changed pin): `PROJECT_RENDERER` gains `site: "canvas2d"` | resolution 8 (vi) | ❌ no `site` entry | ✅ |
-| E1 | site.spec: given the landing when it loads then one liquid canvas under the page, nine chapters and no liquiddom warning | D86-2, W82 | ❌ not run: no page (`site/dist` builds 0 pages); listed under canvas2d | ✅ |
-| E2 | site.spec: given chapters 3 and 7 when scrolled into view then three and two container canvases and their buttons work | D86-3 | ❌ not run (no page) | ✅ |
-| E3 | site.spec: given the last chapter 6 card when scrolled to then its liquid appears at rest | step 7, D86-3 | ❌ not run (no page) | ✅ |
-| E4 | site.spec: given reduced motion when the landing rests then the hero drop's liquid has its oklch colour, not the default purple | D86-9, D86-4 | ❌ not run (no page) | ✅ |
-| E5 | site.spec: given the playground when the honey preset is applied and the page reloaded then the material is restored from liquiddom-playground-v3 and v1/v2 are gone | moved W69 e2e: v1 and v2 seeded before every load and null after each load; the instance holds honey right after `applyPreset` and after the reload | ❌ not run (no page) | ✅ |
-| E6 | site.spec: given every docs page when loaded then it has its title and no liquid canvas | D86-6 | ❌ not run (no page) | ✅ |
-| E7 | site.spec: given a 390 px phone viewport when the landing loads then nothing scrolls sideways | mobile | ❌ not run (no page) | ✅ |
+| (+1) | landing.test: given_a_stop_while_one_instance_is_live_and_one_is_pending_when_stopped_then_both_are_destroyed_cleanups_run_and_the_page_is_told_once | W86.2 fix round 1 (I2), not an approved row | — (added at gold) | ✅ |
+| E1 | site.spec: given the landing when it loads then one liquid canvas under the page, nine chapters and no liquiddom warning | D86-2, W82 | ❌ not run: no page (`site/dist` builds 0 pages); listed under canvas2d | ✅ `[site]` 528 ms |
+| E2 | site.spec: given chapters 3 and 7 when scrolled into view then three and two container canvases and their buttons work | D86-3 | ❌ not run (no page) | ✅ `[site]` 524 ms |
+| E3 | site.spec: given the last chapter 6 card when scrolled to then its liquid appears at rest | step 7, D86-3 | ❌ not run (no page) | ✅ `[site]` 421 ms |
+| E4 | site.spec: given reduced motion when the landing rests then the hero drop's liquid has its oklch colour, not the default purple | D86-9, D86-4 | ❌ not run (no page) | ✅ `[site]` 203 ms |
+| E5 | site.spec: given the playground when the honey preset is applied and the page reloaded then the material is restored from liquiddom-playground-v3 and v1/v2 are gone | moved W69 e2e: v1 and v2 seeded before every load and null after each load; the instance holds honey right after `applyPreset` and after the reload | ❌ not run (no page) | ✅ `[site]` 495 ms |
+| E6 | site.spec: given every docs page when loaded then it has its title and no liquid canvas | D86-6 | ❌ not run (no page) | ✅ `[site]` 218 ms |
+| E7 | site.spec: given a 390 px phone viewport when the landing loads then nothing scrolls sideways | mobile | ❌ not run (no page) | ✅ `[site]` 214 ms |
 
 The E rows were listed (`npx playwright test --list`: canvas2d 108, webgpu 51, webgpu-hw 99, perf 6, dist 2) and type-checked (`npm run e2e:typecheck` clean), not run; they need the built site (W86.4).
+
+**Gold run (2026-10-23, `d7d644b`).** `npm run verify`: build clean (`astro check` 0 errors, 0 warnings, 0 hints), cargo `245 passed; 0 failed; 1 ignored`, vitest `Test Files 1 failed | 87 passed (88)`, `Tests 1 failed | 861 passed (862)`: the one failure is `workspace-publish.test.ts > example_react_builds_against_workspace_liquiddom`, `Test timed out in 5000ms` (machine load); re-run with `--testTimeout=60000`: `28 passed (28)`, so 862/862 pass. Clippy (run separately, verify stops at the vitest exit) clean. 862 = the planned 861 + the fleet test (+1 row). `npm run e2e:canvas2d`: `86 passed, 15 skipped` (4.1 m; the skips are 13 Linux-baseline screenshots, which skip on macOS, and 2 VISION=1 captures). `npm run e2e:dist`: `2 passed`. `npm run e2e:site`: `7 passed` (5.5 s). `npm run e2e:typecheck` clean; `cargo fmt --check` clean; `npm pack --dry-run --workspaces` succeeds (six packages, `liquiddom` 82 files / 181.4 kB; the private `@liquiddom/site` is packed by the dry run but changeset-ignored, never published).
 
 ## Must NOT
 - Use `@internal` API, `runtimeOf()` or a scene test hook in the site.
@@ -165,7 +170,15 @@ The E rows were listed (`npx playwright test --list`: canvas2d 108, webgpu 51, w
 - Run under reduced motion with every control usable and nothing moving.
 
 ## Manual Smoke Test
-Written after the W86.0 gate (part 2 of the plan).
+**Setup:** `npm run build:wasm` (if `pkg/` is stale), `npm run e2e:site:build`, then `npx vite preview site --port 4176` (add `--host` for step 3).
+
+1. Chrome, `http://localhost:4176/`: the arrival splash; the hint shake after 4 s idle; every chapter's controls; a fast scroll to the end brings the parked chapter 6 cards in at rest; the playground (Copy as code, gravity, the drag toggle, a reload restores the state); the docs pages.
+2. The same page with WebGPU off (`chrome://flags` or Safari): Canvas2D with halos.
+3. A phone on the same network (`--host`): long-press drag in chapter 4, "Use device tilt" in chapter 5.
+4. Force a stop from devtools: `document.querySelector("[data-liquid]").getBoundingClientRect = () => { throw new Error("forced stop") }` → the controls vanish and "The liquid stopped; the page works as usual." appears.
+5. System setting "Reduce motion" on: no arrival, no hint, nothing moves, every button still works.
+
+**Pass criteria:** every step behaves as described; the liquid takes each element's oklch colour (never the default purple); no liquid covers page text (canvas under the page, no `[liquiddom]` warning in the console); no horizontal scroll at phone width; no `console.error` except the forced stop's in step 4.
 
 ## Verification
 `npm run verify`, `npm run e2e:canvas2d`, `npm run e2e:site`, `npm run e2e:dist`; WebGPU locally; vision of the landing, the playground and the docs in both renderers, desktop and phone width.
