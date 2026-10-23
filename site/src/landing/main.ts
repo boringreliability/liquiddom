@@ -31,12 +31,19 @@ async function boot(): Promise<void> {
   for (const el of $$<HTMLElement>("[data-liquid]")) body.observe(el);
 
   // Chapter 1: Enter or Space on the card splashes it (a card fires no click); the demo link must not jump the page.
+  // The card stays focusable after a stop, so the handler goes with the liquid (PR #5 review).
   const card = $<HTMLElement>('[data-chapter="1"] article[data-liquid]');
-  card?.addEventListener("keydown", (e) => {
-    if ((e.key !== "Enter" && e.key !== " ") || e.repeat) return;
-    if (e.key === " ") e.preventDefault();
-    body.splash(card);
-  });
+  const cardKeys = new AbortController();
+  fleet.onStop(() => cardKeys.abort());
+  card?.addEventListener(
+    "keydown",
+    (e) => {
+      if ((e.key !== "Enter" && e.key !== " ") || e.repeat) return;
+      if (e.key === " ") e.preventDefault();
+      body.splash(card);
+    },
+    { signal: cardKeys.signal },
+  );
   $('[data-chapter="1"] a[data-liquid]')?.addEventListener("click", (e) => e.preventDefault());
 
   $("#hero-splash")?.addEventListener("click", () => $$<HTMLElement>("[data-hero]").forEach((el) => body.splash(el)));
