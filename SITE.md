@@ -61,7 +61,7 @@ Verify with `dig liquiddom.vsplat.io CNAME +short`. Each project on `vsplat.io` 
 
 The liquid canvas sits at `z-index: -1` under the page (W82). The page background lives on `<html>` (the night gradient in `global.css`); `<body>`, every section and every wrapper of an observed element stay transparent. A background (any alpha > 0 or a `background-image`) on an ancestor of an observed element puts the instance into the `z-index: 0` fallback with a `console.warn`, and the liquid then covers text. `e2e/site.spec.ts` checks the canvas z-index and that no `[liquiddom]` warning is logged.
 
-A `.pool` (container instance) is `position: relative; isolation: isolate; padding: 72px`: positioned for the absolutely placed canvas, a stacking context so the liquid goes under its content, padded so a splash stays inside.
+A `.pool` (container instance) is `position: relative; isolation: isolate; padding: 96px (48px at 480px and below)`: positioned for the absolutely placed canvas, a stacking context so the liquid goes under its content, padded so a splash stays inside.
 
 ## Colour tokens
 

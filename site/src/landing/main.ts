@@ -24,11 +24,20 @@ async function pool(el: HTMLElement, extra: Partial<LiquidOptions>): Promise<Liq
 }
 
 async function boot(): Promise<void> {
-  const body = await fleet.add(LiquidDOM.create({ ...BODY_OPTIONS, autoObserve: false, onError: stop }));
+  const body = await fleet.add(LiquidDOM.create({ ...BODY_OPTIONS, autoObserve: false, gravity: { source: "fixed", vector: dialVector(0) }, onError: stop }));
   if (!body) return;
   // Drag-off elements are observed first (observe is idempotent; the first options win).
   for (const el of $$<HTMLElement>("[data-liquid-drag-off]")) body.observe(el, { drag: false });
   for (const el of $$<HTMLElement>("[data-liquid]")) body.observe(el);
+
+  // Chapter 1: Enter or Space on the card splashes it (a card fires no click); the demo link must not jump the page.
+  const card = $<HTMLElement>('[data-chapter="1"] article[data-liquid]');
+  card?.addEventListener("keydown", (e) => {
+    if ((e.key !== "Enter" && e.key !== " ") || e.repeat) return;
+    if (e.key === " ") e.preventDefault();
+    body.splash(card);
+  });
+  $('[data-chapter="1"] a[data-liquid]')?.addEventListener("click", (e) => e.preventDefault());
 
   $("#hero-splash")?.addEventListener("click", () => $$<HTMLElement>("[data-hero]").forEach((el) => body.splash(el)));
   $("#poke-all")?.addEventListener("click", () => {

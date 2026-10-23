@@ -18,6 +18,8 @@ liquiddom 0.3 is an alpha. These are the known limits, with what to do about eac
 
 Colours are read when an element is observed and again when its own `class` or `style` changes or a colour transition on it ends. Call `refresh(el)` after any other colour change: a new stylesheet rule, a class on an ancestor, a `:hover` colour without a transition, or a `@keyframes` colour animation.
 
+- Colours outside `rgb()`/hex are read back from a 1×1 canvas, so browsers with fingerprinting protection (Firefox `resistFingerprinting`, Brave) may noise or blank them. Use `rgb()` or hex for exact liquid colours there.
+
 ## Scroll
 
 - While the page scrolls, the canvas can trail the content by one frame, so a label can sit a little off its liquid during a fast scroll. At rest it is exact.

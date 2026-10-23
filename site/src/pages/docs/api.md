@@ -6,7 +6,7 @@ description: Every LiquidDOM.create() option, every instance member, element opt
 
 ```ts
 import {
-  LiquidDOM, presets, validateMaterial,
+  LiquidDOM, presets,
   WebGPUUnavailableError, LiquidWasmLoadError,
   type LiquidOptions, type LiquidDOMInstance, type ElementOptions,
   type Material, type GravityOptions, type SplashOptions,
@@ -51,7 +51,7 @@ Every option is optional. Unknown keys throw a `TypeError` that lists the allowe
 
 ### Motion
 
-- **`splash(el: HTMLElement, opts?: SplashOptions): void`** splashes an observed element. Throws `Error` when `el` is not observed. Clicking an observed element splashes at the pointer, and Enter or Space at its centre, without any code.
+- **`splash(el: HTMLElement, opts?: SplashOptions): void`** splashes an observed element. Throws `Error` when `el` is not observed. Clicking an observed element splashes at the pointer, and Enter or Space on a focused button or link (a click with detail 0) at its centre, without any code.
 - **`shake(strength?: number): void`** sloshes every observed element. `strength` is 0–2 (default 1, 0 does nothing).
 - **`setMaterial(partial: Partial<Material>): void`** validates, merges and applies a material change atomically; a `TypeError` leaves the material as it was.
 - **`getMaterial(): Material`** returns a copy of the current material.
@@ -99,7 +99,7 @@ The second argument of `observe()`. Read once, when the element is first observe
 interface Material { viscosity: number; cohesion: number; recovery: number }
 ```
 
-`viscosity` and `cohesion` are in [0, 1]; `recovery` is the time in seconds, [0.2, 3], the liquid takes to re-form after a splash. `validateMaterial(partial)` throws the same `TypeError` that `create()` and `setMaterial()` would.
+`viscosity` and `cohesion` are in [0, 1]; `recovery` is the time in seconds, [0.2, 3], the liquid takes to re-form after a splash. `create()` and `setMaterial()` throw a `TypeError` for a value outside these ranges.
 
 ### `presets`
 
