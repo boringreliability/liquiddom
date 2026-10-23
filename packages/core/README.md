@@ -2,7 +2,7 @@
 
 WASM-driven **fluid dynamics** on real DOM elements, drawn on a hidden `<canvas>` while the DOM keeps its semantics, focus and hit areas. Rust runs a 2D MLS-MPM fluid; TypeScript observes the DOM and renders. They share pre-allocated `Float32Array` views; there is no JSON over the FFI.
 
-> **0.3 alpha.** The 0.2 soft-body engine is retired (tag `softbody-final`). This alpha shows the liquid at rest; splash, shake and the pointer field land in the next alpha.
+> **0.3 alpha.** The 0.2 soft-body engine is retired (tag `softbody-final`). This alpha runs the liquid: splash, shake, the pointer field, drag (mouse, pen and touch), scroll, gravity and tilt, in WebGPU or Canvas2D.
 
 ## Install
 
