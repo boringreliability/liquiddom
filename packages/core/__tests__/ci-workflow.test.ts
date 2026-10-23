@@ -173,3 +173,21 @@ describe("W69 CI dist smoke (D69-6)", () => {
     expect(stepsOf(e2e).indexOf(dist[0])).toBeGreaterThan(build);
   });
 });
+
+describe("W86 CI site build and smoke (D86-8)", () => {
+  it("given_ci_yml_when_read_then_the_site_is_built_and_its_project_runs_blocking", () => {
+    const steps = stepsOf(job("e2e"));
+    const dl = steps.findIndex((s) => typeof s.uses === "string" && s.uses.startsWith("actions/download-artifact"));
+    const build = steps.findIndex((s) => s.run === "npm run e2e:site:build");
+    const runs = steps.filter((s) => /--project=site\b/.test(s.run ?? ""));
+    expect(build).toBeGreaterThan(dl);
+    expect(steps[build]["continue-on-error"]).toBeUndefined();
+    expect(runs).toHaveLength(1);
+    expect(runs[0].run).toBe("npx playwright test --project=site");
+    expect(runs[0].env?.E2E_SUITE).toBe("site");
+    expect(steps.indexOf(runs[0])).toBeGreaterThan(build);
+    expect(runs[0]["continue-on-error"]).toBeUndefined();
+    const testJob = job("test") as Job & { strategy?: { matrix?: { node?: number[] } } };
+    expect(testJob.strategy?.matrix?.node).toEqual([22, 24]);
+  });
+});

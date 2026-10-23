@@ -12,12 +12,6 @@ type SceneHook = {
   elementOptionsOf(el: HTMLElement): { viscosity: number; recovery: number } | null;
   instance: unknown;
 };
-type MaterialShape = { viscosity: number; cohesion: number; recovery: number };
-type PlaygroundHandle = {
-  instance: { getMaterial(): MaterialShape };
-  presets: Record<"water" | "honey" | "jelly", MaterialShape>;
-  applyPreset(name: "water" | "honey" | "jelly"): void;
-};
 
 const SPLASH_URL = "/scenes/splash.html?test=1&seed=1&renderer=canvas2d";
 const REFORM_TIMEOUT_MS = 15_000;
@@ -155,38 +149,4 @@ test("given the splash scene when buttons are clicked and keyboard-activated the
   await waitAllRest(page, REFORM_TIMEOUT_MS);
   await page.screenshot({ path: testInfo.outputPath("splash-reformed.png") });
   expect(await restAlpha(page)).toEqual([1, 1, 1, 1]);
-});
-
-test("given the playground when the honey preset is applied and the page reloaded then no console error and the material is restored from liquiddom-playground-v2", async ({ page }, testInfo) => {
-  test.setTimeout(60_000);
-  // W69 ward review: seed the legacy v1 key before every load, so the null checks below
-  // prove the playground removes it (an unseeded key is null whatever the code does).
-  await page.addInitScript(() => {
-    localStorage.setItem("liquiddom-playground-v1", JSON.stringify({ schema: 1, liquidType: "water" }));
-  });
-  await page.goto("/scenes/playground.html");
-  await page.waitForFunction(() => (window as unknown as { __playground?: unknown }).__playground !== undefined, undefined, {
-    timeout: 10_000,
-  });
-  expect(await page.evaluate(() => localStorage.getItem("liquiddom-playground-v1")), "v1 removed on first load").toBeNull();
-  await expect(page.locator("#tweak-mount > *")).not.toHaveCount(0);
-
-  const honey = await page.evaluate(() => {
-    const p = (window as unknown as { __playground: PlaygroundHandle }).__playground;
-    p.applyPreset("honey");
-    return { applied: p.instance.getMaterial(), expected: { ...p.presets.honey } };
-  });
-  expect(honey.applied).toEqual(honey.expected);
-
-  await page.waitForFunction((key) => localStorage.getItem(key) !== null, "liquiddom-playground-v2", { timeout: 2_000 });
-  await page.screenshot({ path: testInfo.outputPath("playground-honey.png") });
-  await page.reload();
-  await page.waitForFunction(() => (window as unknown as { __playground?: unknown }).__playground !== undefined, undefined, {
-    timeout: 10_000,
-  });
-  const restored = await page.evaluate(() =>
-    (window as unknown as { __playground: PlaygroundHandle }).__playground.instance.getMaterial(),
-  );
-  expect(restored).toEqual(honey.expected);
-  expect(await page.evaluate(() => localStorage.getItem("liquiddom-playground-v1")), "v1 removed after reload").toBeNull();
 });

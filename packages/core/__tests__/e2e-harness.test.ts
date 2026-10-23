@@ -20,6 +20,8 @@ import {
   PROJECT_FILES,
   PROJECT_RENDERER,
   PROJECT_USE,
+  SITE_PORT,
+  SITE_ROOT,
   SWIFTSHADER_RUNS_LIQUID,
   WEBGPU_HW_LAUNCH_ARGS,
   WEBGPU_LAUNCH_ARGS,
@@ -85,8 +87,9 @@ describe("W65 e2e harness", () => {
 
   it("given_e2e_spec_files_when_routed_then_canvas2d_runs_every_spec_except_smoke_webgpu_liquid_perf_record_and_dist", () => {
     // W72 red: approved-test change (Dennis approves at W72 red): webgpu-robust.spec.ts joins the exclusions
+    // W86 red: approved-test change (resolution 8 (v)): site.spec.ts joins the exclusions
     const expected = SPECS.filter(
-      (f) => !["webgpu-smoke.spec.ts", "webgpu-liquid.spec.ts", "webgpu-robust.spec.ts", "perf.spec.ts", "record.spec.ts", "dist.spec.ts"].includes(f),
+      (f) => !["webgpu-smoke.spec.ts", "webgpu-liquid.spec.ts", "webgpu-robust.spec.ts", "perf.spec.ts", "record.spec.ts", "dist.spec.ts", "site.spec.ts"].includes(f),
     );
     expect(routedTo("canvas2d")).toEqual(expected);
     expect(expected).toEqual(
@@ -96,7 +99,8 @@ describe("W65 e2e harness", () => {
 
   it("given_project_table_when_read_then_canvas2d_and_dist_are_blocking_and_perf_runs_only_perf_spec", () => {
     // W69 (D69-6): the published-dist smoke is blocking as well.
-    expect(PROJECT_FILES.filter((p) => p.blocking).map((p) => p.name)).toEqual(["canvas2d", "dist"]);
+    // W86 red: approved-test change (resolution 8 (v)): so is the site project (D86-8).
+    expect(PROJECT_FILES.filter((p) => p.blocking).map((p) => p.name)).toEqual(["canvas2d", "dist", "site"]);
     expect(routedTo("perf")).toEqual(["perf.spec.ts"]);
     expect(configRoutedTo("perf")).toEqual(["perf.spec.ts"]);
     expect(configRoutedTo("canvas2d")).toEqual(routedTo("canvas2d"));
@@ -134,6 +138,18 @@ describe("W65 e2e harness", () => {
       "npm run build -w liquiddom && npm run build -w @liquiddom/react && npm run build -w @liquiddom/vue && npm run build -w liquiddom-react-example --ignore-scripts && npm run build -w liquiddom-vue-example --ignore-scripts",
     );
     expect(pkg.scripts["e2e:dist"]).toBe("npm run e2e:dist:build && playwright test --project=dist");
+  });
+
+  it("given_the_site_project_when_routed_then_only_site_spec_on_its_own_port_and_blocking", () => {
+    expect(routedTo("site")).toEqual(["site.spec.ts"]);
+    expect(configRoutedTo("site")).toEqual(["site.spec.ts"]);
+    expect(SITE_PORT).toBe(4176);
+    expect(SITE_ROOT).toBe("site");
+    expect(new Set([PORT, DIST_PORT, DIST_VUE_PORT, SITE_PORT]).size).toBe(4);
+    expect(rendererForProject("site")).toBe("canvas2d");
+    const scripts = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf-8")).scripts;
+    expect(scripts["e2e:site:build"]).toBe("npm run build -w liquiddom && npm run build -w @liquiddom/site");
+    expect(scripts["e2e:site"]).toBe("npm run e2e:site:build && playwright test --project=site");
   });
 
   it("given_webgpu_launch_args_when_read_then_they_equal_the_spec_swiftshader_flags", () => {
@@ -210,7 +226,7 @@ describe("W65 e2e harness", () => {
 
   it("given_project_renderer_map_when_read_then_only_the_webgpu_project_renders_webgpu_and_an_unknown_project_throws_W71", () => {
     // W72 red: approved-test change (Dennis approves at W72 red): W72 adds record-webgpu
-    expect(PROJECT_RENDERER).toEqual({ canvas2d: "canvas2d", webgpu: "webgpu", "webgpu-hw": "webgpu", perf: "canvas2d", record: "canvas2d", dist: "canvas2d", "record-webgpu": "webgpu" });
+    expect(PROJECT_RENDERER).toEqual({ canvas2d: "canvas2d", webgpu: "webgpu", "webgpu-hw": "webgpu", perf: "canvas2d", record: "canvas2d", dist: "canvas2d", site: "canvas2d", "record-webgpu": "webgpu" });
     for (const p of PROJECT_FILES) expect(rendererForProject(p.name)).toBe(PROJECT_RENDERER[p.name]);
     expect(() => rendererForProject("chromium")).toThrow(/unknown Playwright project/);
   });

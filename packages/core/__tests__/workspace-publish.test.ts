@@ -333,27 +333,51 @@ describe("Ward 051: Workspace topology + publishable shape", () => {
   });
 });
 
-describe("W66: site freeze, versioning, pkg-specifier hygiene", () => {
+describe("W86 (was W66 site freeze): the site is a workspace, versioning, pkg-specifier hygiene", () => {
   const SITE_DEPS = /@liquiddom\/site/;
 
-  it("given_root_package_when_read_then_site_not_in_workspaces_and_no_site_override", () => {
+  it("given_root_package_when_read_then_site_in_workspaces_and_in_the_lockfile", () => {
     const root = readJson(resolve(ROOT, "package.json"));
-    expect(root.workspaces).toEqual(["packages/*", "examples/*"]);
+    expect(root.workspaces).toEqual(["packages/*", "examples/*", "site"]);
     expect(JSON.stringify(root.overrides ?? {})).not.toMatch(SITE_DEPS);
     const lock = readFileSync(resolve(ROOT, "package-lock.json"), "utf-8");
-    expect(lock).not.toMatch(/"site":\s*\{/);
-    expect(lock).not.toMatch(/"node_modules\/@liquiddom\/site"/);
+    expect(lock).toMatch(/"site":\s*\{/);
+    expect(lock).toMatch(/"node_modules\/@liquiddom\/site"/);
   });
 
-  it("given_vitest_config_when_read_then_site_not_in_projects", () => {
+  it("given_vitest_config_when_read_then_site_is_a_project", () => {
     const cfg = readFileSync(resolve(ROOT, "vitest.config.ts"), "utf-8");
-    expect(cfg).not.toMatch(/["']\.\/site["']/);
-    for (const p of ["./packages/core", "./packages/react", "./packages/vue"]) expect(cfg).toContain(`"${p}"`);
+    for (const p of ["./packages/core", "./packages/react", "./packages/vue", "./site"]) expect(cfg).toContain(`"${p}"`);
   });
 
   it("given_deploy_site_yml_when_read_then_only_workflow_dispatch", () => {
     const doc = parseYaml(readFileSync(resolve(ROOT, ".github/workflows/deploy-site.yml"), "utf-8")) as { on: Record<string, unknown> };
     expect(Object.keys(doc.on)).toEqual(["workflow_dispatch"]);
+  });
+
+  it("given_site_package_when_read_then_astro_7_and_the_root_vite_and_typescript", () => {
+    const root = readJson(resolve(ROOT, "package.json")) as any;
+    const site = readJson(resolve(ROOT, "site/package.json")) as any;
+    expect(site.name).toBe("@liquiddom/site");
+    expect(site.private).toBe(true);
+    expect(site.dependencies.astro).toBe("^7.4.2");
+    expect(site.dependencies.liquiddom).toBe("*");
+    expect(site.devDependencies.vite).toBe(root.devDependencies.vite);
+    expect(root.devDependencies.vite).toBe("^8.3.5");
+    expect(site.devDependencies.typescript).toBe(root.devDependencies.typescript);
+  });
+
+  it("given_changeset_config_when_read_then_the_private_site_is_ignored", () => {
+    const cfg = readJson(resolve(ROOT, ".changeset/config.json")) as any;
+    expect(cfg.ignore).toContain("@liquiddom/site");
+  });
+
+  it("given_tweakpane_when_located_then_only_a_site_dependency", () => {
+    const root = readJson(resolve(ROOT, "package.json")) as any;
+    const site = readJson(resolve(ROOT, "site/package.json")) as any;
+    expect(root.devDependencies.tweakpane).toBeUndefined();
+    expect(root.dependencies?.tweakpane).toBeUndefined();
+    expect(site.dependencies.tweakpane).toBe("^4.0.4");
   });
 
   it("given_example_react_package_when_read_then_liquiddom_deps_are_star", () => {

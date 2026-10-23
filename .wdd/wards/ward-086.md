@@ -95,7 +95,63 @@ Throwaway copy of `ef7e197` (deleted), rough Astro site with the design's nine c
 Written after the W86.0 gate (part 2 of the plan).
 
 ## Tests
-Written after the W86.0 gate (part 2 of the plan).
+Red results were measured after W86.1 (stubs in place, `npm run build` then `npm test`: 861 tests, 836 passed, 25 failed, 88 files; every failure is an assertion, none an import or syntax error). Gold is after W86.4.
+
+| # | Test (file: name) | Verifies | Red (measured) | Gold |
+|---|---|---|---|---|
+| 1 | color.test: given_a_colour_parseCssColor_cannot_read_when_parsed_then_the_probe_result_is_used | D86-9 | ❌ `parseCssColor` returns null, the probe is never called | ✅ |
+| 2 | color.test: given_the_probe_rejects_the_string_when_parsed_then_null | D86-9, `garbage` stays null | ✅ | ✅ |
+| 3 | color.test: given_the_same_unread_colour_twice_when_parsed_then_the_probe_runs_once | cache | ❌ null instead of the probed colour | ✅ |
+| 4 | color.test: given_the_probe_returns_alpha_zero_when_parsed_then_null | transparent stays null | ✅ | ✅ |
+| 5 | color.test: given_an_oklch_background_when_snapshotted_then_the_liquid_takes_the_probed_colour | snapshot path | ❌ default purple `[83,52,131,1]` | ✅ |
+| 6 | color.test: given_rgb_or_hex_when_parsed_then_the_probe_is_never_called | fast path unchanged | ✅ | ✅ |
+| 7 | landing.test: given_the_chapters_when_read_then_nine_in_order_with_the_design_titles | D86-2 | ❌ `CHAPTERS` is empty | ✅ |
+| 8 | landing.test: given_the_config_when_read_then_the_gate_values | D86-3, D86-4 | ❌ zeros in `BODY_OPTIONS` | ✅ |
+| 9 | landing.test: given_hero_elements_when_the_arrival_starts_then_each_is_splashed_at_0_8_at_once | D86-4 | ❌ no `splash` call | ✅ |
+| 10 | landing.test: given_reduced_motion_when_the_arrival_starts_then_no_splash_and_no_hint | D86-4 | ✅ (the stub does nothing) | ✅ |
+| 11 | landing.test: given_no_interaction_for_4_s_when_waiting_then_one_shake_at_0_5 | hint | ❌ no `shake` call | ✅ |
+| 12 | landing.test: given_an_interaction_before_4_s_when_waiting_then_no_shake_and_the_listeners_are_gone | hint cancel (pointerdown, keydown, touchstart, wheel, scroll) | ❌ no `removeEventListener` calls (first type, pointerdown) | ✅ |
+| 13 | landing.test: given_dial_angles_when_mapped_then_unit_vectors_with_0_down_and_90_right | ch5 dial, playground | ❌ `[0, 0]` | ✅ |
+| 14 | landing.test: given_a_pool_when_it_leaves_and_enters_the_viewport_then_pause_and_resume | D86-3 | ❌ `pause` not called | ✅ |
+| 15 | landing.test: given_a_stop_when_shown_then_controls_hidden_and_the_line_visible_once | D86-3 `onError` | ❌ controls not hidden | ✅ |
+| 16 | landing.test: given_the_code_samples_when_read_then_public_names_and_the_alpha_install_line | resolution 9 | ❌ `INSTALL_LINE` is empty | ✅ |
+| 17 | playground-state.test: given_saved_v1_or_v2_state_when_loading_then_discarded_and_null | moved W69, v3 | ❌ `LEGACY_STORAGE_KEYS` lacks the v2 key | ✅ |
+| 18 | playground-state.test: given_valid_v3_state_when_loading_then_material_gravity_and_drag_restored | moved W69 + new fields | ❌ `PLAYGROUND_ELEMENT_IDS` not exported yet | ✅ |
+| 19 | playground-state.test: given_corrupt_json_when_loading_then_null_and_entry_cleared | moved W69 | ✅ | ✅ |
+| 20 | playground-state.test: given_v3_payload_with_out_of_range_material_init_gravity_or_drag_when_loading_then_null_and_entry_cleared | moved W69 + new fields | ✅ (schema 2 rejects every v3 payload) | ✅ |
+| 21 | playground-state.test: given_material_bounds_when_checked_then_isValidMaterial_agrees_with_core_validateMaterial_and_defaults_match | moved W69 | ✅ | ✅ |
+| 22 | playground-state.test: given_url_params_particles_seed_renderer_when_parsed_then_validated_and_stripped | moved W69 | ✅ | ✅ |
+| 23 | playground-state.test: given_material_binding_change_when_applied_then_setMaterial_called_with_partial | moved W69 | ✅ | ✅ |
+| 24 | playground-state.test: given_rejected_material_change_when_applied_then_state_reverted_to_instance_material | moved W69 | ✅ | ✅ |
+| 25 | playground-state.test: given_material_equal_to_a_preset_within_slider_rounding_when_detected_then_preset_name_else_custom | moved W69 | ✅ | ✅ |
+| 26 | codegen.test: given_a_state_when_generated_then_the_exact_create_and_observe_code | "Copy as code" | ❌ stub returns "" | ✅ |
+| 27 | codegen.test: given_states_across_every_gravity_source_when_generated_then_the_code_parses | "Copy as code" | ❌ "" has no `vector: [0.55, 0.835]` | ✅ |
+| 28 | docs-drift.test: given_the_api_page_when_read_then_every_public_create_option_is_documented | D86-6 | ❌ `api.md` does not exist (ENOENT) | ✅ |
+| 29 | docs-drift.test: given_the_api_page_when_read_then_every_instance_member_is_documented | D86-6 | ❌ `api.md` does not exist (ENOENT) | ✅ |
+| 30 | docs-drift.test: given_the_docs_folder_when_listed_then_five_pages_with_layout_and_title | D86-6 | ❌ `src/pages/docs` does not exist (ENOENT) | ✅ |
+| 31 | deploy-workflow.test: given_deploy_site_yml_when_read_then_dispatch_only_and_it_builds_and_uploads_the_site | D86-7 | ❌ FROZEN header still there | ✅ |
+| 32 | workspace-publish: given_root_package_when_read_then_site_in_workspaces_and_in_the_lockfile | inverted W66 | ✅ (infra in W86.1) | ✅ |
+| 33 | workspace-publish: given_vitest_config_when_read_then_site_is_a_project | inverted W66 | ✅ | ✅ |
+| 34 | workspace-publish: given_deploy_site_yml_when_read_then_only_workflow_dispatch | kept W66 | ✅ | ✅ |
+| 35 | workspace-publish: given_site_package_when_read_then_astro_7_and_the_root_vite_and_typescript | D86-7 | ✅ | ✅ |
+| 36 | workspace-publish: given_changeset_config_when_read_then_the_private_site_is_ignored | D86-7 | ✅ | ✅ |
+| 37 | workspace-publish: given_tweakpane_when_located_then_only_a_site_dependency | D86-5 | ✅ | ✅ |
+| 38 | wdd-docs (W77, changed): given_demo_index_when_read_then_it_links_the_scenes_and_no_playground | D86-5 | ✅ | ✅ |
+| 39 | vue-error-drag: given_a_config_onError_that_is_not_a_function_when_the_provider_mounts_then_create_rejects_with_its_TypeError_and_the_error_state_holds_it | W85 row 20 twin | ✅ (behaviour exists) | ✅ |
+| 40 | e2e-harness: given_the_site_project_when_routed_then_only_site_spec_on_its_own_port_and_blocking | D86-8 | ❌ `routedTo("site")` is `[]` (no project) | ✅ |
+| 41 | ci-workflow: given_ci_yml_when_read_then_the_site_is_built_and_its_project_runs_blocking | D86-8 | ❌ no `e2e:site:build` step | ✅ |
+| (v) | e2e-harness (changed pin, `:86`): canvas2d runs every spec except smoke, webgpu liquid, perf, record, dist and site | resolution 8 (v) | ❌ `site.spec.ts` still routes to canvas2d | ✅ |
+| (v) | e2e-harness (changed pin, `:97-104`): blocking projects are canvas2d, dist, site | resolution 8 (v) | ❌ `['canvas2d', 'dist']` | ✅ |
+| (vi) | e2e-harness (changed pin): `PROJECT_RENDERER` gains `site: "canvas2d"` | resolution 8 (vi) | ❌ no `site` entry | ✅ |
+| E1 | site.spec: given the landing when it loads then one liquid canvas under the page, nine chapters and no liquiddom warning | D86-2, W82 | ❌ not run: no page (`site/dist` builds 0 pages); listed under canvas2d | ✅ |
+| E2 | site.spec: given chapters 3 and 7 when scrolled into view then three and two container canvases and their buttons work | D86-3 | ❌ not run (no page) | ✅ |
+| E3 | site.spec: given the last chapter 6 card when scrolled to then its liquid appears at rest | step 7, D86-3 | ❌ not run (no page) | ✅ |
+| E4 | site.spec: given reduced motion when the landing rests then the hero drop's liquid has its oklch colour, not the default purple | D86-9, D86-4 | ❌ not run (no page) | ✅ |
+| E5 | site.spec: given the playground when the honey preset is applied and the page reloaded then the material is restored from liquiddom-playground-v3 and v1/v2 are gone | moved W69 e2e | ❌ not run (no page) | ✅ |
+| E6 | site.spec: given every docs page when loaded then it has its title and no liquid canvas | D86-6 | ❌ not run (no page) | ✅ |
+| E7 | site.spec: given a 390 px phone viewport when the landing loads then nothing scrolls sideways | mobile | ❌ not run (no page) | ✅ |
+
+The E rows were listed (`npx playwright test --list`: canvas2d 108, webgpu 51, webgpu-hw 99, perf 6, dist 2) and type-checked (`npm run e2e:typecheck` clean), not run; they need the built site (W86.4).
 
 ## Must NOT
 - Use `@internal` API, `runtimeOf()` or a scene test hook in the site.

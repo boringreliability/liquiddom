@@ -1,17 +1,21 @@
 /**
  * @vitest-environment jsdom
  *
- * Ward 069: material playground state. Port of the W49 mechanism
- * (localStorage + URL overrides + Tweakpane-free state module) from
- * LiquidPhysicsConfig to Material (spec §5 "playground ported to material").
+ * Ward 069, moved to the site in W86 (D86-5): schema 3. Material playground
+ * state. Port of the W49 mechanism (localStorage + URL overrides +
+ * Tweakpane-free state module) from LiquidPhysicsConfig to Material (spec §5
+ * "playground ported to material"); W86 adds gravity and dragOff.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { DEFAULT_MATERIAL, presets, validateMaterial } from "../src/material";
+import { presets, validateMaterial } from "liquiddom";
+import { DEFAULT_MATERIAL } from "../../packages/core/ts/src/material"; // not public
 import {
   PLAYGROUND_STORAGE_KEY,
   LEGACY_STORAGE_KEYS,
   PLAYGROUND_DEFAULT_MATERIAL,
   DEFAULT_PLAYGROUND_INIT,
+  DEFAULT_PLAYGROUND_GRAVITY,
+  PLAYGROUND_ELEMENT_IDS,
   loadPlaygroundState,
   savePlaygroundState,
   parseUrlParams,
@@ -20,17 +24,18 @@ import {
   applyMaterialChange,
   isValidMaterial,
   type PlaygroundState,
-} from "../../../../demo/scenes/playground-state";
+} from "../src/playground/state";
 
 const V1_KEY = "liquiddom-playground-v1";
+const V2_KEY = "liquiddom-playground-v2";
 
-describe("W69: playground localStorage state (schema 2)", () => {
+describe("W69: playground localStorage state (schema 3)", () => {
   beforeEach(() => {
     localStorage.clear();
   });
 
-  it("given_saved_v1_state_when_loading_then_discarded_and_null", () => {
-    expect(LEGACY_STORAGE_KEYS).toContain(V1_KEY);
+  it("given_saved_v1_or_v2_state_when_loading_then_discarded_and_null", () => {
+    expect(LEGACY_STORAGE_KEYS).toEqual([V1_KEY, V2_KEY]);
     localStorage.setItem(
       V1_KEY,
       JSON.stringify({ schema: 1, physics: { tension: 100 }, theme: { colorDefault: "#000", colorHover: "#fff" } }),
@@ -39,21 +44,54 @@ describe("W69: playground localStorage state (schema 2)", () => {
     expect(loadPlaygroundState()).toBeNull();
     expect(localStorage.getItem(V1_KEY)).toBeNull();
 
-    // A schema-1 payload stored under the v2 key is discarded too, never migrated.
+    // A schema-2 payload under the v2 key is discarded, never migrated.
+    localStorage.setItem(
+      V2_KEY,
+      JSON.stringify({
+        schema: 2,
+        material: { viscosity: 0.9, cohesion: 0.7, recovery: 1.6 },
+        init: { particles: 4096, seed: 7, renderer: "canvas2d", forceReducedMotion: true },
+      }),
+    );
+    expect(loadPlaygroundState()).toBeNull();
+    expect(localStorage.getItem(V2_KEY)).toBeNull();
+
+    // A schema-1 payload stored under the v3 key is discarded too, never migrated.
     localStorage.setItem(PLAYGROUND_STORAGE_KEY, JSON.stringify({ schema: 1, physics: {}, theme: {} }));
+    expect(loadPlaygroundState()).toBeNull();
+    expect(localStorage.getItem(PLAYGROUND_STORAGE_KEY)).toBeNull();
+
+    // A schema-2 payload under the v3 key is discarded.
+    localStorage.setItem(
+      PLAYGROUND_STORAGE_KEY,
+      JSON.stringify({
+        schema: 2,
+        material: { viscosity: 0.9, cohesion: 0.7, recovery: 1.6 },
+        init: { particles: 4096, seed: 7, renderer: "canvas2d", forceReducedMotion: true },
+      }),
+    );
     expect(loadPlaygroundState()).toBeNull();
     expect(localStorage.getItem(PLAYGROUND_STORAGE_KEY)).toBeNull();
   });
 
-  it("given_valid_v2_state_when_loading_then_material_restored", () => {
+  it("given_valid_v3_state_when_loading_then_material_gravity_and_drag_restored", () => {
+    expect(PLAYGROUND_ELEMENT_IDS).toContain("pill-b");
     // Baseline: nothing saved → defaults.
     const fresh = buildInitialState(null, {}, PLAYGROUND_DEFAULT_MATERIAL);
-    expect(fresh).toEqual({ schema: 2, material: { ...PLAYGROUND_DEFAULT_MATERIAL }, init: { ...DEFAULT_PLAYGROUND_INIT } });
+    expect(fresh).toEqual({
+      schema: 3,
+      material: { ...PLAYGROUND_DEFAULT_MATERIAL },
+      init: { ...DEFAULT_PLAYGROUND_INIT },
+      gravity: { ...DEFAULT_PLAYGROUND_GRAVITY },
+      dragOff: [],
+    });
 
     const saved: PlaygroundState = {
-      schema: 2,
+      schema: 3,
       material: { viscosity: 0.9, cohesion: 0.7, recovery: 1.6 },
       init: { particles: 4096, seed: 7, renderer: "canvas2d", forceReducedMotion: true },
+      gravity: { source: "fixed", angle: 135, strength: 600 },
+      dragOff: ["pill-b"],
     };
     expect(savePlaygroundState(saved)).toBe(true);
 
@@ -64,6 +102,8 @@ describe("W69: playground localStorage state (schema 2)", () => {
     const built = buildInitialState(loaded, {}, PLAYGROUND_DEFAULT_MATERIAL);
     expect(built.material).toEqual(saved.material);
     expect(built.init).toEqual(saved.init);
+    expect(built.gravity).toEqual(saved.gravity);
+    expect(built.dragOff).toEqual(saved.dragOff);
     expect(built.material).not.toBe(loaded?.material);
 
     // URL overrides win over the saved init; the material is untouched.
@@ -78,11 +118,13 @@ describe("W69: playground localStorage state (schema 2)", () => {
     expect(localStorage.getItem(PLAYGROUND_STORAGE_KEY)).toBeNull();
   });
 
-  it("given_v2_payload_with_out_of_range_material_or_init_when_loading_then_null_and_entry_cleared", () => {
+  it("given_v3_payload_with_out_of_range_material_init_gravity_or_drag_when_loading_then_null_and_entry_cleared", () => {
     const good = {
-      schema: 2,
+      schema: 3,
       material: { viscosity: 0.5, cohesion: 0.5, recovery: 0.7 },
       init: { particles: 8000, seed: 1, renderer: "auto", forceReducedMotion: false },
+      gravity: { source: "fixed", angle: 90, strength: 980 },
+      dragOff: [] as string[],
     };
     const bad: unknown[] = [
       { ...good, material: { ...good.material, viscosity: 2 } },
@@ -93,7 +135,11 @@ describe("W69: playground localStorage state (schema 2)", () => {
       { ...good, init: { ...good.init, seed: -1 } },
       { ...good, init: { ...good.init, renderer: "vulkan" } },
       { ...good, init: { ...good.init, forceReducedMotion: "yes" } },
-      { schema: 2, material: good.material },
+      { ...good, gravity: { ...good.gravity, source: "sideways" } },
+      { ...good, gravity: { ...good.gravity, angle: 360 } },
+      { ...good, gravity: { ...good.gravity, strength: -1 } },
+      { ...good, dragOff: ["nope"] },
+      { schema: 3, material: good.material },
       [],
       42,
     ];

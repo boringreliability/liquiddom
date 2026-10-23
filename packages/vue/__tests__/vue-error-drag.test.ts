@@ -117,6 +117,18 @@ describe("W85 – the Vue error state (D85-2)", () => {
     expect(createSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("given_a_config_onError_that_is_not_a_function_when_the_provider_mounts_then_create_rejects_with_its_TypeError_and_the_error_state_holds_it", async () => {
+    const { got, Capture } = capture();
+    lastWrapper = mount(LiquidProvider, {
+      props: { config: { ...config, onError: "log" as never } },
+      slots: { default: () => h(Capture) },
+      attachTo: document.body,
+    });
+    await vi.waitFor(() => expect(got.error!.value).toBeInstanceOf(TypeError));
+    expect((got.error!.value as Error).message).toMatch(/onError must be a function/);
+    expect(got.instance!.value).toBeNull();
+  });
+
   it("given_a_stopped_provider_when_it_is_remounted_then_a_new_instance_arrives_and_the_error_is_cleared", async () => {
     const { got, Capture } = capture();
     const show = ref(true);
