@@ -1,6 +1,6 @@
 /** The landing's boot script: wires the landing modules to liquiddom's public API (D86-1 … D86-4). */
 import { LiquidDOM, presets, type LiquidDOMInstance, type LiquidOptions } from "liquiddom";
-import { BODY_OPTIONS, POOL_OPTIONS } from "./config";
+import { BODY_OPTIONS, POOL_OPTIONS, SHAKE_ALL_STRENGTH } from "./config";
 import { startArrival } from "./arrival";
 import { pauseOffscreen } from "./offscreen";
 import { showStopped } from "./stopped";
@@ -16,7 +16,7 @@ const $$ = <T extends Element>(s: string) => [...document.querySelectorAll<T>(s)
 const twoFrames = () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
 
 async function pool(el: HTMLElement, extra: Partial<LiquidOptions>): Promise<LiquidDOMInstance | null> {
-  const inst = await fleet.add(LiquidDOM.create({ ...POOL_OPTIONS, container: el, autoObserve: false, onError: stop, ...extra }));
+  const inst = await fleet.add(LiquidDOM.create({ ...POOL_OPTIONS, container: el, autoObserve: false, silentFallback: true, onError: stop, ...extra }));
   if (!inst) return null;
   for (const card of el.querySelectorAll<HTMLElement>("[data-pool-el]")) inst.observe(card);
   fleet.onStop(pauseOffscreen(inst, el));
@@ -62,7 +62,7 @@ async function boot(): Promise<void> {
     )
   ).filter((p): p is LiquidDOMInstance => p !== null);
   if (fleet.stopped) return;
-  $("#shake-all")?.addEventListener("click", () => pools.forEach((p) => p.shake(1)));
+  $("#shake-all")?.addEventListener("click", () => pools.forEach((p) => p.shake(SHAKE_ALL_STRENGTH)));
   const liveEl = $<HTMLElement>('.pool[data-calm="live"]');
   const stillEl = $<HTMLElement>('.pool[data-calm="still"]');
   if (!liveEl || !stillEl) return;

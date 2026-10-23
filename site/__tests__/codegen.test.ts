@@ -22,6 +22,8 @@ describe("W86: Copy as code (D86-5)", () => {
         `  renderer: "auto",`,
         `  material: { viscosity: 0.9, cohesion: 0.7, recovery: 0.8 },`,
         `  gravity: { source: "fixed", vector: [1, 0], strength: 980 },`,
+        // W86.4: approved-test change (Dennis 2026-10-23): without it the drag: false lines are no-ops.
+        `  autoObserve: false,`,
         `});`,
         `liquid.observe(document.querySelector("#pill-b"), { drag: false });`,
         `for (const el of document.querySelectorAll("[data-liquid]")) liquid.observe(el);`,

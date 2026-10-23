@@ -42,7 +42,7 @@ body { margin: 0; background: transparent; }
 .tone-lime { background: var(--liquid-lime); color: var(--on-liquid); }
 .tone-coral { background: var(--liquid-coral); color: var(--on-liquid); }
 
-.pool { position: relative; isolation: isolate; padding: 72px; }
+.pool { position: relative; isolation: isolate; padding: 96px; }
 
 /* ── Chrome ─────────────────────────────────────────────────────────── */
 
@@ -145,6 +145,7 @@ kbd { font: 600 0.85em var(--font-mono); border: 1px solid var(--line-strong); b
 }
 
 @media (max-width: 480px) {
+  .pool { padding: 48px; }
   .pill { min-height: 48px; padding: 0 22px; }
 }
 
