@@ -15,7 +15,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 22]
+        # W86 (resolution 10): Astro 7 needs Node >= 22; Node 20 is end-of-life.
+        node: [22, 24]
     steps:
       - uses: actions/checkout@v4
 
@@ -108,6 +109,16 @@ jobs:
         run: npx playwright test --project=dist
         env:
           E2E_SUITE: dist
+      # W86 (D86-8): core's dist (from the downloaded pkg/), then the Astro site; the spec
+      # serves site/dist on :4176. Blocking, Canvas2D (WebGPU is checked locally).
+      - name: Build the site from the published dist
+        if: ${{ !cancelled() }}
+        run: npm run e2e:site:build
+      - name: Site e2e (blocking)
+        if: ${{ !cancelled() }}
+        run: npx playwright test --project=site
+        env:
+          E2E_SUITE: site
       - name: E2E webgpu smoke (soft; WebGPU acceptance runs locally on Metal, W71.0 fallback B)
         if: ${{ !cancelled() }}
         continue-on-error: true
