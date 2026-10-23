@@ -2,7 +2,7 @@
 
 WASM-driven **fluid dynamics** on real DOM elements, drawn on a hidden `<canvas>` while the DOM keeps its semantics, focus and hit areas. Rust runs a 2D MLS-MPM fluid; TypeScript observes the DOM and renders. They share pre-allocated `Float32Array` views; there is no JSON over the FFI.
 
-> **0.3 alpha.** The 0.2 soft-body engine is retired (tag `softbody-final`). This alpha shows the liquid at rest; splash, shake and the pointer field land in the next alpha.
+> **0.3 alpha.** The 0.2 soft-body engine is retired (tag `softbody-final`). This alpha runs the liquid: splash, shake, the pointer field, drag (mouse, pen and touch), scroll, gravity and tilt, in WebGPU or Canvas2D.
 
 ## Install
 
@@ -37,13 +37,14 @@ Every `[data-liquid]` element is observed. Its computed `background-color` becom
 | `autoObserve` | `true` | Observe `[data-liquid]` at create |
 | `forceReducedMotion` | `false` | Force the still, crisp reduced-motion mode |
 | `silentFallback` | `false` | Hides the `console.info` logged when `'auto'` falls back to Canvas2D |
+| `onError` | none | `(err) => void`, called once when the instance stops for good (a frame that throws, a failed grid allocation for a growth or the first area hint, a failed rebuild after a lost WebGPU device), after its `console.error`; it can run before `create()` resolves (then `create()` resolves with the stopped instance). Not called for a `create()` rejection, a fallback or after `destroy()`. Recovery: `destroy()` + `create()` |
 
 Removed 0.2 options throw a `TypeError` that names the replacement.
 
 ## Instance API
 
 ```ts
-liquid.observe(el, { viscosity?, recovery? }); // returns the slot id
+liquid.observe(el, { viscosity?, recovery?, drag? }); // returns the slot id
 liquid.unobserve(el);                            // restores the element exactly
 liquid.refresh(el);                              // re-read colours after a change outside the element (e.g. a new stylesheet rule)
 liquid.pause(); liquid.resume(); liquid.destroy();
@@ -95,7 +96,17 @@ Only changes in gravity act: a change sloshes the liquid inside its element, and
 
 ### Pointer and hover
 
-The liquid follows the pointer's motion within 70 px; a resting pointer only damps moving liquid and never digs a hole. Hovering an observed element swells its contour by 2 %. Hover comes from `pointerenter`/`pointerleave` on the element itself, mouse or pen only: touch is ignored, so a tap never leaves a stuck swell. Focus has no swell, and hover beats focus, so the click that focuses a hovered button keeps the swell. A detached or disabled element loses its hover at the next frame. Under reduced motion (`prefers-reduced-motion` or `forceReducedMotion`) the pointer field and hover are ignored. Known limitation: the pointer's idle velocity decay (×0.8) is per frame, so at 120 Hz the tail fades twice as fast in wall time as at 60 Hz.
+The liquid follows the pointer's motion within 70 px; a resting pointer only damps moving liquid and never digs a hole. Hovering an observed element swells its contour by 2 %. Hover comes from `pointerenter`/`pointerleave` on the element itself, mouse or pen only: touch is ignored, so a tap never leaves a stuck swell. Focus has no swell, and hover beats focus, so the click that focuses a hovered button keeps the swell. A detached or disabled element loses its hover at the next frame. Under reduced motion (`prefers-reduced-motion` or `forceReducedMotion`) the pointer field and hover are ignored. The pointer's idle velocity fades by ×0.8 per 1/60 s, the same in wall time at any display rate.
+
+### Drag
+
+Press an observed element with the mouse or a pen and move more than 4 px: its liquid follows the pointer while the element itself stays put, and flows home on release. On touch, hold the element for 350 ms, then move: the liquid follows the finger and the page does not scroll. Moving more than 8 px before that is an ordinary scroll, and a tap is an ordinary click, also a slow one that lifts where the finger rested. The click that ends a drag is swallowed. While a finger holds a draggable element, its long-press menu is suppressed, and draggable elements get `-webkit-touch-callout: none` (no iOS callout or link preview). Escape, `pointercancel`, blur, `unobserve()` and `destroy()` cancel a drag; under reduced motion nothing drags; the keyboard never drags. Because a long-press on an observed element now drags instead of starting text selection, pass `{ drag: false }` for observed text fields, inputs and contenteditable elements.
+
+```ts
+liquid.observe(el, { drag: false }); // never drags (mouse, pen or touch); keeps the browser's long-press menu
+```
+
+`drag` is read once, like `viscosity`; a press on an opted-out element never drags an observed ancestor either.
 
 ## Accessibility
 
@@ -108,6 +119,7 @@ The liquid follows the pointer's motion within 70 px; a resting pointer only dam
 - Colours are snapshotted at `observe()` and re-read automatically when the element's own `class`/`style` changes or a `color`/`background-color` transition on it ends. Call `refresh(el)` after a change elsewhere (a new stylesheet rule, an ancestor class).
 - Only uniform circular `border-radius` is honoured. Borders and box-shadows of observed elements are not drawn.
 - An observed element inside an ancestor with `transform`, `filter` or `overflow: hidden` can end up under other content.
+- Touch drag is untested on iOS Safari, and a swipe that starts on an observed element waits for the main thread (its `touchmove` listener is non-passive). On Windows and ChromeOS touchscreens the context menu may open when the finger lifts after a touch drag. The callout stays suppressed under reduced motion, and an element observed with `{ drag: false }` gets `-webkit-touch-callout: default`, which overrides a `none` it would inherit from your own styles (a rule on the element itself still wins).
 
 ## License
 

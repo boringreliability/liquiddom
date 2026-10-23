@@ -1,0 +1,45 @@
+---
+/**
+ * W86 (D86-6): the docs layout. Markdown pages under src/pages/docs/ name it in their frontmatter
+ * (`layout`, `title`). No liquid on a docs page; code is highlighted by Astro's Shiki (github-dark).
+ */
+import BaseLayout from "./BaseLayout.astro";
+import { DOC_PAGES } from "../docs/pages";
+
+interface Props {
+  frontmatter: { title: string; description?: string };
+}
+
+const { frontmatter } = Astro.props;
+const here = Astro.url.pathname.replace(/\/?$/, "/");
+const current = DOC_PAGES.find((p) => p.href === here);
+---
+
+<BaseLayout
+  title={`${frontmatter.title} · liquiddom docs`}
+  description={frontmatter.description ?? current?.summary ?? "liquiddom documentation."}
+>
+  <div class="wrap docs">
+    <nav class="docs-nav" aria-label="Docs">
+      <p class="eyebrow">Docs</p>
+      <ul>
+        {
+          DOC_PAGES.map((p) => (
+            <li>
+              <a href={p.href} aria-current={p.href === here ? "page" : undefined}>
+                {p.title}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+      <a class="docs-play" href="/playground/">Try the playground →</a>
+    </nav>
+    <main class="docs-main">
+      <h1>{frontmatter.title}</h1>
+      <div class="prose">
+        <slot />
+      </div>
+    </main>
+  </div>
+</BaseLayout>

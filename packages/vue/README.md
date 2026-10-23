@@ -28,12 +28,30 @@ import { LiquidProvider, LiquidElement } from "@liquiddom/vue";
 |---|---|
 | `<LiquidProvider :config>` | Owns one `LiquidDOMInstance` via provide/inject; `config` is read once on mount |
 | `LiquidPlugin` | Alternative install: `app.use(LiquidPlugin, config?)` |
-| `LiquidKey` | The injection key |
-| `useLiquid()` | `Ref<LiquidDOMInstance \| null>` |
-| `useLiquidRef<T>({ viscosity?, recovery? }?)` | Template ref that observes once mounted; options are read once at setup |
-| `<LiquidElement :as :viscosity :recovery>` | Convenience tag; attrs, class, style and events are forwarded |
+| `LiquidKey`, `LiquidErrorKey` | The injection keys (instance, error) |
+| `useLiquid()` | `Ref<LiquidDOMInstance \| null>`; `null` before init and after the instance stopped |
+| `useLiquidError()` | `Ref<unknown>`: the stop's error or the `create()` rejection; `null` otherwise |
+| `useLiquidRef<T>({ viscosity?, recovery?, drag? }?)` | Template ref that observes once mounted; options are read once at setup |
+| `<LiquidElement :as :viscosity :recovery :drag>` | Convenience tag; attrs, class, style and events are forwarded |
 
 SSR-safe: nothing runs on the server.
+
+## When the liquid stops
+
+If the instance stops for good (a frame that throws, for example), the provider (or the plugin) destroys it: the elements are restored, `useLiquid().value` is `null` and `useLiquidError().value` is the error. A `create()` that rejects sets the same error. There is no automatic retry; remount the provider (`v-if` or a new `key`) to try again. Your own `config.onError` is still called.
+
+```vue
+<script setup lang="ts">
+import { useLiquidError } from "@liquiddom/vue";
+const error = useLiquidError();
+</script>
+
+<template>
+  <p v-if="error" role="alert">Liquid stopped: {{ String(error) }}</p>
+</template>
+```
+
+`<LiquidElement :drag="false">` (or `useLiquidRef({ drag: false })`) opts an element out of every drag; like `viscosity`, it is read once.
 
 ## Material
 

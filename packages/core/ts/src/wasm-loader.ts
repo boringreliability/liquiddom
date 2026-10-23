@@ -43,6 +43,12 @@ export interface FluidCoreLike {
   set_viewport(w: number, h: number): void;
   /** W83 (D83-4): the gravity low-pass jumps to (gx, gy) px/s², so the next tick with that gravity adds nothing; right before a frame's `tick`. */
   seed_gravity(gx: number, gy: number): void;
+  /**
+   * W85 (D85-4): while no element was ever placed (generation 0) rebuilds the grid for this area
+   * hint (B5 cell) and tallest height (B15 margin) and returns true; afterwards false and nothing
+   * changes. Outside `tick`, once per instance.
+   */
+  set_area_hint(areaPx2: number, maxElementHPx: number): boolean;
   free(): void;
 }
 

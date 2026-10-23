@@ -4,14 +4,14 @@
  * tests import this file by relative path (A6):
  * `../../core/ts/__tests__/_facade-helpers`.
  */
-import { installFakeCanvas2D } from "./_fake-canvas";
+import { canvas2dAvailable, installFakeCanvas2D } from "./_fake-canvas";
 import { createTestBackend } from "./_fluid-test-backend";
 import { ELEMENT_STRIDE } from "../src/fluid-layout";
 import type { FluidBackend, FluidCoreCtor, FluidCoreLike } from "../src/wasm-loader";
 
 /** Idempotent: re-installs the fake 2d context whenever it is missing. */
 export function setupFacadeTestEnv(): void {
-  if (document.createElement("canvas").getContext("2d") === null) installFakeCanvas2D();
+  if (!canvas2dAvailable()) installFakeCanvas2D();
   if (typeof globalThis.ResizeObserver === "undefined") {
     globalThis.ResizeObserver = class {
       observe(): void {}

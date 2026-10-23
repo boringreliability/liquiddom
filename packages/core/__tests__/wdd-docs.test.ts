@@ -833,9 +833,11 @@ describe("W76: the landing page scene is linked from the demo index (D76-2)", ()
 });
 
 describe("W77: the demo index opens scenes as a library user sees them (D77-4)", () => {
-  it("given_demo_index_when_read_then_acceptance_landing_splash_and_playground_are_linked_with_renderer_auto", () => {
+  it("given_demo_index_when_read_then_it_links_the_scenes_and_no_playground", () => {
     const index = read(resolve(ROOT, "demo/index.html"));
-    for (const scene of ["acceptance", "landing", "splash", "playground"]) {
+    // W86 red: approved-test change (D86-5): the playground lives on the site, not in the demo.
+    expect(index).not.toContain("playground");
+    for (const scene of ["acceptance", "landing", "splash"]) {
       expect(index, `scenes/${scene}.html is linked with ?renderer=auto`).toContain(`href="scenes/${scene}.html?renderer=auto"`);
       expect(index, `no link to scenes/${scene}.html without a renderer`).not.toContain(`href="scenes/${scene}.html"`);
     }

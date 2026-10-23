@@ -1,84 +1,204 @@
 @import "tailwindcss";
 
-/* Ward 058: design tokens. oklch-based for perceptual uniformity. */
 @theme {
-  /* Brand palette — distinct enough to feel "physical fluid", not generic SaaS. */
-  --color-liquid-deep: oklch(0.28 0.12 252);       /* deep cool indigo */
-  --color-liquid-primary: oklch(0.51 0.16 250);    /* primary blue */
-  --color-liquid-accent: oklch(0.68 0.22 25);      /* coral hover */
-  --color-liquid-glow: oklch(0.82 0.18 240);       /* hero glow */
-
-  /* Surfaces */
-  --color-surface: oklch(0.99 0.005 250);          /* near-white background */
-  --color-surface-muted: oklch(0.95 0.008 250);    /* card backgrounds */
-  --color-surface-strong: oklch(0.92 0.013 250);   /* code blocks */
-  --color-border: oklch(0.88 0.018 250);
-
-  /* Ink */
-  --color-ink: oklch(0.21 0.015 250);              /* near-black text */
-  --color-ink-muted: oklch(0.48 0.018 250);        /* secondary text */
-
-  /* Typography */
-  --font-display: ui-sans-serif, system-ui, -apple-system, "Inter", "Segoe UI", sans-serif;
-  --font-body: ui-sans-serif, system-ui, -apple-system, "Inter", "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, "JetBrains Mono", "Menlo", "Monaco", "Cascadia Code", monospace;
+  --font-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
 
-/* Base resets + global styles */
-@layer base {
-  html {
-    font-family: var(--font-body);
-    color: var(--color-ink);
-    background: var(--color-surface);
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-
-  body {
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-  }
-
-  main {
-    flex: 1;
-  }
-
-  /* Focus ring — visible on keyboard nav, hidden on mouse */
-  :focus-visible {
-    outline: 2px solid var(--color-liquid-primary);
-    outline-offset: 2px;
-    border-radius: 0.25rem;
-  }
-
-  /* Honor reduced-motion */
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
-      animation-duration: 0.01ms !important;
-      animation-iteration-count: 1 !important;
-      transition-duration: 0.01ms !important;
-      scroll-behavior: auto !important;
-    }
-  }
+:root {
+  --liquid-cyan: oklch(0.82 0.15 205);
+  --liquid-magenta: oklch(0.72 0.2 340);
+  --liquid-lime: oklch(0.88 0.18 125);
+  --liquid-coral: oklch(0.68 0.22 25);
+  --ink: oklch(0.96 0.01 250);
+  --ink-muted: oklch(0.8 0.03 250);
+  --ink-faint: oklch(0.66 0.04 252);
+  --on-liquid: oklch(0.18 0.05 252);
+  --line: oklch(0.96 0.01 250 / 0.14);
+  --line-strong: oklch(0.96 0.01 250 / 0.32);
+  --gutter: clamp(16px, 5vw, 56px);
+  --measure: 1120px;
+  color-scheme: dark;
 }
 
-/* Reusable component primitives via @utility (Tailwind 4) */
-@utility container-page {
-  width: 100%;
-  max-width: 72rem; /* 1152px */
-  margin-inline: auto;
-  padding-inline: 1.5rem;
+/* W82: the background sits on <html>; body and every section stay transparent so the liquid shows under the page. */
+html {
+  background: radial-gradient(120% 70% at 70% 0%, oklch(0.26 0.07 252), oklch(0.14 0.04 260) 70%) fixed;
+  background-color: oklch(0.14 0.04 260);
+  color: var(--ink);
+  font-family: var(--font-display);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+body { margin: 0; background: transparent; }
+
+::selection { background: oklch(0.82 0.15 205 / 0.35); }
+
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
+
+/* The four liquids. Text on a liquid is the deep ink, so it reads on every tone. */
+.tone-cyan { background: var(--liquid-cyan); color: var(--on-liquid); }
+.tone-magenta { background: var(--liquid-magenta); color: var(--on-liquid); }
+.tone-lime { background: var(--liquid-lime); color: var(--on-liquid); }
+.tone-coral { background: var(--liquid-coral); color: var(--on-liquid); }
+
+.pool { position: relative; isolation: isolate; padding: 96px; }
+
+/* ── Chrome ─────────────────────────────────────────────────────────── */
+
+.wrap { width: 100%; max-width: var(--measure); margin-inline: auto; padding-inline: var(--gutter); box-sizing: border-box; }
+
+.site-header { padding-block: 22px; }
+.site-header .wrap { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+.brand { font-weight: 800; font-size: 1.15rem; letter-spacing: -0.03em; color: var(--ink); text-decoration: none; display: inline-flex; align-items: center; gap: 10px; }
+.brand-mark { width: 14px; height: 14px; border-radius: 50% 50% 50% 0; border: 2px solid var(--liquid-cyan); transform: rotate(-45deg); }
+.alpha-pill { font: 600 0.72rem/1 var(--font-mono); letter-spacing: 0.04em; color: var(--liquid-lime); border: 1px solid oklch(0.88 0.18 125 / 0.45); border-radius: 999px; padding: 5px 9px; }
+.site-nav { margin-left: auto; display: flex; gap: clamp(14px, 3vw, 28px); font-size: 0.95rem; }
+.site-nav a { color: var(--ink-muted); text-decoration: none; }
+.site-nav a:hover { color: var(--ink); }
+
+.site-footer { padding-block: 56px 40px; color: var(--ink-faint); font-size: 0.9rem; border-top: 1px solid var(--line); margin-top: 48px; }
+.site-footer a { color: var(--ink-muted); }
+
+/* ── Chapters ───────────────────────────────────────────────────────── */
+
+.chapter { min-height: 92vh; min-height: 92svh; display: flex; flex-direction: column; justify-content: center; padding-block: clamp(72px, 12vh, 140px); box-sizing: border-box; }
+.chapter > .wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: clamp(28px, 4vw, 48px); }
+
+.eyebrow { display: flex; align-items: center; gap: 12px; font: 600 0.78rem/1 var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); margin: 0 0 18px; }
+.eyebrow::before { content: ""; width: 28px; height: 1px; background: currentColor; }
+
+.chapter h2 { font-size: clamp(2.1rem, 5.2vw, 3.9rem); line-height: 1.04; letter-spacing: -0.03em; word-spacing: 0.04em; font-weight: 800; margin: 0; text-wrap: balance; }
+.lede { font-size: clamp(1.05rem, 1.6vw, 1.25rem); line-height: 1.55; color: var(--ink-muted); max-width: 36em; margin: 18px 0 0; text-wrap: pretty; }
+.note { font-size: 0.92rem; line-height: 1.5; color: var(--ink-faint); max-width: 40em; margin: 0; }
+kbd { font: 600 0.85em var(--font-mono); border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 6px; padding: 1px 6px; color: var(--ink); }
+
+/* Liquid elements: solid, rounded, readable. */
+.pill { display: inline-flex; align-items: center; justify-content: center; min-height: 52px; padding: 0 28px; border: 0; border-radius: 999px; font: 700 1.02rem/1 var(--font-display); letter-spacing: -0.01em; text-decoration: none; cursor: pointer; white-space: nowrap; }
+.card { display: block; border-radius: 22px; padding: 22px 24px; max-width: 320px; box-sizing: border-box; }
+.card h3 { margin: 0 0 6px; font-size: 1.2rem; letter-spacing: -0.02em; font-weight: 800; }
+.card p { margin: 0; font-size: 0.95rem; line-height: 1.45; }
+
+/* Controls drive the liquid but are not liquid: outlined, never filled. */
+.control { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 20px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--ink); font: 600 0.95rem/1 var(--font-display); cursor: pointer; text-decoration: none; }
+.control:hover { border-color: var(--ink); }
+.control[hidden] { display: none; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 22px; }
+.range { display: inline-flex; align-items: center; gap: 12px; color: var(--ink-muted); font-size: 0.92rem; }
+.range input { accent-color: var(--liquid-cyan); width: 180px; max-width: 50vw; }
+.range[hidden], .range:has(input[hidden]) { display: none; }
+
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 22px 26px; }
+
+/* Chapter 0: the hero. */
+.hero { min-height: 88vh; min-height: 88svh; padding-block: clamp(40px, 8vh, 96px); }
+.hero-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: center; gap: clamp(32px, 5vw, 72px); }
+.hero h1 { font-size: clamp(3rem, 8.4vw, 7rem); line-height: 0.96; letter-spacing: -0.042em; word-spacing: 0.04em; font-weight: 850; margin: 0; text-wrap: balance; }
+.gradient-text { background: linear-gradient(100deg, var(--liquid-cyan) 0%, var(--liquid-lime) 38%, var(--liquid-magenta) 72%, var(--liquid-coral) 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hero .lede { font-size: clamp(1.1rem, 1.8vw, 1.35rem); }
+.hero .row { margin-top: 36px; }
+/* The cluster is 346 × 380 units; a unit is 1 px, smaller on screens narrower than the cluster (fix round 1). */
+.drops { --u: min(1px, (100vw - 2 * var(--gutter)) / 346); position: relative; width: calc(346 * var(--u)); height: calc(380 * var(--u)); justify-self: center; }
+.drop { position: absolute; border-radius: 50%; }
+#drop-cyan { width: calc(220 * var(--u)); height: calc(220 * var(--u)); left: 0; top: 0; }
+#drop-coral { width: calc(120 * var(--u)); height: calc(120 * var(--u)); left: calc(226 * var(--u)); top: calc(30 * var(--u)); }
+#drop-lime { width: calc(160 * var(--u)); height: calc(160 * var(--u)); left: calc(130 * var(--u)); top: calc(220 * var(--u)); }
+
+[data-liquid-stopped] { margin: 0 auto; min-height: 0; max-width: var(--measure); padding: 0 var(--gutter); color: var(--ink-muted); font-size: 0.95rem; box-sizing: border-box; }
+
+/* Chapter 3 and 7: the pools. A pool has no background (W82); its edge is a hairline. */
+.pools { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.pools.two { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 760px; }
+.pool-frame { display: grid; gap: 12px; min-width: 0; }
+.pool-label { font: 600 0.75rem/1 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); }
+.pool { border: 1px dashed var(--line); border-radius: 28px; }
+.pool-card { border-radius: 20px; padding: 18px 20px; overflow-wrap: anywhere; }
+.pool-card h3 { margin: 0 0 4px; font-size: 1.15rem; font-weight: 800; letter-spacing: -0.02em; }
+.pool-card p { margin: 0; font-size: 0.9rem; line-height: 1.4; }
+
+/* Chapter 5: the drops that lean. */
+.tilt-drops { display: flex; gap: 36px; align-items: flex-end; flex-wrap: wrap; padding-block: 24px; }
+.tilt-drops > * { border-radius: 50%; }
+
+/* Chapter 6: the long diagonal run. */
+.run { display: block; padding-bottom: 40px; }
+.run-card { display: flex; flex-direction: column; justify-content: center; width: 300px; max-width: 100%; height: 86px; margin-top: 220px; margin-left: calc(max(0px, 100% - 300px) * var(--i) / 11); border-radius: 22px; padding: 0 24px; box-sizing: border-box; }
+.run-card:first-child { margin-top: 64px; }
+.run-card strong { font-size: 1.05rem; letter-spacing: -0.02em; }
+.run-card span { font-size: 0.85rem; opacity: 0.85; }
+
+/* Chapter 8: code. */
+.tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); }
+.tab { padding: 12px 18px; border: 0; color: var(--ink-faint); font: 600 0.95rem/1 var(--font-display); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--liquid-cyan); }
+.code { margin: 0; padding: 22px 24px; overflow-x: auto; font: 0.88rem/1.6 var(--font-mono); color: var(--ink-muted); border: 1px solid var(--line); border-top: 0; border-radius: 0 0 16px 16px; max-width: 100%; box-sizing: border-box; }
+.code[hidden] { display: none; }
+.install { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+.install code { font: 600 1.05rem var(--font-mono); color: var(--liquid-lime); overflow-wrap: anywhere; min-width: 0; }
+.install code::before { content: "$ "; color: var(--ink-faint); }
+.cta-links { display: flex; flex-wrap: wrap; gap: 14px; }
+
+@media (max-width: 860px) {
+  .hero-grid { grid-template-columns: minmax(0, 1fr); }
+  .pools, .pools.two { grid-template-columns: minmax(0, 1fr); }
+  .site-nav { margin-left: 0; width: 100%; }
 }
 
-@utility pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.25rem 0.625rem;
-  border-radius: 9999px;
-  background: var(--color-surface-strong);
-  color: var(--color-ink-muted);
-  font-size: 0.75rem;
-  font-weight: 500;
-  letter-spacing: 0.025em;
+@media (max-width: 480px) {
+  .pool { padding: 48px; }
+  .pill { min-height: 48px; padding: 0 22px; }
+}
+
+/* ── Docs (D86-6): no liquid, Shiki github-dark code ───────────────── */
+
+.docs { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: clamp(32px, 6vw, 80px); padding-block: clamp(24px, 6vh, 64px) 24px; align-items: start; }
+.docs-nav { position: sticky; top: 24px; }
+.docs-nav ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.docs-nav li a { display: block; padding: 8px 12px; margin-left: -12px; border-left: 2px solid transparent; color: var(--ink-muted); text-decoration: none; font-size: 0.95rem; }
+.docs-nav li a:hover { color: var(--ink); }
+.docs-nav li a[aria-current="page"] { color: var(--ink); border-left-color: var(--liquid-cyan); font-weight: 650; }
+.docs-play { display: inline-block; margin-top: 24px; font-size: 0.9rem; color: var(--liquid-lime); text-decoration: none; }
+.docs-play:hover { text-decoration: underline; }
+.docs-main { min-width: 0; max-width: 46rem; }
+.docs-main > h1 { font-size: clamp(2.2rem, 5vw, 3.4rem); line-height: 1.04; letter-spacing: -0.035em; font-weight: 850; margin: 0 0 28px; text-wrap: balance; }
+
+.prose { color: var(--ink-muted); font-size: 1.02rem; line-height: 1.7; }
+.prose > :first-child { margin-top: 0; }
+.prose h2 { color: var(--ink); font-size: 1.5rem; letter-spacing: -0.02em; font-weight: 800; margin: 48px 0 12px; }
+.prose h3 { color: var(--ink); font-size: 1.12rem; letter-spacing: -0.01em; font-weight: 750; margin: 32px 0 8px; }
+.prose p, .prose ul, .prose ol { margin: 0 0 16px; }
+.prose ul, .prose ol { padding-left: 1.3em; }
+.prose li { margin: 4px 0; }
+.prose li::marker { color: var(--ink-faint); }
+.prose strong { color: var(--ink); }
+.prose a { color: var(--liquid-cyan); text-underline-offset: 3px; }
+.prose a:hover { color: var(--ink); }
+.prose :not(pre) > code { font: 0.88em var(--font-mono); color: var(--ink); background: oklch(0.96 0.01 250 / 0.08); border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; overflow-wrap: anywhere; }
+.prose :is(h2, h3) code { font: 0.9em var(--font-mono); color: inherit; background: none; border: 0; padding: 0; }
+.prose td code { overflow-wrap: normal; }
+.prose pre { margin: 0 0 20px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; overflow-x: auto; font: 0.86rem/1.6 var(--font-mono); }
+.prose pre code { font: inherit; }
+.prose .table-wrap { overflow-x: auto; margin: 0 0 24px; }
+.prose table { width: 100%; min-width: 560px; border-collapse: collapse; margin: 0; font-size: 0.92rem; }
+.prose th, .prose td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.prose th { color: var(--ink); font-weight: 700; border-bottom-color: var(--line-strong); white-space: nowrap; }
+.prose td:first-child { white-space: nowrap; }
+.prose blockquote { margin: 0 0 16px; padding: 4px 0 4px 18px; border-left: 2px solid var(--liquid-magenta); color: var(--ink-muted); }
+
+.docs-index { padding-block: clamp(24px, 6vh, 64px) 24px; }
+.docs-index h1 { font-size: clamp(2.4rem, 6vw, 4.2rem); line-height: 1; letter-spacing: -0.04em; font-weight: 850; margin: 0 0 36px; }
+.docs-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); max-width: 52rem; }
+.docs-list a { display: grid; grid-template-columns: 3rem 12rem minmax(0, 1fr); gap: 4px 16px; align-items: baseline; padding: 20px 0; border-bottom: 1px solid var(--line); color: var(--ink-muted); text-decoration: none; }
+.docs-list a:hover .docs-title { color: var(--liquid-cyan); }
+.docs-num { font: 600 0.8rem/1 var(--font-mono); color: var(--ink-faint); }
+.docs-title { color: var(--ink); font-weight: 750; font-size: 1.15rem; letter-spacing: -0.015em; }
+
+@media (max-width: 860px) {
+  .docs { grid-template-columns: minmax(0, 1fr); }
+  .docs-nav { position: static; }
+  .docs-nav ul { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+  .docs-nav li a { margin-left: 0; border-left: 0; border-bottom: 2px solid transparent; padding: 6px 4px; }
+  .docs-nav li a[aria-current="page"] { border-bottom-color: var(--liquid-cyan); }
+  .docs-list a { grid-template-columns: 2.5rem minmax(0, 1fr); }
+  .docs-summary { grid-column: 2; }
 }

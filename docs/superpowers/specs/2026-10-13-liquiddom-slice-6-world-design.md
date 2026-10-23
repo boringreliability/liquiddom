@@ -87,6 +87,8 @@ CONTEXT's stale lock line is removed.
 
 Astro and Tailwind stay; the content is rewritten: a **landing** that scrolls and uses liquiddom itself (the real long-page test of scroll and parking), a **playground** ported from `demo/scenes/playground.html`, and **short docs** (getting started, the 0.3 API reference, adapters, accessibility and limitations). The old showcases and the soft-body docs are deleted. The site returns to the root workspaces, vitest and the CI build, with a build-smoke e2e; vite is aligned with the root; `SITE.md` is corrected. `deploy-site.yml` stays `workflow_dispatch`; the dispatch is Dennis' call.
 
+The site's concept, visual direction, chapters, playground, docs and tests are refined in `2026-10-23-liquiddom-site-design.md` (brainstorm with Dennis, 2026-10-22). Its §6 records the W86 gate amendments: the site moves to **Astro 7** (D86-7, every Astro 6 needs vite 7) and core reads any CSS colour syntax through a 1 × 1 canvas colour probe (D86-9, the oklch palette fell back to purple); the playground scene in `demo/` is replaced by the site's `/playground/`.
+
 ## 10. W87 "Whole picture"
 
 Recording of the acceptance scene and the site landing in Canvas2D and WebGPU (`record` and `record-webgpu` projects), a status per scene step against the matrix in `.wdd/memory/whole-picture/slice-6.md`, inspected with vision. Epic 15's completion criteria are reviewed; "webgpu blocking after 10 green runs" (CI has only the SwiftShader smoke) is presented as an open point. Publishing `0.3.0-alpha.x` and the fate of `0.2.0-rc.0` are presented as Dennis' decisions.

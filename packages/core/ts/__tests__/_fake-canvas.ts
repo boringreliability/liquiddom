@@ -99,6 +99,19 @@ export interface FakeCanvasHandle {
   restore(): void;
 }
 
+/** jsdom's own getContext, captured before any test patches it (jsdom has no canvas package here). */
+const JSDOM_GET_CONTEXT = typeof HTMLCanvasElement === "undefined" ? undefined : HTMLCanvasElement.prototype.getContext;
+
+/**
+ * W86: whether `getContext("2d")` returns a context. jsdom's own method returns null and prints
+ * "Not implemented" on every call, so it is not called; a patched one (this fake, or the fake GPU
+ * falling through to it) is asked as before.
+ */
+export function canvas2dAvailable(): boolean {
+  if (HTMLCanvasElement.prototype.getContext === JSDOM_GET_CONTEXT) return false;
+  return document.createElement("canvas").getContext("2d") !== null;
+}
+
 /** Patches `HTMLCanvasElement.prototype.getContext("2d")`; call `restore()` in afterEach. */
 export function installFakeCanvas2D(): FakeCanvasHandle {
   const proto = HTMLCanvasElement.prototype;

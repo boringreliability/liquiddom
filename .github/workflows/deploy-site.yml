@@ -1,10 +1,6 @@
 name: Deploy site
 
-# W66 (spec §5): the site is FROZEN during the fluid-engine rewrite. It still
-# imports the retired soft-body API, so it is out of the root workspaces and
-# out of CI; the live site stays on the `softbody-final` deployment. It is
-# rebuilt as a fluid playground and re-enabled in slice 6.
-# Do NOT dispatch this workflow before then: the build would fail.
+# Manual deploy of liquiddom.vsplat.io (dispatching is Dennis' call)
 on:
   workflow_dispatch:
 
@@ -39,16 +35,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          # W86: Astro 7 needs Node >= 22.23.4; a runner's cached 22.x can be older.
+          check-latest: true
           cache: npm
 
       - name: Install npm deps
         run: npm ci
 
-      - name: Build wasm and all packages
-        run: npm run build
+      - name: Build wasm
+        run: npm run build:wasm
 
-      - name: Build site workspace @liquiddom/site
-        run: npm run build -w @liquiddom/site
+      # W86 (D86-7): core's published dist, then the Astro site that consumes it.
+      - name: Build the site from the published dist
+        run: npm run e2e:site:build
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

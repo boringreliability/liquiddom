@@ -1,18 +1,23 @@
 /**
  * Public options (spec §5) and their validation (W66: D66-1, D66-6, D66-7, D66-14, B11, B13, C3).
- * `ElementOptions` was created in W64 (A5) and is unchanged.
+ * `ElementOptions` was created in W64 (A5); W84 (D84-2) adds `drag`.
  */
 import type { FrameClock } from "./clock";
 import type { FluidBackend } from "./wasm-loader";
 import type { RendererChoice } from "./renderers/select";
 import { DEFAULT_MATERIAL, MATERIAL_RANGES, mergeMaterial, validateMaterial, type Material } from "./material";
 
-/** Per-element overrides (FFI slots 8–9). Omitted = material default. */
+/** Per-element options: overrides for FFI slots 8–9 (omitted = material default) and, W84, `drag`. Captured once per observation. */
 export interface ElementOptions {
   /** [0, 1]. */
   viscosity?: number;
   /** Seconds, [0.2, 3]. */
   recovery?: number;
+  /**
+   * W84 (D84-2): `false` opts the element out of every drag (mouse, pen and touch); it keeps the
+   * browser's own long-press menu and callout. Default `true`.
+   */
+  drag?: boolean;
 }
 
 /**
@@ -48,6 +53,13 @@ export interface LiquidOptions {
   forceReducedMotion?: boolean;
   /** Hides the one console.info logged when 'auto' falls back to Canvas2D. Default false. */
   silentFallback?: boolean;
+  /**
+   * W85 (D85-1): called once when the instance stops for good (a frame that throws, a failed grid
+   * growth or area-hint rebuild, a failed Canvas2D rebuild after a lost WebGPU device), after the
+   * stop's cleanup and its console.error. Never for a create() rejection, an 'auto' fallback, a
+   * lost device that continues in Canvas2D, or after destroy(). Recovery: destroy() + create().
+   */
+  onError?: (err: unknown) => void;
   /** @internal jsdom/test backend instead of the WASM loader. */
   testBackend?: FluidBackend;
   /** @internal WASM loader override (the stress scene's counting loader). */
@@ -74,6 +86,7 @@ export interface ResolvedOptions {
   autoObserve: boolean;
   forceReducedMotion: boolean;
   silentFallback: boolean;
+  onError: ((err: unknown) => void) | undefined;
   container: HTMLElement | undefined;
   testBackend: FluidBackend | undefined;
   loader: (() => Promise<FluidBackend>) | undefined;
@@ -91,7 +104,7 @@ export const DEFAULT_GRAVITY_STRENGTH = 980;
 
 export const OPTION_KEYS = [
   "particles", "maxElements", "container", "renderer", "material", "gravity", "seed",
-  "autoObserve", "forceReducedMotion", "silentFallback", "testBackend", "loader", "clock", "webgpuT0Scale",
+  "autoObserve", "forceReducedMotion", "silentFallback", "onError", "testBackend", "loader", "clock", "webgpuT0Scale",
 ] as const satisfies readonly (keyof LiquidOptions)[];
 
 const COLOUR_HINT = "the liquid colour is each element's computed background-color (call refresh(el) after a theme change)";
@@ -202,6 +215,13 @@ export function mergeGravity(base: Readonly<ResolvedGravity>, partial: unknown):
   return resolveGravity(merged);
 }
 
+/** W85 (D85-1): `onError` is a function or absent. */
+function resolveOnError(v: unknown): ((err: unknown) => void) | undefined {
+  if (v === undefined) return undefined;
+  if (typeof v !== "function") fail(`onError must be a function (err) => void, got ${show(v)}`);
+  return v as (err: unknown) => void;
+}
+
 function resolveContainer(v: unknown): HTMLElement | undefined {
   if (v === undefined) return undefined;
   if (typeof HTMLElement === "undefined" || !(v instanceof HTMLElement)) fail(`container must be an HTMLElement, got ${show(v)}`);
@@ -266,6 +286,7 @@ export function resolveOptions(input?: LiquidOptions): ResolvedOptions {
     autoObserve: booleanOr("autoObserve", given.autoObserve, true),
     forceReducedMotion: booleanOr("forceReducedMotion", given.forceReducedMotion, false),
     silentFallback: booleanOr("silentFallback", given.silentFallback, false),
+    onError: resolveOnError(given.onError),
     container: resolveContainer(given.container),
     testBackend: resolveTestBackend(given.testBackend),
     loader: resolveLoader(given.loader),
@@ -283,10 +304,11 @@ export function validateElementOptions(opts: unknown): asserts opts is ElementOp
   if (!isPlainObject(opts)) fail(`element options must be an object, got ${show(opts)}`);
   for (const key of Object.keys(opts)) {
     if (key === "liquidType") fail('element option "liquidType" was removed in 0.3: the liquid behaviour is uniform; use { viscosity?, recovery? }');
-    if (key !== "viscosity" && key !== "recovery") fail(`unknown element option "${key}" (allowed: viscosity, recovery)`);
+    if (key !== "viscosity" && key !== "recovery" && key !== "drag") fail(`unknown element option "${key}" (allowed: viscosity, recovery, drag)`);
   }
   checkFiniteIn("viscosity", opts.viscosity, MATERIAL_RANGES.viscosity[0], MATERIAL_RANGES.viscosity[1]);
   checkFiniteIn("recovery", opts.recovery, MATERIAL_RANGES.recovery[0], MATERIAL_RANGES.recovery[1]);
+  booleanOr("drag", opts.drag, true); // W84 (D84-2): "drag must be a boolean"
 }
 
 // ---- W67: splash() / shake() options (spec §5; D67-4, D67-8; B9) -----------

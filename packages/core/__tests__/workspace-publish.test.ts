@@ -28,6 +28,7 @@ const CORE = resolve(ROOT, "packages/core");
 const REACT = resolve(ROOT, "packages/react");
 const VUE = resolve(ROOT, "packages/vue");
 const EXAMPLE_REACT = resolve(ROOT, "examples/react");
+const EXAMPLE_VUE = resolve(ROOT, "examples/vue");
 
 function readJson(path: string): Record<string, unknown> {
   return JSON.parse(readFileSync(path, "utf-8"));
@@ -311,6 +312,8 @@ describe("Ward 051: Workspace topology + publishable shape", () => {
     // changesets rejects names that aren't actual workspace packages, and the
     // private root package.json isn't enumerated as one.
     expect(ignore).toContain("liquiddom-react-example");
+    // W85 red: approved-test change (D85-5): the Vue example is private and never released either.
+    expect(ignore).toContain("liquiddom-vue-example");
     expect(ignore).not.toContain("liquiddom-workspace");
   });
 
@@ -330,22 +333,21 @@ describe("Ward 051: Workspace topology + publishable shape", () => {
   });
 });
 
-describe("W66: site freeze, versioning, pkg-specifier hygiene", () => {
+describe("W86 (was W66 site freeze): the site is a workspace, versioning, pkg-specifier hygiene", () => {
   const SITE_DEPS = /@liquiddom\/site/;
 
-  it("given_root_package_when_read_then_site_not_in_workspaces_and_no_site_override", () => {
+  it("given_root_package_when_read_then_site_in_workspaces_and_in_the_lockfile", () => {
     const root = readJson(resolve(ROOT, "package.json"));
-    expect(root.workspaces).toEqual(["packages/*", "examples/*"]);
+    expect(root.workspaces).toEqual(["packages/*", "examples/*", "site"]);
     expect(JSON.stringify(root.overrides ?? {})).not.toMatch(SITE_DEPS);
     const lock = readFileSync(resolve(ROOT, "package-lock.json"), "utf-8");
-    expect(lock).not.toMatch(/"site":\s*\{/);
-    expect(lock).not.toMatch(/"node_modules\/@liquiddom\/site"/);
+    expect(lock).toMatch(/"site":\s*\{/);
+    expect(lock).toMatch(/"node_modules\/@liquiddom\/site"/);
   });
 
-  it("given_vitest_config_when_read_then_site_not_in_projects", () => {
+  it("given_vitest_config_when_read_then_site_is_a_project", () => {
     const cfg = readFileSync(resolve(ROOT, "vitest.config.ts"), "utf-8");
-    expect(cfg).not.toMatch(/["']\.\/site["']/);
-    for (const p of ["./packages/core", "./packages/react", "./packages/vue"]) expect(cfg).toContain(`"${p}"`);
+    for (const p of ["./packages/core", "./packages/react", "./packages/vue", "./site"]) expect(cfg).toContain(`"${p}"`);
   });
 
   it("given_deploy_site_yml_when_read_then_only_workflow_dispatch", () => {
@@ -353,10 +355,49 @@ describe("W66: site freeze, versioning, pkg-specifier hygiene", () => {
     expect(Object.keys(doc.on)).toEqual(["workflow_dispatch"]);
   });
 
+  it("given_site_package_when_read_then_astro_7_and_the_root_vite_and_typescript", () => {
+    const root = readJson(resolve(ROOT, "package.json")) as any;
+    const site = readJson(resolve(ROOT, "site/package.json")) as any;
+    expect(site.name).toBe("@liquiddom/site");
+    expect(site.private).toBe(true);
+    expect(site.dependencies.astro).toBe("^7.4.2");
+    expect(site.dependencies.liquiddom).toBe("*");
+    expect(site.devDependencies.vite).toBe(root.devDependencies.vite);
+    expect(root.devDependencies.vite).toBe("^8.3.5");
+    expect(site.devDependencies.typescript).toBe(root.devDependencies.typescript);
+  });
+
+  it("given_changeset_config_when_read_then_the_private_site_is_ignored", () => {
+    const cfg = readJson(resolve(ROOT, ".changeset/config.json")) as any;
+    expect(cfg.ignore).toContain("@liquiddom/site");
+  });
+
+  it("given_tweakpane_when_located_then_only_a_site_dependency", () => {
+    const root = readJson(resolve(ROOT, "package.json")) as any;
+    const site = readJson(resolve(ROOT, "site/package.json")) as any;
+    expect(root.devDependencies.tweakpane).toBeUndefined();
+    expect(root.dependencies?.tweakpane).toBeUndefined();
+    expect(site.dependencies.tweakpane).toBe("^4.0.4");
+  });
+
   it("given_example_react_package_when_read_then_liquiddom_deps_are_star", () => {
     const deps = readJson(resolve(EXAMPLE_REACT, "package.json")).dependencies as Record<string, string>;
     expect(deps.liquiddom).toBe("*");
     expect(deps["@liquiddom/react"]).toBe("*");
+  });
+
+  it("given_example_vue_package_when_read_then_it_is_private_with_star_liquiddom_deps_the_root_vue_and_vite_and_no_vue_plugin_D85_5", () => {
+    const pkg = readJson(resolve(EXAMPLE_VUE, "package.json"));
+    expect(pkg.name).toBe("liquiddom-vue-example");
+    expect(pkg.private).toBe(true);
+    const deps = pkg.dependencies as Record<string, string>;
+    expect(deps.liquiddom).toBe("*");
+    expect(deps["@liquiddom/vue"]).toBe("*");
+    const all = { ...deps, ...(pkg.devDependencies as Record<string, string> | undefined) };
+    expect(Object.keys(all).sort(), "render functions: no @vitejs/plugin-vue, no new dependency").toEqual(["@liquiddom/vue", "liquiddom", "vite", "vue"]);
+    const scripts = pkg.scripts as Record<string, string>;
+    expect(scripts.prebuild).toBe("cd ../.. && npm run build:wasm");
+    expect(scripts.build).toBe("vite build");
   });
 
   it("given_publishable_packages_when_read_then_all_three_at_0_3_0_alpha_0_with_peers_caret_0_3_0_alpha_0", () => {

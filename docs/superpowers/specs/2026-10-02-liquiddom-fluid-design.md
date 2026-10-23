@@ -102,7 +102,7 @@ The elements **are** liquid, and so is their text. They splash, split, merge wit
 - At most 3 fixed steps of 1/60 s per RAF. If the cap is hit, the remaining accumulator is dropped, so the simulation slows down instead of blowing up.
 
 **Grid:**
-- The cell size is decided **once** at `create()` from the particle density, clamped to 4–8 px. It is independent of the viewport, so the numerical behaviour (and visual regression) does not depend on window size.
+- The cell size is decided **once** at `create()` from the particle density, clamped to 4–8 px. It is independent of the viewport, so the numerical behaviour (and visual regression) does not depend on window size. When `create()` had no area hint (no `autoObserve` candidates, the usual adapter case), the first observe batch with area > 0 sets it once instead, through `set_area_hint(area, tallest)`, which rebuilds the grid only while no element has been placed (generation 0; a batch with area 0 skips its redistribute while the hint is pending) and replays the scroll applied before it; the result equals a core built with that hint, except that a scroll step of exactly half a cell can leave the grid origin one whole cell apart (same lattice phase, walls in the margin) (W85, D85-4). The over-budget warning tolerates rounding at equality: `area > budget · (1 + 1e-6)`.
 - The grid is pre-allocated to cover `max(screen.width, innerWidth) × max(screen.height, innerHeight)` plus a margin (in container mode the container's client box, its visible window since W80; amended W81, D81-3).
 - A resize beyond that is clamped to the walls in slices 1–5. One explicit, logged reallocation is added in slice 6 (resize). *(Amended 2026-10-03 after plan verification.)* It is `resize_world(w, h)`, called outside `tick` when the viewport outgrows the world, logged once, never shrinking, particles kept (amended 2026-10-13, slice-6 design, D81-2). W81: each outgrown axis grows to at least 1.25 × its extent (capped at 8192 px), from the resize handler, with one `console.info` per growth; the cell, the margin and the lattice origin stay.
 - Each grid substep only touches a dirty region: the particle AABB plus 2 cells.
@@ -160,7 +160,7 @@ F's cost (+4 floats of SoA plus an SVD per substep) is benchmarked in slice 4. I
   - Rust bumps a **generation counter**, which is an FFI getter.
 - **Density constraint:** MPM needs at least 2 particles per cell. The total observed area therefore has to satisfy `≤ particles · cell² / 2`. With 8000 particles and 8 px cells that is about 256k px², roughly one 600×400 card plus a few buttons. Beyond that:
   - `console.warn` (once),
-  - the cell size chosen at `create()` stays (8 px when no area hint was given); there is no reallocation before slice 6,
+  - the cell size chosen at `create()` stays (8 px when no area hint was given); there is no reallocation before slice 6 (since W85, D85-4, a core created without a hint takes its cell once from the first observe batch; the cell never changes after that),
   - the liquid gets visibly noisier.
   This is a documented limit, not a crash.
 - Particle data is SoA: `x, y, vx, vy, C(4), J, F(4), home, rest_u, rest_v, flags`.
@@ -171,7 +171,7 @@ F's cost (+4 floats of SoA plus an SVD per substep) is benchmarked in slice 4. I
 |---|---|
 | Pointer move | A soft velocity field: particles within a 70 px radius are pulled towards the pointer's velocity with weight `(1 − d/r)²`. This replaces the spike's hard radial push (`POINTER_PUSH_PX`), which caused the hole |
 | `click` on an observed element | `splash` at the pointer position. **If `event.detail === 0`** (a keyboard-triggered click from Enter or Space on a focusable element), the splash is at the rect centre instead. Native activation is never prevented, so there is never a double splash |
-| Drag (mouse or pen pointerdown, primary button; pointer capture once the pointer is > 4 px away, W78 D78-2) | `home_dx/dy` follow the pointer while the DOM stays put. After the threshold, the following click splash is suppressed (swallowed once). On release `home_dx/dy` → 0 and the liquid crawls home; `pointercancel`, blur, Escape, `unobserve`, `destroy` and reduced motion cancel the same way. No touch or keyboard drag in slice 5 (amended 2026-10-11, slice-5 design, D78-2, D78-6). Slice 6: touch drags after a 350 ms long-press (movement > 8 px cancels it and the page scrolls); `observe(el, { drag: false })` opts an element out (amended 2026-10-13, slice-6 design, D84-1, D84-2) |
+| Drag (mouse or pen pointerdown, primary button; pointer capture once the pointer is > 4 px away, W78 D78-2) | `home_dx/dy` follow the pointer while the DOM stays put. After the threshold, the following click splash is suppressed (swallowed once). On release `home_dx/dy` → 0 and the liquid crawls home; `pointercancel`, blur, Escape, `unobserve`, `destroy` and reduced motion cancel the same way. No touch or keyboard drag in slice 5 (amended 2026-10-11, slice-5 design, D78-2, D78-6). Slice 6: touch drags after a 350 ms long-press (movement > 8 px cancels it and the page scrolls); `observe(el, { drag: false })` opts an element out (amended 2026-10-13, slice-6 design, D84-1, D84-2). W84: the drag starts when the 350 ms timer fires, at the finger's offset (0, 0) plus the scroll since the down point; a non-passive `touchmove` listener on every draggable observed element (from `observe()`) prevents the page's scroll only while a touch drag is live; a second finger never drags; `contextmenu` is prevented only while a touch press is live, and draggable observed elements get `-webkit-touch-callout: none` (D84-1, D84-5); a touch drag released within 8 px of where the finger rested, with no scroll since the down point, keeps its click (a slow tap; W84 ward review, Dennis 2026-10-21) |
 | `shake(strength)` | Global impulse: a seeded direction `d` and phase `φ` per element, speed profile `1 + 0.35·sin(π·u + φ)` across the element (`u = (x − cx)/(w/2)`), no per-particle noise, no rotation (amended in W70, D70-1; amended in W73, D73-1; amended in W77, D77-2). Everything goes soft |
 | Gravity | `(gx, gy)` in the grid update. Clamped to 0 under reduced motion. Only changes act (a high-pass): a tilt sloshes the liquid, which then rests at home; scaled so the liquid never leaves its element (amended 2026-10-13, slice-6 design, D83-1). W83: a per-core low-pass `g_lp` (τ 0.5 s, advanced per fixed step); `1.5 · (g − g_lp)`, clamped to 2000 px/s², is added to the grid velocities of cells with mass after momentum → velocity and before the walls and the CFL cap; below 0.5 px/s² it snaps to exactly 0, so the engine is bit-identical to one without gravity ≈ 4 s after a change; the home spring is unchanged (a subtle lean, ≈ 6 px for a 90° tilt; D83-1, D83-2). `seed_gravity` starts a gravity at rest: at `create()`, on a source switch, on the first orientation reading and when reduced motion ends (D83-4) |
 | Scroll | The scroll delta moves particles and previous home rects rigidly (`scroll_shift`), so a scroll does not excite the liquid: particles move by whole cells and the lattice origin by the rest, so the simulation equals the unscrolled one up to f32 rounding; a dragged element is not shifted and its drag offset grows by the scroll; an element whose rect did not move with the scroll (`position: fixed`, a stuck `sticky`) is not shifted either, read per element and frame from the rects (W80 ward review I1); a light, capped share of the scroll distance is added as inertia, `Δ · 60 · SCROLL_INERTIA` px/s (amended 2026-10-13, slice-6 design, D80-1; W80, D80-1, D80-2) |
@@ -371,8 +371,9 @@ const liquid = await LiquidDOM.create({
   autoObserve: true,           // [data-liquid]
   forceReducedMotion: false,
   silentFallback: false,
+  onError,                     // W85, D85-1: (err) => void, once when the instance stops
 });
-liquid.observe(el, { viscosity?, recovery?, drag? /* slice 6, D84-2 */ });
+liquid.observe(el, { viscosity?, recovery?, drag? /* W84, D84-2 */ });
 liquid.unobserve(el);
 liquid.splash(el, { strength?: number /* 0–2, default 1 */, at?: { x: number, y: number } /* client px, default rect centre */ });
 liquid.shake(strength? /* 0–2, default 1 */);
@@ -388,6 +389,10 @@ liquid.isPaused; liquid.activeRenderer; liquid.particleCapacity; liquid.elementC
 `splash.at` is converted from client px into buffer space by TS, including the container offset.
 
 **Gravity (W83, D83-1 … D83-5).** Only changes in gravity act: a change sloshes the liquid, which then rests at home; a constant gravity never leans it. `none` is no gravity; `fixed` is `normalize(vector) · strength` (a zero vector is none); `orientation` projects the device's gravity onto the screen from `deviceorientation` β, γ (`px = cos β · sin γ`, `py = sin β`), rotated by `screen.orientation.angle`, times `strength`, with a 2° dead band on the direction; its listener exists only for `orientation` and is removed on `destroy()`. The gravity given at `create()`, a source switch and the first orientation reading start at rest (the core's low-pass is seeded), so a `fixed` vector acts only through `setGravity(partial)`, which is validated, merged and applied atomically like `setMaterial`. Reduced motion: no gravity. `requestOrientationPermission()` (iOS) is unchanged.
+
+**Drag opt-out (W84, D84-2, D84-5).** `observe(el, { drag: false })` (a boolean, validated, captured once like `viscosity`) opts the element out of every drag (mouse, pen and touch); a press on it never drags an observed ancestor either (the innermost observed element decides), and it keeps the browser's own long-press menu, callout and selection (an opted-out element nested in a draggable one gets the callout back through `.liquid-element[data-liquid-drag="off"] { -webkit-touch-callout: default }`). With two instances on one element, each follows its own option. The pointer's idle velocity decays by 0.8 per 1/60 s of the runtime clock (exactly ×0.8 per 60 Hz frame), the same in wall time at any display rate (W84, D84-3).
+
+**A stopped instance (W85, D85-1, D85-2).** `onError(err)` (a function, validated) is called exactly once when the instance stops: a throwing frame, a throwing `resize_world`, a throwing `set_area_hint`, a failed rebuild after a lost device (possibly before `create()` resolves). It runs after the stop's cleanup and its `console.error`; a throwing handler is caught. It is never called for a `create()` rejection, an `'auto'` fallback, a lost device rebuilt as Canvas2D or after `destroy()`. Recovery stays `destroy()` + `create()`. The React and Vue providers destroy a stopped instance: `useLiquid()` returns `null` and `useLiquidError()` the error (a `create()` rejection sets it too); `config.onError` is still called; there is no automatic retry, and a remount creates a new instance. `<LiquidElement drag={false}>` and `useLiquidRef({ drag })` pass the opt-out (W85, D85-3).
 
 ### Old to new
 
@@ -409,7 +414,7 @@ Every current export, member and option is accounted for below.
 | `isPaused`, `capacity` | `isPaused` kept. `capacity` → `elementCapacity`, plus the new `particleCapacity` |
 | `autoDiscover()`, `stopAutoDiscover()`, `pause()`, `resume()`, `destroy()`, `activeRenderer`, `requestOrientationPermission()` | kept |
 | `LiquidInstancePanicDetail`, the `liquiddom:instance-panic` event | removed |
-| React: `LiquidProvider`, `LiquidContext`, `useLiquid`, `useLiquidRef`, `LiquidElement` | kept. `liquidType` prop/option → element options |
+| React: `LiquidProvider`, `LiquidContext`, `useLiquid`, `useLiquidRef`, `LiquidElement` | kept. `liquidType` prop/option → element options; new `useLiquidError` (W85) |
 | Vue: `LiquidProvider`, `LiquidPlugin`, `LiquidKey`, `useLiquid`, `useLiquidRef`, `LiquidElement` | kept, same change |
 
 StrictMode is safe because of single-flight init plus idempotent `observe`.
@@ -423,6 +428,7 @@ StrictMode is safe because of single-flight init plus idempotent `observe`.
 | `demo/scenes/playground` | Removed in slice 1. Ported to material parameters in slice 2 |
 | `demo/scenes/acceptance.html` | **New in slice 1** |
 | `examples/react` | Updated to the new API in slice 1 (it is small) |
+| `examples/vue` | New in slice 6 (W85, D85-5): render functions in `.ts`, no SFC plugin. Both examples opt one pill out of drag, show `useLiquidError()` and are smoke-tested from the published `dist` (`e2e/dist.spec.ts`, blocking) |
 | `site/` | **Frozen in slice 1:** taken out of the root `workspaces` and CI build, and `deploy-site.yml` is disabled, so the live site stays on the `softbody-final` deployment. Rebuilt as a fluid playground in slice 6, then added back |
 
 ## 6. Verification and way of working

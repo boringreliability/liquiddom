@@ -98,7 +98,8 @@ export function createTestBackend(opts: TestBackendOptions = {}): TestBackend {
     reducedMotion = false;
     private readonly n: number;
     private readonly m: number;
-    private readonly cell: number;
+    /** W85 (D85-4): B5 from the constructor's hint; `set_area_hint` may change it while generation is 0. */
+    private cell: number;
     private readonly elPtr: number;
     private readonly dynPtr: number;
     private readonly statPtr: number;
@@ -127,10 +128,7 @@ export function createTestBackend(opts: TestBackendOptions = {}): TestBackend {
       this.worldH = extent(worldHPx, 800);
       this.n = particles;
       this.m = maxElements;
-      this.cell =
-        Number.isFinite(areaHintPx2) && areaHintPx2 > 0
-          ? Math.min(8, Math.max(4, Math.sqrt((4 * areaHintPx2) / particles)))
-          : 8;
+      this.cell = TestCore.cellFor(areaHintPx2, particles);
       this.elPtr = alloc(maxElements * ELEMENT_STRIDE * 4);
       this.dynPtr = alloc(particles * DYNAMIC_FIELDS * 4);
       this.statPtr = alloc(particles * STATIC_FIELDS * 4);
@@ -143,6 +141,21 @@ export function createTestBackend(opts: TestBackendOptions = {}): TestBackend {
       for (let id = 0; id < maxElements; id++) s[id * STATE_STRIDE + St.S] = 1;
       record(`new:${particles}:${maxElements}`);
       cores.push(this);
+    }
+
+    /** B5, as Rust's `Grid::choose_cell_px`: clamp(√(4A/N), 4, 8); no usable hint (≤ 0, NaN, ±Inf) → 8. */
+    private static cellFor(areaHintPx2: number, particles: number): number {
+      return Number.isFinite(areaHintPx2) && areaHintPx2 > 0
+        ? Math.min(8, Math.max(4, Math.sqrt((4 * areaHintPx2) / particles)))
+        : 8;
+    }
+
+    /** W85 (D85-4): Rust's rule (the cell from B5 only while generation is 0, else false and unchanged); recorded. */
+    set_area_hint(areaPx2: number, maxElementHPx: number): boolean {
+      record(`set_area_hint:${areaPx2}:${maxElementHPx}`);
+      if (this.gen !== 0) return false;
+      this.cell = TestCore.cellFor(areaPx2, this.n);
+      return true;
     }
 
     elements_ptr(): number {

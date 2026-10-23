@@ -153,9 +153,10 @@ describe("W66 T1: resolveOptions", () => {
   });
 
   it("given_option_whitelist_when_read_then_equals_spec_section_5_plus_internal_hooks", () => {
+    // W85 red: approved-test change (D85-1): onError joins the public options.
     expect([...OPTION_KEYS].sort()).toEqual(
       ["particles", "maxElements", "container", "renderer", "material", "gravity", "seed", "autoObserve",
-        "forceReducedMotion", "silentFallback", "testBackend", "loader", "clock", "webgpuT0Scale"].sort(),
+        "forceReducedMotion", "silentFallback", "onError", "testBackend", "loader", "clock", "webgpuT0Scale"].sort(),
     );
   });
 

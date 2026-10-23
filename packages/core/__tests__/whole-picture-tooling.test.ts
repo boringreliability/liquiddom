@@ -74,9 +74,10 @@ describe("W69: scripts/webm-to-gif.mjs", () => {
     // A bare `playwright test` would run every project, record included.
     const runs = ci.split("\n").filter((l) => /playwright test/.test(l));
     expect(runs.length).toBeGreaterThan(0);
+    // W86: the blocking site project (D86-8); approved-test change (Dennis 2026-10-23).
     for (const line of runs) {
       expect(line.trim(), "every CI Playwright invocation names a non-record project").toMatch(
-        /--project[= ](canvas2d|webgpu|perf|dist)\b/,
+        /--project[= ](canvas2d|webgpu|perf|dist|site)\b/,
       );
     }
   });

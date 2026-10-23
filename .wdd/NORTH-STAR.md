@@ -250,3 +250,22 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D83-3 | setGravity(partial) atomic like setMaterial; fixed g = normalize(vector)·strength | W83 | dec_993e915c |
 | D83-4 | Low-pass seeded at create() and on a source switch: a fixed vector starts at rest | W83 | dec_f274696e |
 | D83-5 | Orientation: beta/gamma projection rotated by screen.orientation.angle, 2° dead band, listener removed on destroy | W83 | dec_ec44cc30 |
+| D84-1 | Touch drag: 350 ms long-press, 8 px cancel, non-passive touchmove per draggable observed element (prevents only while live); tap stays a click | W84 | dec_6a102bba |
+| D84-2 | Opt-out: observe(el, { drag: false }), captured once; nested opt-out drags nothing | W84 | dec_a530a18b |
+| D84-3 | Pointer idle decay per time: 0.8^(dtMs·0.06), exponent snapped to 1 within 1e-9 | W84 | dec_09b1860f |
+| D84-4 | Long-press feedback: none beyond W78's hold (no swell, no vibrate) | W84 | dec_afacafb2 |
+| D84-5 | contextmenu prevented only during a live touch press on a draggable element; touch-callout none on draggable elements | W84 | dec_bfdd623c |
+| D85-1 | Stopped instance: create() option onError(err), once per instance on every stop path; console.error kept | W85 | dec_3039b876 |
+| D85-2 | Providers: a stopped instance is destroyed, useLiquid() null, useLiquidError() the error (also create() rejection); no retry, remount clears | W85 | dec_70e6753b |
+| D85-3 | drag prop on LiquidElement and useLiquidRef, captured once, never on the DOM | W85 | dec_eb4b4ea5 |
+| D85-4 | Area hint without autoObserve: set_area_hint rebuilds the grid at generation 0, once, at the first batch with area > 0 (zero-area batches skip redistribute while pending); the pre-placement scroll is summed and replayed (amended 2026-10-22) | W85 | dec_8655ba84, dec_19811b35 |
+| D85-5 | examples/vue (render functions, no plugin) and the Vue dist e2e; a drag={false} pill in both examples | W85 | dec_f37258d2 |
+| D86-1 | Site content: landing + playground + short docs on the 0.3 API; every 0.2 page and site test deleted; public API only | W86 | dec_1a032be5 |
+| D86-2 | Deep water (gradient on html, transparent page, luminous liquid, no glow) and the nine-chapter scroll story | W86 | dec_acb4c4c2 |
+| D86-3 | Body instance 18000 particles / 48 elements; five container instances 1000 / 2, paused off-screen, padded; onError line | W86 | dec_4016d938 |
+| D86-4 | Arrival splash 0.8 per hero element, hint shake 0.5 after ~4 s idle; neither under reduced motion | W86 | dec_7265d4e7 |
+| D86-5 | Playground port (gravity, drag per element, Copy as code, Restart); state only in the site, demo playground deleted, key v3 | W86 | dec_e625d9ee |
+| D86-6 | Five Markdown docs pages with a drift guard over the options whitelist and instance methods | W86 | dec_1e5620c8 |
+| D86-7 | Site back in workspaces and CI on Astro 7, vite ^8.3.5, TS ^6 (amended: Astro 6 needs vite 7); deploy stays dispatch-only | W86 | dec_2dd947a2 |
+| D86-8 | Vitest ./site, W66 freeze inverted, W69 playground tests moved, e2e:site blocking on Canvas2D, no pixel baselines | W86 | dec_636f1077 |
+| D86-9 | Core reads every CSS colour the browser paints (oklch, lab, color()) via a 1 × 1 canvas, cached | W86 | dec_a223c2a5 |

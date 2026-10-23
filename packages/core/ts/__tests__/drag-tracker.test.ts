@@ -76,7 +76,8 @@ describe("W78: DragTracker (D78-2, D78-6)", () => {
   });
 
   // 2
-  it("given_a_pen_press_when_moved_past_the_threshold_then_it_drags_and_a_touch_press_never_drags", () => {
+  // W84 red: approved-test change (D84-1): touch drags only after a long-press; a touch press that moves first never does.
+  it("given_a_pen_press_when_moved_past_the_threshold_then_it_drags_and_a_touch_press_that_moves_before_the_long_press_never_drags", () => {
     const el = observed();
     tracker.attach(el);
     down(el, 0, 0, { pointerType: "pen" });
@@ -85,7 +86,7 @@ describe("W78: DragTracker (D78-2, D78-6)", () => {
     up(el, 10, 0, { pointerType: "pen" });
     down(el, 0, 0, { pointerType: "touch", pointerId: 2 });
     move(30, 0, { pointerType: "touch", pointerId: 2 });
-    expect(tracker.active, "touch never drags in slice 5 (D78-2)").toBeNull();
+    expect(tracker.active, "a touch press that moves 30 px before the long-press is a scroll (D84-1)").toBeNull();
     expect(el.capture.set).toHaveBeenCalledTimes(1);
   });
 

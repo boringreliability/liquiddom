@@ -10,6 +10,9 @@ import type * as Core from "liquiddom";
 import type { ElementOptions, GravityOptions, LiquidDOMInstance, LiquidOptions, Material } from "liquiddom";
 import type { LiquidElementProps, UseLiquidRefOptions } from "@liquiddom/react";
 import type { UseLiquidRefOptions as VueUseLiquidRefOptions } from "@liquiddom/vue";
+// W85 red: approved-test change (D85-1 … D85-3): the error hooks and useLiquid() as values.
+import { useLiquid as useReactLiquid, useLiquidError as useReactLiquidError } from "@liquiddom/react";
+import { LiquidErrorKey, useLiquid as useVueLiquid, useLiquidError as useVueLiquidError } from "@liquiddom/vue";
 
 // ── Removed type exports ─────────────────────────────────────────────
 // @ts-expect-error LiquidInstancePanicDetail is gone with the liquiddom:instance-panic event
@@ -98,9 +101,15 @@ const options: LiquidOptions = {
   gravity: { source: "fixed", vector: [0, 980], strength: 980 }, seed: 1, autoObserve: true, forceReducedMotion: false, silentFallback: false,
 };
 const elementOptions: ElementOptions = { viscosity: 0.3, recovery: 1.2 };
+// W84 red: approved-test change (D84-2): the drag opt-out is a boolean element option.
+const optedOut: ElementOptions = { drag: false };
+// @ts-expect-error drag is a boolean
+const badDrag: ElementOptions = { drag: "no" };
 const material: Material = { viscosity: 0.5, cohesion: 0.5, recovery: 0.7 };
 const gravity: GravityOptions = { source: "orientation", strength: 600 };
 const id: number = inst.observe(el, elementOptions);
+inst.observe(el, optedOut);
+void badDrag;
 const capacities: number = inst.particleCapacity + inst.elementCapacity;
 const renderer: "canvas2d" | "webgpu" = inst.activeRenderer;
 const created: Promise<LiquidDOMInstance> = LiquidDOM.create(options);
@@ -119,6 +128,18 @@ const elementProps: LiquidElementProps = { as: "button", viscosity: 0.4, recover
 // @ts-expect-error <LiquidElement liquidType> is gone
 const oldElementProps: LiquidElementProps = { liquidType: 4 };
 const vueRefOptions: VueUseLiquidRefOptions = { recovery: 2 };
+// W85 red: approved-test change (D85-1 … D85-3): onError, the drag prop, the error hooks; useLiquid() keeps its type.
+const onErrorOptions: LiquidOptions = { onError: (err: unknown) => console.warn(err) };
+// @ts-expect-error onError is a function
+const badOnError: LiquidOptions = { onError: "log" };
+const dragProps: LiquidElementProps = { as: "button", drag: false };
+// @ts-expect-error drag is a boolean
+const badDragProps: LiquidElementProps = { drag: "off" };
+const reactLiquid: () => LiquidDOMInstance | null = useReactLiquid;
+const reactError: () => unknown = useReactLiquidError;
+const vueLiquid: () => { readonly value: LiquidDOMInstance | null } = useVueLiquid;
+const vueError: () => { readonly value: unknown } = useVueLiquidError;
+void [onErrorOptions, badOnError, dragProps, badDragProps, reactLiquid, reactError, vueLiquid, vueError, LiquidErrorKey];
 // @ts-expect-error Vue useLiquidRef({ liquidType }) is gone
 const vueOldRefOptions: VueUseLiquidRefOptions = { liquidType: 3 };
 

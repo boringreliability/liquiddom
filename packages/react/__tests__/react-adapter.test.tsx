@@ -64,7 +64,8 @@ const slotsOf = (el: HTMLElement) => {
 
 describe("W66 T5: @liquiddom/react", () => {
   it("given_adapter_index_when_imported_then_exports_are_kept", () => {
-    expect(Object.keys(adapter).sort()).toEqual(["LiquidContext", "LiquidElement", "LiquidProvider", "useLiquid", "useLiquidRef"]);
+    // W85 red: approved-test change (D85-2): useLiquidError joins the exports.
+    expect(Object.keys(adapter).sort()).toEqual(["LiquidContext", "LiquidElement", "LiquidProvider", "useLiquid", "useLiquidError", "useLiquidRef"]);
   });
 
   it("provider_creates_instance_after_mount", async () => {

@@ -9,6 +9,7 @@ import {
   onMounted,
   provide,
   ref,
+  shallowRef,
   watch,
   type App,
   type InjectionKey,
@@ -20,30 +21,84 @@ import { LiquidDOM, type ElementOptions, type LiquidDOMInstance, type LiquidOpti
 
 /** Injection key used by both `<LiquidProvider>` and `LiquidPlugin`. */
 export const LiquidKey: InjectionKey<Ref<LiquidDOMInstance | null>> = Symbol("LiquidDOM");
+/** W85 (D85-2): injection key of the error that left the provider (or the plugin) without an instance. */
+export const LiquidErrorKey: InjectionKey<Ref<unknown>> = Symbol("LiquidDOMError");
+
+/**
+ * Kept identical to withOnError in packages/react/src/index.tsx.
+ * W85 (D85-2): `config` with the adapter's handler chained in front of `config.onError`, which is
+ * still called, after it. An `onError` that is not a function is passed on unchanged, so create()
+ * rejects with core's TypeError (design resolution 9).
+ */
+function withOnError(config: LiquidOptions | undefined, own: (err: unknown) => void): LiquidOptions {
+  const theirs: unknown = config?.onError;
+  if (theirs !== undefined && typeof theirs !== "function") return { ...config };
+  const chained = theirs as ((err: unknown) => void) | undefined;
+  return {
+    ...config,
+    onError: (err: unknown) => {
+      own(err);
+      chained?.(err);
+    },
+  };
+}
+
+/**
+ * W85 (D85-2): creates the instance of a provider or the plugin into its refs. On a stop (core's
+ * onError; synchronous, design resolution 2) the instance is destroyed, `instance` becomes null and
+ * `error` the stop's error; a create() rejection sets `error` too (its console.error stays). No
+ * retry. Once `gone()` (unmounted) a resolving instance is destroyed on arrival, as is one that
+ * stopped while create() still ran (design resolution 11).
+ */
+function createInto(
+  config: LiquidOptions | undefined,
+  instance: Ref<LiquidDOMInstance | null>,
+  error: Ref<unknown>,
+  gone: () => boolean,
+  owner: string,
+): void {
+  let stopped = false;
+  const onStop = (err: unknown): void => {
+    if (gone() || stopped) return;
+    stopped = true;
+    const inst = instance.value;
+    instance.value = null;
+    inst?.destroy();
+    error.value = err;
+  };
+  // A then pair, not then/catch: a throw inside the resolve body (a user's flush:"sync" watcher)
+  // must not be reported as a create failure while the instance stays live.
+  LiquidDOM.create(withOnError(config, onStop)).then(
+    (inst) => {
+      if (gone() || stopped) {
+        // Race path: the owner unmounted before create() resolved — instance.value was never
+        // assigned, so this branch owns the destroy (also for an instance that stopped meanwhile).
+        inst.destroy();
+        return;
+      }
+      instance.value = inst;
+    },
+    (err: unknown) => {
+      console.error(`[liquiddom/vue] ${owner} failed to create instance:`, err);
+      if (!gone()) error.value = err;
+    },
+  );
+}
 
 export const LiquidProvider = defineComponent({
   name: "LiquidProvider",
   props: { config: { type: Object as PropType<LiquidOptions> } },
   setup(props, { slots }) {
     const instance = ref<LiquidDOMInstance | null>(null);
+    const error = shallowRef<unknown>(null);
     provide(LiquidKey, instance);
+    provide(LiquidErrorKey, error);
 
     let cancelled = false;
 
-    onMounted(async () => {
+    onMounted(() => {
       if (typeof window === "undefined") return;
-      try {
-        const inst = await LiquidDOM.create(props.config);
-        if (cancelled) {
-          // Race path: unmount fired before create resolved — instance.value
-          // was never assigned, so this branch owns the destroy.
-          inst.destroy();
-          return;
-        }
-        instance.value = inst;
-      } catch (err) {
-        console.error("[liquiddom/vue] LiquidProvider failed to create instance:", err);
-      }
+      createInto(props.config, instance, error, () => cancelled, "LiquidProvider");
     });
 
     onBeforeUnmount(() => {
@@ -59,32 +114,21 @@ export const LiquidProvider = defineComponent({
 export const LiquidPlugin: Plugin<[LiquidOptions?]> = {
   install(app: App, config?: LiquidOptions) {
     const instance = ref<LiquidDOMInstance | null>(null);
+    const error = shallowRef<unknown>(null);
     app.provide(LiquidKey, instance);
+    app.provide(LiquidErrorKey, error);
 
     if (typeof window === "undefined") return;
 
     let unmounted = false;
-
-    LiquidDOM.create(config)
-      .then((inst) => {
-        if (unmounted) {
-          // Race path: app.unmount() fired before create() resolved.
-          // The unmount wrapper below could not destroy because instance.value was still null,
-          // so this branch owns the destroy. Do NOT delete without restoring the symmetric guard.
-          inst.destroy();
-          return;
-        }
-        instance.value = inst;
-      })
-      .catch((err) => {
-        console.error("[liquiddom/vue] LiquidPlugin failed to create instance:", err);
-      });
+    // The "app.unmount() BEFORE create() resolved" path is handled in createInto (destroy on arrival).
+    createInto(config, instance, error, () => unmounted, "LiquidPlugin");
 
     const origUnmount = app.unmount.bind(app);
     app.unmount = () => {
       unmounted = true;
       // Race-symmetric destroy: handles "app.unmount() AFTER create() resolved".
-      // The "BEFORE create() resolved" path is handled in the .then() above. Both
+      // The "BEFORE create() resolved" path is handled in createInto. Both
       // branches are required for full cleanup coverage.
       instance.value?.destroy();
       instance.value = null;
@@ -93,20 +137,29 @@ export const LiquidPlugin: Plugin<[LiquidOptions?]> = {
   },
 };
 
-/** Read the live instance from injection. Null ref outside a provider/plugin. */
+/** Read the live instance from injection. Null ref outside a provider/plugin and once the instance stopped. */
 export function useLiquid(): Ref<LiquidDOMInstance | null> {
   return inject(LiquidKey, () => ref<LiquidDOMInstance | null>(null), true);
 }
 
-/** Element options (viscosity, recovery), captured once at setup (D66-4). */
+/**
+ * W85 (D85-2): `Ref` of the error that left the provider (or the plugin) without an instance: a
+ * stop's error (the instance is destroyed) or the create() rejection; null otherwise and outside a
+ * provider. No retry: remount the provider (`v-if`, `key`) to create a new instance.
+ */
+export function useLiquidError(): Ref<unknown> {
+  return inject(LiquidErrorKey, () => shallowRef<unknown>(null), true);
+}
+
+/** Element options (viscosity, recovery, drag), captured once at setup (D66-4). */
 export type UseLiquidRefOptions = ElementOptions;
 
+/** Kept identical to pickElementOptions in packages/react/src/index.tsx. W85 (D85-3, design resolution 8): every own key whose value is defined; none → undefined. */
 function pickElementOptions(opts?: ElementOptions): ElementOptions | undefined {
   if (!opts) return undefined;
-  const out: ElementOptions = {};
-  if (opts.viscosity !== undefined) out.viscosity = opts.viscosity;
-  if (opts.recovery !== undefined) out.recovery = opts.recovery;
-  return out.viscosity === undefined && out.recovery === undefined ? undefined : out;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(opts)) if (value !== undefined) out[key] = value;
+  return Object.keys(out).length === 0 ? undefined : (out as ElementOptions);
 }
 
 /**
@@ -141,9 +194,11 @@ export const LiquidElement = defineComponent({
     as: { type: String, default: "div" },
     viscosity: { type: Number, default: undefined },
     recovery: { type: Number, default: undefined },
+    // W85 (D85-3): `default: undefined`, since Vue casts an absent Boolean prop to false.
+    drag: { type: Boolean, default: undefined },
   },
   setup(props, { slots, attrs }) {
-    const elRef = useLiquidRef<HTMLElement>({ viscosity: props.viscosity, recovery: props.recovery });
+    const elRef = useLiquidRef<HTMLElement>({ viscosity: props.viscosity, recovery: props.recovery, drag: props.drag });
     return () => h(props.as, { ...attrs, ref: elRef }, slots.default?.());
   },
 });

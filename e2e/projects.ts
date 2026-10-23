@@ -69,6 +69,16 @@ export const WEBGPU_PROJECT_SPEC = /(?:acceptance|webgpu-liquid|webgpu-smoke)\.s
 export const DIST_PORT = 4174;
 /** W69 (D69-6): the example whose `dist/` the dist smoke serves. */
 export const DIST_EXAMPLE_ROOT = "examples/react";
+/** W85 (D85-5): vite preview port of the Vue example's dist smoke (4173 demo, 4174 React). */
+export const DIST_VUE_PORT = 4175;
+/** W85 (D85-5): the Vue example whose `dist/` the second dist smoke serves. */
+export const DIST_VUE_EXAMPLE_ROOT = "examples/vue";
+/** W86 (D86-8): vite preview port of the built site (4173 demo, 4174 React, 4175 Vue). */
+export const SITE_PORT = 4176;
+/** W86: the workspace whose `dist/` the site spec serves. */
+export const SITE_ROOT = "site";
+/** W86 (D86-8): the built-site spec; site project only. */
+export const SITE_SPEC = /site\.spec\.ts$/;
 /** Playwright's default testMatch restricted to this repo's convention. */
 export const DEFAULT_SPEC = /\.spec\.ts$/;
 /** W72 (D72-1 … D72-4): WebGPU by default, robust — steps 4, 6, 8 + device.lost under renderer=webgpu, and the auto probe. */
@@ -79,7 +89,7 @@ export function anyOf(...patterns: readonly RegExp[]): RegExp {
   return new RegExp(patterns.map((p) => `(?:${p.source})`).join("|"));
 }
 
-export type ProjectName = "canvas2d" | "webgpu" | "webgpu-hw" | "perf" | "record" | "dist" | "record-webgpu";
+export type ProjectName = "canvas2d" | "webgpu" | "webgpu-hw" | "perf" | "record" | "dist" | "site" | "record-webgpu";
 /** W71 (D71-2): the renderer a scene runs with. */
 export type SceneRenderer = "canvas2d" | "webgpu";
 
@@ -92,7 +102,7 @@ export interface ProjectFiles {
 }
 
 export const PROJECT_FILES: readonly ProjectFiles[] = [
-  { name: "canvas2d", testIgnore: [SMOKE_SPEC, WEBGPU_LIQUID_SPEC, WEBGPU_ROBUST_SPEC, PERF_SPEC, RECORD_SPEC, DIST_SPEC], blocking: true },
+  { name: "canvas2d", testIgnore: [SMOKE_SPEC, WEBGPU_LIQUID_SPEC, WEBGPU_ROBUST_SPEC, PERF_SPEC, RECORD_SPEC, DIST_SPEC, SITE_SPEC], blocking: true },
   // W71 (D71-1, D71-2): acceptance steps 1–3 under renderer=webgpu, the liquid checks and the smoke.
   // Soft until 10 green CI runs in a row (spec §6); see the W71.0 spike result in ward-071.md.
   // W72: plus the robust spec when SwiftShader runs the liquid (W71.0 spike "yes"); soft until 10 green CI runs.
@@ -107,6 +117,9 @@ export const PROJECT_FILES: readonly ProjectFiles[] = [
   { name: "record", testMatch: RECORD_SPEC, blocking: false },
   // W69 (D69-6): published-dist smoke; the spec serves examples/react/dist on DIST_PORT.
   { name: "dist", testMatch: DIST_SPEC, blocking: true },
+  // W86 (D86-8): the built site; the spec serves site/dist on SITE_PORT. Blocking, Canvas2D
+  // (WebGPU is checked locally with vision, W86 resolution 5).
+  { name: "site", testMatch: SITE_SPEC, blocking: true },
   // W72: local only, never in CI: the gold recording in WebGPU on the hardware adapter (`npm run record:w72`).
   { name: "record-webgpu", testMatch: RECORD_SPEC, blocking: false },
 ];
@@ -134,6 +147,8 @@ export const PROJECT_USE: Readonly<Record<ProjectName, ProjectUse>> = {
   record: { video: "on" },
   // W69 (D69-6): plain Desktop Chrome (headless shell); the dist smoke needs no WebGPU.
   dist: {},
+  // W86 (D86-8): plain Desktop Chrome (headless shell), like dist.
+  site: {},
 };
 
 /** W71 (D71-2): the renderer the scenes use in each project; only the webgpu project renders webgpu. */
@@ -144,6 +159,7 @@ export const PROJECT_RENDERER: Readonly<Record<ProjectName, SceneRenderer>> = {
   perf: "canvas2d",
   record: "canvas2d",
   dist: "canvas2d",
+  site: "canvas2d",
   "record-webgpu": "webgpu",
 };
 

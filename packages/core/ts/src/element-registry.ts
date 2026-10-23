@@ -9,7 +9,9 @@ import {
   ELEMENT_CLASS,
   acquireHaloRule,
   decorateElement,
+  holdDragMode,
   holdStacking,
+  releaseDragMode,
   releaseHaloRule,
   releaseStacking,
   undecorateElement,
@@ -216,6 +218,8 @@ export class ElementRegistry {
       decorateElement(el);
       // W75 (D75-3): one halo rule claim per registry and element, released with the decoration.
       acquireHaloRule(el, background);
+      // W84 (D84-2, D84-5): released with the decoration; `drag` is captured with this observation.
+      holdDragMode(el, rec.opts.drag !== false); // the snapshot, so the release reads the same value
       this.decorated.add(el);
     }
     if (this.deps.stacked?.() === true) this.stack(el);
@@ -234,6 +238,7 @@ export class ElementRegistry {
     this.bridge.elementView().fill(0, o, o + ELEMENT_STRIDE);
     if (this.stacked.delete(el)) releaseStacking(el); // W82 (D82-3)
     if (this.decorated.delete(el)) {
+      releaseDragMode(el, rec.opts.drag !== false); // W84
       releaseHaloRule(el);
       undecorateElement(el);
     }
@@ -318,6 +323,17 @@ export class ElementRegistry {
       area += roundedRectArea(v[o + El.W], v[o + El.H], v[o + El.RADIUS]);
     }
     return area;
+  }
+
+  /** W85 (D85-4): the tallest observed element's height in px (B15's margin source); 0 when none. */
+  observedTallest(): number {
+    const v = this.bridge.elementView();
+    let tallest = 0;
+    for (const rec of this.byEl.values()) {
+      const h = v[rec.id * ELEMENT_STRIDE + El.H];
+      if (h > tallest) tallest = h;
+    }
+    return tallest;
   }
 
   private writeRect(rec: InternalRecord, v: Float32Array, off: { x: number; y: number }): void {

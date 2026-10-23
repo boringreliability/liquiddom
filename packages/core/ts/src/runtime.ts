@@ -42,7 +42,11 @@ export const DEVICE_LOST_WARNING = "[liquiddom] WebGPU device lost";
 /** W74 (D74-5): the one console.warn per instance when the text atlas cannot be built (no liquid text, DOM text stays). */
 export const TEXT_ATLAS_WARNING =
   "[liquiddom] the text atlas could not be built; the DOM text stays visible while elements move";
+/** W85 (D85-1): the one console.error when an onError handler throws (the stop itself was reported already). */
+export const ON_ERROR_THREW = "[liquiddom] the onError handler threw; ignored.";
 const NO_ATLAS_RECTS: ReadonlyMap<number, AtlasRect> = new Map();
+/** W85 (design resolution 12): relative slack of the over-budget check (f32 `max_area_px2` against the f64 area). */
+const BUDGET_ROUNDING = 1e-6;
 
 export interface FluidRuntimeOptions {
   /** Integer in [16, 65536]; the W66 facade narrows the public range. */
@@ -73,6 +77,8 @@ export interface FluidRuntimeOptions {
   textAtlasCanvas?: AtlasCanvasFactory;
   /** W83 (D83-1 … D83-5): the resolved gravity (the facade validates). Default: none. */
   gravity?: Readonly<ResolvedGravity>;
+  /** W85 (D85-1): called once, last, when the instance stops (the facade validates); a throw is caught. */
+  onError?: (err: unknown) => void;
 }
 
 export interface FluidElementState {
@@ -244,7 +250,7 @@ export async function createFluidRuntime(opts: FluidRuntimeOptions): Promise<Flu
       ...(opts.webgpuT0Scale === undefined ? {} : { t0Scale: opts.webgpuT0Scale }),
     });
     canvas = selected.canvas;
-    return startRuntime(opts, core, bridge, selected, relay, world, blocked);
+    return startRuntime(opts, core, bridge, selected, relay, world, blocked, hint.area);
   } catch (err) {
     canvas?.remove();
     core.free();
@@ -260,10 +266,11 @@ function startRuntime(
   relay: LossRelay,
   world: WorldSize,
   blocked: string | null,
+  areaHint: number,
 ): FluidRuntime {
   const releaseStyles = acquireLiquidStyles(document);
   try {
-    return buildRuntime(opts, core, bridge, selected, relay, releaseStyles, world, blocked);
+    return buildRuntime(opts, core, bridge, selected, relay, releaseStyles, world, blocked, areaHint);
   } catch (err) {
     // A synchronous failure after the styles/renderer were acquired: undo both,
     // createFluidRuntime's catch removes the canvas and frees the core.
@@ -282,6 +289,7 @@ function buildRuntime(
   releaseStyles: () => void,
   initialWorld: WorldSize,
   blocked: string | null,
+  areaHint: number,
 ): FluidRuntime {
   // W72 (D72-3): the renderer slot and the canvas are mutable. A lost WebGPU device swaps in
   // Canvas2D on a remounted canvas; the slot is null while that rebuild is in flight.
@@ -370,13 +378,36 @@ function buildRuntime(
     return container ? readOffset(container) : ZERO;
   };
 
+  /**
+   * W85 (D85-4): a core created without an area hint (no autoObserve candidates: every adapter app)
+   * takes its cell from the first batch whose observed area is > 0, once, through set_area_hint
+   * before that batch's redistribute (generation 0). Design resolution 4: per instance; while it is
+   * pending, a batch with area 0 has nothing to place and skips its redistribute, so the generation
+   * stays 0; the first batch with area > 0 clears it whatever the call returns. A core created with
+   * a hint never calls it and never skips (bit-identical to W84).
+   */
+  let hintPending = !(areaHint > 0);
   // One redistribution per microtask after a batch of observe/unobserve (D64-18).
   const batcher = createMicrotaskBatcher(() => {
-    if (destroyed) return;
+    // W85 (review M7): a stopped instance's core may be poisoned; its later batches call nothing.
+    if (destroyed || failed) return;
+    if (hintPending) {
+      const observed = registry.observedArea();
+      if (!(observed > 0)) return; // design resolution 4: nothing to place yet
+      hintPending = false;
+      try {
+        core.set_area_hint(observed, registry.observedTallest());
+      } catch (err) {
+        // Design resolution 7: an allocation failure stops the instance like resize_world's.
+        stopInstance("[liquiddom] rebuilding the grid for the area hint failed; the instance stopped. Call destroy() and create a new instance.", err);
+        return;
+      }
+    }
     core.redistribute();
     const area = registry.observedArea();
     const budget = core.max_area_px2();
-    if (!warnedArea && area > budget) {
+    // W85 (design resolution 12): a hinted budget is exactly 2 × the hinted area; rounding must not warn at equality.
+    if (!warnedArea && area > budget * (1 + BUDGET_ROUNDING)) {
       warnedArea = true;
       console.warn(
         `[liquiddom] observed area ${Math.round(area)} px² exceeds the particle budget ${Math.round(budget)} px² (particles × cell² / 2). The liquid will look noisier; raise \`particles\` or observe less area.`,
@@ -834,8 +865,15 @@ function buildRuntime(
     }
   };
 
-  // Stops the instance for good with one console.error (a failed frame, or a throwing resize_world).
+  /**
+   * Stops the instance for good with one console.error: a failed frame, a throwing resize_world, a
+   * throwing set_area_hint (W85 design resolution 7) or, W85, a failed Canvas2D rebuild after a lost
+   * device (rebuildFailed comes here). Once per instance, never after destroy(). W85 (D85-1): last,
+   * `onError(err)`; a throwing handler is caught with one console.error. Last, so a handler may call
+   * destroy() (design resolution 1): every caller returns right after this.
+   */
   const stopInstance = (msg: string, err: unknown): void => {
+    if (failed || destroyed) return;
     failed = true;
     clearTextClasses(textHeld); // W74: a stopped instance never leaves text hidden
     dragTracker.destroy(); // W78: a stopped instance takes no more drags
@@ -845,6 +883,12 @@ function buildRuntime(
     clearAwayClasses(awayHeld); // W78: a stopped instance hides no label
     resyncStopped();
     console.error(msg, err);
+    if (opts.onError === undefined) return;
+    try {
+      opts.onError(err);
+    } catch (handlerErr) {
+      console.error(ON_ERROR_THREW, handlerErr);
+    }
   };
 
   const frame = (nowMs: number): void => {
@@ -880,12 +924,8 @@ function buildRuntime(
     clearHaloClasses(haloHeld); // W75: the halo may already apply while the Canvas2D rebuild was in flight
     clearAwayClasses(awayHeld); // W78
     if (destroyed || failed) return;
-    failed = true;
-    dragTracker.destroy(); // W78: a stopped instance takes no more drags
-    gravityInput.destroy(); // W83 ward review (M2): a stopped instance drops its deviceorientation listener
-    loop.destroy();
-    resyncStopped();
-    console.error(
+    // W85 (D85-1): the one stop path (its cleanup repeats the class clears above, idempotent, and reports onError).
+    stopInstance(
       "[liquiddom] the Canvas2D rebuild after a lost WebGPU device failed; the instance stopped. Call destroy() and create a new instance.",
       err,
     );
@@ -966,7 +1006,8 @@ function buildRuntime(
         }
       }
       splashInput.attach(el);
-      dragTracker.attach(el); // W78
+      // W78; W84 (D84-2): draggable unless this instance observed `el` with { drag: false } (captured once).
+      dragTracker.attach(el, registry.get(id)?.opts.drag !== false);
       watchElement(el); // W75 (D75-1, D75-2)
       return id;
     },

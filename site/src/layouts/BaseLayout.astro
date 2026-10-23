@@ -5,27 +5,24 @@ import Footer from "../components/Footer.astro";
 
 interface Props {
   title: string;
-  description?: string;
+  description: string;
 }
 
-const { title, description = "WASM-driven soft-body physics on real DOM elements." } = Astro.props;
+const { title, description } = Astro.props;
 ---
 
-<!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content={description} />
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
-    <!-- Astro injects favicon path on build via base; replace later in W61 polish -->
-    <link rel="icon" type="image/svg+xml" href={`${import.meta.env.BASE_URL}favicon.svg`} />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#0b1324" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>
   <body>
     <Header />
-    <main>
-      <slot />
-    </main>
+    <slot />
     <Footer />
   </body>
 </html>

@@ -24,7 +24,7 @@ Packages: [`liquiddom`](packages/core), [`@liquiddom/react`](packages/react), [`
 - `scenes/acceptance.html`: the north-star acceptance scene (`?rm=1` for reduced motion).
 - `scenes/stress.html?n=4`: several instances created in one task.
 
-The public site (`site/`) is frozen during the rewrite and returns in slice 6.
+The site (landing, playground, docs) lives in `site/`, see `SITE.md`.
 
 ## Development
 
