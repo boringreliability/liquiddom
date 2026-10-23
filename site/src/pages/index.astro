@@ -1,0 +1,301 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { CHAPTERS } from "../landing/chapters";
+import { CODE_SAMPLES, INSTALL_LINE } from "../landing/samples";
+
+const title = (id: number): string => CHAPTERS[id]?.title ?? "";
+const label = (id: number): string => String(id).padStart(2, "0");
+
+/** D86-2: the hero headline, its last word in gradient text (DOM text, never observed). */
+const heroWords = title(0).split(" ");
+const heroLast = heroWords.pop() ?? "";
+const heroHead = heroWords.join(" ");
+
+/** Chapter 6: twelve cards on a diagonal, the tones cycling. */
+const TONES = ["cyan", "magenta", "lime", "coral"] as const;
+const RUN_LINES = [
+  ["Scroll on.", "The liquid comes with the page."],
+  ["Still here.", "Every card keeps its own drop."],
+  ["No jitter.", "Scroll moves whole grid cells."],
+  ["Far below", "these cards are parked."],
+  ["Parked", "means skipped by the simulation."],
+  ["Halfway.", "Keep going."],
+  ["Fast scroll?", "The liquid sloshes a little."],
+  ["Then it settles", "back into its box."],
+  ["Out of sight,", "out of the simulation."],
+  ["Almost there.", "One more flick."],
+  ["Nearly.", "You can feel the weight."],
+  ["Arrived at rest.", "Parked until you got here."],
+] as const;
+const runCards = RUN_LINES.map(([head, line], i) => ({ i, head, line, tone: TONES[i % TONES.length] }));
+
+const TABS = [
+  { key: "vanilla", name: "Vanilla", code: CODE_SAMPLES.vanilla },
+  { key: "react", name: "React", code: CODE_SAMPLES.react },
+  { key: "vue", name: "Vue", code: CODE_SAMPLES.vue },
+] as const;
+---
+
+<BaseLayout
+  title="liquiddom: the DOM, but liquid"
+  description="Fluid dynamics on real DOM elements. Your buttons stay buttons: accessible, focusable, clickable. They are just made of liquid now."
+>
+  <main>
+    <section class="chapter hero" data-chapter="0" aria-labelledby="ch-0">
+      <div class="wrap">
+        <div class="hero-grid">
+          <div>
+            <h1 id="ch-0">{heroHead} <span class="gradient-text">{heroLast}</span></h1>
+            <p class="lede">
+              Real fluid dynamics on real elements. Your buttons stay buttons: focusable, clickable, read by a screen
+              reader. They are just made of water now.
+            </p>
+            <div class="row">
+              <button id="hero-splash" class="tone-cyan pill" type="button" data-liquid data-hero data-liquid-control>Splash</button>
+              <a id="hero-start" class="tone-magenta pill" href="#ch-8" data-liquid data-hero>Get started</a>
+            </div>
+          </div>
+          <div class="drops">
+            <div id="drop-cyan" class="drop tone-cyan" data-liquid data-hero aria-hidden="true"></div>
+            <div id="drop-coral" class="drop tone-coral" data-liquid data-hero aria-hidden="true"></div>
+            <div id="drop-lime" class="drop tone-lime" data-liquid data-hero aria-hidden="true"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <p data-liquid-stopped hidden role="status"></p>
+
+    <section class="chapter" data-chapter="1" aria-labelledby="ch-1">
+      <div class="wrap">
+        <div>
+          <p class="eyebrow">{label(1)} · Accessible</p>
+          <h2 id="ch-1">{title(1)}</h2>
+          <p class="lede">
+            The liquid is painted under the page; the element is untouched. Press <kbd>Tab</kbd> to walk through
+            these three and <kbd>Enter</kbd> to make a splash. The focus ring is the browser's own.
+          </p>
+        </div>
+        <form class="row" aria-label="A small form made of liquid">
+          <button class="tone-cyan pill" type="button" data-liquid>Subscribe</button>
+          <a class="tone-magenta pill" href="#ch-1" data-liquid>Read the terms</a>
+          <article class="card tone-lime" data-liquid tabindex="0">
+            <h3>A card</h3>
+            <p>Selectable text, a real tab stop, and still a drop of lime.</p>
+          </article>
+        </form>
+      </div>
+    </section>
+
+    <section class="chapter" data-chapter="2" aria-labelledby="ch-2">
+      <div class="wrap">
+        <div>
+          <p class="eyebrow">{label(2)} · Pointer</p>
+          <h2 id="ch-2">{title(2)}</h2>
+          <p class="lede">Hover and the liquid swells. Click and it splashes. Move fast across it and it follows your wake.</p>
+        </div>
+        <div class="row">
+          <button class="tone-cyan pill" type="button" data-liquid>Hover me</button>
+          <button class="tone-lime pill" type="button" data-liquid>Click me</button>
+          <button class="tone-magenta pill" type="button" data-liquid>Sweep past</button>
+          <button class="tone-coral pill" type="button" data-liquid>All of the above</button>
+        </div>
+        <div class="controls">
+          <label class="range" for="poke-strength">
+            Strength
+            <input type="range" min="0" max="2" step="0.1" value="1" id="poke-strength" data-liquid-control />
+          </label>
+          <button id="poke-all" class="control" type="button" data-liquid-control>Splash all</button>
+        </div>
+        <p class="note">With WebGPU the labels flow with the liquid, glyph by glyph, and settle back into crisp DOM text.</p>
+      </div>
+    </section>
+
+    <section class="chapter" data-chapter="3" aria-labelledby="ch-3">
+      <div class="wrap">
+        <div>
+          <p class="eyebrow">{label(3)} · Materials</p>
+          <h2 id="ch-3">{title(3)}</h2>
+          <p class="lede">Three presets, three instances of the engine, one shake. Viscosity, cohesion and recovery are yours to tune.</p>
+        </div>
+        <div class="pools">
+          <div class="pool-frame">
+            <span class="pool-label">presets.water</span>
+            <div class="pool" data-preset="water">
+              <article class="pool-card tone-cyan" data-pool-el>
+                <h3>Water</h3>
+                <p>Quick, loose, back home in a blink.</p>
+              </article>
+            </div>
+          </div>
+          <div class="pool-frame">
+            <span class="pool-label">presets.honey</span>
+            <div class="pool" data-preset="honey">
+              <article class="pool-card tone-lime" data-pool-el>
+                <h3>Honey</h3>
+                <p>Thick and slow; it takes its time.</p>
+              </article>
+            </div>
+          </div>
+          <div class="pool-frame">
+            <span class="pool-label">presets.jelly</span>
+            <div class="pool" data-preset="jelly">
+              <article class="pool-card tone-magenta" data-pool-el>
+                <h3>Jelly</h3>
+                <p>Springy; it wobbles and holds together.</p>
+              </article>
+            </div>
+          </div>
+        </div>
+        <div class="controls">
+          <button id="shake-all" class="control" type="button" data-liquid-control>Shake all</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="chapter" data-chapter="4" aria-labelledby="ch-4">
+      <div class="wrap">
+        <div>
+          <p class="eyebrow">{label(4)} · Drag</p>
+          <h2 id="ch-4">{title(4)}</h2>
+          <p class="lede">Drag one into another. On a phone: hold, then drag.</p>
+        </div>
+        <div class="row">
+          <button class="tone-cyan pill" type="button" data-liquid>Drag me</button>
+          <button id="stay-put" class="tone-coral pill" type="button" data-liquid data-liquid-drag-off>I stay put</button>
+          <article class="card tone-lime" data-liquid>
+            <h3>Merge here</h3>
+            <p>Drop a pill on this card; they merge, then part when you let go.</p>
+          </article>
+        </div>
+        <p class="note">One element per call opts out: <code>observe(el, &#123; drag: false &#125;)</code>.</p>
+      </div>
+    </section>
+
+    <section class="chapter" data-chapter="5" aria-labelledby="ch-5">
+      <div class="wrap">
+        <div>
+          <p class="eyebrow">{label(5)} · Gravity</p>
+          <h2 id="ch-5">{title(5)}</h2>
+          <p class="lede">Gravity leans the liquid; the shape always comes home. On a desktop, turn the dial.</p>
+        </div>
+        <div class="tilt-drops">
+          <div class="tone-cyan" data-liquid aria-hidden="true" style="width: 120px; height: 120px"></div>
+          <div class="tone-magenta" data-liquid aria-hidden="true" style="width: 92px; height: 92px"></div>
+          <div class="tone-lime" data-liquid aria-hidden="true" style="width: 68px; height: 68px"></div>
+        </div>
+        <div class="controls">
+          <label class="range" for="tilt-dial">
+            Direction
+            <input type="range" id="tilt-dial" min="0" max="359" value="0" aria-label="Gravity direction" data-liquid-control />
+          </label>
+          <button id="tilt-device" class="control" type="button" hidden data-liquid-control>Use device tilt</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="chapter" data-chapter="6" aria-labelledby="ch-6">
+      <div class="wrap">
+        <div>
+          <p class="eyebrow">{label(6)} · Scroll</p>
+          <h2 id="ch-6">{title(6)}</h2>
+          <p class="lede">A long run of cards. The far ones rest, parked outside the simulation, and appear at rest when you reach them.</p>
+        </div>
+        <div class="run">
+          {
+            runCards.map((c) => (
+              <article class={`run-card tone-${c.tone}`} data-liquid data-tone={c.tone} style={`--i: ${c.i}`}>
+                <strong>{c.head}</strong>
+                <span>{c.line}</span>
+              </article>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <section class="chapter" data-chapter="7" aria-labelledby="ch-7">
+      <div class="wrap">
+        <div>
+          <p class="eyebrow">{label(7)} · Reduced motion</p>
+          <h2 id="ch-7">{title(7)}</h2>
+          <p class="lede">
+            Two identical cards. The right one runs as it would for a visitor who asked for reduced motion: still and
+            crisp, every control still works.
+          </p>
+        </div>
+        <div class="pools two">
+          <div class="pool-frame">
+            <span class="pool-label">Motion</span>
+            <div class="pool" data-calm="live">
+              <article class="pool-card tone-coral" data-pool-el>
+                <h3>Live</h3>
+                <p>Splashes like the rest of the page.</p>
+              </article>
+            </div>
+          </div>
+          <div class="pool-frame">
+            <span class="pool-label">Reduced motion</span>
+            <div class="pool" data-calm="still">
+              <article class="pool-card tone-coral" data-pool-el>
+                <h3>Still</h3>
+                <p>forceReducedMotion: true</p>
+              </article>
+            </div>
+          </div>
+        </div>
+        <div class="controls">
+          <button id="splash-both" class="control" type="button" data-liquid-control>Splash both</button>
+        </div>
+        <p class="note">When printed or in forced-colours mode the liquid steps aside and every element shows its own styling.</p>
+      </div>
+    </section>
+
+    <section class="chapter" data-chapter="8" aria-labelledby="ch-8">
+      <div class="wrap">
+        <div>
+          <p class="eyebrow">{label(8)} · Install</p>
+          <h2 id="ch-8">{title(8)}</h2>
+          <p class="lede">Vanilla, React or Vue. One instance, any element, no build plugin.</p>
+        </div>
+        <div class="install">
+          <code id="install-line">{INSTALL_LINE}</code>
+          <button id="install-copy" class="control" type="button">Copy</button>
+        </div>
+        <div>
+          <div class="tabs" role="tablist" aria-label="Code samples">
+            {
+              TABS.map((t, i) => (
+                <button
+                  class="tab"
+                  type="button"
+                  role="tab"
+                  id={`tab-${t.key}`}
+                  aria-controls={`panel-${t.key}`}
+                  aria-selected={i === 0 ? "true" : "false"}
+                  tabindex={i === 0 ? 0 : -1}
+                >
+                  {t.name}
+                </button>
+              ))
+            }
+          </div>
+          {
+            TABS.map((t, i) => (
+              <pre class="code" role="tabpanel" id={`panel-${t.key}`} aria-labelledby={`tab-${t.key}`} tabindex="0" hidden={i !== 0}><code>{t.code}</code></pre>
+            ))
+          }
+        </div>
+        <div class="cta-links">
+          <a class="control" href="/playground/">Playground</a>
+          <a class="control" href="/docs/getting-started/">Docs</a>
+          <a class="control" href="https://github.com/boringreliability/liquiddom">GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    import "../landing/main";
+  </script>
+</BaseLayout>
