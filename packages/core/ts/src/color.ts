@@ -75,6 +75,13 @@ export function parseCssColor(raw: string | null | undefined): RGBA | null {
   return Object.freeze(rgba);
 }
 
+/** @internal W86 (D86-9): turns a CSS colour string the parser does not read into RGBA, or null. */
+export type ColorProbe = (raw: string) => RGBA | null;
+/** @internal Default probe: a 1 × 1 canvas (W86.2). */
+export const canvasColorProbe: ColorProbe = () => null;
+/** @internal Test seam: replace the probe (null restores the default) and clear the cache. */
+export function setColorProbe(_probe: ColorProbe | null): void {}
+
 /**
  * Reads the computed `background-color` and `color`. W64 calls it in
  * `observe()`; W66 makes sure it runs BEFORE `liquid-element` is applied.

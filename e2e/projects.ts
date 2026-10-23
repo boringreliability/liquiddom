@@ -73,6 +73,10 @@ export const DIST_EXAMPLE_ROOT = "examples/react";
 export const DIST_VUE_PORT = 4175;
 /** W85 (D85-5): the Vue example whose `dist/` the second dist smoke serves. */
 export const DIST_VUE_EXAMPLE_ROOT = "examples/vue";
+/** W86 (D86-8): vite preview port of the built site (4173 demo, 4174 React, 4175 Vue). */
+export const SITE_PORT = 4176;
+/** W86: the workspace whose `dist/` the site spec serves. */
+export const SITE_ROOT = "site";
 /** Playwright's default testMatch restricted to this repo's convention. */
 export const DEFAULT_SPEC = /\.spec\.ts$/;
 /** W72 (D72-1 … D72-4): WebGPU by default, robust — steps 4, 6, 8 + device.lost under renderer=webgpu, and the auto probe. */
