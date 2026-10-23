@@ -35,6 +35,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          # W86: Astro 7 needs Node >= 22.23.4; a runner's cached 22.x can be older.
+          check-latest: true
           cache: npm
 
       - name: Install npm deps
