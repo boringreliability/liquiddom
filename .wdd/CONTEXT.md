@@ -66,5 +66,5 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Fluid decisions: `ward
 - Colour probe (W86): needs a 2d canvas (null in jsdom); 256 cached strings.
 
 ## What Comes Next
-- Slices 1–5 closed (whole pictures: `.wdd/memory/whole-picture/`). Slice 6: W80–W86 done (W86 site not yet deployed; the dispatch is Dennis' call); next W87.
+- Slices 1–5 closed (whole pictures: `.wdd/memory/whole-picture/`). Slice 6: W80–W86 done (site live on liquiddom.vsplat.io since 2026-10-23, PR #5 merged); next W87.
 - Open: fate of the published `0.2.0-rc.0` (spec §7); publishing `0.3.0-alpha.x` is Dennis' call.
