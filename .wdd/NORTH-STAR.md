@@ -260,3 +260,12 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D85-3 | drag prop on LiquidElement and useLiquidRef, captured once, never on the DOM | W85 | dec_eb4b4ea5 |
 | D85-4 | Area hint without autoObserve: set_area_hint rebuilds the grid at generation 0, once, at the first batch with area > 0 (zero-area batches skip redistribute while pending); the pre-placement scroll is summed and replayed (amended 2026-10-22) | W85 | dec_8655ba84, dec_19811b35 |
 | D85-5 | examples/vue (render functions, no plugin) and the Vue dist e2e; a drag={false} pill in both examples | W85 | dec_f37258d2 |
+| D86-1 | Site content: landing + playground + short docs on the 0.3 API; every 0.2 page and site test deleted; public API only | W86 | dec_1a032be5 |
+| D86-2 | Deep water (gradient on html, transparent page, luminous liquid, no glow) and the nine-chapter scroll story | W86 | dec_acb4c4c2 |
+| D86-3 | Body instance 18000 particles / 48 elements; five container instances 1000 / 2, paused off-screen, padded; onError line | W86 | dec_4016d938 |
+| D86-4 | Arrival splash 0.8 per hero element, hint shake 0.5 after ~4 s idle; neither under reduced motion | W86 | dec_7265d4e7 |
+| D86-5 | Playground port (gravity, drag per element, Copy as code, Restart); state only in the site, demo playground deleted, key v3 | W86 | dec_e625d9ee |
+| D86-6 | Five Markdown docs pages with a drift guard over the options whitelist and instance methods | W86 | dec_1e5620c8 |
+| D86-7 | Site back in workspaces and CI on Astro 7, vite ^8.3.5, TS ^6 (amended: Astro 6 needs vite 7); deploy stays dispatch-only | W86 | dec_2dd947a2 |
+| D86-8 | Vitest ./site, W66 freeze inverted, W69 playground tests moved, e2e:site blocking on Canvas2D, no pixel baselines | W86 | dec_636f1077 |
+| D86-9 | Core reads every CSS colour the browser paints (oklch, lab, color()) via a 1 × 1 canvas, cached | W86 | dec_a223c2a5 |
