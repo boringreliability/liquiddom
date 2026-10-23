@@ -3,7 +3,7 @@ ward: 86
 revision: null
 name: "The site"
 epic: "fluid-engine"
-status: "approved"
+status: "gold"
 dependencies: [85]
 layer: "typescript"
 estimated_tests: 0
