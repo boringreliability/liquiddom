@@ -1,5 +1,5 @@
 /** W64: CSS colour parsing and the colour snapshot (spec §3 "Colour"). */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_LIQUID_COLOR, parseCssColor, setColorProbe, snapshotColors } from "../src/color";
 
 afterEach(() => {
@@ -7,6 +7,10 @@ afterEach(() => {
 });
 
 describe("W64 colour", () => {
+  // W86 (D86-9): "garbage" would reach the default canvas probe, and jsdom prints "Not implemented" for it.
+  beforeEach(() => setColorProbe(() => null));
+  afterEach(() => setColorProbe(null));
+
   it("given_rgba_alpha_zero_or_transparent_when_parsed_then_null", () => {
     for (const raw of ["rgba(0, 0, 0, 0)", "transparent", "", "rgb(0 0 0 / 0)", "#0000", "garbage", "rgb(1, 2)"]) {
       expect(parseCssColor(raw), raw).toBeNull();

@@ -64,7 +64,8 @@ const TABS = [
       </div>
     </section>
 
-    <p data-liquid-stopped hidden role="status"></p>
+    <!-- Fix round 1 (#2): in the accessibility tree from the start, empty until a stop sets its text. -->
+    <p data-liquid-stopped role="status"></p>
 
     <section class="chapter" data-chapter="1" aria-labelledby="ch-1">
       <div class="wrap">

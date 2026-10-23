@@ -4,26 +4,31 @@ import { BODY_OPTIONS, POOL_OPTIONS } from "./config";
 import { startArrival } from "./arrival";
 import { pauseOffscreen } from "./offscreen";
 import { showStopped } from "./stopped";
+import { createFleet } from "./fleet";
 import { dialVector } from "../lib/dial";
 
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-const stop = () => showStopped(document);
+/** D86-3 + fix round 1 (I2): any stop destroys every landing instance, then the page says so once. */
+const fleet = createFleet(() => showStopped(document));
+const stop = () => fleet.stop();
 const $ = <T extends Element>(s: string) => document.querySelector<T>(s);
 const $$ = <T extends Element>(s: string) => [...document.querySelectorAll<T>(s)];
+const twoFrames = () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
 
-async function pool(el: HTMLElement, extra: Partial<LiquidOptions>): Promise<LiquidDOMInstance> {
-  const inst = await LiquidDOM.create({ ...POOL_OPTIONS, container: el, autoObserve: false, onError: stop, ...extra });
+async function pool(el: HTMLElement, extra: Partial<LiquidOptions>): Promise<LiquidDOMInstance | null> {
+  const inst = await fleet.add(LiquidDOM.create({ ...POOL_OPTIONS, container: el, autoObserve: false, onError: stop, ...extra }));
+  if (!inst) return null;
   for (const card of el.querySelectorAll<HTMLElement>("[data-pool-el]")) inst.observe(card);
-  pauseOffscreen(inst, el);
+  fleet.onStop(pauseOffscreen(inst, el));
   return inst;
 }
 
 async function boot(): Promise<void> {
+  const body = await fleet.add(LiquidDOM.create({ ...BODY_OPTIONS, autoObserve: false, onError: stop }));
+  if (!body) return;
   // Drag-off elements are observed first (observe is idempotent; the first options win).
-  const body = await LiquidDOM.create({ ...BODY_OPTIONS, autoObserve: false, onError: stop });
   for (const el of $$<HTMLElement>("[data-liquid-drag-off]")) body.observe(el, { drag: false });
   for (const el of $$<HTMLElement>("[data-liquid]")) body.observe(el);
-  startArrival(body, $$<HTMLElement>("[data-hero]"), { reducedMotion: reduced });
 
   $("#hero-splash")?.addEventListener("click", () => $$<HTMLElement>("[data-hero]").forEach((el) => body.splash(el)));
   $("#poke-all")?.addEventListener("click", () => {
@@ -36,21 +41,37 @@ async function boot(): Promise<void> {
   const tilt = $<HTMLButtonElement>("#tilt-device");
   if (tilt && "DeviceOrientationEvent" in window && matchMedia("(pointer: coarse)").matches) {
     tilt.hidden = false;
-    tilt.addEventListener("click", async () => {
-      if (await body.requestOrientationPermission()) body.setGravity({ source: "orientation" });
+    tilt.addEventListener("click", () => {
+      body
+        .requestOrientationPermission()
+        .then((granted) => {
+          if (granted) body.setGravity({ source: "orientation" });
+        })
+        .catch((err) => console.warn("[site] device tilt is unavailable", err));
     });
   }
 
-  const pools = await Promise.all(
-    $$<HTMLElement>(".pool[data-preset]").map((el) => pool(el, { material: presets[el.dataset.preset as keyof typeof presets] })),
-  );
+  // The observe batch reaches the core in the first frame; a splash before it has no particles (fix round 1, I1).
+  await twoFrames();
+  if (fleet.stopped) return;
+  fleet.onStop(startArrival(body, $$<HTMLElement>("[data-hero]"), { reducedMotion: reduced }));
+
+  const pools = (
+    await Promise.all(
+      $$<HTMLElement>(".pool[data-preset]").map((el) => pool(el, { material: presets[el.dataset.preset as keyof typeof presets] })),
+    )
+  ).filter((p): p is LiquidDOMInstance => p !== null);
+  if (fleet.stopped) return;
   $("#shake-all")?.addEventListener("click", () => pools.forEach((p) => p.shake(1)));
   const liveEl = $<HTMLElement>('.pool[data-calm="live"]');
   const stillEl = $<HTMLElement>('.pool[data-calm="still"]');
   if (!liveEl || !stillEl) return;
+  const live = await pool(liveEl, {});
+  const still = await pool(stillEl, { forceReducedMotion: true });
+  if (!live || !still) return;
   const calm: [LiquidDOMInstance, HTMLElement][] = [
-    [await pool(liveEl, {}), liveEl],
-    [await pool(stillEl, { forceReducedMotion: true }), stillEl],
+    [live, liveEl],
+    [still, stillEl],
   ];
   $("#splash-both")?.addEventListener("click", () => {
     for (const [inst, el] of calm) for (const card of el.querySelectorAll<HTMLElement>("[data-pool-el]")) inst.splash(card);
@@ -102,6 +123,7 @@ function copyInstall(): void {
 tabs();
 copyInstall();
 boot().catch((err) => {
+  // No WASM, a create() rejection, …: warn (not error), destroy whatever arrived, then say so.
   console.warn("[site] the liquid could not start", err);
   stop();
 });

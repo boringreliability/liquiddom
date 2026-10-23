@@ -6,6 +6,7 @@ import { pauseOffscreen } from "../src/landing/offscreen";
 import { showStopped } from "../src/landing/stopped";
 import { CODE_SAMPLES, INSTALL_LINE } from "../src/landing/samples";
 import { dialVector } from "../src/lib/dial";
+import { createFleet } from "../src/landing/fleet";
 
 function fakeInstance() {
   return { splash: vi.fn(), shake: vi.fn(), pause: vi.fn(), resume: vi.fn() };
@@ -140,5 +141,31 @@ describe("W86: the landing (D86-2, D86-3, D86-4)", () => {
     expect(CODE_SAMPLES.react).toContain("LiquidElement");
     expect(CODE_SAMPLES.vue).toMatch(/LiquidPlugin|LiquidProvider/);
     for (const s of Object.values(CODE_SAMPLES)) expect(s).not.toMatch(/@internal|runtimeOf|testBackend|__liquid/);
+  });
+
+  // W86.2 fix round 1 (I2): a new test, not one of the approved rows.
+  it("given_a_stop_while_one_instance_is_live_and_one_is_pending_when_stopped_then_both_are_destroyed_cleanups_run_and_the_page_is_told_once", async () => {
+    const onStopped = vi.fn();
+    const fleet = createFleet(onStopped);
+    const a = { destroy: vi.fn() };
+    const b = { destroy: vi.fn() };
+    let arrive: (v: typeof b) => void = () => {};
+    const pendingB = fleet.add(new Promise<typeof b>((r) => (arrive = r)));
+    expect(await fleet.add(Promise.resolve(a))).toBe(a);
+    const cleanup = vi.fn();
+    fleet.onStop(cleanup);
+    fleet.stop();
+    fleet.stop();
+    expect(a.destroy).toHaveBeenCalledTimes(1);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(onStopped).toHaveBeenCalledTimes(1);
+    expect(fleet.stopped).toBe(true);
+    arrive(b);
+    expect(await pendingB).toBeNull();
+    expect(b.destroy).toHaveBeenCalledTimes(1);
+    const late = vi.fn();
+    fleet.onStop(late);
+    expect(late).toHaveBeenCalledTimes(1);
+    expect(onStopped).toHaveBeenCalledTimes(1);
   });
 });

@@ -97,21 +97,22 @@ kbd { font: 600 0.85em var(--font-mono); border: 1px solid var(--line-strong); b
 .gradient-text { background: linear-gradient(100deg, var(--liquid-cyan) 0%, var(--liquid-lime) 38%, var(--liquid-magenta) 72%, var(--liquid-coral) 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .hero .lede { font-size: clamp(1.1rem, 1.8vw, 1.35rem); }
 .hero .row { margin-top: 36px; }
-.drops { position: relative; width: 346px; height: 380px; justify-self: center; }
+/* The cluster is 346 × 380 units; a unit is 1 px, smaller on screens narrower than the cluster (fix round 1). */
+.drops { --u: min(1px, (100vw - 2 * var(--gutter)) / 346); position: relative; width: calc(346 * var(--u)); height: calc(380 * var(--u)); justify-self: center; }
 .drop { position: absolute; border-radius: 50%; }
-#drop-cyan { width: 220px; height: 220px; left: 0; top: 0; }
-#drop-coral { width: 120px; height: 120px; left: 226px; top: 30px; }
-#drop-lime { width: 160px; height: 160px; left: 130px; top: 220px; }
+#drop-cyan { width: calc(220 * var(--u)); height: calc(220 * var(--u)); left: 0; top: 0; }
+#drop-coral { width: calc(120 * var(--u)); height: calc(120 * var(--u)); left: calc(226 * var(--u)); top: calc(30 * var(--u)); }
+#drop-lime { width: calc(160 * var(--u)); height: calc(160 * var(--u)); left: calc(130 * var(--u)); top: calc(220 * var(--u)); }
 
-[data-liquid-stopped] { margin: 0 auto; max-width: var(--measure); padding: 0 var(--gutter); color: var(--ink-muted); font-size: 0.95rem; box-sizing: border-box; }
+[data-liquid-stopped] { margin: 0 auto; min-height: 0; max-width: var(--measure); padding: 0 var(--gutter); color: var(--ink-muted); font-size: 0.95rem; box-sizing: border-box; }
 
 /* Chapter 3 and 7: the pools. A pool has no background (W82); its edge is a hairline. */
 .pools { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
 .pools.two { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 760px; }
-.pool-frame { display: grid; gap: 12px; }
+.pool-frame { display: grid; gap: 12px; min-width: 0; }
 .pool-label { font: 600 0.75rem/1 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); }
 .pool { border: 1px dashed var(--line); border-radius: 28px; }
-.pool-card { border-radius: 20px; padding: 18px 20px; }
+.pool-card { border-radius: 20px; padding: 18px 20px; overflow-wrap: anywhere; }
 .pool-card h3 { margin: 0 0 4px; font-size: 1.15rem; font-weight: 800; letter-spacing: -0.02em; }
 .pool-card p { margin: 0; font-size: 0.9rem; line-height: 1.4; }
 
@@ -121,7 +122,7 @@ kbd { font: 600 0.85em var(--font-mono); border: 1px solid var(--line-strong); b
 
 /* Chapter 6: the long diagonal run. */
 .run { display: block; padding-bottom: 40px; }
-.run-card { display: flex; flex-direction: column; justify-content: center; width: 300px; max-width: 100%; height: 86px; margin-top: 220px; margin-left: calc((100% - 300px) * var(--i) / 11); border-radius: 22px; padding: 0 24px; box-sizing: border-box; }
+.run-card { display: flex; flex-direction: column; justify-content: center; width: 300px; max-width: 100%; height: 86px; margin-top: 220px; margin-left: calc(max(0px, 100% - 300px) * var(--i) / 11); border-radius: 22px; padding: 0 24px; box-sizing: border-box; }
 .run-card:first-child { margin-top: 64px; }
 .run-card strong { font-size: 1.05rem; letter-spacing: -0.02em; }
 .run-card span { font-size: 0.85rem; opacity: 0.85; }
@@ -133,7 +134,7 @@ kbd { font: 600 0.85em var(--font-mono); border: 1px solid var(--line-strong); b
 .code { margin: 0; padding: 22px 24px; overflow-x: auto; font: 0.88rem/1.6 var(--font-mono); color: var(--ink-muted); border: 1px solid var(--line); border-top: 0; border-radius: 0 0 16px 16px; max-width: 100%; box-sizing: border-box; }
 .code[hidden] { display: none; }
 .install { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
-.install code { font: 600 1.05rem var(--font-mono); color: var(--liquid-lime); }
+.install code { font: 600 1.05rem var(--font-mono); color: var(--liquid-lime); overflow-wrap: anywhere; min-width: 0; }
 .install code::before { content: "$ "; color: var(--ink-faint); }
 .cta-links { display: flex; flex-wrap: wrap; gap: 14px; }
 
