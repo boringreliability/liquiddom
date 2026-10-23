@@ -147,3 +147,56 @@ kbd { font: 600 0.85em var(--font-mono); border: 1px solid var(--line-strong); b
 @media (max-width: 480px) {
   .pill { min-height: 48px; padding: 0 22px; }
 }
+
+/* ── Docs (D86-6): no liquid, Shiki github-dark code ───────────────── */
+
+.docs { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: clamp(32px, 6vw, 80px); padding-block: clamp(24px, 6vh, 64px) 24px; align-items: start; }
+.docs-nav { position: sticky; top: 24px; }
+.docs-nav ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.docs-nav li a { display: block; padding: 8px 12px; margin-left: -12px; border-left: 2px solid transparent; color: var(--ink-muted); text-decoration: none; font-size: 0.95rem; }
+.docs-nav li a:hover { color: var(--ink); }
+.docs-nav li a[aria-current="page"] { color: var(--ink); border-left-color: var(--liquid-cyan); font-weight: 650; }
+.docs-play { display: inline-block; margin-top: 24px; font-size: 0.9rem; color: var(--liquid-lime); text-decoration: none; }
+.docs-play:hover { text-decoration: underline; }
+.docs-main { min-width: 0; max-width: 46rem; }
+.docs-main > h1 { font-size: clamp(2.2rem, 5vw, 3.4rem); line-height: 1.04; letter-spacing: -0.035em; font-weight: 850; margin: 0 0 28px; text-wrap: balance; }
+
+.prose { color: var(--ink-muted); font-size: 1.02rem; line-height: 1.7; }
+.prose > :first-child { margin-top: 0; }
+.prose h2 { color: var(--ink); font-size: 1.5rem; letter-spacing: -0.02em; font-weight: 800; margin: 48px 0 12px; }
+.prose h3 { color: var(--ink); font-size: 1.12rem; letter-spacing: -0.01em; font-weight: 750; margin: 32px 0 8px; }
+.prose p, .prose ul, .prose ol { margin: 0 0 16px; }
+.prose ul, .prose ol { padding-left: 1.3em; }
+.prose li { margin: 4px 0; }
+.prose li::marker { color: var(--ink-faint); }
+.prose strong { color: var(--ink); }
+.prose a { color: var(--liquid-cyan); text-underline-offset: 3px; }
+.prose a:hover { color: var(--ink); }
+.prose :not(pre) > code { font: 0.88em var(--font-mono); color: var(--ink); background: oklch(0.96 0.01 250 / 0.08); border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; overflow-wrap: anywhere; }
+.prose :is(h2, h3) code { font: 0.9em var(--font-mono); color: inherit; background: none; border: 0; padding: 0; }
+.prose td code { overflow-wrap: normal; }
+.prose pre { margin: 0 0 20px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; overflow-x: auto; font: 0.86rem/1.6 var(--font-mono); }
+.prose pre code { font: inherit; }
+.prose table { width: 100%; border-collapse: collapse; margin: 0 0 24px; font-size: 0.92rem; display: block; overflow-x: auto; }
+.prose th, .prose td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.prose th { color: var(--ink); font-weight: 700; border-bottom-color: var(--line-strong); white-space: nowrap; }
+.prose td:first-child { white-space: nowrap; }
+.prose blockquote { margin: 0 0 16px; padding: 4px 0 4px 18px; border-left: 2px solid var(--liquid-magenta); color: var(--ink-muted); }
+
+.docs-index { padding-block: clamp(24px, 6vh, 64px) 24px; }
+.docs-index h1 { font-size: clamp(2.4rem, 6vw, 4.2rem); line-height: 1; letter-spacing: -0.04em; font-weight: 850; margin: 0 0 36px; }
+.docs-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); max-width: 52rem; }
+.docs-list a { display: grid; grid-template-columns: 3rem 12rem minmax(0, 1fr); gap: 4px 16px; align-items: baseline; padding: 20px 0; border-bottom: 1px solid var(--line); color: var(--ink-muted); text-decoration: none; }
+.docs-list a:hover .docs-title { color: var(--liquid-cyan); }
+.docs-num { font: 600 0.8rem/1 var(--font-mono); color: var(--ink-faint); }
+.docs-title { color: var(--ink); font-weight: 750; font-size: 1.15rem; letter-spacing: -0.015em; }
+
+@media (max-width: 860px) {
+  .docs { grid-template-columns: minmax(0, 1fr); }
+  .docs-nav { position: static; }
+  .docs-nav ul { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+  .docs-nav li a { margin-left: 0; border-left: 0; border-bottom: 2px solid transparent; padding: 6px 4px; }
+  .docs-nav li a[aria-current="page"] { border-bottom-color: var(--liquid-cyan); }
+  .docs-list a { grid-template-columns: 2.5rem minmax(0, 1fr); }
+  .docs-summary { grid-column: 2; }
+}

@@ -1,0 +1,25 @@
+---
+/** W86 (D86-6): the docs index, the five pages with one line each. */
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { DOC_PAGES } from "../../docs/pages";
+---
+
+<BaseLayout title="Docs · liquiddom" description="The liquiddom documentation: getting started, API, adapters, accessibility and limitations.">
+  <main class="wrap docs-index">
+    <p class="eyebrow">Docs</p>
+    <h1>Everything in five pages.</h1>
+    <ol class="docs-list">
+      {
+        DOC_PAGES.map((p, i) => (
+          <li>
+            <a href={p.href}>
+              <span class="docs-num">{String(i + 1).padStart(2, "0")}</span>
+              <span class="docs-title">{p.title}</span>
+              <span class="docs-summary">{p.summary}</span>
+            </a>
+          </li>
+        ))
+      }
+    </ol>
+  </main>
+</BaseLayout>
