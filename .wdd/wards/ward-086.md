@@ -1,0 +1,100 @@
+---
+ward: 86
+revision: null
+name: "The site"
+epic: "fluid-engine"
+status: "planned"
+dependencies: [85]
+layer: "typescript"
+estimated_tests: 0
+created: "2026-10-23"
+completed: null
+---
+# Ward 086: The site
+
+North star: none — the site is the third consumer of the 0.3 API (slice design §9); the 8 acceptance steps are unchanged. Its landing is the real long page of scroll and parking (step 7) and the page W87 records.
+
+## Scope
+Seventh ward of slice 6 (design `docs/superpowers/specs/2026-10-13-liquiddom-slice-6-world-design.md` §9, refined by `docs/superpowers/specs/2026-10-23-liquiddom-site-design.md`, brainstorm with Dennis 2026-10-22). The Astro site, frozen since W66, is rebuilt on the 0.3 API: a dark "Deep water" landing that tells the engine's story in nine scrolling chapters (arrival splash, rest, poke, materials, drag and merge, tilt, scroll and parking, reduced motion, install), a playground port of `demo/scenes/playground.html` (gravity, drag per element, "Copy as code"), five short docs pages, and the site back in the root workspaces, vitest and CI (`e2e:site` blocking on Canvas2D). Whether Astro 6 runs on the root's vite 8 and TypeScript 6, what particle pool a nine-chapter page carries, and what the arrival looks like come from the time-boxed spike W86.0 (plan `docs/superpowers/plans/2026-10-13-fluid-slice-6/W86.md`, part 1); part 2 is written after the gate.
+
+Out of scope: glow and shadow (a renderer ward after W87), a parking counter (no public API), web fonts, dispatching `deploy-site.yml` and publishing `0.3.0-alpha.x` (Dennis' calls), any change to the engine or the public API.
+
+## Inputs
+- The slice design §9, §11, §12 (D86-1); the site design (all sections).
+- The public API of `liquiddom`, `@liquiddom/react`, `@liquiddom/vue` at W85 (`create()` options incl. `onError`, `forceReducedMotion`, `gravity`; `observe(el, { drag })`; `splash`, `shake`, `setMaterial`, `setGravity`, `requestOrientationPermission`, `presets`).
+- `site/` (Astro ^6.3.7, vite ^7.3.3, TypeScript ^5.4, Tailwind ^4.2.4, `liquiddom: "*"`, `astro.config.mjs` site `https://liquiddom.vsplat.io`, `trailingSlash: "always"`); the 0.2 showcases and docs; `SITE.md`; `.github/workflows/deploy-site.yml` and `ci.yml`.
+- `demo/scenes/playground.html`, `playground.ts`, `playground-state.ts` (W69, key `liquiddom-playground-v2`), their tests `packages/core/ts/__tests__/playground.test.ts` and `e2e/scenes.spec.ts` (the playground test).
+- `packages/core/__tests__/workspace-publish.test.ts` "W66: site freeze" (`:336-358`).
+- Baseline at `0698e3d`: see Specification.
+
+## Outputs
+- `site/`: the landing, `/playground/`, `/docs/…` (five pages), shared chrome; a workspace consuming core's `dist`.
+- The vitest project `./site`, the Playwright project `site` (`e2e:site`, :4176), the CI build and run.
+- `SITE.md`, `deploy-site.yml` (still `workflow_dispatch` only) corrected.
+
+## Decisions
+<!-- Direction gate (NORTH-STAR.md rule 3). -->
+### D86-1: Site content
+Proposal: the site is a landing, a playground and short docs on the 0.3 API; the 0.2 showcases (`squish`, `fusion`, `hero-blobs`), the soft-body docs, their components and the eight 0.2 site tests are deleted (chosen in the slice-6 brainstorm, Dennis 2026-10-13; this gate makes it formal).
+Consequence: nothing of the 0.2 site survives except the Astro/Tailwind setup and the CNAME; the site only uses public API (no `@internal` hook, no `runtimeOf()`, no scene hook).
+Decision: PENDING
+
+### D86-2: "Deep water" and the nine-chapter story
+Proposal: a night-blue radial gradient on `<html>` (body and sections transparent, W82), luminous liquid colours (cyan `oklch(0.82 0.15 205)`, magenta `oklch(0.72 0.2 340)`, lime `oklch(0.88 0.18 125)`, coral `oklch(0.68 0.22 25)`, tuned at gold), a bold system grotesk, no glow; nine chapters of about one viewport each (0 hero "The DOM, but liquid.", 1 "It's still a button.", 2 "Poke it.", 3 "Water, honey, jelly.", 4 "Grab it. Merge it.", 5 "Tilt your phone.", 6 "It follows you down.", 7 "Calm when you need it.", 8 "Pour it into your app."), English copy, one column on mobile (brainstorm saga dec_94e73a65, dec_e35e6fc4, dec_9a7b3106).
+Consequence: the page must stand without glow; every observed element's ancestors stay transparent or the instance falls back to `z-index: 0` with a warning (the W72 fixture fails on none, but the e2e checks the canvas z-index).
+Decision: PENDING
+
+### D86-3: Instances, pool and the failure line
+Proposal: one body-mode instance carries the story (`renderer: 'auto'`, particles and `maxElements` from spike Q2, `onError` set); chapter 3 adds three container instances (`presets.water`, `presets.honey`, `presets.jelly`, one "Shake all"), chapter 7 two (one `forceReducedMotion: true`, one "Splash both"); each container `position: relative; isolation: isolate`, never observed by the body instance. `onError` of any instance hides the controls that drive the liquid and shows "The liquid stopped; the page works as usual." (brainstorm saga dec_59d99679).
+Consequence: six instances on one page (six WASM cores, six canvases, one shared module); the pool numbers are measured, not guessed; no parking counter.
+Decision: PENDING
+
+### D86-4: The arrival and the hint
+Proposal: right after the body instance's `create()` resolves, one `splash()` per hero element at a strength chosen in spike Q3, so the liquid flies apart and gathers within 3 s; after about 4 s without a pointer, key, touch or scroll, one soft `shake()` as a hint, cancelled by the first interaction; neither under reduced motion (brainstorm saga dec_40a58bb0).
+Consequence: the first frame the visitor sees is moving liquid, not rest; the hero text stays DOM text (Canvas2D halo, WebGPU atlas).
+Decision: PENDING
+
+### D86-5: The playground port
+Proposal: `/playground/` ports `demo/scenes/playground.html` (Tweakpane in the Deep-water style; three drops, a card, two pills): material live via `setMaterial`, presets, splash/shake with strength, pause/resume, init-only particles/seed/renderer/`forceReducedMotion` via URL params; new: gravity (`none`, `fixed` with a dial, `orientation` on a phone), drag on/off per element (`unobserve` + `observe`), "Copy as code", `onError` with a Restart button. The state module lives once, in the site (`site/src/playground/state.ts`); `demo/scenes/playground.*` is deleted, `playground.test.ts` moves to the site project and the playground test in `e2e/scenes.spec.ts` moves to `e2e:site`. The persisted key becomes `liquiddom-playground-v3`; v1 and v2 are discarded (precedent D69-1).
+Consequence: two approved tests (W69) move and change key; the dev server loses its playground scene (the site's `astro dev` is the playground); Tweakpane moves from the root devDependencies to the site's dependencies.
+Decision: PENDING
+
+### D86-6: Docs
+Proposal: five short Markdown pages in one docs layout (Getting started, API, Adapters, Accessibility, Limitations), Astro's built-in Shiki in a dark theme, no liquid on them; shared header (liquiddom, Playground, Docs, GitHub, a "0.3 alpha" pill) and footer (MIT, GitHub); a drift-guard test fails when an option of `create()`'s whitelist or a method of `LiquidDOMInstance` is missing from the API page.
+Consequence: the API page must be kept in step with core; the guard makes a new option a failing test until it is documented.
+Decision: PENDING
+
+### D86-7: The site back in the workspace and CI
+Proposal: root workspaces `["packages/*", "examples/*", "site"]`; the site consumes core's `dist` like the examples; vite aligns with the root (^8), TypeScript with ^6 (or what spike Q1 shows Astro 6 needs); the lockfile is regenerated; `site/dist` and the `site/node_modules` leftovers are deleted; `ci.yml` builds the site after core; `deploy-site.yml` stays `workflow_dispatch` only, its "fails until slice 6" header goes and its steps are corrected; `SITE.md` is rewritten.
+Consequence: the lockfile moves (Astro's tree joins it); CI time grows by the site build and `e2e:site`; dispatching the deploy stays Dennis' call.
+Decision: PENDING
+
+### D86-8: Tests
+Proposal: a vitest project `./site` (the landing's structure, the playground state and "Copy as code", the docs drift guard, `deploy-site.yml` on `workflow_dispatch` only; no `astro build` in vitest); the approved test "W66: site freeze" (`workspace-publish.test.ts:336-358`) is inverted to pin the site in (workspaces, lockfile, vitest project), its `workflow_dispatch`-only pin stays; a Playwright project `site` (`npm run e2e:site`, `vite preview` of the built site on :4176, Canvas2D, blocking in CI): the landing's instances and canvases, scrolling to chapter 6 brings parked cards in at rest, chapter 3's instances run, the playground and every docs page load, no `console.error`; WebGPU locally on Metal; no pixel baselines (vision at gold, the recording in W87). Carried from W85: the Vue twin of React's row 20; `CONTEXT.md` is trimmed before W86 writes to it (8186 of 8192 B).
+Consequence: three approved tests change (the W66 freeze, the two W69 playground tests of D86-5) and are approved at red; no Linux baseline moves.
+Decision: PENDING
+
+## Specification
+**Baseline at `0698e3d`** (W85 complete `c9c1a1a` plus the site design): cargo `245 passed; 0 failed; 1 ignored`; vitest `833 passed (833)`, 84 files; Playwright `--list` canvas2d 102 / webgpu 51 / webgpu-hw 99 / perf 6 / dist 2.
+
+Written after the W86.0 gate (part 2 of the plan).
+
+## Tests
+Written after the W86.0 gate (part 2 of the plan).
+
+## Must NOT
+- Use `@internal` API, `runtimeOf()` or a scene test hook in the site.
+- Change the engine or the public API of any package.
+- Move a Linux baseline; dispatch `deploy-site.yml`; publish.
+- Change a test Dennis approved without his approval.
+- Copy spike code (D2).
+
+## Must DO
+- Keep every ancestor of an observed element transparent (W82).
+- Run under reduced motion with every control usable and nothing moving.
+
+## Manual Smoke Test
+Written after the W86.0 gate (part 2 of the plan).
+
+## Verification
+`npm run verify`, `npm run e2e:canvas2d`, `npm run e2e:site`, `npm run e2e:dist`; WebGPU locally; vision of the landing, the playground and the docs in both renderers, desktop and phone width.
