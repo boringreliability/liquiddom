@@ -8,7 +8,7 @@ const base: PlaygroundState = {
   init: { particles: 8000, seed: 7, renderer: "auto", forceReducedMotion: false },
   gravity: { source: "fixed", angle: 90, strength: 980 },
   dragOff: ["pill-b"],
-} as unknown as PlaygroundState; // the state module is still schema 2 until W86.3
+};
 
 describe("W86: Copy as code (D86-5)", () => {
   it("given_a_state_when_generated_then_the_exact_create_and_observe_code", () => {
@@ -31,11 +31,11 @@ describe("W86: Copy as code (D86-5)", () => {
   });
 
   it("given_states_across_every_gravity_source_when_generated_then_the_code_parses", () => {
-    const variants = [
+    const variants: PlaygroundState[] = [
       { ...base, gravity: { source: "none", angle: 0, strength: 980 }, dragOff: [] },
       { ...base, gravity: { source: "fixed", angle: 33.3333, strength: 120 } },
       { ...base, gravity: { source: "orientation", angle: 0, strength: 980 }, init: { ...base.init, forceReducedMotion: true, renderer: "canvas2d" } },
-    ] as unknown as PlaygroundState[];
+    ];
     for (const s of variants) {
       const body = toCode(s).replace(/^import .*\n/, "");
       expect(() => new Function("LiquidDOM", "document", `return (async () => {\n${body}\n})`)).not.toThrow();

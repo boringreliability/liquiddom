@@ -1,17 +1,39 @@
 /**
  * Ward 069: pure state for the material playground (port of the W49 mechanism).
+ * Moved from `demo/scenes/playground-state.ts` to the site in W86 (D86-5) and
+ * raised to schema 3: `gravity` and the per-element `dragOff` list.
  *
  * Tweakpane-free and free of runtime imports from "liquiddom" (type imports
  * only), so jsdom tests load it without a built core. Persists under
- * `liquiddom-playground-v2` (D69-1). Schema-1 data from the soft-body physics
- * playground is discarded, never migrated.
+ * `liquiddom-playground-v3`. Schema-1 and schema-2 data (keys v1 and v2) are
+ * discarded, never migrated.
  */
 import type { LiquidDOMInstance, Material } from "liquiddom";
 
-export const PLAYGROUND_STORAGE_KEY = "liquiddom-playground-v2";
-/** Keys of earlier playground schemas. Removed on every load (D69-1). */
-export const LEGACY_STORAGE_KEYS: readonly string[] = ["liquiddom-playground-v1"];
-export const PLAYGROUND_SCHEMA = 2;
+export const PLAYGROUND_STORAGE_KEY = "liquiddom-playground-v3";
+/** Keys of earlier playground schemas. Removed on every load (D69-1, D86-5). */
+export const LEGACY_STORAGE_KEYS: readonly string[] = ["liquiddom-playground-v1", "liquiddom-playground-v2"];
+export const PLAYGROUND_SCHEMA = 3;
+
+/** The playground scene's observed elements (`data-pg-id`), in page order. */
+export const PLAYGROUND_ELEMENT_IDS = ["drop-a", "drop-b", "drop-c", "card", "pill-a", "pill-b"] as const;
+export type PlaygroundElementId = (typeof PLAYGROUND_ELEMENT_IDS)[number];
+
+/** Upper bound of the playground's gravity strength slider (px/s²). */
+export const GRAVITY_STRENGTH_MAX = 4000;
+
+/** `angle` is the dial angle in degrees (0 = down, 90 = right, `dialVector`). */
+export interface PlaygroundGravity {
+  source: "none" | "fixed" | "orientation";
+  angle: number;
+  strength: number;
+}
+
+export const DEFAULT_PLAYGROUND_GRAVITY: Readonly<PlaygroundGravity> = Object.freeze({
+  source: "none",
+  angle: 0,
+  strength: 980,
+});
 
 /** D66-6 bounds for `particles`; `seed` is a u32. */
 export const PARTICLES_MIN = 256;
@@ -46,9 +68,11 @@ export interface PlaygroundInit {
 }
 
 export interface PlaygroundState {
-  schema: 2;
+  schema: 3;
   material: Material;
   init: PlaygroundInit;
+  gravity: PlaygroundGravity;
+  dragOff: PlaygroundElementId[];
 }
 
 export type PresetName = "water" | "honey" | "jelly";
@@ -104,6 +128,28 @@ export function isValidInit(i: unknown): i is PlaygroundInit {
   );
 }
 
+export function isValidGravity(g: unknown): g is PlaygroundGravity {
+  if (typeof g !== "object" || g === null || Array.isArray(g)) return false;
+  const r = g as Record<string, unknown>;
+  return (
+    (r.source === "none" || r.source === "fixed" || r.source === "orientation") &&
+    inRange(r.angle, 0, 359.999) &&
+    inRange(r.strength, 0, GRAVITY_STRENGTH_MAX)
+  );
+}
+
+export function isValidDragOff(d: unknown): d is PlaygroundElementId[] {
+  return (
+    Array.isArray(d) &&
+    d.every((id) => (PLAYGROUND_ELEMENT_IDS as readonly unknown[]).includes(id)) &&
+    new Set(d).size === d.length
+  );
+}
+
+function pickGravity(g: PlaygroundGravity): PlaygroundGravity {
+  return { source: g.source, angle: g.angle, strength: g.strength };
+}
+
 function pickMaterial(m: Material): Material {
   return { viscosity: m.viscosity, cohesion: m.cohesion, recovery: m.recovery };
 }
@@ -139,7 +185,7 @@ function safeRemove(storage: Storage, key: string): void {
 
 /**
  * Load saved state. Returns null when nothing is saved, the JSON is corrupt,
- * the schema is not 2, or any field is out of range. Bad entries and every
+ * the schema is not 3, or any field is out of range. Bad entries and every
  * legacy key are removed as a side effect.
  */
 export function loadPlaygroundState(storage: Storage | null = defaultStorage()): PlaygroundState | null {
@@ -161,18 +207,36 @@ export function loadPlaygroundState(storage: Storage | null = defaultStorage()):
     safeRemove(storage, PLAYGROUND_STORAGE_KEY);
     return null;
   }
-  const p = parsed as { schema?: unknown; material?: unknown; init?: unknown };
-  if (p.schema !== PLAYGROUND_SCHEMA || !isValidMaterial(p.material) || !isValidInit(p.init)) {
+  const p = parsed as { schema?: unknown; material?: unknown; init?: unknown; gravity?: unknown; dragOff?: unknown };
+  if (
+    p.schema !== PLAYGROUND_SCHEMA ||
+    !isValidMaterial(p.material) ||
+    !isValidInit(p.init) ||
+    !isValidGravity(p.gravity) ||
+    !isValidDragOff(p.dragOff)
+  ) {
     safeRemove(storage, PLAYGROUND_STORAGE_KEY);
     return null;
   }
-  return { schema: 2, material: pickMaterial(p.material), init: pickInit(p.init) };
+  return {
+    schema: 3,
+    material: pickMaterial(p.material),
+    init: pickInit(p.init),
+    gravity: pickGravity(p.gravity),
+    dragOff: [...p.dragOff],
+  };
 }
 
 /** Persist state. Returns false when storage is unavailable or full. */
 export function savePlaygroundState(state: PlaygroundState, storage: Storage | null = defaultStorage()): boolean {
   if (storage === null) return false;
-  const payload: PlaygroundState = { schema: 2, material: pickMaterial(state.material), init: pickInit(state.init) };
+  const payload: PlaygroundState = {
+    schema: 3,
+    material: pickMaterial(state.material),
+    init: pickInit(state.init),
+    gravity: pickGravity(state.gravity),
+    dragOff: [...state.dragOff],
+  };
   try {
     storage.setItem(PLAYGROUND_STORAGE_KEY, JSON.stringify(payload));
     return true;
@@ -233,7 +297,7 @@ export function buildInitialState(
 ): PlaygroundState {
   const baseInit = saved?.init ?? DEFAULT_PLAYGROUND_INIT;
   return {
-    schema: 2,
+    schema: 3,
     material: pickMaterial(saved?.material ?? defaultMaterial),
     init: {
       particles: url.particles ?? baseInit.particles,
@@ -241,6 +305,8 @@ export function buildInitialState(
       renderer: url.renderer ?? baseInit.renderer,
       forceReducedMotion: url.forceReducedMotion ?? baseInit.forceReducedMotion,
     },
+    gravity: pickGravity(saved?.gravity ?? DEFAULT_PLAYGROUND_GRAVITY),
+    dragOff: [...(saved?.dragOff ?? [])],
   };
 }
 

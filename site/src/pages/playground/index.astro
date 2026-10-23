@@ -1,0 +1,141 @@
+---
+/**
+ * W86 (D86-5): the playground. A Tweakpane over a scene of three drops, a card and two pills.
+ * Nothing that holds an observed element has a background (W82); the pane is fixed beside the scene.
+ */
+import BaseLayout from "../../layouts/BaseLayout.astro";
+---
+
+<BaseLayout
+  title="Playground · liquiddom"
+  description="Tune liquiddom live: material, presets, gravity, drag per element, splash and shake. Copy the settings as code."
+>
+  <main class="pg">
+    <div class="wrap pg-wrap">
+      <header class="pg-head">
+        <p class="eyebrow">Playground</p>
+        <h1>Tune the liquid.</h1>
+        <p class="lede">
+          Viscosity, cohesion and recovery, live. Turn gravity, switch drag off per element, then take the settings
+          with you: <strong>Actions → Copy as code</strong>.
+        </p>
+        <p class="pg-status">
+          <span class="pg-badge" id="renderer-badge" data-renderer="none" title="Active renderer">starting…</span>
+          <span class="pg-hint">Gravity acts when it changes: turn the angle.</span>
+        </p>
+        <p id="stopped" class="pg-stopped" role="status" hidden>
+          <span id="stopped-text">The liquid stopped.</span>
+          <button id="restart" class="control" type="button">Restart</button>
+        </p>
+      </header>
+
+      <section class="pg-stage" aria-label="The playground scene">
+        <div class="pg-drops">
+          <div id="drop-a" class="pg-drop tone-cyan" data-liquid data-pg-id="drop-a" aria-hidden="true"></div>
+          <div id="drop-b" class="pg-drop tone-coral" data-liquid data-pg-id="drop-b" aria-hidden="true"></div>
+          <div id="drop-c" class="pg-drop tone-lime" data-liquid data-pg-id="drop-c" aria-hidden="true"></div>
+        </div>
+        <div class="pg-side">
+          <article id="card" class="card tone-magenta" data-liquid data-pg-id="card" tabindex="0">
+            <h3>A card</h3>
+            <p>Real text you can select. Shake it, splash it, drag it into a pill.</p>
+          </article>
+          <div class="row">
+            <button id="pill-a" class="pill tone-cyan" type="button" data-liquid data-pg-id="pill-a">Pour me</button>
+            <button id="pill-b" class="pill tone-lime" type="button" data-liquid data-pg-id="pill-b">Drag me</button>
+          </div>
+        </div>
+      </section>
+
+      <p class="note pg-devtools">Open devtools and play with <code>liquiddom.instance</code>.</p>
+    </div>
+
+    <button id="pane-toggle" class="control" type="button" aria-controls="tweak-mount" aria-expanded="true">Controls</button>
+    <div id="tweak-mount" class="pg-pane" data-collapsed="false"></div>
+    <div id="toast" class="pg-toast" role="status" data-visible="false"></div>
+  </main>
+
+  <script>
+    import "../../playground/main";
+  </script>
+</BaseLayout>
+
+<style is:global>
+  /* The pane is chrome, not liquid: a frosted deep-water panel. It never holds an observed element (W82). */
+  .pg { --pane-w: 320px; position: relative; }
+  .wrap.pg-wrap { padding-right: max(var(--gutter), calc((var(--measure) - 100vw) / 2 + var(--pane-w) + 40px)); }
+  .pg-head { padding-block: clamp(24px, 6vh, 64px) 8px; }
+  .pg-head h1 { font-size: clamp(2.4rem, 6vw, 4.4rem); line-height: 1; letter-spacing: -0.04em; font-weight: 850; margin: 0; }
+  .pg-head .lede strong { color: var(--ink); font-weight: 700; }
+  .pg-status { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin: 22px 0 0; font-size: 0.9rem; color: var(--ink-faint); }
+  .pg-badge { font: 600 0.75rem/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; border: 1px solid var(--line-strong); border-radius: 999px; padding: 6px 10px; color: var(--ink-muted); }
+  .pg-badge[data-renderer="webgpu"] { color: var(--liquid-lime); border-color: oklch(0.88 0.18 125 / 0.45); }
+  .pg-badge[data-renderer="canvas2d"] { color: var(--liquid-cyan); border-color: oklch(0.82 0.15 205 / 0.45); }
+  .pg-stopped { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin: 18px 0 0; color: var(--ink-muted); }
+  .pg-stopped[hidden] { display: none; }
+
+  .pg-stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: clamp(40px, 6vw, 88px); padding-block: clamp(56px, 10vh, 120px); min-height: 52vh; }
+  .pg-drops { --u: min(1px, (100vw - 2 * var(--gutter)) / 330); position: relative; width: calc(330 * var(--u)); height: calc(320 * var(--u)); justify-self: center; }
+  .pg-drop { position: absolute; border-radius: 50%; }
+  #drop-a { width: calc(190 * var(--u)); height: calc(190 * var(--u)); left: 0; top: calc(20 * var(--u)); }
+  #drop-b { width: calc(110 * var(--u)); height: calc(110 * var(--u)); left: calc(210 * var(--u)); top: 0; }
+  #drop-c { width: calc(140 * var(--u)); height: calc(140 * var(--u)); left: calc(170 * var(--u)); top: calc(170 * var(--u)); }
+  .pg-side { display: grid; gap: 36px; justify-items: start; }
+  .pg-devtools code { font: 0.9em var(--font-mono); color: var(--liquid-lime); }
+
+  #tweak-mount {
+    position: fixed; top: 84px; right: 16px; z-index: 10;
+    width: var(--pane-w); max-height: calc(100vh - 100px); overflow-y: auto;
+    border-radius: 14px; box-shadow: 0 18px 50px oklch(0.08 0.03 260 / 0.55);
+    --tp-base-background-color: oklch(0.19 0.05 256 / 0.92);
+    --tp-base-shadow-color: oklch(0.08 0.03 260 / 0.4);
+    --tp-base-font-family: var(--font-mono);
+    --tp-base-border-radius: 14px;
+    --tp-blade-border-radius: 8px;
+    --tp-blade-value-width: 168px;
+    --tp-container-unit-size: 24px;
+    --tp-button-background-color: oklch(0.82 0.15 205 / 0.16);
+    --tp-button-background-color-hover: oklch(0.82 0.15 205 / 0.26);
+    --tp-button-background-color-focus: oklch(0.82 0.15 205 / 0.3);
+    --tp-button-background-color-active: oklch(0.82 0.15 205 / 0.38);
+    --tp-button-foreground-color: var(--liquid-cyan);
+    --tp-container-background-color: oklch(0.96 0.01 250 / 0.07);
+    --tp-container-background-color-hover: oklch(0.96 0.01 250 / 0.12);
+    --tp-container-background-color-focus: oklch(0.96 0.01 250 / 0.14);
+    --tp-container-background-color-active: oklch(0.96 0.01 250 / 0.18);
+    --tp-container-foreground-color: var(--ink);
+    --tp-groove-foreground-color: oklch(0.96 0.01 250 / 0.12);
+    --tp-input-background-color: oklch(0.96 0.01 250 / 0.07);
+    --tp-input-background-color-hover: oklch(0.96 0.01 250 / 0.11);
+    --tp-input-background-color-focus: oklch(0.82 0.15 205 / 0.18);
+    --tp-input-background-color-active: oklch(0.82 0.15 205 / 0.24);
+    --tp-input-foreground-color: var(--liquid-cyan);
+    --tp-label-foreground-color: var(--ink-muted);
+    --tp-monitor-background-color: oklch(0.1 0.03 260 / 0.5);
+    --tp-monitor-foreground-color: var(--liquid-lime);
+  }
+  #tweak-mount .tp-rotv { backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  #pane-toggle { display: none; }
+
+  .pg-toast {
+    position: fixed; left: 50%; bottom: 32px; z-index: 20; transform: translate(-50%, 8px);
+    padding: 12px 20px; border-radius: 999px; border: 1px solid var(--line-strong);
+    background: oklch(0.19 0.05 256 / 0.95); color: var(--ink); font: 600 0.9rem/1 var(--font-display);
+    opacity: 0; pointer-events: none; transition: opacity 180ms ease, transform 180ms ease;
+  }
+  .pg-toast[data-visible="true"] { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (max-width: 1000px) {
+    .wrap.pg-wrap { padding-right: var(--gutter); max-width: var(--measure); padding-bottom: 50vh; }
+    .pg-stage { grid-template-columns: minmax(0, 1fr); }
+    .pg-side { justify-items: center; }
+    #tweak-mount { top: auto; right: 0; left: 0; bottom: 0; width: 100%; max-height: 46vh; border-radius: 16px 16px 0 0; --tp-base-background-color: oklch(0.19 0.05 256 / 0.98); }
+    #tweak-mount[data-collapsed="true"] { display: none; }
+    #pane-toggle { display: inline-flex; position: fixed; right: 16px; bottom: calc(46vh + 12px); z-index: 11; background: oklch(0.19 0.05 256 / 0.95); }
+    #pane-toggle[aria-expanded="false"] { bottom: 16px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pg-toast { transition: none; }
+  }
+</style>
