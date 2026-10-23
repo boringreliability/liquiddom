@@ -104,7 +104,7 @@ Red results were measured after W86.1 (stubs in place, `npm run build` then `npm
 | 3 | color.test: given_the_same_unread_colour_twice_when_parsed_then_the_probe_runs_once | cache | ❌ null instead of the probed colour | ✅ |
 | 4 | color.test: given_the_probe_returns_alpha_zero_when_parsed_then_null | transparent stays null | ✅ | ✅ |
 | 5 | color.test: given_an_oklch_background_when_snapshotted_then_the_liquid_takes_the_probed_colour | snapshot path | ❌ default purple `[83,52,131,1]` | ✅ |
-| 6 | color.test: given_rgb_or_hex_when_parsed_then_the_probe_is_never_called | fast path unchanged | ✅ | ✅ |
+| 6 | color.test: given_rgb_or_hex_when_parsed_then_the_probe_is_never_called | fast path unchanged; `transparent`, `rgba(0, 0, 0, 0)` and `#0000` stay null and never reach the probe | ✅ | ✅ |
 | 7 | landing.test: given_the_chapters_when_read_then_nine_in_order_with_the_design_titles | D86-2 | ❌ `CHAPTERS` is empty | ✅ |
 | 8 | landing.test: given_the_config_when_read_then_the_gate_values | D86-3, D86-4 | ❌ zeros in `BODY_OPTIONS` | ✅ |
 | 9 | landing.test: given_hero_elements_when_the_arrival_starts_then_each_is_splashed_at_0_8_at_once | D86-4 | ❌ no `splash` call | ✅ |
@@ -147,7 +147,7 @@ Red results were measured after W86.1 (stubs in place, `npm run build` then `npm
 | E2 | site.spec: given chapters 3 and 7 when scrolled into view then three and two container canvases and their buttons work | D86-3 | ❌ not run (no page) | ✅ |
 | E3 | site.spec: given the last chapter 6 card when scrolled to then its liquid appears at rest | step 7, D86-3 | ❌ not run (no page) | ✅ |
 | E4 | site.spec: given reduced motion when the landing rests then the hero drop's liquid has its oklch colour, not the default purple | D86-9, D86-4 | ❌ not run (no page) | ✅ |
-| E5 | site.spec: given the playground when the honey preset is applied and the page reloaded then the material is restored from liquiddom-playground-v3 and v1/v2 are gone | moved W69 e2e | ❌ not run (no page) | ✅ |
+| E5 | site.spec: given the playground when the honey preset is applied and the page reloaded then the material is restored from liquiddom-playground-v3 and v1/v2 are gone | moved W69 e2e: v1 and v2 seeded before every load and null after each load; the instance holds honey right after `applyPreset` and after the reload | ❌ not run (no page) | ✅ |
 | E6 | site.spec: given every docs page when loaded then it has its title and no liquid canvas | D86-6 | ❌ not run (no page) | ✅ |
 | E7 | site.spec: given a 390 px phone viewport when the landing loads then nothing scrolls sideways | mobile | ❌ not run (no page) | ✅ |
 

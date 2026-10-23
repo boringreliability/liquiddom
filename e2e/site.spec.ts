@@ -94,8 +94,7 @@ test.describe("reduced motion", () => {
 
 test("given the playground when the honey preset is applied and the page reloaded then the material is restored from liquiddom-playground-v3 and v1/v2 are gone", async ({ page }) => {
   await page.addInitScript(() => {
-    if (sessionStorage.getItem("seeded")) return;
-    sessionStorage.setItem("seeded", "1");
+    // Before EVERY load (no once-guard): the null checks below prove the page removes both legacy keys (W69 ward review).
     localStorage.setItem("liquiddom-playground-v1", JSON.stringify({ schema: 1, liquidType: "water" }));
     localStorage.setItem("liquiddom-playground-v2", JSON.stringify({ schema: 2 }));
   });
@@ -107,10 +106,13 @@ test("given the playground when the honey preset is applied and the page reloade
   await expect(page.locator("#tweak-mount > *")).not.toHaveCount(0);
   await page.evaluate(() => (window as unknown as { liquiddom: Handle }).liquiddom.applyPreset("honey"));
   const honey = await page.evaluate(() => (window as unknown as { liquiddom: Handle }).liquiddom.presets.honey);
+  const material = () => page.evaluate(() => (window as unknown as { liquiddom: Handle }).liquiddom.instance.getMaterial());
+  expect(await material(), "applyPreset(honey) reaches the instance").toEqual(honey);
   await page.waitForFunction(() => localStorage.getItem("liquiddom-playground-v3") !== null);
   await page.reload();
   await handle();
-  expect(await page.evaluate(() => (window as unknown as { liquiddom: Handle }).liquiddom.instance.getMaterial())).toEqual(honey);
+  expect(await page.evaluate(() => [localStorage.getItem("liquiddom-playground-v1"), localStorage.getItem("liquiddom-playground-v2")]), "v1 and v2 removed after reload").toEqual([null, null]);
+  expect(await material(), "honey restored after reload").toEqual(honey);
 });
 
 test("given every docs page when loaded then it has its title and no liquid canvas", async ({ page }) => {

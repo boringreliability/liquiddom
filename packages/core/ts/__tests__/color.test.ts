@@ -112,6 +112,8 @@ describe("W86: colours the parser cannot read (D86-9)", () => {
     expect(parseCssColor("rgb(1, 2, 3)")).toEqual([1, 2, 3, 1]);
     expect(parseCssColor("#0a0b0c")).toEqual([10, 11, 12, 1]);
     expect(parseCssColor("transparent")).toBeNull();
+    expect(parseCssColor("rgba(0, 0, 0, 0)")).toBeNull();
+    expect(parseCssColor("#0000")).toBeNull();
     expect(calls).toBe(0);
   });
 });
