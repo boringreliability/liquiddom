@@ -177,7 +177,8 @@ kbd { font: 600 0.85em var(--font-mono); border: 1px solid var(--line-strong); b
 .prose td code { overflow-wrap: normal; }
 .prose pre { margin: 0 0 20px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; overflow-x: auto; font: 0.86rem/1.6 var(--font-mono); }
 .prose pre code { font: inherit; }
-.prose table { width: 100%; border-collapse: collapse; margin: 0 0 24px; font-size: 0.92rem; display: block; overflow-x: auto; }
+.prose .table-wrap { overflow-x: auto; margin: 0 0 24px; }
+.prose table { width: 100%; min-width: 560px; border-collapse: collapse; margin: 0; font-size: 0.92rem; }
 .prose th, .prose td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .prose th { color: var(--ink); font-weight: 700; border-bottom-color: var(--line-strong); white-space: nowrap; }
 .prose td:first-child { white-space: nowrap; }

@@ -52,7 +52,8 @@ const MATERIAL_SLIDERS: Readonly<Record<keyof Material, { step: number; label: s
 
 /** Resolution 3: the site's own handle on its public instance ("open devtools and play with liquiddom.instance"). */
 interface PlaygroundHandle {
-  instance: LiquidDOMInstance;
+  /** The live instance; null after a stop (Restart sets it again). */
+  instance: LiquidDOMInstance | null;
   state: PlaygroundState;
   presets: typeof presets;
   applyPreset(name: PresetName): void;
@@ -85,9 +86,13 @@ function debounce(fn: () => void, ms: number): { debounced: () => void; flush: (
   };
 }
 
-/** The playground's gravity as liquiddom's GravityOptions (`fixed`: the dial angle as a unit vector). */
-function toGravity(g: PlaygroundGravity): GravityOptions {
+/**
+ * The playground's gravity as liquiddom's GravityOptions (`fixed`: the dial angle as a unit vector).
+ * `tiltAllowed: false` turns `orientation` into `none`: device tilt needs permission from a gesture.
+ */
+function toGravity(g: PlaygroundGravity, tiltAllowed: boolean): GravityOptions {
   if (g.source === "fixed") return { source: "fixed", vector: dialVector(g.angle), strength: g.strength };
+  if (g.source === "orientation" && !tiltAllowed) return { source: "none", strength: g.strength };
   return { source: g.source, strength: g.strength };
 }
 
@@ -127,17 +132,22 @@ async function copyText(text: string, done: string): Promise<void> {
   }
 }
 
-/** The stopped line: hidden while an instance runs, shown with Restart after a stop or a failed create(). */
+/**
+ * The stopped line. Its live region (`#stopped`, role="status") is always in the page and empty while
+ * an instance runs; a stop or a failed create() only sets its text and reveals Restart.
+ */
 function showStopped(message: string | null): void {
   const line = $("stopped");
   const text = $("stopped-text");
+  const restart = $("restart");
   if (line === null || text === null) return;
-  if (message === null) {
-    line.hidden = true;
-    return;
-  }
-  text.textContent = message;
-  line.hidden = false;
+  text.textContent = message ?? "";
+  line.dataset.stopped = String(message !== null);
+  if (restart !== null) restart.hidden = message === null;
+}
+
+function isStoppedShown(): boolean {
+  return $("stopped")?.dataset.stopped === "true";
 }
 
 function bootstrap(): void {
@@ -148,6 +158,13 @@ function bootstrap(): void {
   let instance: LiquidDOMInstance | null = null;
   /** Bumped by every create; an older attempt's stop or arrival is ignored. */
   let attempt = 0;
+  /**
+   * Device tilt was allowed in this page (requestOrientationPermission() resolved true from a gesture).
+   * A saved `orientation` source runs as `none` until then; the pane offers "Enable device tilt".
+   */
+  let tiltAllowed = false;
+  /** The gravity source last applied and saved, to revert the pane to when tilt is refused. */
+  let appliedSource = state.gravity.source;
 
   const ui: { preset: PresetChoice; strength: number } = { preset: detectPreset(state.material, presets), strength: 1 };
   const info = { renderer: "…", particles: "…", elements: "…" };
@@ -204,6 +221,7 @@ function bootstrap(): void {
       instance = null;
       if (inst === null) stoppedEarly = true; // a stop during create(): destroyed on arrival
       else inst.destroy();
+      if (window.liquiddom) window.liquiddom.instance = null; // never a handle on a destroyed instance
       showRendererBadge(null);
       showStopped("The liquid stopped.");
     };
@@ -213,7 +231,7 @@ function bootstrap(): void {
       renderer: state.init.renderer,
       forceReducedMotion: state.init.forceReducedMotion,
       material: { ...state.material },
-      gravity: toGravity(state.gravity),
+      gravity: toGravity(state.gravity, tiltAllowed),
       autoObserve: false,
       onError,
     };
@@ -245,10 +263,14 @@ function bootstrap(): void {
 
   function start(): void {
     create().catch((err: unknown) => {
-      if (instance !== null) return;
+      if (instance !== null) {
+        // The instance arrived, then the playground's own setup threw (observe, the pane): say so.
+        console.warn("[playground] setting up the instance failed", err);
+        return;
+      }
       console.warn("[playground] the liquid could not start", err);
       showRendererBadge(null);
-      if ($("stopped")?.hidden !== false) showStopped("The liquid could not start.");
+      if (!isStoppedShown()) showStopped("The liquid could not start.");
     });
   }
 
@@ -287,28 +309,63 @@ function bootstrap(): void {
   const pushGravity = (): void => {
     if (instance === null) return;
     try {
-      instance.setGravity(toGravity(state.gravity));
+      instance.setGravity(toGravity(state.gravity, tiltAllowed));
     } catch (err) {
       console.warn("[playground] setGravity rejected the change", err);
     }
   };
+  /** A saved `orientation` source waits for a gesture: this button asks for permission, then applies it. */
+  const enableTilt = gravityFolder.addButton({ title: "Enable device tilt (tap)", hidden: true });
+  const syncTiltButton = (): void => {
+    enableTilt.hidden = !(state.gravity.source === "orientation" && !tiltAllowed);
+  };
+  /** Asks for device tilt from the current gesture; applies and saves `orientation` only once granted. */
+  const requestTilt = (): void => {
+    const inst = instance;
+    if (inst === null) return;
+    const revert = (): void => {
+      state.gravity.source = appliedSource === "orientation" && !tiltAllowed ? "none" : appliedSource;
+      appliedSource = state.gravity.source;
+      refreshPane();
+      syncTiltButton();
+      saveDebounced();
+    };
+    inst
+      .requestOrientationPermission()
+      .then((granted) => {
+        if (!granted) {
+          showToast("Device tilt was not allowed");
+          revert();
+          return;
+        }
+        tiltAllowed = true;
+        state.gravity.source = "orientation";
+        appliedSource = "orientation";
+        pushGravity();
+        refreshPane();
+        syncTiltButton();
+        saveDebounced();
+      })
+      .catch((err: unknown) => {
+        console.warn("[playground] device tilt is unavailable", err);
+        revert();
+      });
+  };
+  enableTilt.on("click", requestTilt);
+  syncTiltButton();
   gravityFolder
     .addBinding(state.gravity, "source", { options: { none: "none", fixed: "fixed", orientation: "orientation" } })
     .on("change", (ev) => {
       if (refreshing) return;
-      saveDebounced();
-      if (ev.value !== "orientation" || instance === null) {
-        pushGravity();
+      if (ev.value === "orientation" && !tiltAllowed && instance !== null) {
+        // iOS asks for permission from a user gesture; this change is one. Nothing is applied or saved yet.
+        requestTilt();
         return;
       }
-      // iOS asks for permission from a user gesture; this change is one.
-      instance
-        .requestOrientationPermission()
-        .then((granted) => {
-          if (granted) pushGravity();
-          else showToast("Device tilt was not allowed");
-        })
-        .catch((err: unknown) => console.warn("[playground] device tilt is unavailable", err));
+      appliedSource = ev.value;
+      pushGravity();
+      syncTiltButton();
+      saveDebounced();
     });
   gravityFolder
     .addBinding(state.gravity, "angle", { min: 0, max: 359, step: 1, label: "angle (0 = down)" })
@@ -393,6 +450,8 @@ function bootstrap(): void {
     Object.assign(state.material, PLAYGROUND_DEFAULT_MATERIAL);
     Object.assign(state.init, DEFAULT_PLAYGROUND_INIT);
     Object.assign(state.gravity, DEFAULT_PLAYGROUND_GRAVITY);
+    appliedSource = state.gravity.source;
+    syncTiltButton();
     const hadOff = state.dragOff;
     state.dragOff = [];
     for (const id of PLAYGROUND_ELEMENT_IDS) drag[id] = true;
@@ -421,6 +480,7 @@ function bootstrap(): void {
   if (window.matchMedia("(max-width: 1000px)").matches) setCollapsed(true);
   toggle?.addEventListener("click", () => setCollapsed(mount.dataset.collapsed !== "true"));
   $("restart")?.addEventListener("click", () => {
+    // Restart is reachable only while the stopped line shows; any leftover instance is destroyed first.
     const old = instance;
     instance = null;
     old?.destroy();

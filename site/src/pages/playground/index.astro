@@ -23,9 +23,10 @@ import BaseLayout from "../../layouts/BaseLayout.astro";
           <span class="pg-badge" id="renderer-badge" data-renderer="none" title="Active renderer">starting…</span>
           <span class="pg-hint">Gravity acts when it changes: turn the angle.</span>
         </p>
-        <p id="stopped" class="pg-stopped" role="status" hidden>
-          <span id="stopped-text">The liquid stopped.</span>
-          <button id="restart" class="control" type="button">Restart</button>
+        <!-- Fix round 1 (#6): the live region is always present, empty while the liquid runs; a stop sets its text. -->
+        <p id="stopped" class="pg-stopped" role="status" data-stopped="false">
+          <span id="stopped-text"></span>
+          <button id="restart" class="control" type="button" hidden>Restart</button>
         </p>
       </header>
 
@@ -37,7 +38,7 @@ import BaseLayout from "../../layouts/BaseLayout.astro";
         </div>
         <div class="pg-side">
           <article id="card" class="card tone-magenta" data-liquid data-pg-id="card" tabindex="0">
-            <h3>A card</h3>
+            <h2 class="card-title">A card</h2>
             <p>Real text you can select. Shake it, splash it, drag it into a pill.</p>
           </article>
           <div class="row">
@@ -71,8 +72,10 @@ import BaseLayout from "../../layouts/BaseLayout.astro";
   .pg-badge { font: 600 0.75rem/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; border: 1px solid var(--line-strong); border-radius: 999px; padding: 6px 10px; color: var(--ink-muted); }
   .pg-badge[data-renderer="webgpu"] { color: var(--liquid-lime); border-color: oklch(0.88 0.18 125 / 0.45); }
   .pg-badge[data-renderer="canvas2d"] { color: var(--liquid-cyan); border-color: oklch(0.82 0.15 205 / 0.45); }
-  .pg-stopped { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin: 18px 0 0; color: var(--ink-muted); }
-  .pg-stopped[hidden] { display: none; }
+  .pg-stopped { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin: 0; color: var(--ink-muted); }
+  .pg-stopped[data-stopped="true"] { margin-top: 18px; }
+  .pg-stopped .control[hidden] { display: none; }
+  .card .card-title { margin: 0 0 6px; font-size: 1.2rem; letter-spacing: -0.02em; font-weight: 800; }
 
   .pg-stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: clamp(40px, 6vw, 88px); padding-block: clamp(56px, 10vh, 120px); min-height: 52vh; }
   .pg-drops { --u: min(1px, (100vw - 2 * var(--gutter)) / 330); position: relative; width: calc(330 * var(--u)); height: calc(320 * var(--u)); justify-self: center; }

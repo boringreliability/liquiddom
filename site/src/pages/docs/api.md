@@ -19,6 +19,8 @@ import {
 
 Every option is optional. Unknown keys throw a `TypeError` that lists the allowed ones, and the options removed in 0.3 (`capacity`, `physics`, `theme`, …) throw a `TypeError` that names the replacement.
 
+<div class="table-wrap">
+
 | Option | Type | Default | Meaning |
 |---|---|---|---|
 | `particles` | `number` | `8000` | The fixed particle pool, an integer in [256, 65536]. Set once; there is no growing. |
@@ -32,6 +34,8 @@ Every option is optional. Unknown keys throw a `TypeError` that lists the allowe
 | `forceReducedMotion` | `boolean` | `false` | Run in the still, crisp reduced-motion mode whatever the OS setting. |
 | `silentFallback` | `boolean` | `false` | Hide the one `console.info` logged when `"auto"` falls back to Canvas2D. |
 | `onError` | `(err: unknown) => void` | none | Called once when the instance stops for good. See [Errors](#errors). |
+
+</div>
 
 ## The instance
 
@@ -68,18 +72,26 @@ Under reduced motion `splash()` and `shake()` still validate their arguments, bu
 
 The second argument of `observe()`. Read once, when the element is first observed; to change them, `unobserve()` and `observe()` again.
 
+<div class="table-wrap">
+
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `viscosity` | `number` | the material's | [0, 1], for this element only. |
 | `recovery` | `number` | the material's | Seconds in [0.2, 3], for this element only. |
 | `drag` | `boolean` | `true` | `false`: the element never drags (mouse, pen or touch) and keeps the browser's long-press menu. Use it for text fields, inputs and `contenteditable`. |
 
+</div>
+
 ## `SplashOptions`
+
+<div class="table-wrap">
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `strength` | `number` | `1` | 0–2; 0 does nothing. |
 | `at` | `{ x: number; y: number }` | the element's centre | The splash origin in client px, like `MouseEvent.clientX/Y`. |
+
+</div>
 
 ## Material
 
@@ -93,11 +105,15 @@ interface Material { viscosity: number; cohesion: number; recovery: number }
 
 Three frozen materials:
 
+<div class="table-wrap">
+
 | Preset | viscosity | cohesion | recovery |
 |---|---|---|---|
 | `presets.water` | 0.15 | 0.3 | 0.5 |
 | `presets.honey` | 0.9 | 0.7 | 0.8 |
 | `presets.jelly` | 0.6 | 0.85 | 0.4 |
+
+</div>
 
 ```ts
 const liquid = await LiquidDOM.create({ material: presets.honey });
@@ -127,11 +143,14 @@ if (await liquid.requestOrientationPermission()) liquid.setGravity({ source: "or
 
 - **`WebGPUUnavailableError`**: `create({ renderer: "webgpu" })` rejects with it when the browser has no usable WebGPU. With `"auto"` it never reaches you: the instance falls back to Canvas2D.
 - **`LiquidWasmLoadError`**: `create()` rejects with it when the WebAssembly cannot be imported, fetched or compiled. Its `cause` holds the underlying error.
-- **`onError`**: an instance that is already running can still stop for good (a frame that throws, a failed memory growth, a failed rebuild after a lost GPU device). It then logs one `console.error`, stops drawing and calls `onError(err)` once. It is not called for a `create()` rejection, an `"auto"` fallback or after `destroy()`. Recovery is `destroy()`, then `create()`:
+- **`onError`**: an instance that is already running can still stop for good (a frame that throws, a failed growth of the simulated world after a resize, a failed grid rebuild for the first observed elements, or a failed Canvas2D rebuild after a lost GPU device). It then logs one `console.error`, stops drawing and calls `onError(err)` once. It is not called for a `create()` rejection, an `"auto"` fallback or after `destroy()`. Recovery is `destroy()`, then `create()`:
 
 ```ts
+import { LiquidDOM, type LiquidDOMInstance } from "liquiddom";
+declare function showRestart(retry: () => void): void; // your UI
+
 async function start() {
-  let liquid = null;
+  let liquid: LiquidDOMInstance | null = null;
   let stopped = false;
   liquid = await LiquidDOM.create({
     onError() {

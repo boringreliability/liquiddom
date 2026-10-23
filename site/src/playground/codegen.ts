@@ -28,6 +28,7 @@ export function toCode(s: PlaygroundState): string {
     lines.push(`  gravity: { source: "orientation", strength: ${num(s.gravity.strength)} },`);
   }
   lines.push(`});`);
+  if (s.gravity.source === "orientation") lines.push(`// iOS: call liquid.requestOrientationPermission() from a user gesture first.`);
   for (const id of s.dragOff) lines.push(`liquid.observe(document.querySelector("#${id}"), { drag: false });`);
   lines.push(`for (const el of document.querySelectorAll("[data-liquid]")) liquid.observe(el);`, ``);
   return lines.join("\n");
