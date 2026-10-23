@@ -56,31 +56,70 @@ function parseHex(hex: string): [number, number, number, number] | null {
   return [byte(0), byte(2), byte(4), full.length === 8 ? byte(6) / 255 : 1];
 }
 
+/** @internal W86 (D86-9): turns a CSS colour string the parser does not read into RGBA, or null. */
+export type ColorProbe = (raw: string) => RGBA | null;
+
+const PROBE_CACHE_MAX = 256;
+const probeCache = new Map<string, RGBA | null>();
+
+/** @internal W86 (D86-9): a colour the parser does not read, painted into a 1 × 1 canvas and read back as sRGB. */
+export const canvasColorProbe: ColorProbe = (raw) => {
+  try {
+    const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+    if (!ctx || typeof ctx.getImageData !== "function") return null;
+    // A string the canvas rejects leaves fillStyle unchanged; test against two sentinels.
+    ctx.fillStyle = "#000000";
+    ctx.fillStyle = raw;
+    const a = ctx.fillStyle;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = raw;
+    if (a === "#000000" && ctx.fillStyle === "#ffffff") return null;
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillRect(0, 0, 1, 1);
+    const d = ctx.getImageData(0, 0, 1, 1).data;
+    return [d[0], d[1], d[2], d[3] / 255];
+  } catch {
+    return null;
+  }
+};
+
+let probe: ColorProbe = canvasColorProbe;
+
+/** @internal Test seam: replace the probe (null restores the default) and clear the cache. */
+export function setColorProbe(next: ColorProbe | null): void {
+  probe = next ?? canvasColorProbe;
+  probeCache.clear();
+}
+
+function probed(raw: string): RGBA | null {
+  if (probeCache.has(raw)) return probeCache.get(raw) ?? null;
+  const v = typeof document === "undefined" ? null : probe(raw);
+  if (probeCache.size >= PROBE_CACHE_MAX) probeCache.clear();
+  probeCache.set(raw, v);
+  return v;
+}
+
 /**
  * `rgb()/rgba()` (comma or space syntax, % allowed) and `#rgb[a]`/`#rrggbb[aa]`.
+ * Any other colour the browser paints (oklch, lab, color(), named) goes through
+ * the colour probe (W86, D86-9), cached per string.
  * Transparent, alpha 0 or unparseable → `null` (the caller falls back).
  */
 export function parseCssColor(raw: string | null | undefined): RGBA | null {
   if (typeof raw !== "string") return null;
   const s = raw.trim().toLowerCase();
   if (s === "" || s === "transparent") return null;
-  let rgba: [number, number, number, number] | null = null;
+  let rgba: RGBA | null = null;
   if (s.startsWith("#")) {
     rgba = parseHex(s.slice(1));
   } else {
     const m = /^rgba?\((.*)\)$/.exec(s);
     if (m) rgba = parseFunctional(m[1] ?? "");
+    else rgba = probed(s);
   }
   if (rgba === null || !(rgba[3] > 0)) return null;
   return Object.freeze(rgba);
 }
-
-/** @internal W86 (D86-9): turns a CSS colour string the parser does not read into RGBA, or null. */
-export type ColorProbe = (raw: string) => RGBA | null;
-/** @internal Default probe: a 1 × 1 canvas (W86.2). */
-export const canvasColorProbe: ColorProbe = () => null;
-/** @internal Test seam: replace the probe (null restores the default) and clear the cache. */
-export function setColorProbe(_probe: ColorProbe | null): void {}
 
 /**
  * Reads the computed `background-color` and `color`. W64 calls it in
