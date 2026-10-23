@@ -1,7 +1,7 @@
 # Context — liquiddom
 
 ## Last Updated
-Ward 86 — 2026-10-23 (site). Next: W87 whole picture.
+Ward 86 complete — 2026-10-23 (site; gold approved by Dennis). Next: W87 whole picture.
 
 ## Current State
 Epic 15 (Fluid Engine). `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. Soft-body: tag `softbody-final`. Packages `0.3.0-alpha.x` (pre mode `alpha`), unpublished; `site/` is the private workspace `@liquiddom/site` (Astro 7, core's dist; W86). Test totals: `.wdd/PROGRESS.md`, ward gold notes.
@@ -66,5 +66,5 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Fluid decisions: `ward
 - Colour probe (W86): needs a 2d canvas (null in jsdom); 256 cached strings.
 
 ## What Comes Next
-- Slices 1–5 closed (whole pictures: `.wdd/memory/whole-picture/`). Slice 6: W80–W85 done; W86 at gold (site); next W87.
+- Slices 1–5 closed (whole pictures: `.wdd/memory/whole-picture/`). Slice 6: W80–W86 done (W86 site not yet deployed; the dispatch is Dennis' call); next W87.
 - Open: fate of the published `0.2.0-rc.0` (spec §7); publishing `0.3.0-alpha.x` is Dennis' call.

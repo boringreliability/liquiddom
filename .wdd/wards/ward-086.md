@@ -3,12 +3,12 @@ ward: 86
 revision: null
 name: "The site"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [85]
 layer: "typescript"
 estimated_tests: 0
 created: "2026-10-23"
-completed: null
+completed: "2026-10-23"
 ---
 # Ward 086: The site
 
