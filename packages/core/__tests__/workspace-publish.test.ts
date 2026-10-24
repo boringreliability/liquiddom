@@ -400,11 +400,12 @@ describe("W86 (was W66 site freeze): the site is a workspace, versioning, pkg-sp
     expect(scripts.build).toBe("vite build");
   });
 
-  it("given_publishable_packages_when_read_then_all_three_at_0_3_0_alpha_0_with_peers_caret_0_3_0_alpha_0", () => {
-    for (const p of [CORE, REACT, VUE]) expect(readJson(resolve(p, "package.json")).version, p).toBe("0.3.0-alpha.0");
+  // 0.3.0-alpha.1 release commit (Dennis 2026-10-24, D87-4): the version this test pins moves with the release.
+  it("given_publishable_packages_when_read_then_all_three_at_0_3_0_alpha_1_with_peers_caret_0_3_0_alpha_0", () => {
+    for (const p of [CORE, REACT, VUE]) expect(readJson(resolve(p, "package.json")).version, p).toBe("0.3.0-alpha.1");
     for (const p of [REACT, VUE]) {
       const peer = (readJson(resolve(p, "package.json")).peerDependencies as Record<string, string>).liquiddom;
-      expect(semver.satisfies("0.3.0-alpha.0", peer!), p).toBe(true); // without includePrerelease, as changesets checks
+      expect(semver.satisfies("0.3.0-alpha.1", peer!), p).toBe(true); // without includePrerelease, as changesets checks
     }
   });
 
@@ -446,16 +447,15 @@ describe("W86 (was W66 site freeze): the site is a workspace, versioning, pkg-sp
     for (const name of ["liquiddom", "@liquiddom/react", "@liquiddom/vue"]) expect(iv[name], name).toBe("0.3.0-alpha.0");
   });
 
-  it("given_pending_changesets_when_release_plan_computed_then_all_three_bump_to_0_3_0_alpha_1", async () => {
-    // Valid until `changeset version` consumes .changeset/fluid-engine-alpha.md; the
-    // 0.3.0-alpha.1 release commit updates this expectation. The example's "*" deps
-    // make changesets log a cosmetic "must depend on the current version" line.
+  it("given_the_0_3_0_alpha_1_release_commit_when_release_plan_computed_then_nothing_is_pending", async () => {
+    // The 0.3.0-alpha.1 release commit (Dennis 2026-10-24, D87-4) consumed every pending
+    // changeset, as this test's W66 comment foresaw; the next changeset makes it non-empty
+    // again. The example's "*" deps make changesets log a cosmetic "must depend on the
+    // current version" line.
     const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const plan = await getReleasePlan(ROOT);
-      expect(Object.fromEntries(plan.releases.map((r) => [r.name, r.newVersion]))).toEqual({
-        liquiddom: "0.3.0-alpha.1", "@liquiddom/react": "0.3.0-alpha.1", "@liquiddom/vue": "0.3.0-alpha.1",
-      });
+      expect(plan.releases.map((r) => r.name)).toEqual([]);
       expect(plan.preState?.tag).toBe("alpha");
     } finally {
       quiet.mockRestore();
