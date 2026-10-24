@@ -139,6 +139,22 @@ test.describe("whole picture – the site landing (D87-2)", () => {
       const scrollToChapter = async (n: number): Promise<void> => {
         await page.locator(`section[data-chapter="${n}"]`).evaluate((el) => el.scrollIntoView({ behavior: "smooth" }));
         await page.waitForTimeout(800);
+        // A long smooth scroll can outlast 800 ms: wait until scrollY holds still across three samples
+        // 50 ms apart, so the boxes read next are not taken mid-scroll (fix round 1, I2).
+        await expect
+          .poll(
+            () =>
+              page.evaluate(async () => {
+                const ys: number[] = [];
+                for (let i = 0; i < 3; i++) {
+                  ys.push(window.scrollY);
+                  if (i < 2) await new Promise((done) => setTimeout(done, 50));
+                }
+                return ys.every((v) => v === ys[0]);
+              }),
+            { message: `chapter ${n}: the smooth scroll settles`, timeout: 5_000 },
+          )
+          .toBe(true);
       };
 
       // 1. Arrival and the idle hint (D86-4: one hint shake at 4 s without input).
@@ -155,7 +171,9 @@ test.describe("whole picture – the site landing (D87-2)", () => {
       await waitSinceLoad(1_500);
       await shot("site-arrival-1500ms");
       // Read only once the renderer is up: getContext("2d") is null on a WebGPU canvas, and would
-      // claim a canvas that has no context yet.
+      // claim a canvas that has no context yet. The site observes its elements only after create()
+      // resolved, so an observed hero element means the body instance's renderer is up (fix round 1, I1).
+      await expect(page.locator('section[data-chapter="0"] .liquid-element').first()).toBeAttached({ timeout: 15_000 });
       const isCanvas2d = await page
         .locator("body > canvas.liquid-canvas")
         .evaluate((c) => (c as HTMLCanvasElement).getContext("2d") !== null);
@@ -194,7 +212,8 @@ test.describe("whole picture – the site landing (D87-2)", () => {
         const b = (await page.locator(sel).boundingBox())!;
         return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
       };
-      const from = await centreOf('section[data-chapter="4"] button.pill:not(#stay-put)');
+      const DRAG_ME = 'section[data-chapter="4"] button.pill:not(#stay-put)';
+      const from = await centreOf(DRAG_ME);
       const to = await centreOf('section[data-chapter="4"] article[data-liquid]');
       await page.mouse.move(from.x, from.y);
       await page.mouse.down();
@@ -203,6 +222,13 @@ test.describe("whole picture – the site landing (D87-2)", () => {
         await page.waitForTimeout(16);
       }
       await page.waitForTimeout(1_500);
+      // The site has no hook. Under Canvas2D the runtime holds `liquid-away` on a dragged element
+      // (W78), a public DOM signal that the press became a drag; under WebGPU there is no such
+      // signal, so the frames judge it (fix round 1, I2).
+      if (r.renderer === "canvas2d") {
+        const away = await page.locator(DRAG_ME).evaluate((el) => el.classList.contains("liquid-away"));
+        expect(away, 'chapter 4: "Drag me" is dragged while held (liquid-away)').toBe(true);
+      }
       await shot("site-ch4-merge-hold");
       await page.mouse.up();
       await page.mouse.move(1279, 799);
