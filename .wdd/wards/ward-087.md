@@ -35,22 +35,22 @@ Out of scope: any engine or API change (a finding becomes a later ward), glow an
 ### D87-1: Whole picture after slice 6: both renderers, all eight steps
 Proposal: the W76 template in Canvas2D and WebGPU (hardware adapter, local), now with step 5 (drag "Merge" into the card, hold, separate, re-form) and step 7 (scroll 300 px and back), driven with the same pointer and scroll paths as the acceptance specs, on the RAF clock; the report `slice-6.md` with a status per step and renderer against the S6 column, timings from the manifest, frame references and stills, inspected with vision; GIFs `slice-6-canvas2d.gif`, `slice-6-webgpu.gif`; the `whole-picture` script writes the slice-6 names.
 Consequence: the recording grows by two segments (about 15 s per renderer); steps 5 and 7 are seen in a video for the first time, so a visual finding there is possible and becomes a later ward, not a W87 fix.
-Decision: PENDING
+Decision: APPROVED 2026-10-24 — the W76 template in both renderers with all eight steps (5 drag and 7 scroll recorded), slice-6.md per step and renderer from vision, slice-6-*.gif; findings become later wards (saga dec_8fc2bdda)
 
 ### D87-2: The site landing as the foreign page
 Proposal: the live-quality site landing (built `site/dist`, served by the record spec itself with Vite's `preview()` on its own port) replaces W76's one-screen demo landing segment: arrival splash, hover and a splash in chapter 2, a drag merge in chapter 4, "Shake all" in chapter 3, a fast scroll to the parked chapter 6 cards, "Splash both" in chapter 7, scroll back to the top; recorded in both renderers into separate GIFs `slice-6-site-canvas2d.gif`, `slice-6-site-webgpu.gif` (the acceptance GIFs stay comparable with slice 4). `demo/scenes/landing.html` and its smoke spec stay.
 Consequence: `record.spec.ts` needs the site built first (`npm run e2e:site:build` inside `whole-picture`); the site recording is a report section, gated only on "every instance at rest at the end" like W76's landing.
-Decision: PENDING
+Decision: APPROVED 2026-10-24 — the built site landing served by the record spec, its own GIFs slice-6-site-*.gif; the demo landing scene and its smoke stay (saga dec_e894a8d5)
 
 ### D87-3: Epic 15's CI criterion for WebGPU
 Proposal: the completion criterion "`webgpu` blocking once it has 10 green runs in a row" cannot be met as written: SwiftShader does not run the liquid (W71.0 fallback B), so CI only has a soft adapter smoke. Amend it to "WebGPU is verified locally on Metal (`e2e:webgpu-hw`) at every ward's gold; the CI SwiftShader smoke stays soft", and record the reason; the alternative is to keep the criterion open until CI has a GPU runner.
 Consequence: (amend) epic 15 can close on its other criteria; (keep open) the epic stays open with no ward that can close it.
-Decision: PENDING
+Decision: APPROVED 2026-10-24 — amend: WebGPU verified locally on Metal (e2e:webgpu-hw) at every ward's gold; the CI SwiftShader smoke stays soft (saga dec_52664d92)
 
 ### D87-4: Publishing 0.3 and the fate of 0.2.0-rc.0 (Dennis executes)
 Proposal: present, never execute: (a) publish the fixed group as `0.3.0-alpha.x` under the `alpha` dist-tag (`npm run version`, tag `v*`, `release.yml` runs `changeset publish` in pre mode), so the site's install line works, and move `latest` to it (`npm dist-tag add`), since `0.2.0-rc.0` was never stable and its soft-body API no longer matches any doc; (b) deprecate `0.2.0-rc.0` with "the soft-body engine is retired; use 0.3"; (c) or publish under `alpha` only and leave `latest` on 0.2 until a 0.3 release.
 Consequence: (a)+(b) `npm install liquiddom` and the site's command both give the fluid engine; (c) keeps `latest` on an API the docs no longer describe. Either way the live site's `npm install liquiddom@alpha` fails until something is published.
-Decision: PENDING
+Decision: APPROVED 2026-10-24 — (a)+(b): Dennis publishes 0.3.0-alpha.x under alpha, moves latest to it and deprecates 0.2.0-rc.0; AI never executes them (saga dec_675c178a)
 
 ## Specification
 Baseline at `e137d45` (W86 complete; the site live): cargo `245 passed; 0 failed; 1 ignored`; vitest `862 passed (862)`, 88 files; Playwright `--list` canvas2d 101 / webgpu 51 / webgpu-hw 99 / perf 6 / dist 2 / site 7.

@@ -49,7 +49,7 @@ Slices 1–2 = W63–W69. Slices 3–6 (WebGPU liquid, liquid text, drag and mer
 - **W61 RCA:** the wasm-bindgen double-init race is fixed at the source by the single-flight loader in W64. The W61 workarounds are removed in W66.
 
 ## Completion Criteria
-- Every step of the S6 column in the NORTH-STAR slice matrix passes in CI: `canvas2d` blocking, and `webgpu` blocking once it has 10 green runs in a row.
+- Every step of the S6 column in the NORTH-STAR slice matrix passes in CI on `canvas2d` (blocking), and in WebGPU locally on Metal (`e2e:webgpu-hw`) at every ward's gold; the CI SwiftShader smoke stays soft (amended in W87, D87-3: SwiftShader cannot run the liquid, W71.0 fallback B, so "`webgpu` blocking after 10 green runs" could never be met).
 - Whole-picture checks after slices 2, 4 and 6 are recorded in `.wdd/memory/whole-picture/`, with recordings inspected with vision.
 - No soft-body code remains, and `npm run verify` and `cargo clippy --all-targets --all-features -- -D warnings` are green.
 - The three packages are published together as `0.3.0-alpha.x` (changesets fixed group).

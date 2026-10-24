@@ -26,7 +26,7 @@ What a person sees and feels. Every ward moves at least one of these closer, or 
 ## Acceptance scene
 
 ### Page
-`demo/scenes/acceptance.html`: three buttons ("Splash", "Split", "Merge"), a card with a heading and two lines of text, a fixed `seed`, and a fixed viewport of 1280×800 in Playwright. Playwright projects: `canvas2d` (always blocking) and `webgpu` (soft until 10 green runs in a row). Scene parameters arrive in W65: `?seed`, `?renderer`, `?clock=manual`, `?rm`, `?test=1`.
+`demo/scenes/acceptance.html`: three buttons ("Splash", "Split", "Merge"), a card with a heading and two lines of text, a fixed `seed`, and a fixed viewport of 1280×800 in Playwright. Playwright projects: `canvas2d` (always blocking) and `webgpu` (soft in CI: SwiftShader only runs an adapter smoke; the WebGPU liquid is verified locally on Metal, `e2e:webgpu-hw`, at every gold — W87, D87-3). Scene parameters arrive in W65: `?seed`, `?renderer`, `?clock=manual`, `?rm`, `?test=1`.
 
 ### Scene steps
 1. Idle for 2 s: crisp edges and the DOM text visible at rest.
@@ -269,3 +269,7 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D86-7 | Site back in workspaces and CI on Astro 7, vite ^8.3.5, TS ^6 (amended: Astro 6 needs vite 7); deploy stays dispatch-only | W86 | dec_2dd947a2 |
 | D86-8 | Vitest ./site, W66 freeze inverted, W69 playground tests moved, e2e:site blocking on Canvas2D, no pixel baselines | W86 | dec_636f1077 |
 | D86-9 | Core reads every CSS colour the browser paints (oklch, lab, color()) via a 1 × 1 canvas, cached | W86 | dec_a223c2a5 |
+| D87-1 | Whole picture after slice 6 in both renderers with all eight steps (5 drag, 7 scroll), slice-6.md from vision | W87 | dec_8fc2bdda |
+| D87-2 | The built site landing is the foreign page in the recording (own GIFs); the demo landing scene stays | W87 | dec_e894a8d5 |
+| D87-3 | Epic 15 WebGPU criterion amended: verified locally on Metal at every gold; CI SwiftShader smoke soft for good | W87 | dec_52664d92 |
+| D87-4 | Dennis publishes 0.3.0-alpha.x under alpha, moves latest to it, deprecates 0.2.0-rc.0 (AI never executes) | W87 | dec_675c178a |
