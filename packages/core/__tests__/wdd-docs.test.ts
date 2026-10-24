@@ -429,12 +429,12 @@ describe("W63 CLAUDE.md", () => {
     // the fluid-engine summary stays; every soft-body section is gone.
     const md = read(CLAUDE_MD);
     const architecture = md.indexOf("## Architecture (high-level)");
-    const fluid = md.indexOf("### Fluid engine (in progress, Epic 15)");
+    const fluid = md.indexOf("### Fluid engine (complete, Epic 15)");
     const constraints = md.indexOf("## Project-specific constraints");
     expect(architecture).toBeGreaterThan(-1);
     expect(fluid).toBeGreaterThan(architecture);
     expect(fluid).toBeLessThan(constraints);
-    const note = section(md, "### Fluid engine (in progress, Epic 15)").join("\n");
+    const note = section(md, "### Fluid engine (complete, Epic 15)").join("\n");
     for (const s of [
       "FluidCore",
       "FluidBridge",

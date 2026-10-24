@@ -7,9 +7,13 @@
 - They share pre-allocated `Float32Array` views; there is no JSON over the FFI.
 - **The DOM stays the source of truth.** Semantics, focus, events and hit areas stay on the real elements. The canvas is `aria-hidden` and sits below them.
 
-> Status: **0.3 alpha, slice 1 ("liquid at rest")**. The 0.2 soft-body engine is retired; its last state is the tag `softbody-final`. Design: `docs/superpowers/specs/2026-10-02-liquiddom-fluid-design.md`. North star: `.wdd/NORTH-STAR.md`.
+> Status: **0.3.0-alpha.1, published on npm** (`npm install liquiddom`; `@liquiddom/react` and `@liquiddom/vue` too). Slices 1–6 are complete. Site: https://liquiddom.vsplat.io. The 0.2 soft-body engine is retired; its last state is the tag `softbody-final`. Design: `docs/superpowers/specs/2026-10-02-liquiddom-fluid-design.md`. North star: `.wdd/NORTH-STAR.md`.
 
 ## Quickstart
+
+```bash
+npm install liquiddom
+```
 
 ```ts
 import { LiquidDOM } from "liquiddom";

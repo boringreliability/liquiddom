@@ -34,7 +34,7 @@ npm run preview -w @liquiddom/site
 
 ## Deployment
 
-`.github/workflows/deploy-site.yml` runs **only on manual dispatch** (dispatching is Dennis' call). It installs Rust and wasm-pack, runs `npm ci`, `npm run build:wasm` and `npm run e2e:site:build`, uploads `site/dist/` as a GitHub Pages artifact and deploys it with `actions/deploy-pages@v4`.
+`.github/workflows/deploy-site.yml` runs **only on manual dispatch** (dispatching is Dennis' call), and the `github-pages` environment allows deploys only from `master`. The site is live at https://liquiddom.vsplat.io. It installs Rust and wasm-pack, runs `npm ci`, `npm run build:wasm` and `npm run e2e:site:build`, uploads `site/dist/` as a GitHub Pages artifact and deploys it with `actions/deploy-pages@v4`.
 
 ## One-time GitHub Pages setup
 

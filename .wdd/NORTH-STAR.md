@@ -58,8 +58,8 @@ What a person sees and feels. Every ward moves at least one of these closer, or 
 |---|---|---|---|
 | 1 | Liquid at rest | W63 north star + WDD rules · W64 liquid at rest · W65 verification harness · W66 public API swap + soft-body retirement | 1 (C), 8 (reduced motion + print) |
 | 2 | Liquid that reacts | W67 splash and shake · W68 pointer, hover and material · W69 playground + whole-picture check | 2, 3 (C, no text), 4, 6 |
-| 3 | WebGPU liquid | planned after the slice-2 whole-picture check | 1–3 in W, `device.lost` |
-| 4 | Liquid text | planned later | 3 with text, forced colours |
+| 3 | WebGPU liquid | W71 · W72 · W73 | 1–3 in W, `device.lost` |
+| 4 | Liquid text | W74 · W75 · W76 · W77 | 3 with text, forced colours |
 | 5 | Drag and merge | W78 drag the liquid (spike W78.0 first) · W79 merge and separate (step 5 ✅ by Dennis at W79 gold 2026-10-12; design `2026-10-11-liquiddom-slice-5-drag-merge-design.md`) | 5 |
 | 6 | The world | W80 scroll follows (spike W80.0 first) · W81 parking and resize · W82 under the page · W83 gravity and tilt · W84 touch and opt-out · W85 adapters · W86 the site · W87 whole picture (design `2026-10-13-liquiddom-slice-6-world-design.md`) | 7, adapters, site |
 
@@ -80,6 +80,8 @@ What a person sees and feels. Every ward moves at least one of these closer, or 
 | Slice 6 | W87 | Every renderer, all 8 steps | `.wdd/memory/whole-picture/slice-6.md` |
 
 The recording is inspected with vision before the status is written. Each status is ✅, ⏳ or ❌ per step, measured against that slice's column.
+
+All six slices are closed (W87, 2026-10-24); the whole pictures are in `.wdd/memory/whole-picture/`.
 
 ## Decision log
 
@@ -272,4 +274,4 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D87-1 | Whole picture after slice 6 in both renderers with all eight steps (5 drag, 7 scroll), slice-6.md from vision | W87 | dec_8fc2bdda |
 | D87-2 | The built site landing is the foreign page in the recording (own GIFs); the demo landing scene stays | W87 | dec_e894a8d5 |
 | D87-3 | Epic 15 WebGPU criterion amended: verified locally on Metal at every gold; CI SwiftShader smoke soft for good | W87 | dec_52664d92 |
-| D87-4 | Dennis publishes 0.3.0-alpha.x under alpha, moves latest to it, deprecates 0.2.0-rc.0 (AI never executes) | W87 | dec_675c178a |
+| D87-4 | Dennis publishes 0.3.0-alpha.x under alpha, moves latest to it, deprecates 0.2.0-rc.0 (AI never executes) (executed 2026-10-24) | W87 | dec_675c178a |
