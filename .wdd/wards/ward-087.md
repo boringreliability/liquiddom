@@ -3,12 +3,12 @@ ward: 87
 revision: null
 name: "Whole picture (slice 6)"
 epic: "fluid-engine"
-status: "gold"
+status: "complete"
 dependencies: [86]
 layer: "typescript"
 estimated_tests: 0
 created: "2026-10-24"
-completed: null
+completed: "2026-10-24"
 ---
 # Ward 087: Whole picture (slice 6)
 
