@@ -35,5 +35,5 @@ Build a unified public site that doubles as landing page AND documentation, with
 - All 8 existing scenes migrated as Astro islands with explanation + code-snippet.
 - Global renderer toggle works across every page including playground.
 - Lighthouse performance score ≥ 90 on landing + at least one demo page.
-- npm install instruction copy-pastes and works against the published `0.2.0-rc.0` packages.
+- npm install instruction copy-pastes and works against the published packages (superseded: the 0.3 site, rebuilt in W86 from the workspace dist, is live at https://liquiddom.vsplat.io).
 - Old `demo/scenes/*.html` files removed (after W59).

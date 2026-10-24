@@ -142,21 +142,23 @@ The video's frame rate is not a perf measure (`e2e:perf` is). The canvas2d `mous
 | Every step of the S6 column passes in CI on canvas2d (blocking), and in WebGPU locally on Metal at every ward's gold; the CI SwiftShader smoke stays soft | met. canvas2d is blocking in CI (PR #5 green on 44332ad, incl. the site project). `e2e:webgpu-hw` at W87 gold (Metal, 2026-10-24): 55 passed, 44 skipped, 2.0 min. A first full run under machine load had 2 flaky failures in the W78/W79 step 5 tests (a missing scene hook, then a timeout); both passed alone (2 passed, 12.6 s) and the full re-run was clean. W86's gold record does not list a webgpu-hw run (it was run in that session with the same 55/44 result but not written into ward-086.md). The criterion was amended in W87 (D87-3) |
 | Whole-picture checks after slices 2, 4 and 6, recorded and inspected with vision | met with this report (slice-2.md, slice-4.md, slice-6.md) |
 | No soft-body code remains; verify and clippy green | met (W66; tag `softbody-final`); verify and clippy green at W86 gold |
-| The three packages published together as 0.3.0-alpha.x | open. On 2026-10-24 npm has only `0.2.0-rc.0` (`latest`) for `liquiddom`, `@liquiddom/react` and `@liquiddom/vue`. Dennis publishes (D87-4, see Release) |
+| The three packages published together as 0.3.0-alpha.x | met. `0.3.0-alpha.1` of `liquiddom`, `@liquiddom/react` and `@liquiddom/vue` was published on 2026-10-24 (D87-4, see Release) |
 | Every ward approved at gold by Dennis before complete | met (W63–W87; W87's gold approved by Dennis 2026-10-24) |
 
-W87 is complete (2026-10-24); Epic 15 can close once the publish is done.
+W87 is complete (2026-10-24) and the publish is done, so Epic 15 is complete.
 
 ## Release
 
-D87-4 (Dennis, 2026-10-24): publish 0.3 under `alpha`, move `latest` to it, and deprecate `0.2.0-rc.0`. AI never runs these commands.
+D87-4 (Dennis, 2026-10-24): publish 0.3 under `alpha`, move `latest` to it, and deprecate `0.2.0-rc.0`. AI never ran these commands. Executed 2026-10-24; this section is the record.
 
-What the repo has today:
-- `.changeset/pre.json` is in pre mode `alpha` (initial versions `0.3.0-alpha.0`, unpublished), with 19 pending changesets.
-- `release.yml` runs on a pushed `v*` tag: `npm ci`, `npm run build`, then `npx changeset publish` with `NODE_AUTH_TOKEN` from the `NPM_TOKEN` secret, which exists (2026-05-23).
-- The first published version will most likely be `0.3.0-alpha.1`. Read the exact version from the output of `npm run version`.
+What the release looked like:
+- `.changeset/pre.json` was in pre mode `alpha` (initial versions `0.3.0-alpha.0`) with 19 pending changesets. `npm run version` produced `0.3.0-alpha.1` for all three packages (fixed group); the release commit is dc8b39a (PR #7).
+- Publishing used npm trusted publishing instead of the `NPM_TOKEN` secret (PR #8, f6a5a39): `release.yml` runs on a pushed `v*` tag with `id-token: write`, Node 24 and `npm install -g npm@latest`, and `npx changeset publish` authenticates by OIDC (no `NODE_AUTH_TOKEN`). Each package has a trusted publisher on npmjs.com for boringreliability/liquiddom + `release.yml`.
+- Tag `v0.3.0-alpha.1` was pushed alone (master eb39ee8). `liquiddom`, `@liquiddom/react` and `@liquiddom/vue` `0.3.0-alpha.1` were published with SLSA provenance; `latest` and `alpha` both point to it.
+- `npm dist-tag` and `npm deprecate` needed a real terminal: Dennis' npm 2FA is a passkey, and its browser auth needs a TTY, which Claude Code's `!` does not have. The deprecate message is "The soft-body engine is retired; use 0.3 (npm install <pkg>@alpha)."
+- The CHANGELOG entries inside the published `0.3.0-alpha.1` still say that splash, shake and the presets "arrive in the next alpha"; they all shipped in alpha.1. The repo's CHANGELOGs are corrected and reach npm with the next release.
 
-Steps, on `master` after this branch is merged:
+Steps as run, on `master` after the branch was merged:
 
 1. Bump the versions, refresh the lockfile and commit them (by path: an untracked `.superpowers/` or other stray files must not land in the release commit):
    ```
@@ -186,20 +188,18 @@ Steps, on `master` after this branch is merged:
    npm deprecate @liquiddom/react@0.2.0-rc.0 "The soft-body engine is retired; use 0.3 (npm install @liquiddom/react@alpha)."
    npm deprecate @liquiddom/vue@0.2.0-rc.0 "The soft-body engine is retired; use 0.3 (npm install @liquiddom/vue@alpha)."
    ```
-6. Check that the site's install line works: `npm install liquiddom@alpha` in an empty directory.
-
-Until then, the live site's `npm install liquiddom@alpha` fails, and `npm install liquiddom` installs the soft-body 0.2 release candidate.
+6. Check that the site's install line works: `npm install liquiddom@alpha` in an empty directory. It works, and so does a plain `npm install liquiddom`.
 
 ## Open points
 
 - **Text over merged liquid** (site chapter 4, acceptance step 5 under webgpu): the card's own text is cut or smeared while another element's liquid is inside it. This is correct under D79-1, but it reads as damage on a light card. It is a candidate for the glow and shadow ward, or a later look at D79-1's band width.
 - **Canvas2D body text left off its liquid** (site chapter 3, the water and jelly cards): the DOM text stays put while the liquid moves, so the last body line hangs on the dark page with only its halo. This is Canvas2D's design (the text never moves), more visible on a dark page. Same candidate.
 - **Glow and shadow:** the renderer-only ward planned after W87 (a density fade for a narrow glow, a blurred coverage mask for a wide glow or a shadow).
-- **Publishing (D87-4):** Dennis' steps above.
+- **Publishing (D87-4):** done 2026-10-24 (see Release).
 - **Recording tooling:** canvas2d `mouse.move` latency in the headless shell stretches the canvas2d video. This is harmless, and noted so it is not mistaken for liquid lag.
 
 ## Recommendation
 
 Slice 6 is done. All eight steps are ✅ in both renderers, and step 6's slice-4 lace is gone. The site carries the engine to a real page, and parking, scroll and reduced motion all hold there.
 
-Close the epic after Dennis publishes `0.3.0-alpha.x` (Release). Make the glow and shadow ward the next ward, with text over moving and merged liquid as its acceptance cases.
+The epic is closed: `0.3.0-alpha.1` is published (Release). Make the glow and shadow ward the next ward, with text over moving and merged liquid as its acceptance cases.
