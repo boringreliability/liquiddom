@@ -467,7 +467,7 @@ The page is `demo/scenes/acceptance.html`: three buttons ("Splash", "Split", "Me
 - **Playwright in CI** with real WASM, pinned to the `mcr.microsoft.com/playwright` image, with two projects:
   - `canvas2d` is **always blocking**.
   - `webgpu` runs Chromium (new headless) with `--enable-unsafe-webgpu --enable-features=Vulkan --use-webgpu-adapter=swiftshader`.
-  - **Slice 1** includes a time-boxed smoke job: `requestAdapter`, log `adapter.info`, render a known frame and read it back. The `webgpu` project becomes blocking only after 10 green runs in a row. Until then it is "soft".
+  - **Slice 1** includes a time-boxed smoke job: `requestAdapter`, log `adapter.info`, render a known frame and read it back. The `webgpu` project becomes blocking only after 10 green runs in a row. Until then it is "soft". *Amended in W87 (D87-3, 2026-10-24): SwiftShader cannot run the liquid (W71.0 fallback B), so the CI smoke stays soft for good; the WebGPU liquid is verified locally on Metal (`e2e:webgpu-hw`) at every ward's gold.*
   - Because `auto` falls back on software adapters (§3), the `webgpu` project forces `renderer: 'webgpu'`.
 - **Visual regression** of the scene's key frames. Same seed, fixed RAF dt (injected clock), and pixel tolerance `maxDiffPixelRatio 0.01`. Baselines are generated only in the pinned image.
 - **Multi-instance stress:** 2–4 instances created in the same task, plus 50 reloads. It fails on any `console.error`, `pageerror` or panic. It is based on `race3.mjs`.
@@ -532,7 +532,7 @@ Slices 1–2 are detailed in the plan. Slices 3–6 are re-planned after each wh
 |---|---|
 | The F text smears or shows doubled strokes under large deformation | Render-only F without plastic projection, the SVD clamp, torn fade. Verified visually in slice 4 |
 | Slip drift looks "magical" in the wrong way | Tuned in the playground. Scaled by `s²` |
-| WebGPU in CI on SwiftShader is flaky or slow | Smoke job in slice 1. The project stays "soft" until 10 green runs. GPU perf is not measured there |
+| WebGPU in CI on SwiftShader is flaky or slow | Smoke job in slice 1. The project stays "soft" (W87, D87-3: for good; the liquid is verified locally on Metal at every gold). GPU perf is not measured there |
 | Too large an observed area for the pool (> ~256k px² at 8000/8 px) | Warning (once); the cell size chosen at `create()` stays and the liquid gets noisier. Documented limit. Consumers can raise `particles` |
 | Splat overdraw is heavy on mobile iGPUs (≈1.6M fragments at 1× DPR in the scene) | Kernel cap of 16 px (W77, D77-1: ≈2.4× overdraw on large-area pages, frame time unchanged on Metal), density at 0.5×, text only for moving elements. Fragments per frame logged |
 | The liquid lags 1 frame behind native scroll | DOM text at rest means the text never lags. Measured in slice 6. Alternative: a canvas that scrolls with the content |

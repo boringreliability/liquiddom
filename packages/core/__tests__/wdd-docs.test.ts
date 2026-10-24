@@ -821,6 +821,92 @@ describe("W76: whole-picture check after slice 4 (D76-1)", () => {
   });
 });
 
+describe("W87: whole-picture check after slice 6", () => {
+  const reportRel = ".wdd/memory/whole-picture/slice-6.md";
+  const load = (): { report: string; sectionLines: (h: string) => string[] } => {
+    const reportPath = resolve(ROOT, reportRel);
+    expect(existsSync(reportPath), `missing ${reportRel}`).toBe(true);
+    const report = readFileSync(reportPath, "utf8");
+    const lines = report.split("\n");
+    const sectionLines = (heading: string): string[] => {
+      const start = lines.findIndex((l) => l.trim() === heading);
+      expect(start, `missing ${heading}`).toBeGreaterThanOrEqual(0);
+      const end = lines.findIndex((l, i) => i > start && /^## /.test(l));
+      return lines.slice(start + 1, end === -1 ? lines.length : end);
+    };
+    return { report, sectionLines };
+  };
+  const OBSERVATION = /(s2|webgpu)-step\d|\bf\d{3,4}\b|GIF \d+(\.\d+)?/;
+  const stepRows = (sectionLines: (h: string) => string[]): string[][] =>
+    sectionLines("## Scene steps")
+      .filter((l) => /^\|\s*\d+\s*\|/.test(l))
+      .map((l) => l.split("|").slice(1, -1).map((c) => c.trim()));
+
+  it("given_slice_6_report_when_read_then_headings_and_eight_scene_step_rows", () => {
+    const { report, sectionLines } = load();
+    const lines = report.split("\n").map((l) => l.trim());
+    for (const heading of [
+      "## Renderers",
+      "## Scene steps",
+      "## Text",
+      "## Site",
+      "## Carried",
+      "## Feel against the north star",
+      "## Perf",
+      "## Epic 15",
+      "## Release",
+      "## Open points",
+      "## Recommendation",
+    ]) {
+      expect(lines, `missing heading ${heading}`).toContain(heading);
+    }
+    expect(report).toContain("| Step | Scene step | Expected S6 | Canvas2D | WebGPU | Evidence |");
+    const rows = stepRows(sectionLines);
+    expect(rows, "## Scene steps needs exactly 8 step rows").toHaveLength(8);
+    rows.forEach((cells, i) => {
+      expect(cells, `step ${i + 1} row must have 6 cells`).toHaveLength(6);
+      expect(cells[0]).toBe(String(i + 1));
+      expect(cells[2], `step ${i + 1} expected-S6 cell`).toContain("✅");
+    });
+  });
+
+  it("given_slice_6_report_when_read_then_every_step_row_cites_an_observation_and_steps_3_to_7_a_time", () => {
+    const { report, sectionLines } = load();
+    const rows = stepRows(sectionLines);
+    expect(rows).toHaveLength(8);
+    rows.forEach((cells, i) => {
+      for (const idx of [3, 4, 5]) {
+        expect(cells[idx] ?? "", `step ${i + 1} cell ${idx} cites a shot, a frame or a GIF time`).toMatch(OBSERVATION);
+      }
+      if (i + 1 >= 3 && i + 1 <= 7) {
+        expect(cells.join(" "), `step ${i + 1} needs a time in ms`).toMatch(/\d+\s*ms/);
+      }
+    });
+    expect(report, "unfilled «…» tokens left in the report").not.toContain("«");
+  });
+
+  it("given_slice_6_report_when_read_then_the_site_section_cites_frames_and_the_epic_and_release_sections_cite_d87_3_and_d87_4", () => {
+    const { sectionLines } = load();
+    expect(sectionLines("## Site").join("\n")).toMatch(/(s2|webgpu)-site-|GIF \d+/);
+    expect(sectionLines("## Epic 15").join("\n")).toContain("D87-3");
+    const release = sectionLines("## Release").join("\n");
+    expect(release).toContain("D87-4");
+    expect(release).toContain("npm dist-tag add");
+    expect(release).toContain("npm deprecate");
+  });
+
+  it("given_slice_6_gifs_when_read_then_four_gif89a_files_under_10_mib", () => {
+    for (const name of ["slice-6-canvas2d.gif", "slice-6-webgpu.gif", "slice-6-site-canvas2d.gif", "slice-6-site-webgpu.gif"]) {
+      const rel = `docs/superpowers/whole-picture/${name}`;
+      const abs = resolve(ROOT, rel);
+      expect(existsSync(abs), `missing ${rel}`).toBe(true);
+      const gif = readFileSync(abs);
+      expect(gif.subarray(0, 6).toString("latin1")).toBe("GIF89a");
+      expect(gif.length).toBeLessThanOrEqual(10 * 1024 * 1024);
+    }
+  });
+});
+
 describe("W76: the landing page scene is linked from the demo index (D76-2)", () => {
   it("given_demo_index_when_read_then_its_heading_says_slice_4_and_it_links_the_landing_scene", () => {
     const index = read(resolve(ROOT, "demo/index.html"));

@@ -5,19 +5,24 @@
  *   webgpu runs in the local `record-webgpu` project (hardware adapter, `npm run record:w72`).
  *   Neither ever runs in CI. Video comes from PROJECT_USE (e2e/projects.ts) via useFor().
  * - RAF clock (no ?clock=manual): a manual clock would record a frozen video (C6).
- * - Records steps 1–4, 6 and 8 (a ?rm=1 segment, D70-6). Step 5 (drag, slice 5) and 7 (scroll, slice 6) are ⏳.
+ * - Records steps 1–8 (step 8 as a ?rm=1 segment, D70-6). W87 (D87-1): step 5 (drag "Merge" into the card)
+ *   and step 7 (scroll 300 px and back) join the acceptance video.
  * - W76 (D76-1, slice 4): step 3b, a gentle card splash for the liquid text, and a live forced-colours
  *   switch mid-splash (S4 step 8), in both renderers (`npm run whole-picture`).
  * - W76 (D76-2): then the landing page (rest, hover and click "Start free", shake, re-form) in the same video.
+ * - W87 (D87-2): the built site landing (site/dist, Vite preview on RECORD_SITE_PORT) in its own video and
+ *   manifest per renderer; it skips when site/dist is missing (`npm run whole-picture` builds it first).
  * - Re-form budgets are read from .wdd/NORTH-STAR.md (the D67-1 outcome), never hard-coded.
  *   They are reported, not asserted: acceptance.spec.ts and webgpu-robust.spec.ts assert them.
  * Timings are wall-clock (±50 ms) and go to the manifest for the status report.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { errors, type Page } from "@playwright/test";
+import { preview, type PreviewServer } from "vite";
 import { test, expect } from "./fixtures";
 import { NORTH_STAR_PATH, reformBudgetMs } from "./north-star";
+import { SITE_ROOT } from "./projects";
 
 type SceneHook = {
   ready: Promise<void>;
@@ -42,6 +47,15 @@ const NORTH_STAR_MD = readFileSync(resolve(process.cwd(), NORTH_STAR_PATH), "utf
 /** Step 3 budget = D67-1 outcome. Step 4 is the same splash at the centre, so it shares it. */
 const SPLASH_BUDGET_MS = reformBudgetMs(NORTH_STAR_MD, 3);
 const SHAKE_BUDGET_MS = reformBudgetMs(NORTH_STAR_MD, 6);
+const DRAG_BUDGET_MS = reformBudgetMs(NORTH_STAR_MD, 5);
+const SCROLL_BUDGET_MS = reformBudgetMs(NORTH_STAR_MD, 7);
+const MERGE = 2; // restAlpha/slots order: #splash, #split, #merge, #card
+const DRAGGED = 3;
+const RECORD_SITE_PORT = 4177;
+const SITE_RECORDINGS = [
+  { renderer: "canvas2d", project: "record", manifest: "manifest-site.json", video: "tmp/whole-picture/site-canvas2d.webm", shotPrefix: "s2" },
+  { renderer: "webgpu", project: "record-webgpu", manifest: "manifest-site-webgpu.json", video: "tmp/whole-picture/site-webgpu.webm", shotPrefix: "webgpu" },
+] as const;
 /** Wait long enough to measure an over-budget re-form instead of reporting null. */
 const reformTimeout = (budgetMs: number): number => 2 * budgetMs + 1_000;
 
@@ -79,9 +93,202 @@ async function sweep(page: Page, x0: number, x1: number, y: number, durationMs: 
   }
 }
 
+// Site (D87-2, W87) – the built site landing (site/dist) in its own video and manifest per renderer.
+// The site has no test hook: fixed waits, and the gate is the fixture (no console.error, no pageerror)
+// plus the canvases at the end; rest and looks are judged by vision in the slice-6 report. This
+// describe sits before the acceptance loop, so the acceptance test keeps the file's last page close
+// (the W76 pin).
+test.describe("whole picture – the site landing (D87-2)", () => {
+  let server: PreviewServer | undefined;
+
+  test.beforeAll(async ({}, testInfo) => {
+    if (!existsSync(resolve(process.cwd(), SITE_ROOT, "dist/index.html"))) return;
+    if (!SITE_RECORDINGS.some((s) => s.project === testInfo.project.name)) return;
+    server = await preview({
+      root: resolve(process.cwd(), SITE_ROOT),
+      configFile: false,
+      logLevel: "warn",
+      build: { outDir: "dist" },
+      preview: { port: RECORD_SITE_PORT, strictPort: true, open: false },
+    });
+  });
+  test.afterAll(async () => {
+    await server?.close();
+    server = undefined;
+  });
+
+  for (const r of SITE_RECORDINGS) {
+    test(`whole picture – the site landing recorded in ${r.renderer}`, async ({ page }, testInfo) => {
+      test.skip(!existsSync(resolve(process.cwd(), SITE_ROOT, "dist/index.html")), "site/dist missing: run npm run e2e:site:build");
+      test.skip(testInfo.project.name !== r.project, `the ${r.renderer} site recording runs only in the ${r.project} project`);
+      test.setTimeout(120_000);
+      mkdirSync(SHOTS_DIR, { recursive: true });
+      const URL = `http://localhost:${RECORD_SITE_PORT}/`;
+      const VIDEO_PATH = resolve(process.cwd(), r.video);
+      const shots: string[] = [];
+      const segments: { name: string; atMs: number }[] = [];
+      const shot = async (name: string): Promise<void> => {
+        const path = resolve(SHOTS_DIR, `${r.shotPrefix}-${name}.png`);
+        await page.screenshot({ path });
+        shots.push(path);
+      };
+      const t0 = Date.now();
+      const segment = (name: string): void => {
+        segments.push({ name, atMs: Date.now() - t0 });
+      };
+      const scrollToChapter = async (n: number): Promise<void> => {
+        await page.locator(`section[data-chapter="${n}"]`).evaluate((el) => el.scrollIntoView({ behavior: "smooth" }));
+        await page.waitForTimeout(800);
+        // A long smooth scroll can outlast 800 ms: wait until scrollY holds still across three samples
+        // 50 ms apart, so the boxes read next are not taken mid-scroll (fix round 1, I2).
+        await expect
+          .poll(
+            () =>
+              page.evaluate(async () => {
+                const ys: number[] = [];
+                for (let i = 0; i < 3; i++) {
+                  ys.push(window.scrollY);
+                  if (i < 2) await new Promise((done) => setTimeout(done, 50));
+                }
+                return ys.every((v) => v === ys[0]);
+              }),
+            { message: `chapter ${n}: the smooth scroll settles`, timeout: 5_000 },
+          )
+          .toBe(true);
+      };
+
+      // 1. Arrival and the idle hint (D86-4: one hint shake at 4 s without input).
+      segment("arrival");
+      await page.goto(URL);
+      const tLoad = Date.now();
+      await page.locator("body > canvas.liquid-canvas").waitFor({ state: "attached" });
+      const waitSinceLoad = async (ms: number): Promise<void> => {
+        const left = ms - (Date.now() - tLoad);
+        if (left > 0) await page.waitForTimeout(left);
+      };
+      await waitSinceLoad(150);
+      await shot("site-arrival-150ms");
+      await waitSinceLoad(1_500);
+      await shot("site-arrival-1500ms");
+      // Read only once the renderer is up: getContext("2d") is null on a WebGPU canvas, and would
+      // claim a canvas that has no context yet. The site observes its elements only after create()
+      // resolved, so an observed hero element means the body instance's renderer is up (fix round 1, I1).
+      await expect(page.locator('section[data-chapter="0"] .liquid-element').first()).toBeAttached({ timeout: 15_000 });
+      const isCanvas2d = await page
+        .locator("body > canvas.liquid-canvas")
+        .evaluate((c) => (c as HTMLCanvasElement).getContext("2d") !== null);
+      expect(isCanvas2d, `the site renders ${r.renderer} in the ${r.project} project`).toBe(r.renderer === "canvas2d");
+      segment("idle hint");
+      await waitSinceLoad(5_500);
+      await shot("site-hint");
+
+      // 2. Chapter 2: sweep across the pills, then "Splash all".
+      segment("chapter 2: sweep and splash all");
+      await scrollToChapter(2);
+      const pills = page.locator('section[data-chapter="2"] .pill');
+      const first = (await pills.first().boundingBox())!;
+      const last = (await pills.last().boundingBox())!;
+      const ySweep = first.y + first.height / 2;
+      await page.mouse.move(first.x - 40, ySweep);
+      await sweep(page, first.x - 40, last.x + last.width + 40, ySweep, 1_200);
+      await page.locator("#poke-all").click();
+      await page.waitForTimeout(200);
+      await shot("site-ch2-splash-200ms");
+      await page.waitForTimeout(2_500);
+
+      // 3. Chapter 3: the three material pools, "Shake all".
+      segment("chapter 3: shake all");
+      await scrollToChapter(3);
+      await page.locator("#shake-all").click();
+      await page.waitForTimeout(200);
+      await shot("site-ch3-shake-200ms");
+      await page.waitForTimeout(2_500);
+      await shot("site-ch3-rest");
+
+      // 4. Chapter 4: drag "Drag me" onto the "Merge here" card (the step 5 path), hold, release.
+      segment("chapter 4: drag and merge");
+      await scrollToChapter(4);
+      const centreOf = async (sel: string) => {
+        const b = (await page.locator(sel).boundingBox())!;
+        return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+      };
+      const DRAG_ME = 'section[data-chapter="4"] button.pill:not(#stay-put)';
+      const from = await centreOf(DRAG_ME);
+      const to = await centreOf('section[data-chapter="4"] article[data-liquid]');
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      for (let k = 1; k <= 10; k++) {
+        await page.mouse.move(from.x + ((to.x - from.x) * k) / 10, from.y + ((to.y - from.y) * k) / 10);
+        await page.waitForTimeout(16);
+      }
+      await page.waitForTimeout(1_500);
+      // The site has no hook. Under Canvas2D the runtime holds `liquid-away` on a dragged element
+      // (W78), a public DOM signal that the press became a drag; under WebGPU there is no such
+      // signal, so the frames judge it (fix round 1, I2).
+      if (r.renderer === "canvas2d") {
+        const away = await page.locator(DRAG_ME).evaluate((el) => el.classList.contains("liquid-away"));
+        expect(away, 'chapter 4: "Drag me" is dragged while held (liquid-away)').toBe(true);
+      }
+      await shot("site-ch4-merge-hold");
+      await page.mouse.up();
+      await page.mouse.move(1279, 799);
+      await page.waitForTimeout(2_500);
+      await shot("site-ch4-rest");
+
+      // 5. Chapter 6: jump to the last run card (parked until then) and see it appear at rest.
+      segment("chapter 6: jump to the last run card");
+      await page.evaluate(() => {
+        const cards = document.querySelectorAll<HTMLElement>(".run-card");
+        const lastCard = cards[cards.length - 1];
+        if (!lastCard) throw new Error("W87: no .run-card on the site");
+        window.scrollTo({ top: lastCard.getBoundingClientRect().top + window.scrollY - 200, behavior: "instant" });
+      });
+      await page.waitForTimeout(33);
+      await shot("site-ch6-parked-2f");
+      await page.waitForTimeout(1_000);
+      await shot("site-ch6-rest");
+
+      // 6. Chapter 7: the two calm pools, "Splash both".
+      segment("chapter 7: splash both");
+      await scrollToChapter(7);
+      await page.locator("#splash-both").click();
+      await page.waitForTimeout(200);
+      await shot("site-ch7-splash-200ms");
+      await page.waitForTimeout(2_500);
+
+      // 7. Back to the top.
+      segment("back to the top");
+      await page.evaluate(() => window.scrollTo({ top: 0, behavior: "smooth" }));
+      await page.waitForTimeout(2_000);
+      await shot("site-top");
+      await expect(page.locator("body > canvas.liquid-canvas")).toHaveCount(1);
+      await expect(page.locator(".pool > canvas.liquid-canvas")).toHaveCount(5);
+      // PR #6 review: every pool instance ('auto') renders in the recorded renderer too; they have long been up here.
+      const poolsCanvas2d = await page
+        .locator(".pool > canvas.liquid-canvas")
+        .evaluateAll((cs) => cs.map((c) => (c as HTMLCanvasElement).getContext("2d") !== null));
+      expect(poolsCanvas2d, `every pool renders ${r.renderer} in the ${r.project} project`).toEqual(Array(5).fill(r.renderer === "canvas2d"));
+
+      const video = page.video();
+      expect(video, `video recording is not enabled (PROJECT_USE["${r.project}"])`).not.toBeNull();
+      mkdirSync(dirname(VIDEO_PATH), { recursive: true });
+      await page.close();
+      await video?.saveAs(VIDEO_PATH);
+      writeFileSync(
+        resolve(OUT_DIR, r.manifest),
+        JSON.stringify(
+          { page: "site", renderer: r.renderer, url: URL, recordedAt: new Date().toISOString(), video: VIDEO_PATH, segments, shots },
+          null,
+          2,
+        ),
+      );
+    });
+  }
+});
+
 for (const r of RECORDINGS) {
   // W72 red: approved-test change (Dennis approves at W72 red): W69/W70's canvas2d recording becomes one test per renderer (canvas2d assertions and paths kept)
-  test(`whole picture – acceptance steps 1-4, 6 and 8 recorded in ${r.renderer}`, async ({ page }, testInfo) => {
+  test(`whole picture – acceptance steps 1-8 recorded in ${r.renderer}`, async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== r.project, `the ${r.renderer} recording runs only in the ${r.project} project`);
     test.setTimeout(180_000); // W76: the slice-4 segments and the landing page roughly double the recording
     mkdirSync(SHOTS_DIR, { recursive: true });
@@ -196,6 +403,31 @@ for (const r of RECORDINGS) {
     await shot("step4-reformed");
     timings.push({ step: 4, name: 'Tab + Enter on "Split"', budgetMs: SPLASH_BUDGET_MS, ...s4 });
 
+    // Step 5 (S6, W87) – drag "Merge" into the card, hold, release, re-form
+    const centre = async (sel: string) => { const b = (await page.locator(sel).boundingBox())!; return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
+    const from = await centre("#merge");
+    const to = await centre("#card");
+    await page.mouse.move(from.x, from.y);
+    const t5 = Date.now();
+    await page.mouse.down();
+    for (let k = 1; k <= 10; k++) {
+      await page.mouse.move(from.x + ((to.x - from.x) * k) / 10, from.y + ((to.y - from.y) * k) / 10);
+      await page.waitForTimeout(16);
+    }
+    const reacted5 = (await until(page, "anyMoving", 500)) ? Date.now() - t5 : null;
+    await page.waitForTimeout(1500);
+    const held = await page.evaluate(() => (window as unknown as { __liquidTest: { slots?(): { interaction: number }[] } }).__liquidTest.slots?.() ?? []);
+    expect(held[MERGE]?.interaction, "step 5: Merge is DRAGGED while held").toBe(DRAGGED);
+    await shot("step5-merge-hold");
+    await page.mouse.up();
+    const tRelease = Date.now();
+    await page.mouse.move(1279, 799);
+    await page.waitForTimeout(500);
+    await shot("step5-separate-500ms");
+    const rest5 = await until(page, "allRest", reformTimeout(DRAG_BUDGET_MS));
+    timings.push({ step: 5, name: "drag Merge into the card", budgetMs: DRAG_BUDGET_MS, reactedMs: reacted5, reformMs: rest5 ? Date.now() - tRelease : null });
+    await shot("step5-reformed");
+
     // Step 6 – shake everything.
     const s6 = await measure(
       () => page.evaluate(() => (window as unknown as { __liquidTest: SceneHook }).__liquidTest.instance.shake()),
@@ -204,6 +436,23 @@ for (const r of RECORDINGS) {
     );
     await shot("step6-reformed");
     timings.push({ step: 6, name: "shake", budgetMs: SHAKE_BUDGET_MS, ...s6 });
+
+    // Step 7 (S6, W87) – scroll 300 px and back
+    const card = await page.locator("#card").boundingBox();
+    await page.mouse.move(card!.x + card!.width / 2, 700);
+    const minRest = () => page.evaluate(() => Math.min(...(window as unknown as { __liquidTest: { restAlpha(): number[] } }).__liquidTest.restAlpha()));
+    let minRestDuringScroll = 1;
+    for (let i = 0; i < 3; i++) { await page.mouse.wheel(0, 100); await page.waitForTimeout(300); minRestDuringScroll = Math.min(minRestDuringScroll, await minRest()); }
+    await expect.poll(() => page.evaluate(() => window.scrollY), { message: "step 7: scrolled to 300 px" }).toBe(300);
+    await shot("step7-scrolled-300");
+    for (let i = 0; i < 3; i++) { await page.mouse.wheel(0, -100); await page.waitForTimeout(300); minRestDuringScroll = Math.min(minRestDuringScroll, await minRest()); }
+    await expect.poll(() => page.evaluate(() => window.scrollY), { message: "step 7: back at the top" }).toBe(0);
+    const tBack = Date.now();
+    await shot("step7-back");
+    // W80: the shift is exact, so there is no re-form to time; the report cites minRestDuringScroll ("no snap") and the frames.
+    const rest7 = await until(page, "allRest", reformTimeout(SCROLL_BUDGET_MS));
+    timings.push({ step: 7, name: "scroll 300 px and back", budgetMs: SCROLL_BUDGET_MS, reactedMs: null, reformMs: rest7 ? Date.now() - tBack : null });
+    await page.mouse.move(1279, 799);
 
     // Hold the final rest frame for the GIF.
     await page.waitForTimeout(1_500);
@@ -322,10 +571,11 @@ for (const r of RECORDINGS) {
           clock: "raf",
           viewport: "1280x800",
           budgetsFrom: NORTH_STAR_PATH,
-          budgetsMs: { splash: SPLASH_BUDGET_MS, shake: SHAKE_BUDGET_MS },
+          budgetsMs: { splash: SPLASH_BUDGET_MS, shake: SHAKE_BUDGET_MS, drag: DRAG_BUDGET_MS, scroll: SCROLL_BUDGET_MS },
           recordedAt: new Date().toISOString(),
           video: VIDEO_PATH,
           timings,
+          scroll: { minRestDuringScroll },
           landing,
           shots,
         },
