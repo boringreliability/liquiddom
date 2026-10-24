@@ -55,7 +55,9 @@ Decision: APPROVED 2026-10-24 — (a)+(b): Dennis publishes 0.3.0-alpha.x under 
 ## Specification
 Baseline at `e137d45` (W86 complete; the site live): cargo `245 passed; 0 failed; 1 ignored`; vitest `862 passed (862)`, 88 files; Playwright `--list` canvas2d 101 / webgpu 51 / webgpu-hw 99 / perf 6 / dist 2 / site 7.
 
-Written after the W87 gate (part 2 of the plan).
+The implementation follows part 2 of `docs/superpowers/plans/2026-10-13-fluid-slice-6/W87.md`: `e2e/record.spec.ts` gains step 5 (drag "Merge" into the card, DRAGGED asserted mid-hold) and step 7 (three wheel notches to 300 px and back, `scrollY` asserted, `minRestDuringScroll` recorded) in the acceptance video, and a site test per renderer (its own Vite preview on :4177, its own video, manifest and GIF; skipped without `site/dist`), placed before the acceptance loop so the W76 pin holds. `npm run whole-picture` builds the site and writes `slice-6-{canvas2d,webgpu}.gif` and `slice-6-site-{canvas2d,webgpu}.gif`. The report is `.wdd/memory/whole-picture/slice-6.md`.
+
+After W87: vitest `870 passed (870)`, 88 files; `--list` record 4, record-webgpu 4, the others unchanged.
 
 ## Tests
 
@@ -87,7 +89,17 @@ Red run: whole-picture-tooling 16 tests, 5 failed (rows 1–5); wdd-docs 39 test
 - Record the decisions Dennis takes on D87-3 and D87-4.
 
 ## Manual Smoke Test
-Written after the W87 gate (part 2 of the plan).
+### Setup
+Nothing to start: the four GIFs are in `docs/superpowers/whole-picture/`.
+
+### Steps
+1. Open `slice-6-canvas2d.gif` and `slice-6-webgpu.gif` and watch steps 1–8 (the order of the report's step table): the drag of "Merge" into the card and back (step 5) and the scroll to 300 px and back (step 7) are new.
+2. Open `slice-6-site-canvas2d.gif` and `slice-6-site-webgpu.gif`: the arrival, the hint shake at about 4 s, chapters 2, 3, 4, 6 and 7, back to the top.
+3. Read `.wdd/memory/whole-picture/slice-6.md` (step table, Site, Epic 15, Release).
+
+### Pass criteria
+- [ ] Every step reads as the report describes it in both renderers.
+- [ ] The release steps (D87-4) are the ones Dennis wants to run.
 
 ## Verification
 `npm run whole-picture` (both renderers, both GIFs per renderer), vision of every segment, the report against NORTH-STAR's S6 column; `npm run verify` and `npm run e2e:canvas2d` unchanged.
