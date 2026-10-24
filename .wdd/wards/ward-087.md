@@ -3,7 +3,7 @@ ward: 87
 revision: null
 name: "Whole picture (slice 6)"
 epic: "fluid-engine"
-status: "approved"
+status: "gold"
 dependencies: [86]
 layer: "typescript"
 estimated_tests: 0
