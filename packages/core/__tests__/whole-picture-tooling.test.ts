@@ -82,7 +82,7 @@ describe("W69: scripts/webm-to-gif.mjs", () => {
     }
   });
 
-  // W87: approved-test change (pending Dennis' approval at red, 2026-10-24)
+  // W87: approved-test change (approved by Dennis at red, 2026-10-24)
   it("given_root_package_when_read_then_whole_picture_script_builds_the_site_records_both_renderers_then_converts_to_the_slice_6_gifs", () => {
     const pkg = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
     expect(pkg.scripts["whole-picture"]).toBe(
@@ -139,7 +139,7 @@ describe("W70: e2e/record.spec.ts records step 8 (D70-6)", () => {
     const spec = readFileSync(resolve(ROOT, "e2e/record.spec.ts"), "utf8");
     expect(spec).toContain("const RM_SCENE_URL = `${SCENE_URL}&rm=1`;");
     // W72 red: approved-test change (Dennis approves at W72 red): the record spec declares one test per renderer from a template
-    // W87: approved-test change (pending Dennis' approval at red, 2026-10-24)
+    // W87: approved-test change (approved by Dennis at red, 2026-10-24)
     expect(spec).toContain("test(`whole picture – acceptance steps 1-8 recorded in ${r.renderer}`");
     const s6 = spec.indexOf("// Step 6");
     const s8 = spec.indexOf("// Step 8");
