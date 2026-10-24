@@ -5,7 +5,29 @@
     "liquiddom-react-example": "0.0.0",
     "liquiddom": "0.3.0-alpha.0",
     "@liquiddom/react": "0.3.0-alpha.0",
-    "@liquiddom/vue": "0.3.0-alpha.0"
+    "@liquiddom/vue": "0.3.0-alpha.0",
+    "liquiddom-vue-example": "0.0.0",
+    "@liquiddom/site": "0.0.0"
   },
-  "changesets": []
+  "changesets": [
+    "fluid-adapters",
+    "fluid-closed-liquid",
+    "fluid-drag",
+    "fluid-engine-alpha",
+    "fluid-gravity-tilt",
+    "fluid-liquid-text",
+    "fluid-merge",
+    "fluid-parking",
+    "fluid-pointer-material",
+    "fluid-scroll",
+    "fluid-shake-no-lace",
+    "fluid-slice-2-feel",
+    "fluid-splash-shake",
+    "fluid-text-stays-true",
+    "fluid-touch-opt-out",
+    "fluid-under-the-page",
+    "fluid-webgpu-default",
+    "fluid-webgpu-liquid",
+    "w86-colour-probe"
+  ]
 }
