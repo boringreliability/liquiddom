@@ -38,7 +38,7 @@ npm workspaces: `packages/*` (`liquiddom`, `@liquiddom/react`, `@liquiddom/vue`,
 
 ## Architecture (high-level)
 
-### Fluid engine (in progress, Epic 15)
+### Fluid engine (complete, Epic 15)
 Epic 15 is complete: slices 1–6 (W63–W87) are done and 0.3.0-alpha.1 is published. The next ward is glow and shadow (renderer-only; acceptance cases: text over moving or merged liquid, `slice-6.md` open points).
 The soft-body engine (W6–W62) is retired as of W66; its last state is the git tag `softbody-final`. The binding design is `docs/superpowers/specs/2026-10-02-liquiddom-fluid-design.md`. The canonical acceptance scene and slice matrix are in `.wdd/NORTH-STAR.md`. Slice 1 (W63–W66) shipped the liquid at rest through the public API; slices 2–6 (W67–W87) followed the matrix and are complete.
 - `FluidCore` (`src/fluid/api.rs`, wasm-bindgen) is the only exported Rust class. `FluidBridge` (`ts/src/fluid-bridge.ts`) is the sole owner of its pointers and views.
