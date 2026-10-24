@@ -263,6 +263,11 @@ test.describe("whole picture – the site landing (D87-2)", () => {
       await shot("site-top");
       await expect(page.locator("body > canvas.liquid-canvas")).toHaveCount(1);
       await expect(page.locator(".pool > canvas.liquid-canvas")).toHaveCount(5);
+      // PR #6 review: every pool instance ('auto') renders in the recorded renderer too; they have long been up here.
+      const poolsCanvas2d = await page
+        .locator(".pool > canvas.liquid-canvas")
+        .evaluateAll((cs) => cs.map((c) => (c as HTMLCanvasElement).getContext("2d") !== null));
+      expect(poolsCanvas2d, `every pool renders ${r.renderer} in the ${r.project} project`).toEqual(Array(5).fill(r.renderer === "canvas2d"));
 
       const video = page.video();
       expect(video, `video recording is not enabled (PROJECT_USE["${r.project}"])`).not.toBeNull();
