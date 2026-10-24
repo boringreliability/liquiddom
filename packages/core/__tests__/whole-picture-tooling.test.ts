@@ -82,11 +82,11 @@ describe("W69: scripts/webm-to-gif.mjs", () => {
     }
   });
 
-  // W76 red: approved-test change (Dennis approves at W76 red): D76-1 records both renderers and writes the slice-4 GIFs
-  it("given_root_package_when_read_then_whole_picture_script_records_both_renderers_then_converts_to_the_slice_4_gifs", () => {
+  // W87: approved-test change (pending Dennis' approval at red, 2026-10-24)
+  it("given_root_package_when_read_then_whole_picture_script_builds_the_site_records_both_renderers_then_converts_to_the_slice_6_gifs", () => {
     const pkg = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
     expect(pkg.scripts["whole-picture"]).toBe(
-      "playwright test e2e/record.spec.ts --project=record --project=record-webgpu && node scripts/webm-to-gif.mjs test-results/whole-picture/manifest.json docs/superpowers/whole-picture/slice-4-canvas2d.gif && node scripts/webm-to-gif.mjs test-results/whole-picture/manifest-webgpu.json docs/superpowers/whole-picture/slice-4-webgpu.gif",
+      "npm run e2e:site:build && playwright test e2e/record.spec.ts --project=record --project=record-webgpu && node scripts/webm-to-gif.mjs test-results/whole-picture/manifest.json docs/superpowers/whole-picture/slice-6-canvas2d.gif && node scripts/webm-to-gif.mjs test-results/whole-picture/manifest-webgpu.json docs/superpowers/whole-picture/slice-6-webgpu.gif && node scripts/webm-to-gif.mjs test-results/whole-picture/manifest-site.json docs/superpowers/whole-picture/slice-6-site-canvas2d.gif && node scripts/webm-to-gif.mjs test-results/whole-picture/manifest-site-webgpu.json docs/superpowers/whole-picture/slice-6-site-webgpu.gif",
     );
   });
 });
@@ -139,7 +139,8 @@ describe("W70: e2e/record.spec.ts records step 8 (D70-6)", () => {
     const spec = readFileSync(resolve(ROOT, "e2e/record.spec.ts"), "utf8");
     expect(spec).toContain("const RM_SCENE_URL = `${SCENE_URL}&rm=1`;");
     // W72 red: approved-test change (Dennis approves at W72 red): the record spec declares one test per renderer from a template
-    expect(spec).toContain("test(`whole picture – acceptance steps 1-4, 6 and 8 recorded in ${r.renderer}`");
+    // W87: approved-test change (pending Dennis' approval at red, 2026-10-24)
+    expect(spec).toContain("test(`whole picture – acceptance steps 1-8 recorded in ${r.renderer}`");
     const s6 = spec.indexOf("// Step 6");
     const s8 = spec.indexOf("// Step 8");
     const close = spec.lastIndexOf("await page.close();");
@@ -233,5 +234,52 @@ describe("W76: the landing page in the slice-4 recording (D76-2)", () => {
     expect(manifest, "the manifest carries the landing timings").toMatch(/\blanding\b/);
     // One template for both renderers.
     expect(seg).not.toMatch(/r\.renderer\s*===|test\.skip/);
+  });
+});
+
+describe("W87: the slice-6 recording", () => {
+  const spec = readFileSync(resolve(ROOT, "e2e/record.spec.ts"), "utf8");
+  const northStar = readFileSync(resolve(ROOT, ".wdd/NORTH-STAR.md"), "utf8");
+
+  it("given_record_spec_when_read_then_step_5_drags_merge_into_the_card_between_step_4_and_step_6", () => {
+    const s4 = spec.indexOf("// Step 4 –"), s5 = spec.indexOf("// Step 5 (S6, W87)"), s6 = spec.indexOf("// Step 6");
+    expect(s4).toBeGreaterThan(-1);
+    expect(s5).toBeGreaterThan(s4);
+    expect(s6).toBeGreaterThan(s5);
+    const seg = spec.slice(s5, s6);
+    for (const must of ['"#merge"', '"#card"', "mouse.down(", "mouse.up(", '"step5-merge-hold"', '"step5-separate-500ms"', '"step5-reformed"', "step: 5,", "interaction", "DRAG_BUDGET_MS"]) expect(seg, must).toContain(must);
+    expect(spec).toContain("reformBudgetMs(NORTH_STAR_MD, 5)");
+    expect(seg).not.toMatch(/r\.renderer ===|test\.skip/);
+  });
+
+  it("given_record_spec_when_read_then_step_7_scrolls_300_px_and_back_between_step_6_and_the_s4_step_8", () => {
+    const s6 = spec.indexOf("// Step 6"), s7 = spec.indexOf("// Step 7 (S6, W87)"), s8 = spec.indexOf("// S4 step 8 (W76)");
+    expect(s7).toBeGreaterThan(s6);
+    expect(s8).toBeGreaterThan(s7);
+    const seg = spec.slice(s7, s8);
+    for (const must of ["mouse.wheel(0, 100)", "mouse.wheel(0, -100)", "scrollY", "toBe(300)", "toBe(0)", '"step7-scrolled-300"', '"step7-back"', "step: 7,", "SCROLL_BUDGET_MS", "minRestDuringScroll"]) expect(seg, must).toContain(must);
+    expect(spec).toContain("reformBudgetMs(NORTH_STAR_MD, 7)");
+    expect(seg).not.toMatch(/r\.renderer ===|test\.skip/);
+  });
+
+  it("given_record_spec_when_read_then_the_site_is_recorded_per_renderer_into_its_own_manifest", () => {
+    expect(spec).toContain("const RECORD_SITE_PORT = 4177;");
+    expect(spec).toContain('import { preview, type PreviewServer } from "vite";');
+    expect(spec).toContain("SITE_ROOT");
+    expect(spec).toContain('manifest: "manifest-site.json"');
+    expect(spec).toContain('manifest: "manifest-site-webgpu.json"');
+    expect(spec).toContain("`whole picture – the site landing recorded in ${r.renderer}`");
+    const siteAt = spec.indexOf("// Site (D87-2, W87)");
+    const loopAt = spec.indexOf("for (const r of RECORDINGS) {");
+    expect(siteAt).toBeGreaterThan(-1);
+    expect(loopAt, "the site describe sits before the acceptance loop (W76 pin)").toBeGreaterThan(siteAt);
+    const site = spec.slice(siteAt, loopAt);
+    for (const must of ["#shake-all", ".run-card", "#splash-both", "mouse.down(", '"site-arrival-', '"site-hint', "liquid-canvas", "test.skip(!existsSync("]) expect(site, must).toContain(must);
+    // RECORDINGS is pinned by W72 and stays byte-identical
+    expect(spec).toContain('{ renderer: "canvas2d", project: "record", manifest: "manifest.json", video: "tmp/whole-picture/slice-2.webm", shotPrefix: "s2" }');
+  });
+
+  it("given_north_star_when_parsed_then_the_step_5_drag_budget_is_3_s", () => {
+    expect(reformBudgetMs(northStar, 5)).toBe(3000);
   });
 });

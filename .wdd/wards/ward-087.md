@@ -58,7 +58,24 @@ Baseline at `e137d45` (W86 complete; the site live): cargo `245 passed; 0 failed
 Written after the W87 gate (part 2 of the plan).
 
 ## Tests
-Written after the W87 gate (part 2 of the plan).
+
+Files: `packages/core/__tests__/whole-picture-tooling.test.ts`, `packages/core/__tests__/wdd-docs.test.ts`. Rows 1 and 2 change approved tests in place (pending Dennis' approval at red, 2026-10-24).
+
+| # | Test (file: name) | Verifies | Red (measured) | Gold |
+|---|---|---|---|---|
+| 1 | whole-picture-tooling (changed, i): given_root_package_when_read_then_whole_picture_script_builds_the_site_records_both_renderers_then_converts_to_the_slice_6_gifs | D87-1/2 | ❌ assertion: the script is still the slice-4 string | ✅ |
+| 2 | whole-picture-tooling (changed, ii): the W70 test's test-name template reads "steps 1-8" | D87-1 | ❌ assertion: the spec still declares "steps 1-4, 6 and 8" | ✅ |
+| 3 | whole-picture-tooling: given_record_spec_when_read_then_step_5_drags_merge_into_the_card_between_step_4_and_step_6 | D87-1 | ❌ assertion: no `// Step 5 (S6, W87)` marker (indexOf -1) | ✅ |
+| 4 | whole-picture-tooling: given_record_spec_when_read_then_step_7_scrolls_300_px_and_back_between_step_6_and_the_s4_step_8 | D87-1 | ❌ assertion: no `// Step 7 (S6, W87)` marker (indexOf -1) | ✅ |
+| 5 | whole-picture-tooling: given_record_spec_when_read_then_the_site_is_recorded_per_renderer_into_its_own_manifest | D87-2 | ❌ assertion: no `const RECORD_SITE_PORT = 4177;` | ✅ |
+| 6 | whole-picture-tooling: given_north_star_when_parsed_then_the_step_5_drag_budget_is_3_s | D87-1 | ✅ (NORTH-STAR has it) | ✅ |
+| (pin) | whole-picture-tooling W76 D76-2, unchanged | resolution 5 | ✅ | ✅ (the site block before the acceptance loop) |
+| 7 | wdd-docs: given_slice_6_report_when_read_then_headings_and_eight_scene_step_rows | D87-1 | ❌ assertion: missing `.wdd/memory/whole-picture/slice-6.md` | ✅ |
+| 8 | wdd-docs: given_slice_6_report_when_read_then_every_step_row_cites_an_observation_and_steps_3_to_7_a_time | D87-1 | ❌ assertion: missing slice-6.md | ✅ |
+| 9 | wdd-docs: given_slice_6_report_when_read_then_the_site_section_cites_frames_and_the_epic_and_release_sections_cite_d87_3_and_d87_4 | D87-2/3/4 | ❌ assertion: missing slice-6.md | ✅ |
+| 10 | wdd-docs: given_slice_6_gifs_when_read_then_four_gif89a_files_under_10_mib | D87-1/2 | ❌ assertion: missing `slice-6-canvas2d.gif` | ✅ |
+
+Red run: whole-picture-tooling 16 tests, 5 failed (rows 1–5); wdd-docs 39 tests, 4 failed (rows 7–10); row 6 and every pre-existing test pass.
 
 ## Must NOT
 - Change the engine or any public API; fix a liquid finding inside W87 (it becomes a later ward).
