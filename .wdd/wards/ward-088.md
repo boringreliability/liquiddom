@@ -199,6 +199,37 @@ Manual clock, `splash(0.5)` on the drop and glow pills. `restAlpha` reaches 1 at
 - The non-monotonic `restAlpha` before rest (0.14 → 0.97 → 0.83 → 1 between frames 114 and 131). The class toggles more than once in that window, and each toggle is a full renderer ↔ browser switch. Nothing was visible in the spike; the gold e2e should look at that window.
 - The GPU costs come from the M4 Pro only. The Canvas2D numbers are CPU time only: Chrome rasterises `shadowBlur` on the GPU out of band.
 
+## Gold perf (W88.5 Step 7a, 2026-10-25)
+
+The spike's setup with the real implementation (knockout, D88-11 passes), on a throwaway copy of `631930a` in `$S/w88perf/` (Vite :4189, deleted after recording): twelve 140×48 pills, `splash(1)` every 30 frames, 12000 particles, 150 warm-up + 600 measured frames, RAF clock, 1280×800, Playwright Chromium (channel `chromium`, new headless), same M4 Pro. Not committed, not a CI gate.
+
+**Machine state:** unlike the spike, the Mac was under heavy foreign CPU load (two JVMs at 110–180 %, testcontainers, an Android emulator, an editor at 100 %). The Canvas2D baseline `render()` p95 was 13.6 ms (spike 6.75 ms) and the frame interval p95 50–67 ms (spike 17–18.5 ms). The WebGPU frames held 16.7 ms at 1×. Two full Canvas2D runs agreed within 0.1 ms.
+
+### Canvas2D: `render()` CPU p95, change from the baseline (ms)
+Baseline 13.59 ms (DPR 1) / 13.58 ms (DPR 2).
+
+| DPR | layers | 1 el | 6 el | 12 el |
+|---|---|---|---|---|
+| 1 | 1 | +1.00 | +4.61 | +8.75 |
+| 1 | 3 | +1.06 | +4.85 | +9.19 |
+| 2 | 1 | +1.02 | +4.81 | +9.02 |
+| 2 | 3 | +1.14 | +4.93 | +9.52 |
+
+- **The +2 ms STOP threshold at 6 elements fired** (+4.6 … +4.9 ms). Scaled by the baseline ratio (6.75 / 13.59) it is still +2.3 … +2.45 ms; relative to the baseline it is +34 … +36 % against the spike's +11 … +15 %.
+- **The knockout is most of it.** The shadow `draw()` alone, 6 elements, p95 / median: with the knockout 4.62 / 2.47 (6×1, DPR 1) … 4.97 / 2.82 ms (6×3, DPR 2); with the knockout disabled in the copy 1.99 / 1.82 … 2.30 / 2.08 ms (`render()` +1.9 … +2.3 ms over the baseline, the spike's +0.75 … +0.99 ms scaled by the load).
+
+### WebGPU: amortised GPU time of the shadow passes (ms per frame)
+Encoded ×10 per frame in the copy and divided by 10, timed with `timestamp-query` between two marker passes around the shadow passes; p95 / median over ≈ 450–618 resolved frames. The baseline (no shadows) has no shadow passes.
+
+| DPR | layers | 1 el | 6 el | 12 el |
+|---|---|---|---|---|
+| 1 | 1 | 0.34 / 0.11 | 1.19 / 0.14 | 1.32 / 0.74 |
+| 1 | 3 | 0.71 / 0.58 | 1.37 / 0.89 | 1.33 / 0.90 |
+| 2 | 1 | 0.71 / 0.19 | 1.69 / 0.21 | 2.26 / 0.33 |
+| 2 | 3 | 1.04 / 0.75 | **3.69 / 1.84** | 3.61 / 1.88 |
+
+- **6 elements × 3 layers, DPR 2: 3.69 ms p95, under the 3.76 ms STOP threshold** (by 0.07 ms); the median is 1.84 ms, about the spike's scissored buckets (1.88 ms). At ×10 the frame interval rose to 33–50 ms at DPR 2 (6 and 12 elements), as in the spike; a real frame runs the passes once. CPU `render()` p95 stayed 0.9 … 1.8 ms (baseline 0.59 ms).
+
 ## Specification
 **Baseline at `38165db`:** measured 2026-10-25 after `npm run build:wasm` and `npm run build -w liquiddom` (W87 complete, only docs changed since): cargo `245 passed; 0 failed; 1 ignored` (the doc-test line is 0 passed); vitest `870 passed (870)`, 88 files; Playwright `--list` canvas2d 101 / webgpu 51 / webgpu-hw 99 / perf 6 / dist 2 / site 7 / record 4 / record-webgpu 4. These equal the survey's counts.
 
