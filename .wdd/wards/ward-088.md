@@ -37,52 +37,52 @@ Out of scope: inset shadows in motion (they show at rest and hide in motion), bo
 ### D88-1: The hybrid model
 Proposal: the browser draws `box-shadow` at rest. `box-shadow: none` leaves the `.liquid-element` rule. While the liquid is away (`restAlpha < 1` or dragged; both renderers; never under reduced motion), the class `liquid-shadow-away` (`box-shadow: none !important`, same `@layer liquiddom` and `@media screen and (forced-colors: none)` scope) hides the browser's shadow. The class is refcounted per element across instances and cleared on unobserve, destroy, a stop and a lost device. Settled in the brainstorm (saga dec_1b99e860).
 Consequence: at rest the shadow is pixel-exact and costs nothing; an observed element's shadow is now visible, so an author's existing shadow reappears (the demo landing's card shadow becomes visible at rest). A new toggle joins the post-`render()` sync, with the same lifecycle burden as `liquid-away` and the halo. Print and forced colours show the element's own shadow.
-Decision: PENDING
+Decision: APPROVED 2026-10-25 — hybrid: browser at rest, liquid-shadow-away + renderer while the liquid is away, both renderers (saga dec_3e11178b)
 
 ### D88-2: Scope of the layers
 Proposal: outer layers only, at most 4 per element (more draw the first 4, documented). Inset shows at rest and hides in motion. Out of scope: borders and outlines, `filter: drop-shadow()`, per-corner radii, an opt-out option. Settled in the brainstorm (saga dec_c7b5f5d4).
 Consequence: an inset shadow pops off when the liquid leaves rest and returns at the handoff; a fifth layer never draws in motion; no switch exists if the cost proves a problem (YAGNI until it does).
-Decision: PENDING
+Decision: APPROVED 2026-10-25 — outer layers only, max 4; inset at rest only; borders, drop-shadow(), per-corner radii, opt-out out (saga dec_acefbc25)
 
 ### D88-3: Snapshot and triggers
 Proposal: `snapshotShadow(el)` parses the computed `box-shadow` into `{ color, dx, dy, blur, spread, inset }` (colours through `parseCssColor` and the W86 probe, so oklch works). It runs at `observe`, on W75's own `class`/`style` triggers, on `transitionend` for `box-shadow` (the runtime's `onTransitionEnd` list grows), and on `refresh(el)`. It lifts `liquid-shadow-away` while reading, as the colour snapshot lifts `liquid-element`. `ElementPaint` gains `shadows: readonly ShadowLayer[]`, scaled by DPR in the renderer.
 Consequence: a `:hover` shadow change without a transition shows the old shadow until `refresh(el)`, exactly like colours; `InternalRecord` and `ElementPaint` grow; computed values are already resolved, so `currentColor` and CSS variables reach the parser as `rgb(...)`.
-Decision: PENDING
+Decision: APPROVED 2026-10-25 — snapshotShadow at observe, W75 triggers, transitionend box-shadow, refresh; lifts liquid-shadow-away (saga dec_a4fea5a7)
 
 ### D88-4: Draw order
 Proposal: every shadow is drawn before all liquid, so no shadow lies on another element's liquid and merged liquids share their shadows. No shadow for parked (W81) or inactive elements; in container mode the container's canvas clips the shadow.
 Consequence: differs from CSS, where a later element's shadow can fall on an earlier one (for liquid that would read as a dark stain); a shadow larger than the container is clipped.
-Decision: PENDING
+Decision: APPROVED 2026-10-25 — every shadow before all liquid; none for parked or inactive elements (saga dec_c32cd7eb)
 
 ### D88-5: Canvas2D technique
 Proposal: a per-element alpha mask at the density cell size, drawn once per layer with `shadowColor`/`shadowBlur`/`shadowOffset`, off-screen with the offset compensated so only the shadow lands. Spread comes from an 8-direction dilation. Then the density image is drawn as today. The spike adds the cost and a ceiling if needed.
 Consequence: new per-element work for every shadowed element in motion (today every moving element shares one density grid); spread is approximated by 8 shifted draws. Spike W88.0 Q1 settles the cost, whether `shadowBlur` matches CSS blur, and whether a ceiling on layers drawn per frame is needed.
-Decision: PENDING
+Decision: APPROVED 2026-10-25 — per-element mask with canvas shadows, 8-direction dilation for spread, no ceiling (saga dec_a36ea6f4)
 
 ### D88-6: WebGPU technique
 Proposal: a half-resolution shadow splat, then a separable gaussian blur in radius buckets (proposal: 4, 8, 16, 32, 64 px, nearest bucket; one target and blur per bucket used in the frame). It is composited under the liquid in the screen pass.
 Consequence: a blur radius is rounded to its nearest bucket (a size error or banding is possible); each bucket in use costs a target and two blur passes per frame. Spike W88.0 Q2 sets the buckets, the target scale (a quarter resolution for large buckets is tried) and the cost.
-Decision: PENDING
+Decision: AMENDED 2026-10-25 — exact blur radii grouped per distinct value, half res (quarter for blur ≥ 32 px), scissored; buckets {4, 8, 16, 32, 64} only as overflow past about 6 distinct radii per frame (saga dec_8c14c096)
 
 ### D88-7: The handoff
 Proposal: the class goes in the frame `restAlpha` reaches 1, and the browser takes over. The renderer's shadow in that frame comes from box-shaped liquid. Alternative if Q3 shows a visible jump: cross-fade the renderer's shadow out over the rest fade.
 Consequence: a small jump in size, darkness or offset is possible at the handoff, or a gap or double frame; the cross-fade removes it but needs the browser's shadow to fade in (a scratch opacity) and more renderer state. Spike W88.0 Q3 measures it in both renderers.
-Decision: PENDING
+Decision: APPROVED 2026-10-25 — instant handoff when restAlpha reaches 1; no cross-fade (saga dec_90ce2674)
 
 ### D88-8: Scene, site and docs
 Proposal: a new `demo/scenes/shadows.html` (drop shadow, multi-layer glow, spread, inset; hook `window.__shadows`; RAF by default, `?clock=manual`, `?renderer`). The site hero pills and drops get a CSS glow. Corrections in `getting-started.md:44`, `limitations.md:14` and `packages/core/README.md:24`/`:120`.
 Consequence: no Linux baseline moves (the acceptance scene has no `box-shadow`); the demo landing's card shadow becomes visible at rest (that page has no baseline); the README lines are not named in the design but need the same correction.
-Decision: PENDING
+Decision: APPROVED 2026-10-25 — shadows scene, site hero glow, four docs corrections; no baseline moves (saga dec_30400751)
 
 ### D88-9: The gate covers Epic 16
 Proposal: `wdd-docs.test.ts` `discoverFluidWards` also takes `epic: "liquid-look"` wards (renamed `discoverGatedWards`), so W88 gets the North-star, Decisions and PENDING guards.
 Consequence: this changes an approved test, so it is flagged to Dennis at the gate; without it a W88 with `epic: "liquid-look"` escapes the guards, because discovery keeps only `epic: "fluid-engine"` wards.
-Decision: PENDING
+Decision: APPROVED 2026-10-25 — the wdd-docs gate also discovers epic liquid-look wards (approved-test change) (saga dec_133bcc13)
 
 ### D88-10: Knockout under the element's own liquid
 Proposal: the renderer masks each element's shadow by the inverse of that element's own liquid coverage, so a hole or tear in the liquid shows the page and not the shadow. WebGPU masks with the composite's coverage; Canvas2D uses a `destination-out` of the mask (or a per-element composite operation) before the shadow lands. Alternative: accept it as "the liquid is translucent at a tear" and document it.
 Consequence: matches CSS, which never paints a `box-shadow` under its own box; spike W88.0 showed grey and cyan flecks inside holes and torn text. It costs one more pass or composite operation, and it was not measured in the spike. Merged liquids still share their shadows outside both.
-Decision: PENDING
+Decision: APPROVED 2026-10-25 — knockout: each element's shadow masked by its own liquid coverage (saga dec_5af57bbe)
 
 ### D88-11: WebGPU pass structure
 Proposal:
@@ -91,22 +91,22 @@ Proposal:
 - Spread uses the mass-scaled, widened kernel, with one density per distinct spread (most layers have 0).
 - Scissor every pass to the bounds, and use a quarter-resolution target for blur ≥ 32 px.
 Consequence: spike W88.0 showed that the GPU cost is the pass count (two full-target passes per layer, two blur passes per group), not the blur taps. About 2 + 2·groups passes instead of 2·layers + 2·groups. Not measured in the spike.
-Decision: PENDING
+Decision: APPROVED 2026-10-25 — one density splat per element, offset in the resolve, one resolve pass per radius group, scissored (saga dec_0dba6795)
 
 ### D88-12: Canvas2D spread without blur
 Proposal: give a spread layer with blur 0 a `shadowBlur` floor of one density cell (2–2.7 px), or dilate in 16 directions instead of 8.
 Consequence: the spike's 8-direction dilation of the 2 px mask leaves a visibly bumpy fringe (controller vision 2026-10-25). The floor softens a hard CSS edge by about one cell. The mass-widened splat is not an option on the CPU (+4 … +8 ms).
-Decision: PENDING
+Decision: APPROVED 2026-10-25 — shadowBlur floor of one density cell for spread layers (saga dec_30e72f80)
 
 ### D88-13: The liquid composite blends OVER
 Proposal: the WebGPU liquid composite pipeline gets `OVER_BLEND`, so the shadows drawn before it in the screen pass survive (today it has no blend and replaces the target).
 Consequence: bit-identical where no shadow lies underneath, because the composite writes premultiplied 0 outside the liquid. It changes an approved pipeline, so it is flagged at the gate; no baseline moves.
-Decision: PENDING
+Decision: APPROVED 2026-10-25 — the liquid composite blends OVER (approved-test change) (saga dec_793867f6)
 
 ### D88-14: Canvas2D shadows are scaled by the DPR in the renderer
 Proposal: the renderer multiplies `shadowBlur` and `shadowOffsetX/Y`, including the off-canvas compensation offset, by the DPR, because canvas shadows ignore `setTransform`. A fake-canvas test pins it. This is a fact pinned by a test, not a choice.
 Consequence: without the scaling, a DPR 2 shadow is half as blurred and half as offset as the CSS one. With it, spike W88.0 matched CSS blur within about 5 %.
-Decision: PENDING
+Decision: APPROVED 2026-10-25 — the renderer scales shadowBlur and offsets by the DPR, test-pinned (saga dec_668a8f0c)
 
 ## Spike W88.0 result
 

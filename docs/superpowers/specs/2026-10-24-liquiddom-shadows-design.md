@@ -44,6 +44,7 @@ Shared rules:
 - Only elements whose liquid is away and that have outer shadows cost anything.
 - Every shadow is drawn **before** all liquid. A shadow never lies on top of another element's liquid, and two merged liquids share their shadows naturally. (CSS lets a later element's shadow fall on an earlier one; for liquid that would read as a dark stain.)
 - Parked (W81) and inactive elements draw no shadow.
+- Knockout: an element's shadow is masked by its own liquid coverage, so holes and tears in the liquid show the page (amended at the W88 gate, 2026-10-25, D88-10).
 - In container mode the container's canvas clips the shadow, like the liquid.
 
 **Canvas2D.**
@@ -51,12 +52,14 @@ Shared rules:
 2. Draw the mask once per layer with `shadowColor`, `shadowBlur` and `shadowOffsetX/Y` set. The mask itself sits off-screen and the offset compensates, so only the shadow lands. Canvas blur has the same semantics as CSS blur.
 3. Spread dilates the mask: draw it shifted by `spread` px in 8 directions.
 4. Draw the density image on top, as today.
+5. Spread layers with blur 0 get a `shadowBlur` floor of one density cell (amended at the W88 gate, 2026-10-25, D88-12). The renderer scales `shadowBlur` and the offsets by the DPR (amended at the W88 gate, 2026-10-25, D88-14).
 
 **WebGPU.**
 1. A shadow pass splats the elements in motion into a half-resolution shadow target. Each particle carries its layer's colour and offset, and spread widens the splat.
 2. A separable gaussian blur runs in two directions.
-3. Blur radii vary per layer, so layers are grouped into a few radius buckets (for example 4, 8, 16, 32 and 64 px, nearest bucket). Each bucket used in a frame gets its own target and blur.
-4. The screen pass composites the shadows under the liquid.
+3. Blur radii vary per layer, so layers are grouped per distinct exact radius, at half resolution (quarter resolution for blur ≥ 32 px) and scissored. The buckets 4, 8, 16, 32 and 64 px are used only as overflow past about 6 distinct radii per frame (amended at the W88 gate, 2026-10-25, D88-6).
+   Pass structure: one density splat per element, the offset applied in the resolve, one resolve pass per radius group (amended at the W88 gate, 2026-10-25, D88-11).
+4. The screen pass composites the shadows under the liquid; the liquid composite blends OVER (amended at the W88 gate, 2026-10-25, D88-13).
 
 Everything the shadows need is already in the particle record and the element buffers. Rust and the FFI are untouched.
 
@@ -108,3 +111,5 @@ Time-boxed, with the code thrown away:
 - **Q1.** What does Canvas2D's per-element mask cost with 1 to 3 layers, and how many elements in motion can a page carry?
 - **Q2.** What does the WebGPU blur cost, and how do radius buckets look against an exact blur?
 - **Q3.** How visible is the handoff from the renderer's shadow to the browser's, in both renderers? Checked with vision.
+
+Answered by spike W88.0 (see ward-088.md); decisions D88-1…14.
