@@ -31,6 +31,20 @@ export const HALO_ID_ATTR = "data-liquid-id";
 export const HALO_BLUR_PX: readonly number[] = Object.freeze([1, 2, 4, 8]);
 /** W78 (D78-1): the Canvas2D drag label class: the runtime hides a dragged element's DOM glyphs while its liquid is away. */
 export const AWAY_CLASS = "liquid-away";
+/** W88 (D88-1): while an element's liquid is away the runtime hides its own box-shadow. W88.1 stub: no rule yet. */
+export const SHADOW_AWAY_CLASS = "liquid-shadow-away";
+
+/** W88.1 stub (W88.2 refcounts it like the other toggle classes). */
+export function addShadowAwayClass(_el: HTMLElement): void {}
+
+/** W88.1 stub. */
+export function removeShadowAwayClass(_el: HTMLElement): void {}
+
+/** W88.1 stub (W88.2: the computed transition test). */
+export function runsBoxShadowTransition(_el: HTMLElement): boolean {
+  return false;
+}
+
 export type StackMode = "relative" | "z";
 /** W82 (D82-1): the canvas under the page; every page box and its text paint above escaped liquid. */
 export const CANVAS_Z_UNDER = "-1";

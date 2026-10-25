@@ -191,7 +191,8 @@ describe("W72: renderer selection through the facade (D72-1, D72-2)", () => {
     const g = withGpu();
     const inst = tracker.track(await LiquidDOM.create({ ...base, testBackend: spyBackend().backend, renderer: "webgpu" }));
     expect(inst.activeRenderer).toBe("webgpu");
-    expect(g.calls.pipelines).toHaveLength(5);
+    // W88 red: approved-test change (D88-11, saga dec_0dba6795): plus the six shadow pipelines.
+    expect(g.calls.pipelines).toHaveLength(11);
     expect(warn).not.toHaveBeenCalled();
   });
 

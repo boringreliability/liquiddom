@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>liquiddom: shadows</title>
+    <style>
+      /* W88 (D88-8): shadows that follow the liquid. Every element keeps its own box-shadow: the
+         browser draws it at rest, the renderer while the liquid is away. Fixed positions at
+         1280×800 (it wraps on a phone), far enough apart that no two shadows meet. */
+      :root {
+        color-scheme: light;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+      body {
+        background: #f3efe6;
+        color: #1d1d1f;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      }
+      .stage {
+        position: relative;
+        width: 1200px;
+        height: 520px;
+        margin: 60px auto 0;
+      }
+      .el {
+        position: absolute;
+        box-sizing: border-box;
+        width: 160px;
+        height: 56px;
+        padding: 0;
+        border: 0;
+        border-radius: 28px;
+        color: #ffffff;
+        font: 600 16px/56px system-ui, -apple-system, "Segoe UI", sans-serif;
+        text-align: center;
+      }
+      #drop { left: 60px; top: 60px; background: #2f6fde; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4); }
+      #glow { left: 340px; top: 60px; background: #0b6e78; box-shadow: 0 0 12px 2px rgb(0, 255, 255), 0 0 32px 8px rgba(0, 255, 255, 0.5); }
+      #spread { left: 620px; top: 60px; background: #6b4bd6; box-shadow: 0 4px 0 6px rgba(0, 0, 0, 0.3); }
+      #current { left: 900px; top: 60px; background: #ffe3ef; color: rgb(200, 40, 120); box-shadow: 0 0 16px currentColor; }
+      #inset { left: 60px; top: 260px; width: 300px; height: 140px; border-radius: 16px; background: #ffffff; color: #1d1d1f; line-height: 140px; box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4); }
+      #glass { left: 480px; top: 260px; background: rgba(47, 111, 222, 0.5); box-shadow: 0 0 16px rgb(0, 0, 0); }
+      #plain { left: 760px; top: 260px; background: #1a8361; }
+      /* W88 (Question 2): an author transition on box-shadow, the common hover-glow CSS. */
+      #fade { left: 1000px; top: 260px; background: #b8432f; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); transition: box-shadow 0.3s ease; }
+      .note { position: absolute; left: 60px; top: 460px; margin: 0; font-size: 15px; color: #4a4a4f; }
+      @media (max-width: 1240px) {
+        .stage { width: auto; height: auto; padding: 24px 16px 40px; display: flex; flex-wrap: wrap; gap: 48px; }
+        .el, .note { position: static; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="stage">
+      <button id="drop" class="el" type="button" data-liquid>Drop</button>
+      <button id="glow" class="el" type="button" data-liquid>Glow</button>
+      <button id="spread" class="el" type="button" data-liquid>Spread</button>
+      <button id="current" class="el" type="button" data-liquid>currentColor</button>
+      <div id="inset" class="el" data-liquid>Inset card</div>
+      <button id="glass" class="el" type="button" data-liquid>Glass</button>
+      <button id="plain" class="el" type="button" data-liquid>Plain</button>
+      <button id="fade" class="el" type="button" data-liquid>Fade</button>
+      <p class="note">Click an element (or press Enter on it) to splash it; drag it to carry its shadow. At rest the browser draws each shadow.</p>
+    </main>
+    <script type="module" src="./shadows.ts"></script>
+  </body>
+</html>

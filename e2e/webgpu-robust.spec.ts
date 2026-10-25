@@ -34,6 +34,7 @@ import { ACCEPTANCE_FILL, FILL_MIN, scrollPath, scrollPathFills, worstFrame, typ
 import { MAX_COVERED_INK_PX, MIN_INK_PX, inkCovered } from "./under-page";
 import { TILT_BUDGET_FRAMES, gotoTilt, tiltAndSettle } from "./tilt";
 import { DRAGGED, SLOT, STEPS, STEP_PX, centreOf, gotoTouchScene, longPressMove, probe, touch } from "./touch";
+import { LIQUID_RGB, advanceShadows, canvasBoxes, gotoShadows, handoff, heldOf, maxLiquidAlpha } from "./shadows";
 
 const FPS = 60;
 const IDLE_FRAMES = 2 * FPS;
@@ -1414,5 +1415,60 @@ test.describe("W84 – touch long-press (webgpu)", () => {
     const p = await probe(page);
     expect(p.cancels).toBe(0);
     expect(p.interventions).toEqual([]);
+  });
+});
+
+// =============================================================================
+// W88 (Epic 16) – shadows follow the liquid in WebGPU (D88-6, D88-7, D88-10, D88-11, D88-13), webgpu-hw only.
+// =============================================================================
+const W88_HW_ONLY = "W88: WebGPU on the hardware adapter; local webgpu-hw project only (fallback B)";
+
+test.describe("W88 – shadows follow the liquid (webgpu)", () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== HW_PROJECT, W88_HW_ONLY);
+  });
+
+  test("W88 E2 (webgpu) – given a splash on Drop and Glow when mid-splash then both hold the class and the canvas's shadow follows the deformed liquid", async ({ page }) => {
+    await gotoShadows(page, "webgpu");
+    expect(await page.evaluate(() => window.__shadows!.activeRenderer)).toBe("webgpu");
+    await page.evaluate(() => {
+      window.__shadows!.splash("drop", 1);
+      window.__shadows!.splash("glow", 1);
+    });
+    await advanceShadows(page, 8);
+    expect([await heldOf(page, "drop"), await heldOf(page, "glow")]).toEqual([true, true]);
+    const drop = await canvasBoxes(page, "drop", 80, LIQUID_RGB.drop, "dark");
+    const glow = await canvasBoxes(page, "glow", 100, LIQUID_RGB.glow, "cyan");
+    console.log(`W88 E2 (webgpu) drop ${JSON.stringify(drop)}; glow ${JSON.stringify(glow)}`);
+    expect(drop.liquid && drop.shadow && glow.liquid && glow.shadow).toBeTruthy();
+    expect(drop.shadow!.y1).toBeGreaterThan(drop.liquid!.y1 + 6);
+    for (const side of ["x0", "y0"] as const) expect(glow.shadow![side]).toBeLessThan(glow.liquid![side] - 6);
+    for (const side of ["x1", "y1"] as const) expect(glow.shadow![side]).toBeGreaterThan(glow.liquid![side] + 6);
+  });
+
+  test("W88 E3 (webgpu) – given a soft splash on Drop and on Glow when they come to rest then the class follows restAlpha frame by frame and, with exact radii, the ring never shows a gap or a double shadow", async ({ page }) => {
+    await gotoShadows(page, "webgpu");
+    for (const id of ["drop", "glow"] as const) {
+      const run = await handoff(page, id, 0.5, 8, 40);
+      const ratios = run.frames.map((f) => f.ratio);
+      console.log(`W88 E3 (webgpu) ${id}: rest at f${run.rest}, ${run.frames.length} frames, ${run.toggles} class changes, ratio ${Math.min(...ratios).toFixed(3)}…${Math.max(...ratios).toFixed(3)}`);
+      expect(run.rest).toBeGreaterThan(0);
+      for (const f of run.frames) {
+        expect(f.held, `${id} f${f.f} (restAlpha ${f.restAlpha})`).toBe(f.restAlpha < 1);
+        expect(f.ratio, `${id} f${f.f}: no gap`).toBeGreaterThan(0.6);
+        expect(f.ratio, `${id} f${f.f}: no double shadow`).toBeLessThan(1.4);
+      }
+    }
+  });
+
+  test("W88 E8 (webgpu) – given the translucent Glass pill with a black glow mid-splash when its liquid is read then no shadow lies under its own liquid (the knockout)", async ({ page }) => {
+    await gotoShadows(page, "webgpu");
+    await page.evaluate(() => window.__shadows!.splash("glass", 1));
+    await advanceShadows(page, 8);
+    expect(await heldOf(page, "glass")).toBe(true);
+    const alpha = await maxLiquidAlpha(page, "glass", 60);
+    console.log(`W88 E8 (webgpu) glass: max liquid alpha ${alpha}`);
+    expect(alpha).toBeLessThanOrEqual(158);
+    expect(alpha).toBeGreaterThan(80);
   });
 });

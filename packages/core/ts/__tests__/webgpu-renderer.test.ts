@@ -13,6 +13,9 @@ import { T0_SCALE_DEFAULT, WebGPURenderer, type WebGPURendererOptions } from "..
 import { WebGPUUnavailableError } from "../src/renderers/webgpu/errors";
 import { WebGPUUnavailableError as BarrelError } from "../src/index";
 import { COMPOSITE_WGSL, REST_WGSL, SPLAT_WGSL, TEXT_COMPOSITE_WGSL, TEXT_WGSL } from "../src/renderers/webgpu/shaders";
+import {
+  SHADOW_BLUR_WGSL, SHADOW_COMPOSITE_WGSL, SHADOW_DENSITY_WGSL, SHADOW_KNOCKOUT_WGSL, SHADOW_RESOLVE_WGSL,
+} from "../src/renderers/webgpu/shaders";
 import { Dyn, DYNAMIC_FIELDS, ELEMENT_STRIDE, St, STATE_STRIDE, Stat, STATIC_FIELDS } from "../src/fluid-layout";
 import type { ElementPaint, RenderFrame, Renderer, TextAtlasFrame } from "../src/renderers/frame";
 import { installNavigatorGpu } from "./_facade-helpers";
@@ -158,7 +161,7 @@ describe("W71: WebGPURenderer", () => {
   });
 
   // W74 red: approved-test change (D74-4: the text and text-composite pipelines are built at init)
-  it("given_successful_init_when_built_then_five_pipelines_with_explicit_layouts_inside_one_validation_error_scope_D71_3_D74_4", async () => {
+  it("given_successful_init_when_built_then_eleven_pipelines_with_explicit_layouts_inside_one_validation_error_scope_D71_3_D74_4_D88_11", async () => {
     const f = gpu();
     await new WebGPURenderer().init(document.createElement("canvas"));
     expect(f.calls.configure).toEqual([expect.objectContaining({ format: "bgra8unorm", alphaMode: "premultiplied" })]);
@@ -169,8 +172,13 @@ describe("W71: WebGPURenderer", () => {
     expect(log.filter((l) => l.startsWith("pushErrorScope")), "two scopes: surface, then pipelines").toHaveLength(2);
     expect(log.lastIndexOf("createRenderPipeline")).toBeLessThan(log.lastIndexOf("popErrorScope"));
     expect(log.filter((l) => l === "popErrorScope")).toHaveLength(2);
-    expect(f.calls.shaderModules).toEqual([SPLAT_WGSL, COMPOSITE_WGSL, REST_WGSL, TEXT_WGSL, TEXT_COMPOSITE_WGSL]);
-    expect(f.calls.pipelines).toHaveLength(5);
+    // W88 red: approved-test change (D88-11, saga dec_0dba6795): the five shadow shaders and six shadow
+    // pipelines are built at init in the same validation scope, after the liquid's.
+    expect(f.calls.shaderModules).toEqual([
+      SPLAT_WGSL, COMPOSITE_WGSL, REST_WGSL, TEXT_WGSL, TEXT_COMPOSITE_WGSL,
+      SHADOW_DENSITY_WGSL, SHADOW_RESOLVE_WGSL, SHADOW_BLUR_WGSL, SHADOW_KNOCKOUT_WGSL, SHADOW_COMPOSITE_WGSL,
+    ]);
+    expect(f.calls.pipelines).toHaveLength(11);
     const descs = f.calls.pipelines.map((p) => p.descriptor);
     for (const d of descs) {
       expect(d.layout, "explicit layout").not.toBe("auto");
@@ -183,7 +191,9 @@ describe("W71: WebGPURenderer", () => {
       { format: "rgba16float", blend: ADDITIVE },
       { format: "r16float", blend: ADDITIVE },
     ]);
-    expect(composite!.fragment!.targets).toEqual([{ format: "bgra8unorm" }]);
+    // W88 red: approved-test change (D88-13, saga dec_793867f6): the liquid composite blends over, so the
+    // shadows drawn first in the screen pass survive (it had no blend and replaced the target).
+    expect(composite!.fragment!.targets).toEqual([{ format: "bgra8unorm", blend: OVER }]);
     expect(rest!.fragment!.targets).toEqual([{ format: "bgra8unorm", blend: OVER }]);
     // W79 red: approved-test change (D79-1, see ward-079.md): the text pass gains the rg16float id target with min blending.
     expect(text!.fragment!.targets).toEqual([
@@ -193,9 +203,11 @@ describe("W71: WebGPURenderer", () => {
     ]);
     expect(textComposite!.fragment!.targets).toEqual([{ format: "bgra8unorm", blend: OVER }]);
     const buffers = f.calls.bindGroupLayouts.flatMap((l) => Array.from(l.entries)).filter((e) => e.buffer !== undefined);
-    expect(buffers.filter((e) => e.buffer!.type === "uniform")).toHaveLength(5);
-    expect(buffers.filter((e) => e.buffer!.type === "read-only-storage")).toHaveLength(9);
-    expect(buffers).toHaveLength(14);
+    // W88 red: approved-test change (D88-11): the shadow layouts add 7 uniform (4 with a dynamic offset) and 3 storage bindings.
+    expect(buffers.filter((e) => e.buffer!.type === "uniform")).toHaveLength(12);
+    expect(buffers.filter((e) => e.buffer!.hasDynamicOffset === true)).toHaveLength(4);
+    expect(buffers.filter((e) => e.buffer!.type === "read-only-storage")).toHaveLength(12);
+    expect(buffers).toHaveLength(24);
     expect(f.calls.errors).toEqual([]);
   });
 

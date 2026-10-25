@@ -202,10 +202,104 @@ Manual clock, `splash(0.5)` on the drop and glow pills. `restAlpha` reaches 1 at
 ## Specification
 **Baseline at `38165db`:** measured 2026-10-25 after `npm run build:wasm` and `npm run build -w liquiddom` (W87 complete, only docs changed since): cargo `245 passed; 0 failed; 1 ignored` (the doc-test line is 0 passed); vitest `870 passed (870)`, 88 files; Playwright `--list` canvas2d 101 / webgpu 51 / webgpu-hw 99 / perf 6 / dist 2 / site 7 / record 4 / record-webgpu 4. These equal the survey's counts.
 
-Written after the W88.0 gate (part 2 of the plan): the technique details, the numbers of spike W88.0 and the file-level changes.
+**Architecture:** one new pure module reads the author's shadow (`shadow.ts`: the parser, the outer-layer cap, `snapshotShadow`, and `liquidAway`, the one "the liquid is away" rule that the toggle and both renderers share). The registry snapshots the shadow wherever it snapshots colours, and the paints carry the outer layers (`ElementPaint.shadows`). The renderers draw a shadow for every painted, active element with outer layers whose liquid is away (`renderers/shadow-plan.ts` `ShadowCasters`, shared), before all liquid, knocked out by the casters' own closed coverage, and report what they drew (`Renderer.shadowsDrawn(id)`). After `render()` the runtime's fourth toggle (`shadow-toggle.ts`, the W74/W75/W78 pattern) holds `liquid-shadow-away` exactly on the elements whose shadow the renderer drew this frame (plus inset-only elements in motion), so the browser's shadow and the renderer's swap in the same frame (D88-7) and never both show or both hide. Canvas2D draws per caster a cell-resolution alpha mask with canvas shadows (`renderers/shadow-canvas2d.ts`); WebGPU splats one density per source into channels of a half-resolution density array and resolves, blurs and accumulates per exact radius group (`renderers/webgpu/shadow-passes.ts`, five new WGSL shaders). Rust, the FFI and the public API are untouched.
+
+Design resolutions (plan Part 2, presented and approved at the pre-red gate 2026-10-25): (1) the class follows `Renderer.shadowsDrawn(id)`; (2) one `liquidAway` rule; (3) the knockout is the closed own coverage (D88-10 amended, `KNOCKOUT_CLOSE_PER_KERNEL` 1.5); (4) a stopped instance repaints once with `suppressShadows`, or resets the canvas bitmap; (5) a shadow-only re-read on `transitionend` for `box-shadow` (`registry.refreshShadow`); (6) WebGPU density channels, four sources per layer and at most 16 sources per frame (an element past the cap draws no renderer shadow and keeps its static browser shadow); (7) the shadow pipelines are built at init in the liquid validation scope; (8) spread by 8 shifted copies in Canvas2D, by a widened mass-scaled kernel in WebGPU; (9) six approved tests change (stylesheet.test box-shadow pin, wdd-docs discovery, webgpu-renderer counts and OVER blend, element-observer OWN_CLASSES, auto-renderer and webgpu-lifecycle pipeline counts); (10) toggle order `syncText, syncAway, syncHalo, syncShadow`; (11) the scene `demo/scenes/shadows.html` lands in red; (12) an author `transition: box-shadow` is held off while the class is written (inline `transition: none` over a style flush; another running transition on that element jumps to its end); accepted limitations: (13) a resting element browser shadow paints over a neighbour moving liquid, (14) one frame of double shadow after `unobserve` mid-motion, (15) CSS layer order across radius groups is approximate.
+
+Counts: baseline (`38165db`) vitest 870 passed, 88 files; Playwright canvas2d 101 / webgpu-hw 99. Red (W88.1): 933 tests, 867 passed, 66 failed. After W88: vitest 933 passed, 94 files (+63 tests); canvas2d 110 (+9), webgpu-hw 102 (+3); cargo unchanged.
 
 ## Tests
-Written in part 2 of the plan after the D88 gate (W88.1 red).
+Red results measured at W88.1 on this worktree (2026-10-25). **A** = an assertion fails. **T** = a TypeError on a result the stub does not produce. **S** = `vi.spyOn` on a method the registry does not have yet (`refreshShadow`, added in W88.2).
+
+| # | Test (file: name) | Verifies | Red | Gold |
+|---|---|---|---|---|
+| 1 | shadow.test: given_a_computed_value_with_two_layers_when_parsed_then_colour_offsets_blur_spread_and_inset_in_css_order | D88-3 | ❌ A (stub `[]`) | ✅ |
+| 2 | shadow.test: given_none_empty_or_garbage_when_parsed_then_no_layers | D88-3 | ✅ (the stub returns `[]`) | ✅ |
+| 3 | shadow.test: given_the_specified_form_with_lengths_first_unitless_zero_and_short_alpha_when_parsed_then_the_same_layer_as_the_computed_form | D88-3, jsdom | ❌ A | ✅ |
+| 4 | shadow.test: given_an_oklch_layer_when_parsed_then_its_colour_comes_from_the_W86_colour_probe | D88-3 | ❌ A | ✅ |
+| 5 | shadow.test: given_a_transparent_or_unreadable_layer_among_others_when_parsed_then_only_that_layer_is_dropped | D88-3 | ❌ A | ✅ |
+| 6 | shadow.test: given_zero_blur_and_negative_spread_when_parsed_then_both_are_kept | D88-3 | ❌ A | ✅ |
+| 7 | shadow.test: given_six_layers_with_two_inset_when_outerShadows_then_the_first_four_outer_layers_and_the_same_array_twice_D88_2 | D88-2 | ❌ A | ✅ |
+| 8 | shadow.test: given_an_element_holding_liquid_shadow_away_when_snapshotted_then_the_author_shadow_is_read_and_class_and_style_are_restored_exactly | D88-3 lift, RF2 | ❌ A | ✅ |
+| 9 | shadow.test: given_currentColor_resolved_by_the_browser_when_snapshotted_then_the_layer_carries_the_text_colour_review_focus_5 | RF5 | ❌ A | ✅ |
+| 10 | shadow.test: given_restAlpha_and_interaction_when_asked_then_away_below_1_or_dragged_never_under_reduced_motion_and_nan_is_rest | D88-1, res. 2 | ❌ A | ✅ |
+| 11 | stylesheet.test (approved-test change (i)): given_css_text_when_read_then_paint_and_stacking_scoped_to_screen_without_forced_colors_and_print_and_forced_colors_hide_canvas | D88-1 | ❌ A (box-shadow still in the rule) | ✅ |
+| 12 | stylesheet.test: given_css_text_when_read_then_liquid_shadow_away_hides_the_box_shadow_in_the_layer_and_the_screen_block_only | D88-1 | ❌ A | ✅ |
+| 13 | stylesheet.test: given_two_holders_when_addShadowAwayClass_twice_and_removeShadowAwayClass_once_then_the_class_stays_until_the_last_release_and_an_authors_own_class_is_kept | D88-1 | ❌ A | ✅ |
+| 13a | stylesheet.test: given_computed_transitions_when_asked_then_runsBoxShadowTransition_is_true_only_for_all_or_box_shadow_with_a_duration_resolution_12 | res. 12 | ❌ A (stub false) | ✅ |
+| 13b | stylesheet.test: given_an_element_with_a_box_shadow_transition_when_the_shadow_class_is_added_and_removed_then_each_write_holds_inline_transition_none_and_the_style_attribute_is_restored_exactly_resolution_12 | res. 12, RF10 | ❌ A | ✅ |
+| 14 | element-observer.test (approved-test change (iv)): given_only_liquiddom_class_toggles_when_drained_then_no_entry_and_authorClasses_drops_own_classes_RF2 | D88-1, RF9 | ❌ A | ✅ |
+| 15 | shadow-toggle.test: given_a_moving_element_whose_outer_shadow_the_renderer_drew_when_synced_then_the_class_once_and_off_in_the_frame_restAlpha_reaches_1 | D88-1, D88-7 | ❌ A | ✅ |
+| 16 | shadow-toggle.test: given_outer_layers_the_renderer_did_not_draw_or_no_renderer_when_synced_then_no_class_and_an_existing_hold_is_withdrawn | res. 1, RF8 | ❌ A | ✅ |
+| 17 | shadow-toggle.test: given_an_inset_only_element_whose_liquid_is_away_when_synced_then_the_class_hides_the_inset_D88_2 | D88-2 | ❌ A | ✅ |
+| 18 | shadow-toggle.test: given_a_dragged_element_at_restAlpha_1_when_synced_then_the_class_D88_1 | D88-1 | ❌ A | ✅ |
+| 19 | shadow-toggle.test: given_reduced_motion_or_a_nan_restAlpha_when_synced_then_no_class_and_an_existing_hold_is_withdrawn | D88-1 | ❌ A | ✅ |
+| 20 | shadow-toggle.test: given_two_instances_holding_one_element_when_one_releases_then_the_class_stays_until_both_release_review_focus_3 | RF3 | ❌ A | ✅ |
+| 21 | shadow-toggle.test: given_clearShadowClasses_or_a_missed_release_when_called_then_this_instance_lets_go | D88-1 | ❌ A | ✅ |
+| 22 | shadow-runtime.test: given_an_observed_element_with_an_outer_and_an_inset_layer_when_a_frame_runs_then_the_paint_carries_the_outer_layer_and_shadowLayers_both | D88-2, D88-3 | ❌ A | ✅ |
+| 23 | shadow-runtime.test: given_canvas2d_and_a_moving_shadowed_element_when_frames_run_then_the_class_follows_each_render_and_goes_in_the_frame_restAlpha_reaches_1 | D88-7, res. 10 | ❌ A | ✅ |
+| 24 | shadow-runtime.test: given_the_class_toggling_every_frame_for_60_frames_when_they_run_then_no_colour_or_shadow_re_read_and_no_atlas_invalidation | RF9 | ❌ S | ✅ |
+| 25 | shadow-runtime.test: given_a_box_shadow_transitionend_on_the_element_when_the_next_frame_runs_then_only_the_shadow_is_re_read_and_the_paint_carries_it | D88-3, res. 5 | ❌ S | ✅ |
+| 26 | shadow-runtime.test: given_a_shadow_change_without_a_transition_or_mutation_when_frames_run_then_the_old_shadow_until_refresh_and_a_refresh_mid_motion_reads_the_author_shadow_not_none_review_focus_2 | RF2 | ❌ A | ✅ |
+| 27 | shadow-runtime.test: given_an_own_class_change_when_the_next_frame_runs_then_the_shadow_is_re_read_with_the_colours | D88-3 | ❌ A | ✅ |
+| 27a | shadow-runtime.test: given_an_own_style_change_when_the_next_frame_runs_then_the_shadow_is_re_read | D88-3 | ❌ A | ✅ |
+| 28 | shadow-runtime.test: given_the_class_held_when_unobserve_then_destroy_run_then_it_is_gone_each_time | D88-1 | ❌ A | ✅ |
+| 29 | shadow-runtime.test: given_the_class_held_when_reduced_motion_switches_on_then_it_goes_at_once_and_the_next_frame_draws_no_shadow | D88-1, res. 4, RF1 | ❌ A | ✅ |
+| 30 | shadow-runtime.test: given_the_class_held_when_a_frame_throws_then_the_instance_stops_the_canvas_is_repainted_without_shadows_and_the_class_goes_review_focus_1 | RF1 | ❌ A | ✅ |
+| 31 | shadow-runtime.test: given_the_stop_repaint_itself_throws_when_the_instance_stops_then_the_canvas_bitmap_is_reset_and_still_one_console_error | RF1 | ❌ A | ✅ |
+| 32 | shadow-runtime.test: given_webgpu_and_the_class_held_when_the_device_is_lost_then_the_class_goes_at_once_and_returns_under_the_canvas2d_rebuild | D88-1, RF8 | ❌ A | ✅ |
+| 33 | shadow-runtime.test: given_two_instances_observing_one_element_when_one_moves_then_one_hold_and_the_class_stays_until_the_last_moving_instance_releases_review_focus_3 | RF3 | ❌ A | ✅ |
+| 34 | shadow-canvas2d.test: given_a_moving_element_with_one_layer_when_rendered_then_its_shadow_is_drawn_before_the_density_image_with_the_css_colour_blur_and_offset | D88-4, D88-5 | ❌ A | ✅ |
+| 35 | shadow-canvas2d.test: given_the_mask_drawn_off_the_canvas_when_rendered_then_the_source_lies_left_of_x_0_and_the_offset_brings_the_shadow_back_to_the_mask_D88_5 | D88-5 | ❌ T | ✅ |
+| 36 | shadow-canvas2d.test: given_dpr_2_when_rendered_then_shadowBlur_and_both_offsets_including_the_off_canvas_compensation_are_scaled_by_the_dpr_D88_14 | D88-14 | ❌ T | ✅ |
+| 37 | shadow-canvas2d.test: given_three_layers_when_rendered_then_one_shadow_draw_per_layer_with_the_last_css_layer_first | D88-5 | ❌ A | ✅ |
+| 38 | shadow-canvas2d.test: given_a_spread_layer_with_blur_0_when_rendered_then_an_8_direction_dilation_and_a_shadowBlur_floor_of_one_cell_D88_5_D88_12 | D88-5, D88-12 | ❌ T | ✅ |
+| 39 | shadow-canvas2d.test: given_a_negative_spread_when_rendered_then_the_8_shifted_copies_erode_the_mask_with_destination_in | D88-5, res. 8 | ❌ T | ✅ |
+| 40 | shadow-canvas2d.test: given_shadows_when_rendered_then_one_destination_out_draw_of_the_knockout_image_follows_the_shadows_and_precedes_the_density_image | D88-10 | ❌ A | ✅ |
+| 41 | shadow-canvas2d.test: given_a_hole_in_the_liquid_when_rendered_then_the_mask_shows_the_hole_and_the_knockout_closes_it_while_the_page_beside_the_liquid_stays_clear | D88-10, res. 3 | ❌ T | ✅ |
+| 42 | shadow-canvas2d.test: given_rest_parked_inactive_reduced_motion_suppressed_or_no_layers_when_rendered_then_no_shadow_draw_no_knockout_and_shadowsDrawn_false | D88-4 | ❌ A | ✅ |
+| 43 | shadow-canvas2d.test: given_two_elements_and_a_dragged_one_at_rest_when_rendered_then_shadowsDrawn_is_true_exactly_for_the_casters_of_the_last_render | res. 1, D88-1 | ❌ A | ✅ |
+| 44 | shadow-canvas2d.test: given_a_small_container_canvas_and_a_large_blur_partly_outside_it_when_rendered_then_no_throw_and_the_shadow_is_drawn_for_the_canvas_to_clip_review_focus_4 | RF4 | ❌ A | ✅ |
+| 45 | shadow-plan.test: given_moving_resting_parked_inactive_dragged_and_shadowless_elements_when_collected_then_only_moving_or_dragged_active_elements_with_layers_with_their_particles_and_bounds | D88-4 | ❌ A | ✅ |
+| 46 | shadow-plan.test: given_layers_with_three_distinct_blurs_on_two_elements_when_planned_then_three_exact_groups_one_record_per_layer_last_css_layer_first_and_offsets_in_the_records | D88-6, D88-11 | ❌ A | ✅ |
+| 47 | shadow-plan.test: given_a_blur_at_or_above_32_px_when_planned_then_its_group_uses_the_quarter_resolution_targets | D88-6 | ❌ A | ✅ |
+| 48 | shadow-plan.test: given_eight_distinct_blurs_when_planned_then_the_first_six_stay_exact_and_the_rest_join_their_log_nearest_bucket_D88_6 | D88-6 | ❌ A | ✅ |
+| 49 | shadow-plan.test: given_layers_with_different_spreads_on_one_element_when_planned_then_one_density_source_per_distinct_spread_with_spread_0_first | D88-11 | ❌ A | ✅ |
+| 50 | shadow-plan.test: given_more_density_sources_than_four_layers_hold_when_planned_then_whole_elements_that_do_not_fit_are_not_drawn | res. 6 | ❌ A | ✅ |
+| 51 | shadow-plan.test: given_a_spread_when_its_kernel_is_widened_and_mass_scaled_then_a_half_plane_of_particles_reads_density_0_5_at_the_spread_distance | D88-11, res. 8 | ❌ A | ✅ |
+| 52 | webgpu-shadows.test: given_init_when_built_then_six_shadow_pipelines_in_the_liquids_validation_scope_and_the_liquid_composite_blends_over | D88-11, D88-13 | ❌ A | ✅ |
+| 53 | webgpu-shadows.test: given_one_moving_element_with_one_layer_when_rendering_then_density_resolve_blur_h_blur_v_and_knockout_run_between_the_splat_and_the_screen_pass_whose_first_draw_is_the_shadow_composite | D88-4, D88-11 | ❌ A | ✅ |
+| 54 | webgpu-shadows.test: given_the_blur_pass_records_when_written_then_sigma_is_blur_over_2_in_target_px_and_the_taps_reach_3_sigma | D88-6 | ❌ T | ✅ |
+| 55 | webgpu-shadows.test: given_two_elements_with_the_same_blur_when_rendering_then_one_resolve_pass_draws_both_quads | D88-11 | ❌ A | ✅ |
+| 56 | webgpu-shadows.test: given_a_blur_of_40_px_when_rendering_then_its_resolve_blur_and_accumulator_targets_are_quarter_resolution | D88-6 | ❌ T | ✅ |
+| 57 | webgpu-shadows.test: given_an_element_at_the_canvas_edge_with_a_far_offset_and_a_large_blur_when_rendering_then_every_scissor_is_clamped_inside_its_attachment_review_focus_4 | RF4 | ❌ A | ✅ |
+| 58 | webgpu-shadows.test: given_a_spread_layer_when_rendering_then_its_own_density_source_and_a_knockout_mask_on_the_spread_0_channel_only | D88-10, D88-11 | ❌ T | ✅ |
+| 59 | webgpu-shadows.test: given_a_moving_element_without_shadows_or_a_resting_one_when_rendering_then_no_shadow_pass_texture_or_buffer_and_the_screen_pass_starts_with_the_liquid_composite | D88-13 (bit-identical) | ❌ T | ✅ |
+| 60 | webgpu-shadows.test: given_a_dragged_element_at_restAlpha_1_when_rendering_then_its_shadow_passes_run_D88_1 | D88-1 | ❌ A | ✅ |
+| 61 | webgpu-shadows.test: given_shadows_drawn_when_resized_lost_or_destroyed_then_the_targets_are_rebuilt_at_the_new_size_shadowsDrawn_turns_false_and_nothing_is_left_or_flagged | res. 6, RF8 | ❌ A | ✅ |
+| 62 | webgpu-renderer.test (approved-test change (iii)): given_successful_init_when_built_then_eleven_pipelines_with_explicit_layouts_inside_one_validation_error_scope_D71_3_D74_4_D88_11 (renamed from `…five_pipelines…_D74_4`) | D88-11, D88-13 | ❌ A | ✅ |
+| 63 | auto-renderer.test (approved-test change (v)): given_renderer_webgpu_available_when_create_then_activeRenderer_webgpu_the_liquid_pipelines_exist_and_no_warning_D71_2 | D88-11 | ❌ A | ✅ |
+| 64 | webgpu-lifecycle.test (approved-test change (vi)): given_a_working_surface_when_init_then_exactly_two_balanced_validation_scopes_the_surface_scope_first_and_no_error | D88-11 | ❌ A | ✅ |
+| 65 | wdd-docs (approved-test change (ii)): the gate guards iterate GATED_WARDS; discovery test uses discoverGatedWards | D88-9 | ✅ (a test-only change) | ✅ |
+| 66 | wdd-docs: given_wards_dir_when_scanned_then_the_gated_wards_hold_every_fluid_engine_ward_and_the_liquid_look_ward_88_D88_9 | D88-9 | ✅ | ✅ |
+| E1 | shadows.spec: E1 D88-1 – given the scene at rest when screenshotted then each element's own box-shadow shows around it, no element holds liquid-shadow-away and the canvas draws no shadow | D88-1 | ❌ ring energy 0 | ✅ |
+| E2 | shadows.spec: E2 D88-1, D88-5 – given a splash on Drop and Glow when mid-splash then both hold the class, the browser's shadow is off and the canvas's shadow follows the deformed liquid | D88-1, D88-5 | ❌ class false | ✅ |
+| E3 | shadows.spec: E3 D88-7 – given a soft splash on Drop and on Glow when they come to rest then the class follows restAlpha frame by frame and the ring never shows a gap or a double shadow | D88-7, RF6 | ❌ f120 restAlpha 0.833, class false | ✅ |
+| E4 | shadows.spec: E4 D88-2 – given a splash on the inset card when mid-splash then its inset shadow hides with the class and returns at rest | D88-2 | ❌ inset `none` at rest | ✅ |
+| E5 | shadows.spec: E5 D88-3 – given a currentColor glow when the scene loads then the snapshot holds the element's text colour (Review Focus 5) | RF5 | ❌ `[]` | ✅ |
+| E6 | shadows.spec: E6 reduced motion – given ?rm=1 when every element is splashed then nothing holds the class and the browser's drop shadow stays as it was | D88-1 | ❌ no browser shadow (NaN) | ✅ |
+| E7 | shadows.spec: E7 print – given Drop mid-splash when print is emulated then its own box-shadow is back (the class rule is screen-only) and the canvas is hidden | D88-1 | ❌ class false | ✅ |
+| E8 | shadows.spec: E8 D88-10 – given the translucent Glass pill with a black glow mid-splash when its liquid is read then no shadow lies under its own liquid (the knockout) | D88-10 | ❌ class false | ✅ |
+| E9 | shadows.spec: E9 resolution 12 – given Fade with an author transition: box-shadow 0.3s when it splashes and comes to rest then its browser shadow goes and comes back at once (no fade: no double shadow, no gap) and no transitionend loop | res. 12, RF10 | ❌ class false | ✅ |
+| E2w, E3w, E8w | webgpu-robust.spec, W88 block (webgpu-hw only): the WebGPU twins of E2, E3 (exact radii, RF7) and E8 | D88-6, D88-7, D88-10, D88-11 | ❌ class false | ✅ |
+
+**Counts.**
+- Baseline (`38165db`): vitest `870 passed (870)`, 88 files; Playwright `--list` canvas2d 101 / webgpu 51 / webgpu-hw 99 / perf 6 / dist 2 / site 7 / record 4 / record-webgpu 4; cargo `245 passed; 0 failed; 1 ignored`.
+- **Red (W88.1):** `933` tests, **`867 passed`, `66 failed`**, 94 files. Rows 1, 3–64, 13a, 13b and 27a fail (61 new tests and the 5 approved-test changes (i), (iii)–(vi)); rows 2, 65 and 66 pass.
+- **After W88:** vitest **`933 passed (933)`**, **94** files (+63 tests: 10 shadow, 4 stylesheet, 7 toggle, 13 runtime, 11 Canvas2D, 7 plan, 10 WebGPU, 1 wdd-docs; +6 files).
+- **Playwright `--list` after W88:** canvas2d **110** (+9, `shadows.spec.ts`), webgpu-hw **102** (+3, the W88 block), the others unchanged; cargo unchanged.
+
+**Measured red (W88.1, 2026-10-25):** vitest 933 tests, 867 passed, 66 failed (auto-renderer 1, element-observer 1, shadow-canvas2d 11, shadow-plan 7, shadow-runtime 13, shadow-toggle 7, shadow 9, stylesheet 5, webgpu-lifecycle 1, webgpu-renderer 1, webgpu-shadows 10). `npm run e2e:typecheck` clean. `playwright --project=canvas2d e2e/shadows.spec.ts`: 9 failed, all on assertions. `--project=webgpu-hw e2e/webgpu-robust.spec.ts -g W88`: 3 failed. `playwright test --list`: canvas2d 110, webgpu-hw 102, webgpu 51, perf 6, dist 2, site 7, record 4, record-webgpu 4.
 
 ## Must NOT
 - Change the engine, the FFI or any public API (Rust, `FluidCore`, the strides).
@@ -221,7 +315,11 @@ Written in part 2 of the plan after the D88 gate (W88.1 red).
 - Inspect every still and recording with vision before reporting a visual result.
 
 ## Manual Smoke Test
-Written in part 2 of the plan after the D88 gate (W88.1 red).
+1. `npm run dev`, then open `scenes/shadows.html?renderer=auto`: splash each element, drag Glow over Drop and let it merge, and check the glows wrap the merged liquid and come back to the browser's at rest.
+2. The same page with WebGPU off (`?renderer=canvas2d`).
+3. System "Reduce motion" on: nothing moves, and every shadow is the browser's.
+4. Print preview: every shadow is the author's, and there is no canvas.
+5. The site (`npm run dev -w @liquiddom/site`): the hero glow at the arrival splash and the hint shake.
 
 ## Verification
 `npm run verify`, `npm run e2e:canvas2d` and `npm run e2e:webgpu-hw` green; vision of `demo/scenes/shadows.html` and the site hero in both renderers; no acceptance step regresses.

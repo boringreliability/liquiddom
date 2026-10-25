@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ElementObserver, authorClasses, OBSERVER_INIT, OWN_CLASSES } from "../src/element-observer";
 import { snapshotColorsWithout } from "../src/color";
-import { AWAY_CLASS, ELEMENT_CLASS, HALO_CLASS, HALO_ID_ATTR, STACK_ATTR, TEXT_CLASS } from "../src/stylesheet";
+import { AWAY_CLASS, ELEMENT_CLASS, HALO_CLASS, HALO_ID_ATTR, SHADOW_AWAY_CLASS, STACK_ATTR, TEXT_CLASS } from "../src/stylesheet";
 
 const flush = (): Promise<void> => new Promise<void>((r) => setTimeout(r, 0));
 let obs: ElementObserver;
@@ -51,8 +51,10 @@ describe("W75: ElementObserver (D75-1)", () => {
   // W78 red: approved-test change (D78-1, see ward-078.md): liquiddom's own classes include liquid-away,
   // so the drag label's toggles never re-snapshot colours or re-render the atlas (W75 RF2).
   it("given_only_liquiddom_class_toggles_when_drained_then_no_entry_and_authorClasses_drops_own_classes_RF2", async () => {
-    expect([...OWN_CLASSES].sort()).toEqual([AWAY_CLASS, ELEMENT_CLASS, HALO_CLASS, TEXT_CLASS].sort());
-    expect(authorClasses(`b a ${ELEMENT_CLASS}  ${TEXT_CLASS} ${HALO_CLASS} ${AWAY_CLASS}`)).toBe("a b");
+    // W88 red: approved-test change (D88-1, saga dec_3e11178b): liquid-shadow-away is liquiddom's own
+    // too, so the shadow toggle never re-snapshots colours or re-renders the atlas.
+    expect([...OWN_CLASSES].sort()).toEqual([AWAY_CLASS, ELEMENT_CLASS, HALO_CLASS, SHADOW_AWAY_CLASS, TEXT_CLASS].sort());
+    expect(authorClasses(`b a ${ELEMENT_CLASS}  ${TEXT_CLASS} ${HALO_CLASS} ${AWAY_CLASS} ${SHADOW_AWAY_CLASS}`)).toBe("a b");
     expect(authorClasses(null)).toBe("");
     const el = element();
     obs.observe(el);

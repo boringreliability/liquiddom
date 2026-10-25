@@ -19,6 +19,7 @@ import { clearTextClasses, releaseTextClass, syncTextClasses, type TextToggleArg
 import { ElementObserver } from "./element-observer";
 import { clearAwayClasses, releaseAwayClass, syncAwayClasses, type AwaySyncArgs } from "./away-toggle";
 import { clearHaloClasses, releaseHaloClass, syncHaloClasses, type HaloSyncArgs } from "./halo-toggle";
+import type { ShadowLayer } from "./shadow";
 import { LoopController } from "./loop-control";
 import { PointerTracker } from "./pointer-tracker";
 import { DragTracker } from "./drag-tracker";
@@ -45,6 +46,7 @@ export const TEXT_ATLAS_WARNING =
 /** W85 (D85-1): the one console.error when an onError handler throws (the stop itself was reported already). */
 export const ON_ERROR_THREW = "[liquiddom] the onError handler threw; ignored.";
 const NO_ATLAS_RECTS: ReadonlyMap<number, AtlasRect> = new Map();
+const NO_SHADOWS: readonly ShadowLayer[] = Object.freeze([]);
 /** W85 (design resolution 12): relative slack of the over-budget check (f32 `max_area_px2` against the f64 area). */
 const BUDGET_ROUNDING = 1e-6;
 
@@ -123,6 +125,8 @@ export interface FluidRuntime {
    * null under Canvas2D, after a lost device or destroy(). Only the acceptance hook calls it.
    */
   captureTextIds(): Promise<TextIdCapture | null>;
+  /** @internal W88 (D88-3, Review Focus 5): the box-shadow layers the snapshot read for `el` (inset included); empty when unobserved. Scene hooks only. */
+  shadowLayers(el: HTMLElement): readonly ShadowLayer[];
   /** Re-snapshot colours of an observed element (no-op otherwise). W75: also re-colours the halo rule and re-renders the atlas entry. */
   refresh(el: HTMLElement): void;
   /**
@@ -1088,6 +1092,9 @@ function buildRuntime(
     },
     captureTextIds() {
       return renderer instanceof WebGPURenderer ? renderer.captureTextIds() : Promise.resolve(null);
+    },
+    shadowLayers() {
+      return NO_SHADOWS; // W88.1 stub (W88.2: the snapshot)
     },
     refresh(el: HTMLElement) {
       if (destroyed) return;

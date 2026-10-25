@@ -13,6 +13,12 @@ export interface FakeCall {
   /** `fillStyle` and `globalAlpha` at the moment of the call. */
   fillStyle: string;
   globalAlpha: number;
+  /** W88: the shadow state and `globalCompositeOperation` at the moment of the call. */
+  shadowColor: string;
+  shadowBlur: number;
+  shadowOffsetX: number;
+  shadowOffsetY: number;
+  composite: string;
 }
 
 export interface FakeImageData {
@@ -27,6 +33,12 @@ export class FakeContext2D {
   globalAlpha = 1;
   imageSmoothingEnabled = true;
   imageSmoothingQuality = "low";
+  /** W88: canvas shadow state (the defaults of a fresh 2d context) and the composite operation. */
+  shadowColor = "rgba(0, 0, 0, 0)";
+  shadowBlur = 0;
+  shadowOffsetX = 0;
+  shadowOffsetY = 0;
+  globalCompositeOperation = "source-over";
   /** Copy of the last image passed to putImageData. */
   lastImage: FakeImageData | null = null;
 
@@ -88,7 +100,17 @@ export class FakeContext2D {
   }
 
   private record(op: string, args: unknown[]): void {
-    this.calls.push({ op, args, fillStyle: String(this.fillStyle), globalAlpha: this.globalAlpha });
+    this.calls.push({
+      op,
+      args,
+      fillStyle: String(this.fillStyle),
+      globalAlpha: this.globalAlpha,
+      shadowColor: String(this.shadowColor),
+      shadowBlur: this.shadowBlur,
+      shadowOffsetX: this.shadowOffsetX,
+      shadowOffsetY: this.shadowOffsetY,
+      composite: String(this.globalCompositeOperation),
+    });
   }
 }
 
