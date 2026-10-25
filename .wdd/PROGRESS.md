@@ -1,7 +1,7 @@
 # Progress — liquiddom
 
 ## Summary
-85 of 87 Wards complete · 1427 estimated tests · 1 blocked
+85 of 88 Wards complete · 1427 estimated tests · 1 blocked
 
 ## Ward Status
 | Ward | Name | Tests | Status | Date |
@@ -93,6 +93,7 @@
 | 085 | Adapters | 48 | ✅ Complete | 2026-10-22 |
 | 086 | The site | 0 | ✅ Complete | 2026-10-23 |
 | 087 | Whole picture (slice 6) | 0 | ✅ Complete | 2026-10-24 |
+| 088 | Shadows follow the liquid | 0 | 📋 Planned | - |
 
 ## Test Summary
 - Estimated total: 1427
