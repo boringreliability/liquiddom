@@ -145,20 +145,43 @@ export function snapshotColors(el: HTMLElement): { background: RGBA; text: RGBA 
  * is removed), so no inline style persists (D66-3).
  */
 export function snapshotColorsWithout(el: HTMLElement, className: string): { background: RGBA; text: RGBA } {
-  if (!el.classList.contains(className)) return snapshotColors(el);
+  return withClassLifted(el, className, () => snapshotColors(el));
+}
+
+/**
+ * W88 (D88-3): the lift of `snapshotColorsWithout`, for any read: `read()` runs with `className`
+ * removed and inline `transition: none !important`, then both attributes are restored to their exact
+ * strings (the same flush rules). Without the class on `el`, `read()` runs as is.
+ */
+export function withClassLifted<T>(el: HTMLElement, className: string, read: () => T): T {
+  if (!el.classList.contains(className)) return read();
   // Restore the exact attribute strings (class order, style text), not just the class.
   const prevClass = el.getAttribute("class");
+  return withTransitionsOff(el, () => {
+    el.classList.remove(className);
+    try {
+      return read();
+    } finally {
+      if (prevClass === null) el.removeAttribute("class");
+      else el.setAttribute("class", prevClass);
+    }
+  });
+}
+
+/**
+ * W88 (resolution 12): runs `change()` with inline `transition: none !important` on `el`, flushes the
+ * style while it holds (so the change starts no CSS transition), then restores the style attribute's
+ * exact string (an absent one is removed). W66's lift; `withClassLifted` and the shadow toggle use it.
+ */
+export function withTransitionsOff<T>(el: HTMLElement, change: () => T): T {
   const prevStyle = el.getAttribute("style");
   el.style.setProperty("transition", "none", "important");
-  el.classList.remove(className);
   try {
-    return snapshotColors(el);
+    return change();
   } finally {
-    if (prevClass === null) el.removeAttribute("class");
-    else el.setAttribute("class", prevClass);
     // Flush style while `transition: none` still holds: the next style change
-    // event then sees no background change, so restoring the author transition
-    // starts nothing. Without this flush Chromium starts a red→transparent
+    // event then sees no change, so restoring the author transition starts
+    // nothing. Without this flush Chromium starts a red→transparent
     // transition on the restored element (verified by e2e/colour-refresh.spec.ts).
     try {
       void getComputedStyle(el).backgroundColor;

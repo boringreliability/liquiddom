@@ -9,15 +9,16 @@
  *   writes `transition: none !important`, then restores the exact strings), so it lands in one
  *   batch and compares equal. Later records of the batch carry intermediate values and are skipped.
  * - `class` is compared with liquiddom's own classes removed (`liquid-element`, `liquid-text`,
- *   `liquid-halo`), so W74's text toggle and W75's halo toggle are invisible.
+ *   `liquid-halo`, `liquid-away`, W88's `liquid-shadow-away`), so the toggles are invisible.
  * - Other attributes (`data-liquid-id`, `data-liquid-stack`) are not observed at all.
  *
  * Changes are only recorded in the callback; the runtime drains them once per frame (coalescing).
  */
-import { AWAY_CLASS, ELEMENT_CLASS, HALO_CLASS, TEXT_CLASS } from "./stylesheet";
+import { AWAY_CLASS, ELEMENT_CLASS, HALO_CLASS, SHADOW_AWAY_CLASS, TEXT_CLASS } from "./stylesheet";
 
 // W78 (D78-1): liquid-away is liquiddom's own too (no colour re-read or atlas re-render on a drag).
-export const OWN_CLASSES: ReadonlySet<string> = new Set([ELEMENT_CLASS, TEXT_CLASS, HALO_CLASS, AWAY_CLASS]);
+// W88 (D88-1): so is liquid-shadow-away (no re-read on every shadow toggle).
+export const OWN_CLASSES: ReadonlySet<string> = new Set([ELEMENT_CLASS, TEXT_CLASS, HALO_CLASS, AWAY_CLASS, SHADOW_AWAY_CLASS]);
 
 export const OBSERVER_INIT: MutationObserverInit = Object.freeze({
   childList: true,
