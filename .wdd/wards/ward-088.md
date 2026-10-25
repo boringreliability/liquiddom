@@ -38,6 +38,8 @@ Out of scope: inset shadows in motion (they show at rest and hide in motion), bo
 Proposal: the browser draws `box-shadow` at rest. `box-shadow: none` leaves the `.liquid-element` rule. While the liquid is away (`restAlpha < 1` or dragged; both renderers; never under reduced motion), the class `liquid-shadow-away` (`box-shadow: none !important`, same `@layer liquiddom` and `@media screen and (forced-colors: none)` scope) hides the browser's shadow. The class is refcounted per element across instances and cleared on unobserve, destroy, a stop and a lost device. Settled in the brainstorm (saga dec_1b99e860).
 Consequence: at rest the shadow is pixel-exact and costs nothing; an observed element's shadow is now visible, so an author's existing shadow reappears (the demo landing's card shadow becomes visible at rest). A new toggle joins the post-`render()` sync, with the same lifecycle burden as `liquid-away` and the halo. Print and forced colours show the element's own shadow.
 Decision: APPROVED 2026-10-25 — hybrid: browser at rest, liquid-shadow-away + renderer while the liquid is away, both renderers (saga dec_3e11178b)
+Note (pre-red gate 2026-10-25, saga dec_ce23d6e2): the class follows `Renderer.shadowsDrawn(id)`, so the browser's shadow is hidden only for an element whose outer layers the renderer drew this frame (an inset-only element whenever its liquid is away); on a stop the canvas is repainted with `suppressShadows`, or reset when that repaint throws. Accepted limitation: a resting element's browser shadow paints over a neighbour's moving liquid, because the canvas sits under the page. One frame of double shadow after `unobserve` mid-motion is accepted.
+Note (pre-red gate 2026-10-25, saga dec_d7b18f84): an author `transition: box-shadow` is held off while the class is written (inline `transition: none` over a style flush, only for elements whose transitions animate box-shadow); another transition running on that element at that moment jumps to its end (common with Tailwind's `transition` utility).
 
 ### D88-2: Scope of the layers
 Proposal: outer layers only, at most 4 per element (more draw the first 4, documented). Inset shows at rest and hides in motion. Out of scope: borders and outlines, `filter: drop-shadow()`, per-corner radii, an opt-out option. Settled in the brainstorm (saga dec_c7b5f5d4).
@@ -63,11 +65,13 @@ Decision: APPROVED 2026-10-25 — per-element mask with canvas shadows, 8-direct
 Proposal: a half-resolution shadow splat, then a separable gaussian blur in radius buckets (proposal: 4, 8, 16, 32, 64 px, nearest bucket; one target and blur per bucket used in the frame). It is composited under the liquid in the screen pass.
 Consequence: a blur radius is rounded to its nearest bucket (a size error or banding is possible); each bucket in use costs a target and two blur passes per frame. Spike W88.0 Q2 sets the buckets, the target scale (a quarter resolution for large buckets is tried) and the cost.
 Decision: AMENDED 2026-10-25 — exact blur radii grouped per distinct value, half res (quarter for blur ≥ 32 px), scissored; buckets {4, 8, 16, 32, 64} only as overflow past about 6 distinct radii per frame (saga dec_8c14c096)
+Note (pre-red gate 2026-10-25, saga dec_ce23d6e2): WebGPU draws at most 16 density sources per frame (4 channels × 4 layers); an element past the cap draws no renderer shadow and keeps its browser shadow static at the DOM box while its liquid moves. Canvas2D has no cap.
 
 ### D88-7: The handoff
 Proposal: the class goes in the frame `restAlpha` reaches 1, and the browser takes over. The renderer's shadow in that frame comes from box-shaped liquid. Alternative if Q3 shows a visible jump: cross-fade the renderer's shadow out over the rest fade.
 Consequence: a small jump in size, darkness or offset is possible at the handoff, or a gap or double frame; the cross-fade removes it but needs the browser's shadow to fade in (a scratch opacity) and more renderer state. Spike W88.0 Q3 measures it in both renderers.
 Decision: APPROVED 2026-10-25 — instant handoff when restAlpha reaches 1; no cross-fade (saga dec_90ce2674)
+Note (pre-red gate 2026-10-25, saga dec_d7b18f84): the handoff holds the author's box-shadow transition off at the class write, so the browser's shadow appears and goes at once (no fade, no double shadow, no gap).
 
 ### D88-8: Scene, site and docs
 Proposal: a new `demo/scenes/shadows.html` (drop shadow, multi-layer glow, spread, inset; hook `window.__shadows`; RAF by default, `?clock=manual`, `?renderer`). The site hero pills and drops get a CSS glow. Corrections in `getting-started.md:44`, `limitations.md:14` and `packages/core/README.md:24`/`:120`.
@@ -82,7 +86,7 @@ Decision: APPROVED 2026-10-25 — the wdd-docs gate also discovers epic liquid-l
 ### D88-10: Knockout under the element's own liquid
 Proposal: the renderer masks each element's shadow by the inverse of that element's own liquid coverage, so a hole or tear in the liquid shows the page and not the shadow. WebGPU masks with the composite's coverage; Canvas2D uses a `destination-out` of the mask (or a per-element composite operation) before the shadow lands. Alternative: accept it as "the liquid is translucent at a tear" and document it.
 Consequence: matches CSS, which never paints a `box-shadow` under its own box; spike W88.0 showed grey and cyan flecks inside holes and torn text. It costs one more pass or composite operation, and it was not measured in the spike. Merged liquids still share their shadows outside both.
-Decision: APPROVED 2026-10-25 — knockout: each element's shadow masked by its own liquid coverage (saga dec_5af57bbe)
+Decision: AMENDED 2026-10-25 — knockout by the closed own coverage: holes narrower than ≈ 3 kernel radii show the page, wider holes show the shadow on their rim (saga dec_733f4b98)
 
 ### D88-11: WebGPU pass structure
 Proposal:
@@ -92,6 +96,7 @@ Proposal:
 - Scissor every pass to the bounds, and use a quarter-resolution target for blur ≥ 32 px.
 Consequence: spike W88.0 showed that the GPU cost is the pass count (two full-target passes per layer, two blur passes per group), not the blur taps. About 2 + 2·groups passes instead of 2·layers + 2·groups. Not measured in the spike.
 Decision: APPROVED 2026-10-25 — one density splat per element, offset in the resolve, one resolve pass per radius group, scissored (saga dec_0dba6795)
+Note (pre-red gate 2026-10-25, saga dec_ce23d6e2): the six shadow pipelines (and their five shader modules) are built at init in the liquid's validation scope; the shadow targets are created on first use.
 
 ### D88-12: Canvas2D spread without blur
 Proposal: give a spread layer with blur 0 a `shadowBlur` floor of one density cell (2–2.7 px), or dilate in 16 directions instead of 8.

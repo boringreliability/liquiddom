@@ -44,7 +44,7 @@ Shared rules:
 - Only elements whose liquid is away and that have outer shadows cost anything.
 - Every shadow is drawn **before** all liquid. A shadow never lies on top of another element's liquid, and two merged liquids share their shadows naturally. (CSS lets a later element's shadow fall on an earlier one; for liquid that would read as a dark stain.)
 - Parked (W81) and inactive elements draw no shadow.
-- Knockout: an element's shadow is masked by its own liquid coverage, so holes and tears in the liquid show the page (amended at the W88 gate, 2026-10-25, D88-10).
+- Knockout: an element's shadow is masked by its own liquid coverage, so holes and tears in the liquid show the page (amended at the W88 gate, 2026-10-25, D88-10; amended at the W88 pre-red gate: holes wider than about three kernel radii show the shadow on their rim).
 - In container mode the container's canvas clips the shadow, like the liquid.
 
 **Canvas2D.**

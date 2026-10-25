@@ -284,7 +284,7 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D88-7 | Instant handoff when restAlpha reaches 1; no cross-fade | W88 | dec_90ce2674 |
 | D88-8 | Shadows scene, site hero glow, four docs corrections; no baseline moves | W88 | dec_30400751 |
 | D88-9 | The wdd-docs gate also discovers epic liquid-look wards (approved-test change) | W88 | dec_133bcc13 |
-| D88-10 | Knockout: each element's shadow masked by its own liquid coverage | W88 | dec_5af57bbe |
+| D88-10 | Knockout: AMENDED 2026-10-25 — each element's shadow masked by its closed own coverage; holes wider than ≈ 3 kernel radii show the shadow on their rim (was own liquid coverage, dec_5af57bbe) | W88 | dec_733f4b98 |
 | D88-11 | One density splat per element, offset in the resolve, one resolve pass per radius group, scissored | W88 | dec_0dba6795 |
 | D88-12 | shadowBlur floor of one density cell for spread layers | W88 | dec_30e72f80 |
 | D88-13 | The liquid composite blends OVER (approved-test change) | W88 | dec_793867f6 |
