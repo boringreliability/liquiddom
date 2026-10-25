@@ -21,6 +21,9 @@
  * the confirmed page keeps drawing with its own text records until the new upload's error scope
  * resolves; the swap then copies the staging page into the drawn texture and switches the records
  * in one step, so a rebuild during motion never blinks the text.
+ * W88 (D88-6, D88-10, D88-11, D88-13): while a shadowed element's liquid is away, the shadow passes
+ * (shadow-passes.ts) run between the splat and the screen pass, and the screen pass draws their
+ * composite first, under all liquid; the liquid composite blends over it.
  * Rendering never touches the DOM; the canvas element belongs to the runtime.
  */
 import { ELEMENT_STRIDE } from "../../fluid-layout";
@@ -37,8 +40,20 @@ import {
   packRestUV,
   packTextInfo,
 } from "./gpu-buffers";
-import { COMPOSITE_WGSL, REST_WGSL, SPLAT_WGSL, TEXT_COMPOSITE_WGSL, TEXT_WGSL } from "./shaders";
+import {
+  COMPOSITE_WGSL,
+  REST_WGSL,
+  SHADOW_BLUR_WGSL,
+  SHADOW_COMPOSITE_WGSL,
+  SHADOW_DENSITY_WGSL,
+  SHADOW_KNOCKOUT_WGSL,
+  SHADOW_RESOLVE_WGSL,
+  SPLAT_WGSL,
+  TEXT_COMPOSITE_WGSL,
+  TEXT_WGSL,
+} from "./shaders";
 import { estimateSplatFragments } from "./overdraw";
+import { SHADOW_ACC_FORMAT, SHADOW_DENSITY_FORMAT, SHADOW_KNOCKOUT_FORMAT, ShadowPasses, type ShadowPipelines } from "./shadow-passes";
 
 /** D71-4: T0 render scale relative to the canvas backing size. */
 export const T0_SCALE_DEFAULT = 0.5;
@@ -123,7 +138,7 @@ export interface WebGPURendererOptions {
   readonly onDeviceLost?: (info: GPUDeviceLostInfo) => void;
 }
 
-export interface LiquidPipelines {
+export interface LiquidPipelines extends ShadowPipelines {
   readonly modules: readonly GPUShaderModule[];
   readonly splatLayout: GPUBindGroupLayout;
   readonly compositeLayout: GPUBindGroupLayout;
@@ -213,11 +228,13 @@ export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat
     },
     primitive: { topology: "triangle-list" },
   });
+  // W88 (D88-13): OVER, so the shadows drawn first in the screen pass survive; bit-identical where
+  // none lies underneath (the composite writes premultiplied 0 outside the liquid).
   const composite = device.createRenderPipeline({
     label: "liquiddom composite",
     layout: device.createPipelineLayout({ bindGroupLayouts: [compositeLayout] }),
     vertex: { module: compositeModule, entryPoint: "vs" },
-    fragment: { module: compositeModule, entryPoint: "fs", targets: [{ format: canvasFormat }] },
+    fragment: { module: compositeModule, entryPoint: "fs", targets: [{ format: canvasFormat, blend: OVER_BLEND }] },
     primitive: { topology: "triangle-list" },
   });
   const rest = device.createRenderPipeline({
@@ -249,8 +266,9 @@ export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat
     fragment: { module: textCompositeModule, entryPoint: "fs", targets: [{ format: canvasFormat, blend: OVER_BLEND }] },
     primitive: { topology: "triangle-list" },
   });
+  const shadow = buildShadowPipelines(device, canvasFormat);
   return {
-    modules: [splatModule, compositeModule, restModule, textModule, textCompositeModule],
+    modules: [splatModule, compositeModule, restModule, textModule, textCompositeModule, ...shadow.modules],
     splatLayout,
     compositeLayout,
     restLayout,
@@ -261,6 +279,94 @@ export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat
     rest,
     text,
     textComposite,
+    ...shadow.pipelines,
+  };
+}
+
+/**
+ * W88 (D88-11): the shadow pipelines, built with the liquid's at init (the same validation scope, so a
+ * shadow shader bug rejects create() like any other pipeline bug). Uniform records at dynamic offsets.
+ */
+function buildShadowPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat): { modules: GPUShaderModule[]; pipelines: ShadowPipelines } {
+  const V = GPUShaderStage.VERTEX;
+  const F = GPUShaderStage.FRAGMENT;
+  const density = device.createShaderModule({ label: "liquiddom shadow density", code: SHADOW_DENSITY_WGSL });
+  const resolve = device.createShaderModule({ label: "liquiddom shadow resolve", code: SHADOW_RESOLVE_WGSL });
+  const blur = device.createShaderModule({ label: "liquiddom shadow blur", code: SHADOW_BLUR_WGSL });
+  const knockout = device.createShaderModule({ label: "liquiddom shadow knockout", code: SHADOW_KNOCKOUT_WGSL });
+  const composite = device.createShaderModule({ label: "liquiddom shadow composite", code: SHADOW_COMPOSITE_WGSL });
+  const dynamicUniform: GPUBufferBindingLayout = { type: "uniform", hasDynamicOffset: true };
+  const shadowDensityLayout = device.createBindGroupLayout({
+    label: "liquiddom shadow density",
+    entries: [
+      { binding: 0, visibility: V, buffer: { type: "uniform" } },
+      { binding: 1, visibility: V | F, buffer: dynamicUniform },
+      { binding: 2, visibility: V, buffer: { type: "read-only-storage" } },
+      { binding: 3, visibility: V, buffer: { type: "read-only-storage" } },
+    ],
+  });
+  const shadowResolveLayout = device.createBindGroupLayout({
+    label: "liquiddom shadow resolve",
+    entries: [
+      { binding: 0, visibility: V | F, buffer: { type: "uniform" } },
+      { binding: 1, visibility: V | F, buffer: { type: "read-only-storage" } },
+      { binding: 2, visibility: F, texture: { sampleType: "float", viewDimension: "2d-array" } },
+      { binding: 3, visibility: F, sampler: { type: "filtering" } },
+    ],
+  });
+  const shadowBlurLayout = device.createBindGroupLayout({
+    label: "liquiddom shadow blur",
+    entries: [
+      { binding: 0, visibility: F, buffer: dynamicUniform },
+      { binding: 1, visibility: F, texture: { sampleType: "float" } },
+    ],
+  });
+  const shadowKnockoutLayout = device.createBindGroupLayout({
+    label: "liquiddom shadow knockout",
+    entries: [
+      { binding: 0, visibility: F, buffer: dynamicUniform },
+      { binding: 1, visibility: F, texture: { sampleType: "float", viewDimension: "2d-array" } },
+    ],
+  });
+  const shadowCompositeLayout = device.createBindGroupLayout({
+    label: "liquiddom shadow composite",
+    entries: [
+      { binding: 0, visibility: F, buffer: { type: "uniform" } },
+      { binding: 1, visibility: F, buffer: dynamicUniform },
+      { binding: 2, visibility: F, texture: { sampleType: "float" } },
+      { binding: 3, visibility: F, texture: { sampleType: "float" } },
+      { binding: 4, visibility: F, texture: { sampleType: "float" } },
+      { binding: 5, visibility: F, sampler: { type: "filtering" } },
+    ],
+  });
+  const pipeline = (
+    label: string,
+    layout: GPUBindGroupLayout,
+    module: GPUShaderModule,
+    target: GPUColorTargetState,
+  ): GPURenderPipeline =>
+    device.createRenderPipeline({
+      label,
+      layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
+      vertex: { module, entryPoint: "vs" },
+      fragment: { module, entryPoint: "fs", targets: [target] },
+      primitive: { topology: "triangle-list" },
+    });
+  return {
+    modules: [density, resolve, blur, knockout, composite],
+    pipelines: {
+      shadowDensityLayout,
+      shadowResolveLayout,
+      shadowBlurLayout,
+      shadowKnockoutLayout,
+      shadowCompositeLayout,
+      shadowDensity: pipeline("liquiddom shadow density", shadowDensityLayout, density, { format: SHADOW_DENSITY_FORMAT, blend: ADDITIVE_BLEND }),
+      shadowResolve: pipeline("liquiddom shadow resolve", shadowResolveLayout, resolve, { format: SHADOW_ACC_FORMAT, blend: OVER_BLEND }),
+      shadowBlurH: pipeline("liquiddom shadow blur h", shadowBlurLayout, blur, { format: SHADOW_ACC_FORMAT }),
+      shadowBlurV: pipeline("liquiddom shadow blur v", shadowBlurLayout, blur, { format: SHADOW_ACC_FORMAT, blend: OVER_BLEND }),
+      shadowKnockout: pipeline("liquiddom shadow knockout", shadowKnockoutLayout, knockout, { format: SHADOW_KNOCKOUT_FORMAT }),
+      shadowComposite: pipeline("liquiddom shadow composite", shadowCompositeLayout, composite, { format: canvasFormat, blend: OVER_BLEND }),
+    },
   };
 }
 
@@ -386,6 +492,8 @@ export class WebGPURenderer implements Renderer {
   };
   /** @internal W79: the armed captureTextIds() resolver; settled by the next render(), a loss or destroy(). */
   private textIdWaiter: ((capture: TextIdCapture | null) => void) | null = null;
+  /** W88 (D88-6, D88-10, D88-11): the shadow passes; GPU objects only from the first frame with shadows. */
+  private shadowPasses: ShadowPasses | null = null;
 
   constructor(opts: WebGPURendererOptions = {}) {
     const s = opts.t0Scale ?? T0_SCALE_DEFAULT;
@@ -502,6 +610,7 @@ export class WebGPURenderer implements Renderer {
       this.pipelines = pipelines;
       this.sampler = sampler;
       this.viewBuffer = viewBuffer;
+      this.shadowPasses = new ShadowPasses(device, pipelines, sampler, viewBuffer);
       const deviceLimit = device.limits?.maxTextureDimension2D;
       this.maxTextureDim =
         typeof deviceLimit === "number" && Number.isFinite(deviceLimit) && deviceLimit >= 1
@@ -525,9 +634,11 @@ export class WebGPURenderer implements Renderer {
     this.heightPx = pxOrOne(heightPx);
     this.allocateTargets();
     if (this.t1) this.allocateTextTargets(); // W74: T1/T1w follow once they exist
+    this.shadowPasses?.resize(); // W88: the shadow targets follow on the next frame with shadows
   }
 
   render(frame: RenderFrame): void {
+    this.shadowPasses?.resetDrawn(); // W88: a frame that draws nothing (a loss) draws no shadow
     const { device, ctx, pipelines } = this;
     if (!device || !ctx || !pipelines || this.lost) return;
     this.fragmentEstimate = estimateSplatFragments(frame, this.t0Scale); // D72-4: logged, never gated
@@ -580,6 +691,8 @@ export class WebGPURenderer implements Renderer {
     queue.writeBuffer(viewBuffer, 0, v);
     // Every write above lands before this frame's submit, so the text pass sees this frame's restAlpha.
     const drawText = textMoves && count > 0;
+    // W88 (D88-11): plan, size and write the shadow passes (nothing without a shadowed element whose liquid is away).
+    const shadows = count > 0 && this.shadowPasses !== null && this.shadowPasses.prepare(frame, this.widthPx, this.heightPx, particleBuffer, homeBuffer, this.maxTextureDim);
 
     const encoder = device.createCommandEncoder(this.encoderDescriptor);
     const splat = encoder.beginRenderPass(this.splatPass);
@@ -589,6 +702,7 @@ export class WebGPURenderer implements Renderer {
       splat.draw(6, count);
     }
     splat.end();
+    if (shadows) this.shadowPasses?.encode(encoder, count);
     const textRan = drawText && this.textGroup !== null;
     if (drawText && this.textGroup) {
       // W74 (D74-4): its own pass — T1/T1w are at 1×, and all attachments of a pass share one size.
@@ -600,6 +714,7 @@ export class WebGPURenderer implements Renderer {
     }
     this.screenAttachment.view = ctx.getCurrentTexture().createView();
     const screen = encoder.beginRenderPass(this.screenPass);
+    if (shadows) this.shadowPasses?.drawComposite(screen); // W88 (D88-4): every shadow under all liquid
     screen.setPipeline(pipelines.composite);
     screen.setBindGroup(0, compositeGroup);
     screen.draw(3);
@@ -709,6 +824,11 @@ export class WebGPURenderer implements Renderer {
       id < this.textOk.length &&
       this.textOk[id] === 1
     );
+  }
+
+  /** W88 (D88-1): true when the last render() drew slot `id`'s shadow (the runtime's `liquid-shadow-away` follows it). */
+  shadowsDrawn(id: number): boolean {
+    return this.device !== null && !this.lost && this.shadowPasses !== null && this.shadowPasses.drawn(id);
   }
 
   destroy(): void {
@@ -1112,6 +1232,8 @@ export class WebGPURenderer implements Renderer {
   }
 
   private releaseGpuObjects(): void {
+    this.shadowPasses?.destroy(); // W88
+    this.shadowPasses = null;
     this.t0?.destroy();
     this.t0Alpha?.destroy();
     this.particleBuffer?.destroy();
