@@ -257,11 +257,11 @@ The same setup, on a fresh throwaway copy of `2ecf19c` in `$S/w88perf3/` (Vite :
 | 2 | 3 | 1.09 / 1.06 (0.81 / 0.79) | **3.64 / 3.48** (2.03 / 1.97) | 1.82 / 1.84 (1.53 / 1.21) |
 
 - **6 elements × 3 layers, DPR 2: p95 3.64 / 3.48 ms (median 2.0), under the 3.76 ms threshold** by 0.12 … 0.28 ms; the first run read 3.69. Two runs per cell, so the margin is thin but it repeats.
-- The 12-element rows are lower than the 6-element ones at DPR 2: with 12 elements the shadow regions overlap and the scissored groups cover less area per pass than at 6 (the 16-source cap does not apply: 12 elements × 1 source).
+- The 12-element rows are lower than the 6-element ones at DPR 2: not explained; the 12-element case was measured the same way, the cap does not apply (12 sources).
 
 ## Vision (W88.5)
 
-Controller verdicts after the stills (2026-10-26, Dennis answered "som anbefalet", saga dec_03309bfb):
+Controller verdicts after the stills (Dennis answered "som anbefalet", saga dec_03309bfb):
 
 - rest: the browser draws every shadow (drop, glow, spread, currentColor, inset, Glass) — matches.
 - splash f10/f40, both renderers: the shadows follow the deformed liquid; wide holes show the page; no shadow under Glass's translucent liquid; Canvas2D spread fringe slightly scalloped at f10, acceptable.
