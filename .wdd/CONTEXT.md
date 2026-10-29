@@ -64,7 +64,7 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Fluid decisions: `ward
 - `activeRenderer` can change mid-session (W72): a lost WebGPU device makes it `'canvas2d'`; a frame or two draw nothing.
 - Canvas2D cell `ceil(R)/6` (W82): ≈ 2.8× render time on large kernels; one fine-spaced element holds the page on the 2 px floor (W77).
 - Colour probe (W86): needs a 2d canvas (null in jsdom); 256 cached strings.
-- Shadows (W88): holes > ≈ 3 kernel radii show the shadow on their rim; WebGPU caps 16 density sources/frame (the rest keep a static browser shadow); a resting shadow paints over moving liquid.
+- Shadows (W88): holes > ≈ 3 kernel radii show the shadow on their rim; WebGPU caps 16 density sources/frame (the rest keep a static browser shadow); a resting shadow paints over moving liquid. After `unobserve()` mid-motion the freed liquid carries the receivers' shadows for a few frames (speckled glow, WebGPU most visible).
 
 ## What Comes Next
 - Epic 16 'Liquid look' (`.wdd/epics/16-liquid-look.md`): W88 shadows follow the liquid (in progress); further looks per the epic.
