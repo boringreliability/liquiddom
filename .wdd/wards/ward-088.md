@@ -259,6 +259,22 @@ The same setup, on a fresh throwaway copy of `2ecf19c` in `$S/w88perf3/` (Vite :
 - **6 elements × 3 layers, DPR 2: p95 3.64 / 3.48 ms (median 2.0), under the 3.76 ms threshold** by 0.12 … 0.28 ms; the first run read 3.69. Two runs per cell, so the margin is thin but it repeats.
 - The 12-element rows are lower than the 6-element ones at DPR 2: not explained; the 12-element case was measured the same way, the cap does not apply (12 sources).
 
+### After the knockout optimisation, 2026-10-29 (Canvas2D, commit cca6da3)
+
+The knockout now puts and draws only the casters' union dirty rect and zeroes only its rows, and the closing loop has no closure (saga dec_03309bfb). Output is pixel-identical (a reference-algorithm equivalence test). Measured on a fresh throwaway copy of `cca6da3` in `$S/w88perf4/` (Vite :4189, deleted after recording; node_modules and `pkg/` cloned from the worktree, whose Rust is unchanged). The perf page of the earlier copies was not kept and was rewritten: 12 moving 140×48 pills (sin/cos transforms), `splash(1)` every 30 frames, 12000 particles, 150 warm-up + 600 measured frames, RAF clock, `render()` timed around `FluidCanvas2DRenderer.prototype.render`; n pills carry 1 or 3 shadow layers, the baseline page has none. Interleaved ABAB, three pairs at 6 el and two at 1 el. The 1-minute load average was 4.8 … 26 over the run (the machine was not idle). The baseline `render()` p95 was 6.3 … 6.9 ms, lower than in the earlier tables, so these rows are comparable to each other and to the +2 ms threshold, not cell by cell to the tables above.
+
+**Canvas2D, `render()` p95, change from the same pair's baseline (ms).** Bold: the median of the per-pair deltas.
+
+| DPR | layers | 1 el | 6 el |
+|---|---|---|---|
+| 1 | 1 | **+0.24** | **+1.27** (+1.43, +1.27, +1.21) |
+| 1 | 3 | **+0.35** | **+1.48** (+1.18, +1.60, +1.48) |
+| 2 | 1 | **+0.26** | **+1.23** (+0.81, +1.34, +1.23) |
+| 2 | 3 | **+0.46** | **+1.37** (+1.47, +1.37, +1.36) |
+
+- **The Canvas2D threshold is met: +1.23 … +1.48 ms at 6 elements against +2 ms** (the medians of `render()` itself rise +0.5 … +1.6 ms, mostly +1.0 … +1.4).
+- Not measured here: 12 elements and WebGPU (unchanged by this commit).
+
 ## Vision (W88.5)
 
 Controller verdicts after the stills (Dennis answered "som anbefalet", saga dec_03309bfb):
