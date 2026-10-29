@@ -17,7 +17,7 @@ import { Dyn } from "../fluid-layout";
 import type { ShadowLayer } from "../shadow";
 import type { RenderFrame } from "./frame";
 import { DENSITY_THRESHOLD, EDGE_SOFTNESS, KERNEL_RADIUS_CAP_PX, kernelRadiusPx } from "./kernel-params";
-import { KNOCKOUT_CLOSE_PER_KERNEL, ShadowCasters } from "./shadow-plan";
+import { clampSpread, KNOCKOUT_CLOSE_PER_KERNEL, ShadowCasters } from "./shadow-plan";
 
 /** A mask never exceeds this many cells per side (a particle flung far would size it). */
 export const MASK_MAX_CELLS = 2048;
@@ -109,7 +109,11 @@ export class ShadowCanvas2D {
     const dw = this.dirtyX1 - dx;
     const dh = this.dirtyY1 - dy;
     if (dw <= 0 || dh <= 0) return; // every caster lies outside the grid
-    knock.ctx.putImageData(img, 0, 0, dx, dy, dw, dh);
+    // M1: one cell more on each side (always 0 in the image) overwrites stale coverage that bilinear
+    // sampling of the draw below could bleed in along the rect's edge.
+    const px0 = Math.max(0, dx - 1);
+    const py0 = Math.max(0, dy - 1);
+    knock.ctx.putImageData(img, 0, 0, px0, py0, Math.min(gridW, dx + dw + 1) - px0, Math.min(gridH, dy + dh + 1) - py0);
     ctx.globalCompositeOperation = "destination-out";
     ctx.drawImage(knock.canvas, dx, dy, dw, dh, dx * cellPx, dy * cellPx, dw * cellPx, dh * cellPx);
     ctx.globalCompositeOperation = "source-over";
@@ -161,7 +165,7 @@ export class ShadowCanvas2D {
     this.putMask(mw, mh);
     for (let li = layers.length - 1; li >= 0; li--) {
       const l = layers[li];
-      if (l) this.drawLayer(ctx, l, s, dpr, ox, oy, mw, mh);
+      if (l) this.drawLayer(ctx, l, s, dpr, ox, oy, mw, mh, frame.viewport.widthCss, frame.viewport.heightCss);
     }
     this.knockOut(R, s, ox, oy, mw, mh, gridW, gridH);
     return true;
@@ -237,15 +241,16 @@ export class ShadowCanvas2D {
     mask.ctx.putImageData(img, 0, 0, 0, 0, mw, mh);
   }
 
-  private drawLayer(ctx: CanvasRenderingContext2D, l: ShadowLayer, s: number, dpr: number, ox: number, oy: number, mw: number, mh: number): void {
+  private drawLayer(ctx: CanvasRenderingContext2D, l: ShadowLayer, s: number, dpr: number, ox: number, oy: number, mw: number, mh: number, vw: number, vh: number): void {
     const mask = this.mask;
     if (!mask) return;
     let src: HTMLCanvasElement = mask.canvas;
     let sw = mw;
     let sh = mh;
     let pad = 0;
-    if (l.spread !== 0 && this.spreadSurface) {
-      pad = Math.ceil(Math.abs(l.spread) / s) + 1;
+    const spread = clampSpread(l.spread, vw, vh); // final review I1
+    if (spread !== 0 && this.spreadSurface) {
+      pad = Math.ceil(Math.abs(spread) / s) + 1;
       sw = mw + 2 * pad;
       sh = mh + 2 * pad;
       const sp = this.spreadSurface;
@@ -253,12 +258,12 @@ export class ShadowCanvas2D {
         sp.canvas.width = Math.max(sw, sp.canvas.width);
         sp.canvas.height = Math.max(sh, sp.canvas.height);
       }
-      const r = Math.abs(l.spread) / s;
+      const r = Math.abs(spread) / s;
       sp.ctx.clearRect(0, 0, sp.canvas.width, sp.canvas.height);
       sp.ctx.globalCompositeOperation = "source-over";
       sp.ctx.drawImage(mask.canvas, 0, 0, mw, mh, pad, pad, mw, mh);
       // D88-5: dilate (union of 8 shifted copies) or, for a negative spread, erode (their intersection).
-      sp.ctx.globalCompositeOperation = l.spread > 0 ? "source-over" : "destination-in";
+      sp.ctx.globalCompositeOperation = spread > 0 ? "source-over" : "destination-in";
       for (const [ux, uy] of DILATE_DIRS) sp.ctx.drawImage(mask.canvas, 0, 0, mw, mh, pad + ux * r, pad + uy * r, mw, mh);
       sp.ctx.globalCompositeOperation = "source-over";
       src = sp.canvas;
@@ -269,7 +274,7 @@ export class ShadowCanvas2D {
     const dh = sh * s;
     // D88-5: the source lands off the canvas (its right edge at x = −1); the offset brings only the shadow back.
     const far = dx + dw + 1;
-    const blur = l.blur > 0 ? l.blur : l.spread !== 0 ? s : 0; // D88-12: one cell for a hard spread edge
+    const blur = l.blur > 0 ? l.blur : spread !== 0 ? s : 0; // D88-12: one cell for a hard spread edge
     ctx.shadowColor = cssColour(l);
     ctx.shadowBlur = blur * dpr; // D88-14: canvas shadows ignore setTransform
     ctx.shadowOffsetX = (far + l.dx) * dpr;

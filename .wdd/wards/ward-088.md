@@ -413,3 +413,11 @@ Red results measured at W88.1 on this worktree (2026-10-25). **A** = an assertio
 
 ## Verification
 `npm run verify`, `npm run e2e:canvas2d` and `npm run e2e:webgpu-hw` green; vision of `demo/scenes/shadows.html` and the site hero in both renderers; no acceptance step regresses.
+
+## Final review (2026-10-29)
+- **I1** (decision (a), saga dec_4b09dbcc): `clampSpread(spread, viewportW, viewportH)` in `shadow-plan.ts` keeps the sign and caps |spread| at the viewport diagonal (CSS px; a bad viewport falls back to 4096). Canvas2D `drawLayer` (pad, dilation radius, blur floor) and the WebGPU plan (source spread and kernel) read the clamped value; spreads within the cap behave exactly as before.
+- **M1:** the Canvas2D knockout's `putImageData` rect is grown by one cell on each side (clamped to the grid), so stale coverage outside the dirty rect cannot bleed in through bilinear sampling. The `drawImage` source rect is unchanged.
+- **M2:** CLAUDE.md (Canvas2D line, Test conventions, Known), CONTEXT.md and `site/.../limitations.md` updated.
+- **M4:** the container test in `shadow-canvas2d.test.ts` was renamed to say the caster lies wholly outside the grid in y (name only).
+- **Approved assertion changes** (dec_4b09dbcc): the two `putImageData` rect assertions in `shadow-canvas2d-knockout.test.ts` now expect the grown rect.
+- **Follow-ups left:** the stop-repaint path when a frame throws after `render()` but before `syncShadow()`; WebGPU: every source draws all particle instances; `SHADOW_MAX_TAPS` 64 is below 3 sigma at DPR >= 2.67; the clamp-to-edge band for off-canvas liquid; the unscissored shadow composite; 3 x 16 MB retained buffers.

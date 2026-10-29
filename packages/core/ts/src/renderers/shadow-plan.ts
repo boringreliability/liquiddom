@@ -164,6 +164,19 @@ function kernelTail(t: number): number {
   return (s * h) / 3;
 }
 
+const SPREAD_FALLBACK_CAP_PX = 4096;
+
+/**
+ * Final review I1: |spread| is capped at the viewport diagonal (CSS px; a non-finite or non-positive
+ * viewport falls back to a fixed cap), keeping the sign. A CSS overlay idiom such as
+ * `0 0 0 9999px` would otherwise size Canvas2D's spread scratch canvas and WebGPU's kernel to the spread.
+ */
+export function clampSpread(spread: number, viewportW: number, viewportH: number): number {
+  const ok = Number.isFinite(viewportW) && Number.isFinite(viewportH) && viewportW > 0 && viewportH > 0;
+  const cap = ok ? Math.hypot(viewportW, viewportH) : SPREAD_FALLBACK_CAP_PX;
+  return Math.sign(spread) * Math.min(Math.abs(spread), cap);
+}
+
 const spreadCache = new Map<string, { readonly radius: number; readonly weightScale: number }>();
 
 /**
@@ -246,8 +259,13 @@ export function planShadows(casters: ShadowCasters, frame: RenderFrame, texelCss
     const paint = frame.paints[id];
     const layers = paint?.shadows;
     if (!paint || !layers || layers.length === 0) continue;
+    const vw = frame.viewport.widthCss;
+    const vh = frame.viewport.heightCss;
     const spreads = [0];
-    for (const l of layers) if (l.spread !== 0 && !spreads.includes(l.spread)) spreads.push(l.spread);
+    for (const l of layers) {
+      const sp = clampSpread(l.spread, vw, vh);
+      if (sp !== 0 && !spreads.includes(sp)) spreads.push(sp);
+    }
     if (sources.length + spreads.length > SHADOW_MAX_SOURCES) continue; // D88-11: no room this frame
     const base = Math.min(Math.max(kernelRadiusPx(paint.spacingPx), texelCss), KERNEL_RADIUS_CAP_PX);
     const mass = Number.isFinite(paint.areaPerParticle) && paint.areaPerParticle > 0 ? paint.areaPerParticle : 0;
@@ -286,7 +304,7 @@ export function planShadows(casters: ShadowCasters, frame: RenderFrame, texelCss
         byGroup.set(key, list);
         groupOrder.push(key);
       }
-      const src = sourceOf.get(l.spread) ?? 0;
+      const src = sourceOf.get(clampSpread(l.spread, vw, vh)) ?? 0;
       const a = Math.min(1, Math.max(0, l.color[3]));
       const srcRect = sources[src]?.rect ?? bounds;
       list.push({
