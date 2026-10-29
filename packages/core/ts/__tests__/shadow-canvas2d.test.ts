@@ -165,6 +165,16 @@ describe("W88: Canvas2D shadows (D88-4, D88-5, D88-14)", () => {
     expect(d.shadowBlur, "D88-12: one density cell").toBe(CELL);
   });
 
+  it("given_a_spread_of_9999_on_a_400x300_viewport_when_rendered_then_the_spread_scratch_stays_within_the_diagonal_pad_I1", async () => {
+    const { renderer } = await setup();
+    renderer.render(frame({ paints: [paint(0, parseBoxShadow("rgba(0, 0, 0, 0.5) 0px 0px 0px 9999px"))] }));
+    const mask = fake.contexts[2]!.canvas;
+    const scratch = fake.contexts[3]!.canvas;
+    const pad = Math.ceil(500 / CELL) + 1; // diagonal of 400 × 300
+    expect(scratch.width).toBeLessThanOrEqual(mask.width + 2 * pad);
+    expect(scratch.height).toBeLessThanOrEqual(mask.height + 2 * pad);
+  });
+
   it("given_a_negative_spread_when_rendered_then_the_8_shifted_copies_erode_the_mask_with_destination_in", async () => {
     const { renderer } = await setup();
     renderer.render(frame({ paints: [paint(0, parseBoxShadow("rgba(0, 0, 0, 0.3) 0px 6px 10px -4px"))] }));
@@ -240,7 +250,7 @@ describe("W88: what casts no Canvas2D shadow (D88-4) and shadowsDrawn", () => {
     expect(renderer.shadowsDrawn?.(0)).toBe(false);
   });
 
-  it("given_a_small_container_canvas_and_a_large_blur_partly_outside_it_when_rendered_then_no_throw_and_the_shadow_is_drawn_for_the_canvas_to_clip_review_focus_4", async () => {
+  it("given_a_small_container_canvas_and_a_caster_wholly_outside_the_grid_in_y_when_rendered_then_no_throw_the_shadow_is_drawn_for_the_canvas_to_clip_and_no_knockout_review_focus_4", async () => {
     const { renderer, ctx } = await setup(120, 80, 2);
     const big = parseBoxShadow("rgba(0, 0, 0, 0.5) 30px 40px 60px 12px");
     expect(() => renderer.render(frame({ paints: [paint(0, big)], viewport: { widthCss: 120, heightCss: 80, dpr: 2 } }))).not.toThrow();

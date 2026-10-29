@@ -86,6 +86,15 @@ function clamped(b: { ox: number; oy: number; mw: number; mh: number }): number[
   return [x0, y0, x1 - x0, y1 - y0];
 }
 
+/** M1: the put rect is the dirty rect grown by one cell on each side, clamped to the grid. */
+function grown(x: number, y: number, w: number, h: number): number[] {
+  const x0 = Math.max(0, x - 1);
+  const y0 = Math.max(0, y - 1);
+  const x1 = Math.min(GW, x + w + 1);
+  const y1 = Math.min(GH, y + h + 1);
+  return [0, 0, x0, y0, x1 - x0, y1 - y0];
+}
+
 describe("W88.5b: the knockout's dirty rect", () => {
   it("given_one_small_caster_on_a_large_grid_when_drawn_then_putImageData_and_the_destination_out_draw_cover_only_its_cells", () => {
     const pts = lattice(0, 101, 101, 140, 20);
@@ -94,7 +103,7 @@ describe("W88.5b: the knockout's dirty rect", () => {
     const { ctx, knockCtx } = run(pts);
     const put = knockCtx.ops("putImageData");
     expect(put).toHaveLength(1);
-    expect(put[0]!.args.slice(1)).toEqual([0, 0, x, y, w, h]);
+    expect(put[0]!.args.slice(1), "M1: grown by one cell on each side, clamped to the grid").toEqual(grown(x, y, w, h));
     const out = ctx.ops("drawImage").filter((c) => c.composite === "destination-out");
     expect(out).toHaveLength(1);
     expect(out[0]!.args.slice(1)).toEqual([x, y, w, h, x * CELL, y * CELL, w * CELL, h * CELL]);
@@ -110,7 +119,7 @@ describe("W88.5b: the knockout's dirty rect", () => {
     const x1 = Math.max(ra[0] + ra[2], rb[0] + rb[2]);
     const y1 = Math.max(ra[1] + ra[3], rb[1] + rb[3]);
     const { ctx, knockCtx } = run([...a, ...b], 2);
-    expect(knockCtx.ops("putImageData")[0]!.args.slice(1)).toEqual([0, 0, x0, y0, x1 - x0, y1 - y0]);
+    expect(knockCtx.ops("putImageData")[0]!.args.slice(1)).toEqual(grown(x0, y0, x1 - x0, y1 - y0));
     const out = ctx.ops("drawImage").filter((c) => c.composite === "destination-out");
     expect(out[0]!.args.slice(1, 5)).toEqual([x0, y0, x1 - x0, y1 - y0]);
   });

@@ -14,6 +14,7 @@ import {
   SHADOW_QUARTER_FROM_PX,
   SHADOW_SCALE_HALF,
   SHADOW_SCALE_QUARTER,
+  clampSpread,
   ShadowCasters,
   spreadKernel,
 } from "../src/renderers/shadow-plan";
@@ -156,5 +157,34 @@ describe("W88: the WebGPU shadow plan (D88-6, D88-11)", () => {
       expect(rho, `spread ${s}`).toBeCloseTo(0.5, 1);
     }
     expect(spreadKernel(R, 0)).toEqual({ radius: R, weightScale: 1 });
+  });
+
+  it("given_a_huge_spread_when_planned_then_the_source_kernel_is_R_plus_the_viewport_diagonal_not_R_plus_the_spread_I1", () => {
+    const f = frame([paint(0, L("rgba(0, 0, 0, 0.5) 0px 0px 0px 9999px")), undefined]);
+    const c = new ShadowCasters();
+    c.collect(f);
+    const plan = planShadows(c, f, TEXEL);
+    const diag = 1000; // 800 × 600
+    expect(plan.sources[1]!.radius).toBeCloseTo(plan.sources[0]!.radius + diag, 9);
+    expect(plan.sources[1]!.spread).toBe(diag);
+  });
+});
+
+describe("W88: clampSpread (final review I1)", () => {
+  it("given_spreads_when_clamped_then_the_sign_is_kept_the_cap_is_the_viewport_diagonal_and_small_spreads_are_unchanged", () => {
+    expect(clampSpread(9999, 400, 300)).toBe(500);
+    expect(clampSpread(-9999, 400, 300)).toBe(-500);
+    expect(clampSpread(6, 400, 300)).toBe(6);
+    expect(clampSpread(-4, 400, 300)).toBe(-4);
+    expect(clampSpread(0, 400, 300)).toBe(0);
+    expect(clampSpread(500, 400, 300)).toBe(500);
+  });
+
+  it("given_a_bad_viewport_when_clamped_then_a_fixed_fallback_cap_applies", () => {
+    for (const [w, h] of [[0, 0], [NaN, 300], [400, -1], [Infinity, 300]] as const) {
+      expect(clampSpread(99999, w, h)).toBe(4096);
+      expect(clampSpread(-99999, w, h)).toBe(-4096);
+      expect(clampSpread(7, w, h)).toBe(7);
+    }
   });
 });
