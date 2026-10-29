@@ -9,8 +9,8 @@
  * and both offsets are multiplied by the DPR (D88-14). Spread dilates the mask by 8 shifted draws
  * (erodes with `destination-in` when negative); a spread layer with blur 0 gets a blur floor of one
  * cell (D88-12). Last, the knockout (D88-10): every caster's closed coverage (its own liquid, plus
- * holes narrower than about two closing distances) goes into one grid-sized image that is drawn once
- * with `destination-out`, so no shadow lies under the casters' own liquid or shows through its holes.
+ * holes narrower than about two closing distances) goes into one grid-sized image; only the casters'
+ * union dirty rect is put and drawn once with `destination-out`, so no shadow lies under the casters' own liquid or shows through its holes.
  * Plan resolution A6: canvases from `document.createElement`, pixels from `createImageData`.
  */
 import { Dyn } from "../fluid-layout";
@@ -26,7 +26,9 @@ const S = Math.SQRT1_2;
 export const DILATE_DIRS: ReadonlyArray<readonly [number, number]> = Object.freeze([
   [1, 0], [-1, 0], [0, 1], [0, -1], [S, S], [S, -S], [-S, S], [-S, -S],
 ]);
-const CLOSE_AXES: ReadonlyArray<readonly [number, number]> = [[1, 0], [0, 1], [1, 1], [1, -1]];
+/** The four closing axes (1,0), (0,1), (1,1), (1,−1) as x and y steps. */
+const CLOSE_AX = Int8Array.of(1, 0, 1, 1);
+const CLOSE_AY = Int8Array.of(0, 1, 1, -1);
 const TRANSPARENT = "rgba(0, 0, 0, 0)";
 
 interface Surface {
@@ -63,6 +65,11 @@ export class ShadowCanvas2D {
   private cov = new Float32Array(0);
   private closed = new Float32Array(0);
   private broken = false;
+  /** The frame's union of the casters' knockout cells inside the grid (empty when x1 <= x0). */
+  private dirtyX0 = 0;
+  private dirtyY0 = 0;
+  private dirtyX1 = 0;
+  private dirtyY1 = 0;
 
   /** True when the last draw() drew slot `id`'s shadow (the toggle reads it). */
   drawn(id: number): boolean {
@@ -82,6 +89,7 @@ export class ShadowCanvas2D {
     if (this.drawnIds.length < frame.paints.length) this.drawnIds = new Uint8Array(frame.paints.length);
     const dpr = Number.isFinite(frame.viewport.dpr) && frame.viewport.dpr > 0 ? frame.viewport.dpr : 1;
     let knocked = false;
+    this.dirtyX0 = this.dirtyY0 = this.dirtyX1 = this.dirtyY1 = 0;
     for (const id of this.casters.ids) {
       if (this.drawCaster(ctx, frame, id, cellPx, dpr, gridW, gridH)) {
         this.drawnIds[id] = 1;
@@ -96,11 +104,16 @@ export class ShadowCanvas2D {
     const knock = this.knock;
     const img = this.knockImg;
     if (!knock || !img) return;
-    knock.ctx.putImageData(img, 0, 0);
+    const dx = this.dirtyX0;
+    const dy = this.dirtyY0;
+    const dw = this.dirtyX1 - dx;
+    const dh = this.dirtyY1 - dy;
+    if (dw <= 0 || dh <= 0) return; // every caster lies outside the grid
+    knock.ctx.putImageData(img, 0, 0, dx, dy, dw, dh);
     ctx.globalCompositeOperation = "destination-out";
-    ctx.drawImage(knock.canvas, 0, 0, gridW * cellPx, gridH * cellPx);
+    ctx.drawImage(knock.canvas, dx, dy, dw, dh, dx * cellPx, dy * cellPx, dw * cellPx, dh * cellPx);
     ctx.globalCompositeOperation = "source-over";
-    img.data.fill(0); // ready for the next frame
+    img.data.fill(0, (dy * gridW) * 4, ((dy + dh) * gridW) * 4); // the dirty rows, ready for the next frame
   }
 
   destroy(): void {
@@ -264,7 +277,10 @@ export class ShadowCanvas2D {
     ctx.drawImage(src, 0, 0, sw, sh, dx - far, dy, dw, dh);
   }
 
-  /** D88-10: max(coverage, closed coverage) into the knockout image at the caster's cells. */
+  /**
+   * D88-10: max(coverage, closed coverage) into the knockout image at the caster's cells. Grows the
+   * frame's dirty rect (grid cells) by the caster's cells inside the grid.
+   */
   private knockOut(R: number, s: number, ox: number, oy: number, mw: number, mh: number, gridW: number, gridH: number): void {
     const img = this.knockImg;
     if (!img) return;
@@ -272,32 +288,64 @@ export class ShadowCanvas2D {
     const closed = this.closed;
     const full = Math.max(1, Math.round((KNOCKOUT_CLOSE_PER_KERNEL * R) / s));
     const half = Math.max(1, Math.round(full / 2));
-    const at = (ix: number, iy: number): number => (ix < 0 || iy < 0 || ix >= mw || iy >= mh ? 0 : (cov[iy * mw + ix] ?? 0));
     for (let iy = 0; iy < mh; iy++) {
+      const row = iy * mw;
       for (let ix = 0; ix < mw; ix++) {
-        let k = cov[iy * mw + ix] ?? 0;
+        const idx = row + ix;
+        let k = cov[idx] ?? 0;
         // A cell between two covered cells (± the closing distance or half of it, on four axes) is covered.
         for (let pass = 0; k < 1 && pass < 2; pass++) {
           const d = pass === 0 ? full : half;
-          for (const [ax, ay] of CLOSE_AXES) {
-            const bridge = Math.min(at(ix + ax * d, iy + ay * d), at(ix - ax * d, iy - ay * d));
+          const inside = ix >= d && iy >= d && ix + d < mw && iy + d < mh;
+          for (let a = 0; a < 4; a++) {
+            const ax = CLOSE_AX[a] as number;
+            const ay = CLOSE_AY[a] as number;
+            let p = 0;
+            let q = 0;
+            if (inside) {
+              const off = (ay * mw + ax) * d;
+              p = cov[idx + off] ?? 0;
+              q = cov[idx - off] ?? 0;
+            } else {
+              const px = ix + ax * d;
+              const py = iy + ay * d;
+              const qx = ix - ax * d;
+              const qy = iy - ay * d;
+              if (px >= 0 && py >= 0 && px < mw && py < mh) p = cov[py * mw + px] ?? 0;
+              if (qx >= 0 && qy >= 0 && qx < mw && qy < mh) q = cov[qy * mw + qx] ?? 0;
+            }
+            const bridge = p < q ? p : q;
             if (bridge > k) k = bridge;
           }
         }
-        closed[iy * mw + ix] = k;
+        closed[idx] = k;
       }
     }
+    const gx0 = Math.max(0, ox);
+    const gy0 = Math.max(0, oy);
+    const gx1 = Math.min(gridW, ox + mw);
+    const gy1 = Math.min(gridH, oy + mh);
+    if (gx1 <= gx0 || gy1 <= gy0) return;
     const d = img.data;
-    for (let iy = 0; iy < mh; iy++) {
-      const gy = oy + iy;
-      if (gy < 0 || gy >= gridH) continue;
-      for (let ix = 0; ix < mw; ix++) {
-        const gx = ox + ix;
-        if (gx < 0 || gx >= gridW) continue;
-        const a = (closed[iy * mw + ix] ?? 0) * 255;
-        const p = (gy * gridW + gx) * 4 + 3;
+    for (let gy = gy0; gy < gy1; gy++) {
+      const row = (gy - oy) * mw - ox;
+      const out = gy * gridW;
+      for (let gx = gx0; gx < gx1; gx++) {
+        const a = (closed[row + gx] ?? 0) * 255;
+        const p = (out + gx) * 4 + 3;
         if (a > (d[p] ?? 0)) d[p] = a;
       }
+    }
+    if (this.dirtyX1 <= this.dirtyX0) {
+      this.dirtyX0 = gx0;
+      this.dirtyY0 = gy0;
+      this.dirtyX1 = gx1;
+      this.dirtyY1 = gy1;
+    } else {
+      if (gx0 < this.dirtyX0) this.dirtyX0 = gx0;
+      if (gy0 < this.dirtyY0) this.dirtyY0 = gy0;
+      if (gx1 > this.dirtyX1) this.dirtyX1 = gx1;
+      if (gy1 > this.dirtyY1) this.dirtyY1 = gy1;
     }
   }
 }

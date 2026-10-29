@@ -183,7 +183,8 @@ describe("W88: the Canvas2D knockout (D88-10)", () => {
     const k = ctx.calls.indexOf(knock[0]!);
     expect(k).toBeGreaterThan(ctx.calls.indexOf(shadowDraws(ctx)[0]!));
     expect(k).toBeLessThan(densityIndex(ctx));
-    expect(knock[0]!.args.slice(1)).toEqual([0, 0, 400, 300]);
+    // W88.5b: only the caster's dirty rect (cells 48,48 75×15) is drawn, not the whole 400 × 300 grid
+    expect(knock[0]!.args.slice(1)).toEqual([48, 48, 75, 15, 96, 96, 150, 30]);
     expect(knock[0]!.shadowColor, "the knockout casts no shadow").toBe("rgba(0, 0, 0, 0)");
     expect(ctx.globalCompositeOperation).toBe("source-over");
     expect(fake.contexts[4]!.ops("putImageData")).toHaveLength(1);
@@ -244,7 +245,7 @@ describe("W88: what casts no Canvas2D shadow (D88-4) and shadowsDrawn", () => {
     const big = parseBoxShadow("rgba(0, 0, 0, 0.5) 30px 40px 60px 12px");
     expect(() => renderer.render(frame({ paints: [paint(0, big)], viewport: { widthCss: 120, heightCss: 80, dpr: 2 } }))).not.toThrow();
     expect(shadowDraws(ctx)).toHaveLength(1);
-    expect(knockoutDraws(ctx)).toHaveLength(1);
+    expect(knockoutDraws(ctx), "W88.5b: the caster lies outside the small grid, so its dirty rect is empty and nothing is drawn").toHaveLength(0);
     expect(renderer.shadowsDrawn?.(0)).toBe(true);
   });
 });

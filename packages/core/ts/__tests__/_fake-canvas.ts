@@ -53,8 +53,9 @@ export class FakeContext2D {
     return { width, height, data: new Uint8ClampedArray(width * height * 4) };
   }
 
-  putImageData(img: FakeImageData, dx: number, dy: number): void {
-    this.record("putImageData", [img, dx, dy]);
+  /** W88.5b: the optional dirty rect is recorded only when given, so `[img, dx, dy]` calls look as before. */
+  putImageData(img: FakeImageData, dx: number, dy: number, ...dirty: number[]): void {
+    this.record("putImageData", [img, dx, dy, ...dirty]);
     this.lastImage = { width: img.width, height: img.height, data: new Uint8ClampedArray(img.data) };
   }
 
