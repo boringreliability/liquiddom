@@ -230,6 +230,49 @@ Encoded ×10 per frame in the copy and divided by 10, timed with `timestamp-quer
 
 - **6 elements × 3 layers, DPR 2: 3.69 ms p95, under the 3.76 ms STOP threshold** (by 0.07 ms); the median is 1.84 ms, about the spike's scissored buckets (1.88 ms). At ×10 the frame interval rose to 33–50 ms at DPR 2 (6 and 12 elements), as in the spike; a real frame runs the passes once. CPU `render()` p95 stayed 0.9 … 1.8 ms (baseline 0.59 ms).
 
+### Re-measure 2026-10-29, interleaved, load 3.9 … 9.6 (peak 17.2 in one run)
+
+The same setup, on a fresh throwaway copy of `2ecf19c` in `$S/w88perf3/` (Vite :4189, deleted after recording). Every configuration ran as ABAB: a baseline page (no shadows) and the shadow page alternately, two pairs each. The 1-minute load average was ≤ 10 at the start of each block (n = 6: 8.3, n = 1: 6.4, n = 12: 5.0) and 3.9 … 9.6 at the runs (one Canvas2D knockout-off run at 17.2, noted below). The baseline `render()` p95 was 8.8 … 9.5 ms (the first run's 13.6 ms was the load; the spike's 6.75 ms; a few 12-element DPR 2 baselines read 6.6 … 6.8 ms).
+
+**Canvas2D, `render()` p95, change from the same pair's baseline (ms).** Bold: the median of the two per-pair deltas; in brackets the per-pair deltas.
+
+| DPR | layers | 1 el | 6 el | 12 el |
+|---|---|---|---|---|
+| 1 | 1 | **+0.67** (+1.01, +0.34) | **+1.99** (+3.15, +0.83) | **+5.96** (+5.93, +5.98) |
+| 1 | 3 | **+0.40** (+0.27, +0.52) | **+3.27** (+3.20, +3.33) | **+6.33** (+6.65, +6.02) |
+| 2 | 1 | **+2.78** (+4.91, +0.65) | **+2.87** (+2.95, +2.80) | **+5.00** (+5.89, +4.11) |
+| 2 | 3 | **+2.04** (+0.63, +3.45) | **+3.42** (+3.50, +3.34) | **+4.87** (+4.79, +4.95) |
+
+- **The +2 ms threshold at 6 elements is still exceeded** on an idle-ish machine: median deltas +1.99 (DPR 1, 1 layer: borderline) and +2.87 … +3.42 ms for the other three; the median of `render()` itself rises about +1.9 … +2.3 ms at 6 elements. The per-pair spread at 1 element is large at DPR 2 (+0.65 … +4.91), so only the 6- and 12-element rows are firm.
+- **Knockout disabled in the copy, 6 el × 3 layers:** DPR 1 median **+1.51** (+1.45, +1.57). DPR 2: +1.49 and +6.59 (the second pair ran at load 17.2 and is discarded). So the closing pass costs about +1.8 … +2 ms p95 at 6 elements and without it the cost is under +2 ms.
+- Per the brief nothing was optimised; the decision is Dennis'.
+
+**WebGPU, amortised GPU time of the shadow passes (ms per frame)**, p95 per run (two runs), median in brackets; ×10 encode in the copy, `timestamp-query` between marker passes, 200 … 620 resolved frames per run.
+
+| DPR | layers | 1 el | 6 el | 12 el |
+|---|---|---|---|---|
+| 1 | 1 | 0.29 / 0.29 (0.26 / 0.18) | 1.36 / 1.57 (0.14 / 0.48) | 2.10 / 2.91 (0.16 / 0.26) |
+| 1 | 3 | 0.77 / 0.77 (0.65 / 0.66) | 1.68 / 2.50 (1.08 / 1.53) | 2.02 / 2.25 (1.38 / 1.42) |
+| 2 | 1 | 0.67 / 0.68 (0.26 / 0.08) | 2.33 / 2.67 (1.20 / 1.41) | 1.56 / 1.57 (1.33 / 1.38) |
+| 2 | 3 | 1.09 / 1.06 (0.81 / 0.79) | **3.64 / 3.48** (2.03 / 1.97) | 1.82 / 1.84 (1.53 / 1.21) |
+
+- **6 elements × 3 layers, DPR 2: p95 3.64 / 3.48 ms (median 2.0), under the 3.76 ms threshold** by 0.12 … 0.28 ms; the first run read 3.69. Two runs per cell, so the margin is thin but it repeats.
+- The 12-element rows are lower than the 6-element ones at DPR 2: with 12 elements the shadow regions overlap and the scissored groups cover less area per pass than at 6 (the 16-source cap does not apply: 12 elements × 1 source).
+
+## Vision (W88.5)
+
+Controller verdicts after the stills (2026-10-26, Dennis answered "som anbefalet", saga dec_03309bfb):
+
+- rest: the browser draws every shadow (drop, glow, spread, currentColor, inset, Glass) — matches.
+- splash f10/f40, both renderers: the shadows follow the deformed liquid; wide holes show the page; no shadow under Glass's translucent liquid; Canvas2D spread fringe slightly scalloped at f10, acceptable.
+- merge (Glow dragged over Drop): Glow's glow wraps the merged liquid.
+- handoff N−2…N+2, both renderers: no visible jump, no gap, no double frame (WebGPU's pre-existing liquid bumps above the pill at N−2/N−1 are a liquid look, not a shadow).
+- unobserve: Canvas2D clean; WebGPU frame +1 shows the freed liquid in transit carrying the receivers' glow (accepted, Known; dec_03309bfb).
+- site hero, dark, both renderers, desktop and phone: the glow follows the drops and pills at arrival and during the hint shake; at rest the browser's glow.
+- demo landing: the card shadow is visible at rest.
+- not W88: faint ghost glyph marks in WebGPU just before rest; the demo landing overflows horizontally at 390 px.
+- resolution 13 (re-taken 2026-10-29, `?clock=manual`, both renderers; stills `$S/w88vision/res13-{c2d,gpu}.png`): Drop was dragged by its left end toward the resting Glow pill. Within ≈ 15 px of Glow's box (the pointer ≈ 12 px short) Glow's own liquid is disturbed and both are away, so the closest case where Glow stays at rest is ≈ 20 px between Drop's liquid and Glow's box. There Glow's browser glow reaches Drop's liquid edge only as a faint cyan tint (the liquid's green channel +9, 111 → 120, over the last ≈ 10 px) that is barely visible in either renderer, so the limitation is real but not objectionable.
+
 ## Specification
 **Baseline at `38165db`:** measured 2026-10-25 after `npm run build:wasm` and `npm run build -w liquiddom` (W87 complete, only docs changed since): cargo `245 passed; 0 failed; 1 ignored` (the doc-test line is 0 passed); vitest `870 passed (870)`, 88 files; Playwright `--list` canvas2d 101 / webgpu 51 / webgpu-hw 99 / perf 6 / dist 2 / site 7 / record 4 / record-webgpu 4. These equal the survey's counts.
 
