@@ -13,7 +13,7 @@ Renderer work on top of the finished fluid engine (Epic 15): the liquid takes on
 ## Wards
 | Ward | Name | Status |
 |------|------|--------|
-| 88 | Shadows follow the liquid | planned |
+| 88 | Shadows follow the liquid | complete |
 
 This table is maintained by hand; `wdd progress` / PROGRESS.md is the source of truth for status.
 

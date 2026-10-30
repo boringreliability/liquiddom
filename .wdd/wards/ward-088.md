@@ -3,12 +3,12 @@ ward: 88
 revision: null
 name: "Shadows follow the liquid"
 epic: "liquid-look"
-status: "gold"
+status: "complete"
 dependencies: [87]
 layer: "typescript"
 estimated_tests: 0
 created: "2026-10-25"
-completed: null
+completed: "2026-10-30"
 ---
 # Ward 088: Shadows follow the liquid
 

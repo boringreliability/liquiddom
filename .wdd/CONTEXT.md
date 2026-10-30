@@ -4,7 +4,7 @@
 Ward 87 complete — 2026-10-24 (whole picture after slice 6, gold approved by Dennis). 0.3.0-alpha.1 published 2026-10-24; epic 15 complete. Next: Epic 16 (W88 shadows).
 
 ## Current State
-Epic 15 (Fluid Engine). `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. Soft-body: tag `softbody-final`. Packages `0.3.0-alpha.1` (pre mode `alpha`), published on npm (`latest` + `alpha`, trusted publishing; 0.2.0-rc.0 deprecated); `site/` is the private workspace `@liquiddom/site` (Astro 7, core's dist; W86). Test totals: `.wdd/PROGRESS.md`, ward gold notes.
+Epic 15 (Fluid Engine) complete; Epic 16 (Liquid look) active, W88 shadows complete. `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. Soft-body: tag `softbody-final`. Packages `0.3.0-alpha.1` (pre mode `alpha`), published on npm (`latest` + `alpha`, trusted publishing; 0.2.0-rc.0 deprecated); `site/` is the private workspace `@liquiddom/site` (Astro 7, core's dist; W86). Test totals: `.wdd/PROGRESS.md`, ward gold notes.
 
 Canonical vision, acceptance scene (8 steps), slice matrix: `.wdd/NORTH-STAR.md`. Binding design: `docs/superpowers/specs/2026-10-02-liquiddom-fluid-design.md`. Execution ledger, rulings: `.superpowers/sdd/README/progress.md` (git-ignored).
 
@@ -64,7 +64,7 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Fluid decisions: `ward
 - `activeRenderer` can change mid-session (W72): a lost WebGPU device makes it `'canvas2d'`; a frame or two draw nothing.
 - Canvas2D cell `ceil(R)/6` (W82): ≈ 2.8× render time on large kernels; one fine-spaced element holds the page on the 2 px floor (W77).
 - Colour probe (W86): needs a 2d canvas (null in jsdom); 256 cached strings.
-- Shadows (W88): holes > ≈ 3 kernel radii show the shadow on their rim; WebGPU caps 16 density sources/frame (the rest keep a static browser shadow); a resting shadow paints over moving liquid; a spread larger than 128 px is drawn at 128 px while the liquid moves (the browser draws the full spread at rest), and a spread larger than the element's smaller side is approximate in Canvas2D (8 shifted copies). After `unobserve()` mid-motion the freed liquid carries the receivers' shadows for a few frames (speckled glow, WebGPU most visible).
+- Shadows (W88): see CLAUDE.md's Shadows "Known" line and `ward-088.md` (holes, 16 WebGPU sources, spread cap 128 px in motion, `unobserve` mid-motion).
 
 ## What Comes Next
-- Epic 16 'Liquid look' (`.wdd/epics/16-liquid-look.md`): W88 shadows follow the liquid (in progress); further looks per the epic.
+- Epic 16 'Liquid look' (`.wdd/epics/16-liquid-look.md`): W88 shadows follow the liquid complete (2026-10-30); the next look ward per the epic, deferred W88 follow-ups in ward-088.md.
