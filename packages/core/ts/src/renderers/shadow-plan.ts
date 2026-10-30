@@ -164,17 +164,16 @@ function kernelTail(t: number): number {
   return (s * h) / 3;
 }
 
-const SPREAD_FALLBACK_CAP_PX = 4096;
+export const SHADOW_SPREAD_CAP_PX = 128;
 
 /**
- * Final review I1: |spread| is capped at the viewport diagonal (CSS px; a non-finite or non-positive
- * viewport falls back to a fixed cap), keeping the sign. A CSS overlay idiom such as
- * `0 0 0 9999px` would otherwise size Canvas2D's spread scratch canvas and WebGPU's kernel to the spread.
+ * Final review I1 (saga dec_ffc55d76): |spread| is capped at SHADOW_SPREAD_CAP_PX (CSS px), keeping
+ * the sign. A CSS overlay idiom such as `0 0 0 9999px` would otherwise size Canvas2D's spread scratch
+ * canvas and every WebGPU particle quad to the spread; in motion it draws smaller, and the browser
+ * draws the full shadow at rest.
  */
-export function clampSpread(spread: number, viewportW: number, viewportH: number): number {
-  const ok = Number.isFinite(viewportW) && Number.isFinite(viewportH) && viewportW > 0 && viewportH > 0;
-  const cap = ok ? Math.hypot(viewportW, viewportH) : SPREAD_FALLBACK_CAP_PX;
-  return Math.sign(spread) * Math.min(Math.abs(spread), cap);
+export function clampSpread(spread: number): number {
+  return Math.sign(spread) * Math.min(Math.abs(spread), SHADOW_SPREAD_CAP_PX);
 }
 
 const spreadCache = new Map<string, { readonly radius: number; readonly weightScale: number }>();
@@ -259,11 +258,9 @@ export function planShadows(casters: ShadowCasters, frame: RenderFrame, texelCss
     const paint = frame.paints[id];
     const layers = paint?.shadows;
     if (!paint || !layers || layers.length === 0) continue;
-    const vw = frame.viewport.widthCss;
-    const vh = frame.viewport.heightCss;
     const spreads = [0];
     for (const l of layers) {
-      const sp = clampSpread(l.spread, vw, vh);
+      const sp = clampSpread(l.spread);
       if (sp !== 0 && !spreads.includes(sp)) spreads.push(sp);
     }
     if (sources.length + spreads.length > SHADOW_MAX_SOURCES) continue; // D88-11: no room this frame
@@ -304,7 +301,7 @@ export function planShadows(casters: ShadowCasters, frame: RenderFrame, texelCss
         byGroup.set(key, list);
         groupOrder.push(key);
       }
-      const src = sourceOf.get(clampSpread(l.spread, vw, vh)) ?? 0;
+      const src = sourceOf.get(clampSpread(l.spread)) ?? 0;
       const a = Math.min(1, Math.max(0, l.color[3]));
       const srcRect = sources[src]?.rect ?? bounds;
       list.push({

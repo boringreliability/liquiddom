@@ -165,7 +165,7 @@ export class ShadowCanvas2D {
     this.putMask(mw, mh);
     for (let li = layers.length - 1; li >= 0; li--) {
       const l = layers[li];
-      if (l) this.drawLayer(ctx, l, s, dpr, ox, oy, mw, mh, frame.viewport.widthCss, frame.viewport.heightCss);
+      if (l) this.drawLayer(ctx, l, s, dpr, ox, oy, mw, mh);
     }
     this.knockOut(R, s, ox, oy, mw, mh, gridW, gridH);
     return true;
@@ -241,14 +241,14 @@ export class ShadowCanvas2D {
     mask.ctx.putImageData(img, 0, 0, 0, 0, mw, mh);
   }
 
-  private drawLayer(ctx: CanvasRenderingContext2D, l: ShadowLayer, s: number, dpr: number, ox: number, oy: number, mw: number, mh: number, vw: number, vh: number): void {
+  private drawLayer(ctx: CanvasRenderingContext2D, l: ShadowLayer, s: number, dpr: number, ox: number, oy: number, mw: number, mh: number): void {
     const mask = this.mask;
     if (!mask) return;
     let src: HTMLCanvasElement = mask.canvas;
     let sw = mw;
     let sh = mh;
     let pad = 0;
-    const spread = clampSpread(l.spread, vw, vh); // final review I1
+    const spread = clampSpread(l.spread); // final review I1
     if (spread !== 0 && this.spreadSurface) {
       pad = Math.ceil(Math.abs(spread) / s) + 1;
       sw = mw + 2 * pad;

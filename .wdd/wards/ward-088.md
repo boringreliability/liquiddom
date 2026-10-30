@@ -416,6 +416,7 @@ Red results measured at W88.1 on this worktree (2026-10-25). **A** = an assertio
 
 ## Final review (2026-10-29)
 - **I1** (decision (a), saga dec_4b09dbcc): `clampSpread(spread, viewportW, viewportH)` in `shadow-plan.ts` keeps the sign and caps |spread| at the viewport diagonal (CSS px; a bad viewport falls back to 4096). Canvas2D `drawLayer` (pad, dilation radius, blur floor) and the WebGPU plan (source spread and kernel) read the clamped value; spreads within the cap behave exactly as before.
+- **I1 residual** (Dennis 2026-10-30, saga dec_ffc55d76): the diagonal cap still gave every WebGPU particle a full-screen quad (≈ 5·10⁸ fragments per frame for `0 0 0 9999px`). `clampSpread(spread)` now caps |spread| at `SHADOW_SPREAD_CAP_PX = 128` in both renderers; a larger spread draws at 128 px while the liquid moves and the browser draws the full one at rest (Known line in CLAUDE.md, CONTEXT.md, limitations).
 - **M1:** the Canvas2D knockout's `putImageData` rect is grown by one cell on each side (clamped to the grid), so stale coverage outside the dirty rect cannot bleed in through bilinear sampling. The `drawImage` source rect is unchanged.
 - **M2:** CLAUDE.md (Canvas2D line, Test conventions, Known), CONTEXT.md and `site/.../limitations.md` updated.
 - **M4:** the container test in `shadow-canvas2d.test.ts` was renamed to say the caster lies wholly outside the grid in y (name only).
