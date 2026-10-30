@@ -15,6 +15,7 @@ import {
   SHADOW_SCALE_HALF,
   SHADOW_SCALE_QUARTER,
   clampSpread,
+  SHADOW_SPREAD_CAP_PX,
   ShadowCasters,
   spreadKernel,
 } from "../src/renderers/shadow-plan";
@@ -159,32 +160,28 @@ describe("W88: the WebGPU shadow plan (D88-6, D88-11)", () => {
     expect(spreadKernel(R, 0)).toEqual({ radius: R, weightScale: 1 });
   });
 
-  it("given_a_huge_spread_when_planned_then_the_source_kernel_is_R_plus_the_viewport_diagonal_not_R_plus_the_spread_I1", () => {
+  // approved-test change (saga dec_ffc55d76): the cap is SHADOW_SPREAD_CAP_PX, not the viewport diagonal
+  it("given_a_huge_spread_when_planned_then_the_source_kernel_is_R_plus_the_128px_cap_not_R_plus_the_spread_I1", () => {
     const f = frame([paint(0, L("rgba(0, 0, 0, 0.5) 0px 0px 0px 9999px")), undefined]);
     const c = new ShadowCasters();
     c.collect(f);
     const plan = planShadows(c, f, TEXEL);
-    const diag = 1000; // 800 × 600
-    expect(plan.sources[1]!.radius).toBeCloseTo(plan.sources[0]!.radius + diag, 9);
-    expect(plan.sources[1]!.spread).toBe(diag);
+    expect(SHADOW_SPREAD_CAP_PX).toBe(128);
+    expect(plan.sources[1]!.radius).toBeCloseTo(plan.sources[0]!.radius + 128, 9);
+    expect(plan.sources[1]!.spread).toBe(128);
   });
 });
 
-describe("W88: clampSpread (final review I1)", () => {
-  it("given_spreads_when_clamped_then_the_sign_is_kept_the_cap_is_the_viewport_diagonal_and_small_spreads_are_unchanged", () => {
-    expect(clampSpread(9999, 400, 300)).toBe(500);
-    expect(clampSpread(-9999, 400, 300)).toBe(-500);
-    expect(clampSpread(6, 400, 300)).toBe(6);
-    expect(clampSpread(-4, 400, 300)).toBe(-4);
-    expect(clampSpread(0, 400, 300)).toBe(0);
-    expect(clampSpread(500, 400, 300)).toBe(500);
-  });
-
-  it("given_a_bad_viewport_when_clamped_then_a_fixed_fallback_cap_applies", () => {
-    for (const [w, h] of [[0, 0], [NaN, 300], [400, -1], [Infinity, 300]] as const) {
-      expect(clampSpread(99999, w, h)).toBe(4096);
-      expect(clampSpread(-99999, w, h)).toBe(-4096);
-      expect(clampSpread(7, w, h)).toBe(7);
-    }
+describe("W88: clampSpread (final review I1, saga dec_ffc55d76)", () => {
+  // approved-test change (saga dec_ffc55d76): a fixed 128 px cap replaces the viewport diagonal
+  it("given_spreads_when_clamped_then_the_sign_is_kept_the_cap_is_128px_and_small_spreads_are_unchanged", () => {
+    expect(clampSpread(9999)).toBe(128);
+    expect(clampSpread(-9999)).toBe(-128);
+    expect(clampSpread(129)).toBe(128);
+    expect(clampSpread(128)).toBe(128);
+    expect(clampSpread(6)).toBe(6);
+    expect(clampSpread(-4)).toBe(-4);
+    expect(clampSpread(0)).toBe(0);
+    expect(clampSpread(Infinity)).toBe(128);
   });
 });

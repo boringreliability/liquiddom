@@ -165,14 +165,16 @@ describe("W88: Canvas2D shadows (D88-4, D88-5, D88-14)", () => {
     expect(d.shadowBlur, "D88-12: one density cell").toBe(CELL);
   });
 
-  it("given_a_spread_of_9999_on_a_400x300_viewport_when_rendered_then_the_spread_scratch_stays_within_the_diagonal_pad_I1", async () => {
+  // approved-test change (saga dec_ffc55d76): the pad follows the 128 px cap, not the viewport diagonal
+  it("given_a_spread_of_9999_when_rendered_then_the_spread_scratch_stays_within_the_128px_cap_pad_I1", async () => {
     const { renderer } = await setup();
     renderer.render(frame({ paints: [paint(0, parseBoxShadow("rgba(0, 0, 0, 0.5) 0px 0px 0px 9999px"))] }));
     const mask = fake.contexts[2]!.canvas;
     const scratch = fake.contexts[3]!.canvas;
-    const pad = Math.ceil(500 / CELL) + 1; // diagonal of 400 × 300
-    expect(scratch.width).toBeLessThanOrEqual(mask.width + 2 * pad);
-    expect(scratch.height).toBeLessThanOrEqual(mask.height + 2 * pad);
+    const pad = Math.ceil(128 / CELL) + 1; // SHADOW_SPREAD_CAP_PX
+    // the scratch only grows past a canvas's default 300 × 150
+    expect(scratch.width).toBeLessThanOrEqual(Math.max(300, mask.width + 2 * pad));
+    expect(scratch.height).toBeLessThanOrEqual(Math.max(150, mask.height + 2 * pad));
   });
 
   it("given_a_negative_spread_when_rendered_then_the_8_shifted_copies_erode_the_mask_with_destination_in", async () => {
