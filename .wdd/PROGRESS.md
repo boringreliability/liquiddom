@@ -93,7 +93,7 @@
 | 085 | Adapters | 48 | ✅ Complete | 2026-10-22 |
 | 086 | The site | 0 | ✅ Complete | 2026-10-23 |
 | 087 | Whole picture (slice 6) | 0 | ✅ Complete | 2026-10-24 |
-| 088 | Shadows follow the liquid | 0 | 🔴 Red | - |
+| 088 | Shadows follow the liquid | 0 | 🔨 Gold | - |
 
 ## Test Summary
 - Estimated total: 1427

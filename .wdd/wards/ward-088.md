@@ -3,7 +3,7 @@ ward: 88
 revision: null
 name: "Shadows follow the liquid"
 epic: "liquid-look"
-status: "approved"
+status: "gold"
 dependencies: [87]
 layer: "typescript"
 estimated_tests: 0
