@@ -594,6 +594,8 @@ function buildRuntime(
       clearHaloClasses(haloHeld); // W75 (D75-3): the halo goes at once as well
       clearAwayClasses(awayHeld); // W78: the drag label goes at once as well
       // W88 (D88-1): the browser's shadow is back at once; the next frame (reduced motion) draws none.
+      // A paused loop has no next frame, so the canvas is repainted without shadows now (PR #10 review).
+      if (loop.isPaused) takeShadowsOffCanvas();
       clearShadowClasses(shadowHeld);
     }
   };
@@ -854,6 +856,14 @@ function buildRuntime(
     }
   };
 
+  /** W88: repaints without shadows; when even that throws, the canvas is cleared. */
+  const takeShadowsOffCanvas = (): void => {
+    if (!repaintWithoutShadows()) {
+      const w = canvas.width;
+      canvas.width = w; // resets the bitmap of a 2d or webgpu canvas
+    }
+  };
+
   const frameBody = (nowMs: number): void => {
     const dtS = lastMs === null || !Number.isFinite(nowMs) ? 0 : Math.max(0, (nowMs - lastMs) / 1000);
     if (Number.isFinite(nowMs)) lastMs = nowMs;
@@ -944,12 +954,8 @@ function buildRuntime(
     clearHaloClasses(haloHeld); // W75: a stopped instance leaves no halo behind
     clearAwayClasses(awayHeld); // W78: a stopped instance hides no label
     resyncStopped();
-    // W88 (Review Focus 1): the browser's shadows come back; no canvas shadow may double them. The
-    // repaint draws the liquid without shadows; when even that throws, the canvas is cleared.
-    if (!repaintWithoutShadows()) {
-      const w = canvas.width;
-      canvas.width = w; // resets the bitmap of a 2d or webgpu canvas
-    }
+    // W88 (Review Focus 1): the browser's shadows come back; no canvas shadow may double them.
+    takeShadowsOffCanvas();
     clearShadowClasses(shadowHeld);
     console.error(msg, err);
     if (opts.onError === undefined) return;

@@ -415,19 +415,26 @@ const haloHolds = classHolds(HALO_CLASS);
 const awayHolds = classHolds(AWAY_CLASS);
 /**
  * W88 (resolution 12): true when `el`'s computed transitions animate `box-shadow` (`all` or
- * `box-shadow` with a duration > 0; durations repeat over the property list, as in CSS).
+ * `box-shadow` with a combined duration (duration + delay) > 0; each list repeats over the property list, as in CSS).
  */
 export function runsBoxShadowTransition(el: HTMLElement): boolean {
   const view = el.ownerDocument.defaultView;
   if (!view) return false;
   const cs = view.getComputedStyle(el);
   const props = String(cs.transitionProperty ?? "").split(",").map((p) => p.trim());
-  const durations = String(cs.transitionDuration ?? "").split(",").map((d) => {
-    const v = parseFloat(d);
-    return d.trim().endsWith("ms") ? v / 1000 : v;
+  const seconds = (list: string): number[] =>
+    list.split(",").map((t) => {
+      const v = parseFloat(t);
+      return Number.isFinite(v) ? (t.trim().endsWith("ms") ? v / 1000 : v) : 0;
+    });
+  const durations = seconds(String(cs.transitionDuration ?? ""));
+  const delays = seconds(String(cs.transitionDelay ?? ""));
+  // PR #10 review: CSS's combined duration, max(duration, 0) + delay; each list repeats on its own.
+  return props.some((p, i) => {
+    if (p !== "all" && p !== "box-shadow") return false;
+    const d = Math.max(durations[i % durations.length] ?? 0, 0);
+    return d + (delays[i % delays.length] ?? 0) > 0;
   });
-  if (durations.length === 0) return false;
-  return props.some((p, i) => (p === "all" || p === "box-shadow") && (durations[i % durations.length] ?? 0) > 0);
 }
 
 /**
