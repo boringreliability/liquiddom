@@ -293,6 +293,45 @@ describe("W88: the class on the fail-safe paths (D88-1; Review Focus 1, 3)", () 
     }
   });
 
+  // PR #10 review (Codex): a paused loop has no next frame to take the renderer's shadow off
+  it("given_a_paused_instance_holding_the_class_when_reduced_motion_switches_on_then_the_canvas_is_repainted_without_shadows_before_the_class_goes", async () => {
+    authorStyles();
+    type Listener = (e: { matches: boolean }) => void;
+    const listeners = new Set<Listener>();
+    const mql = {
+      matches: false,
+      media: "(prefers-reduced-motion: reduce)",
+      addEventListener: (_t: string, cb: Listener) => listeners.add(cb),
+      removeEventListener: (_t: string, cb: Listener) => listeners.delete(cb),
+    };
+    const original = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: (q: string) => (q.includes("prefers-reduced-motion") ? mql : { ...mql, media: q, addEventListener() {}, removeEventListener() {} }),
+    });
+    try {
+      const { rt, clock, moving } = await start();
+      const el = button();
+      const id = rt.observe(el);
+      await flush();
+      moving.setRestAlpha(id, 0.5);
+      clock.advance(1);
+      expect(held(el)).toBe(true);
+      rt.pause();
+      const tick = vi.spyOn(moving.backend.cores[0]!, "tick");
+      const renders = captureRenders(FluidCanvas2DRenderer.prototype, () => el);
+      mql.matches = true;
+      for (const cb of [...listeners]) cb({ matches: true });
+      expect(held(el)).toBe(false);
+      expect(renders.map((r) => r.frame.suppressShadows), "one render-only repaint without shadows").toEqual([true]);
+      expect(renders[0]?.held, "drawn while the class was still on").toBe(true);
+      expect(tick, "render only: the paused fluid does not step").not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(window, "matchMedia", { configurable: true, writable: true, value: original });
+    }
+  });
+
   it("given_the_class_held_when_a_frame_throws_then_the_instance_stops_the_canvas_is_repainted_without_shadows_and_the_class_goes_review_focus_1", async () => {
     authorStyles();
     const error = vi.spyOn(console, "error").mockImplementation(() => {});

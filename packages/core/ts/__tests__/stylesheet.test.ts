@@ -652,6 +652,23 @@ describe("W88: the shadow toggle class (D88-1)", () => {
     expect(runsBoxShadowTransition(el), "no transition").toBe(false);
   });
 
+  // PR #10 review (Codex): a delayed zero-duration transition still holds the old shadow until it ends
+  it("given_a_delayed_box_shadow_transition_when_asked_then_runsBoxShadowTransition_uses_the_combined_duration_and_delays_repeat_on_their_own", () => {
+    const el = document.body.appendChild(document.createElement("div"));
+    const runs = (property: string, duration: string, delay: string): boolean => {
+      el.style.transitionProperty = property;
+      el.style.transitionDuration = duration;
+      el.style.transitionDelay = delay;
+      return runsBoxShadowTransition(el);
+    };
+    expect(runs("box-shadow", "0s", "500ms"), "0s 500ms: the old shadow holds for 500 ms").toBe(true);
+    expect(runs("all", "0s", "0.2s")).toBe(true);
+    expect(runs("color, box-shadow", "0s", "0s, 1s"), "the delay list repeats independently of the durations").toBe(true);
+    expect(runs("box-shadow, color", "0s, 0s", "0s, 1s"), "only color is delayed").toBe(false);
+    expect(runs("box-shadow", "1s", "-1s"), "combined duration 0").toBe(false);
+    expect(runs("box-shadow", "0s", "0s")).toBe(false);
+  });
+
   it("given_an_element_with_a_box_shadow_transition_when_the_shadow_class_is_added_and_removed_then_each_write_holds_inline_transition_none_and_the_style_attribute_is_restored_exactly_resolution_12", () => {
     const faded = document.body.appendChild(document.createElement("button"));
     faded.setAttribute("style", "transition-property: box-shadow; transition-duration: 0.3s;");
