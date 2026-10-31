@@ -13,8 +13,9 @@
  * W75 (D75-3): the sheet also holds one halo rule per observed element (`liquid-halo` + `data-liquid-id`), rewritten when an element is observed, re-coloured or unobserved; never per frame.
  * W82 (D82-1, D82-3): the canvas sits at z-index -1, under the page, and no element needs the D7 rules. An instance whose page or container cannot take that (stacking.ts) mounts its canvas at 0 and holds `data-liquid-stack` on its elements (holdStacking); the rules key on the attribute, so the sheet is the same for both.
  * W84 (D84-5): observed elements get `-webkit-touch-callout: none` (no iOS callout or link preview on a long-press), except those every observing instance opted out of drag (`data-liquid-drag="off"`, holdDragMode), which get `default` back (the property inherits).
+ * W88 (D88-1): an observed element keeps its own box-shadow (the browser draws it at rest); `liquid-shadow-away` (screen + forced-colors: none only) hides it while the renderer draws it from the liquid.
  */
-import type { RGBA } from "./color";
+import { withTransitionsOff, type RGBA } from "./color";
 
 export const STYLE_ELEMENT_ID = "liquiddom-styles";
 export const ELEMENT_CLASS = "liquid-element";
@@ -31,6 +32,8 @@ export const HALO_ID_ATTR = "data-liquid-id";
 export const HALO_BLUR_PX: readonly number[] = Object.freeze([1, 2, 4, 8]);
 /** W78 (D78-1): the Canvas2D drag label class: the runtime hides a dragged element's DOM glyphs while its liquid is away. */
 export const AWAY_CLASS = "liquid-away";
+/** W88 (D88-1): while an element's liquid is away the runtime hides its own box-shadow; the renderer draws it from the liquid. */
+export const SHADOW_AWAY_CLASS = "liquid-shadow-away";
 export type StackMode = "relative" | "z";
 /** W82 (D82-1): the canvas under the page; every page box and its text paint above escaped liquid. */
 export const CANVAS_Z_UNDER = "-1";
@@ -41,7 +44,9 @@ export type CanvasZ = typeof CANVAS_Z_UNDER | typeof CANVAS_Z_FALLBACK;
 export const LIQUID_CSS = [
   "@layer liquiddom {",
   "  @media screen and (forced-colors: none) {",
-  "    .liquid-element { background: transparent !important; border-color: transparent !important; box-shadow: none !important; }",
+  // W88 (D88-1): no `box-shadow: none` here any more: the browser draws the author's shadow at rest.
+  "    .liquid-element { background: transparent !important; border-color: transparent !important; }",
+  `    .${SHADOW_AWAY_CLASS} { box-shadow: none !important; }`,
   `    .liquid-element[${STACK_ATTR}="relative"] { position: relative !important; z-index: 1 !important; }`,
   `    .liquid-element[${STACK_ATTR}="z"] { z-index: 1 !important; }`,
   "    .liquid-text, .liquid-text * { -webkit-text-fill-color: transparent !important; text-decoration-color: transparent !important; text-shadow: none !important; }",
@@ -285,9 +290,13 @@ export function undecorateElement(el: HTMLElement): void {
  * `liquid-halo`, `liquid-away`) are held per element across ALL instances, like decorations: the class stays
  * while any instance holds it, and the last release restores what the first hold found (an
  * author's own class is never removed). Each instance keeps its own `held` set (text-toggle.ts,
- * halo-toggle.ts), so one instance holds an element at most once.
+ * halo-toggle.ts), so one instance holds an element at most once. W88: `write` performs the class
+ * write itself (the shadow class writes it with the author's box-shadow transition held off).
  */
-function classHolds(cls: string): { add(el: HTMLElement): void; remove(el: HTMLElement): void } {
+function classHolds(
+  cls: string,
+  write: (el: HTMLElement, on: boolean) => void = (el, on) => el.classList.toggle(cls, on),
+): { add(el: HTMLElement): void; remove(el: HTMLElement): void } {
   const holds = new WeakMap<HTMLElement, { count: number; readonly hadClass: boolean }>();
   return {
     add(el) {
@@ -296,8 +305,9 @@ function classHolds(cls: string): { add(el: HTMLElement): void; remove(el: HTMLE
         hold.count += 1;
         return;
       }
-      holds.set(el, { count: 1, hadClass: el.classList.contains(cls) });
-      el.classList.add(cls);
+      const hadClass = el.classList.contains(cls);
+      holds.set(el, { count: 1, hadClass });
+      if (!hadClass) write(el, true);
     },
     remove(el) {
       const hold = holds.get(el);
@@ -305,7 +315,7 @@ function classHolds(cls: string): { add(el: HTMLElement): void; remove(el: HTMLE
       hold.count -= 1;
       if (hold.count > 0) return;
       holds.delete(el);
-      if (!hold.hadClass) el.classList.remove(cls);
+      if (!hold.hadClass) write(el, false);
     },
   };
 }
@@ -403,6 +413,51 @@ export function releaseDragMode(el: HTMLElement, draggable: boolean): void {
 const textHolds = classHolds(TEXT_CLASS);
 const haloHolds = classHolds(HALO_CLASS);
 const awayHolds = classHolds(AWAY_CLASS);
+/**
+ * W88 (resolution 12): true when `el`'s computed transitions animate `box-shadow` (`all` or
+ * `box-shadow` with a combined duration (duration + delay) > 0; each list repeats over the property list, as in CSS).
+ */
+export function runsBoxShadowTransition(el: HTMLElement): boolean {
+  const view = el.ownerDocument.defaultView;
+  if (!view) return false;
+  const cs = view.getComputedStyle(el);
+  const props = String(cs.transitionProperty ?? "").split(",").map((p) => p.trim());
+  const seconds = (list: string): number[] =>
+    list.split(",").map((t) => {
+      const v = parseFloat(t);
+      return Number.isFinite(v) ? (t.trim().endsWith("ms") ? v / 1000 : v) : 0;
+    });
+  const durations = seconds(String(cs.transitionDuration ?? ""));
+  const delays = seconds(String(cs.transitionDelay ?? ""));
+  // PR #10 review: CSS's combined duration, max(duration, 0) + delay; each list repeats on its own.
+  return props.some((p, i) => {
+    if (p !== "all" && p !== "box-shadow") return false;
+    const d = Math.max(durations[i % durations.length] ?? 0, 0);
+    return d + (delays[i % delays.length] ?? 0) > 0;
+  });
+}
+
+/**
+ * W88 (resolution 12): an author `transition: box-shadow` would fade the browser's shadow out after
+ * the renderer's took over (a double shadow) and back in after the handoff (a gap). For such an
+ * element the class is written with inline `transition: none` held over a style flush (W66's lift),
+ * so the browser's shadow goes and comes at once; any other transition running on that element at
+ * that moment jumps to its end. Other elements get a plain class write.
+ */
+const shadowAwayHolds = classHolds(SHADOW_AWAY_CLASS, (el, on) => {
+  if (runsBoxShadowTransition(el)) withTransitionsOff(el, () => el.classList.toggle(SHADOW_AWAY_CLASS, on));
+  else el.classList.toggle(SHADOW_AWAY_CLASS, on);
+});
+
+/** W88 (D88-1): one instance's hold of `liquid-shadow-away` (refcounted across instances). */
+export function addShadowAwayClass(el: HTMLElement): void {
+  shadowAwayHolds.add(el);
+}
+
+/** Releases one add; an unbalanced release is a no-op. */
+export function removeShadowAwayClass(el: HTMLElement): void {
+  shadowAwayHolds.remove(el);
+}
 
 export function addTextClass(el: HTMLElement): void {
   textHolds.add(el);

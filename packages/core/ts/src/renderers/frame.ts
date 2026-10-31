@@ -4,6 +4,7 @@
  * never touch the DOM) and hands the page and each element's rect to the renderer.
  */
 import type { RGBA } from "../color";
+import type { ShadowLayer } from "../shadow";
 import type { AtlasRect } from "./webgpu/text-atlas";
 
 /**
@@ -31,6 +32,12 @@ export interface ElementPaint {
    * was built for gets no atlas text. Undefined compares equal to undefined.
    */
   readonly owner?: number;
+  /**
+   * W88 (D88-2, D88-3): the element's outer box-shadow layers in CSS px, at most MAX_SHADOW_LAYERS,
+   * in CSS order (the first paints on top); empty without one. The renderer draws them while the
+   * element's liquid is away (`liquidAway`) and scales them by the DPR itself.
+   */
+  readonly shadows: readonly ShadowLayer[];
 }
 
 export interface RenderViewport {
@@ -71,6 +78,12 @@ export interface RenderFrame {
   readonly reducedMotion: boolean;
   /** W74: the text atlas; null or absent under Canvas2D, without OffscreenCanvas or after an atlas failure. */
   readonly textAtlas?: TextAtlasFrame | null;
+  /**
+   * W88 (Review Focus 1): true for the runtime's repaint when an instance stops
+   * (no frame follows): it draws the liquid as it is and no shadow, so the browser's shadow (back as
+   * the class goes) is never doubled by the canvas's.
+   */
+  readonly suppressShadows?: boolean;
 }
 
 export interface Renderer {
@@ -83,4 +96,10 @@ export interface Renderer {
    * (WebGPU only). The runtime sets `liquid-text` only then; a renderer without it never gets one.
    */
   textReady?(id: number): boolean;
+  /**
+   * W88 (D88-1): true when the last render() drew slot `id`'s outer shadow layers. The runtime holds
+   * `liquid-shadow-away` on an element with outer layers only then, so the browser's shadow never
+   * hides without the renderer's taking its place (a lost device, an element past the WebGPU source cap).
+   */
+  shadowsDrawn?(id: number): boolean;
 }

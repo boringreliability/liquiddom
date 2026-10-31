@@ -1,10 +1,10 @@
 # Context — liquiddom
 
 ## Last Updated
-Ward 87 complete — 2026-10-24 (whole picture after slice 6, gold approved by Dennis). 0.3.0-alpha.1 published 2026-10-24; epic 15 complete. Next: the glow and shadow ward.
+Ward 87 complete — 2026-10-24 (whole picture after slice 6, gold approved by Dennis). 0.3.0-alpha.1 published 2026-10-24; epic 15 complete. Next: Epic 16 (W88 shadows).
 
 ## Current State
-Epic 15 (Fluid Engine). `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. Soft-body: tag `softbody-final`. Packages `0.3.0-alpha.1` (pre mode `alpha`), published on npm (`latest` + `alpha`, trusted publishing; 0.2.0-rc.0 deprecated); `site/` is the private workspace `@liquiddom/site` (Astro 7, core's dist; W86). Test totals: `.wdd/PROGRESS.md`, ward gold notes.
+Epic 15 (Fluid Engine) complete; Epic 16 (Liquid look) active, W88 shadows complete. `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. Soft-body: tag `softbody-final`. Packages `0.3.0-alpha.1` (pre mode `alpha`), published on npm (`latest` + `alpha`, trusted publishing; 0.2.0-rc.0 deprecated); `site/` is the private workspace `@liquiddom/site` (Astro 7, core's dist; W86). Test totals: `.wdd/PROGRESS.md`, ward gold notes.
 
 Canonical vision, acceptance scene (8 steps), slice matrix: `.wdd/NORTH-STAR.md`. Binding design: `docs/superpowers/specs/2026-10-02-liquiddom-fluid-design.md`. Execution ledger, rulings: `.superpowers/sdd/README/progress.md` (git-ignored).
 
@@ -29,6 +29,7 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Fluid decisions: `ward
 | Playwright guards visuals/behaviour; Linux baselines from the pinned image, committed only after a vision check | jsdom sees no cascade | W65 (D65-7) |
 | Site back as workspace (landing, playground, docs) on core's dist; blocking Playwright `site` (Canvas2D); deploy dispatch-only | Public API only, tested like the examples | W86 (D86-1…8) |
 | `parseCssColor` hands unparsed syntax (oklch, lab, color(), named) to a cached 1×1 canvas probe | Tailwind colours, not default purple | W86 (D86-9) |
+| Shadows follow the liquid: browser at rest, `liquid-shadow-away` + renderer while away (D88-1 … D88-14) | Exact at rest, follows in motion | W88 |
 
 ## Active Constraints
 - Rust er DOM-blind og farve-blind (kun matematik)
@@ -58,13 +59,12 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Fluid decisions: `ward
 - Text while away: WebGPU carries it on its liquid (W74); Canvas2D adds a 1–8 px background-colour halo (W75), no solid backdrop for thin glyphs.
 - Colour re-read (W75 B): own class/style or a `color` transitionend only, after its CSS transitions end; ancestor/stylesheet/`:hover` changes and `@keyframes` colours need `refresh(el)` (runs at once). Text can lag one atlas upload.
 - Rewriting an observed element's inline style every frame costs a colour snapshot + atlas re-render per frame (W75); DOM text shows meanwhile.
-- Liquid text v1 (W74, D74-5): text nodes only; underline, text-shadow, icons, images, SVG, form values/placeholders, `::before`/`::after` hide while moving; `capitalize` per word; atlas ≤ 4096² px (else DOM text stays); words clipped to the border box (overflow vanishes while moving).
-- Liquid text costs: whole atlas page re-renders on a generation, paints or text change; two GPU pages (one staged); T1/T1w/T1id stay allocated. W79: no text where text liquids meet.
+- Liquid text (W74 v1, costs, W79): see CLAUDE.md's Renderers and DOM sections and `ward-074.md`.
 - Hover swell + liquid text (W74): particles swell 2 %, DOM text not (≈ 1 px); a resting pointer can smear moving text.
 - `activeRenderer` can change mid-session (W72): a lost WebGPU device makes it `'canvas2d'`; a frame or two draw nothing.
 - Canvas2D cell `ceil(R)/6` (W82): ≈ 2.8× render time on large kernels; one fine-spaced element holds the page on the 2 px floor (W77).
 - Colour probe (W86): needs a 2d canvas (null in jsdom); 256 cached strings.
+- Shadows (W88): see CLAUDE.md's Shadows "Known" line and `ward-088.md` (holes, 16 WebGPU sources, spread cap 128 px in motion, `unobserve` mid-motion).
 
 ## What Comes Next
-- Slices 1–5 closed (whole pictures: `.wdd/memory/whole-picture/`). Slice 6: W80–W86 done (site live on liquiddom.vsplat.io since 2026-10-23, PR #5 merged); W87 complete: all 8 steps ✅ in both renderers; slice 6 closed. Epic 15 is complete (D87-4 executed 2026-10-24).
-- Next: the glow and shadow ward (renderer-only; acceptance cases: text over moving or merged liquid, `slice-6.md` open points).
+- Epic 16 'Liquid look' (`.wdd/epics/16-liquid-look.md`): W88 shadows follow the liquid complete (2026-10-30); the next look ward per the epic, deferred W88 follow-ups in ward-088.md.

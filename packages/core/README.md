@@ -21,7 +21,7 @@ npm install liquiddom@alpha
 </script>
 ```
 
-Every `[data-liquid]` element is observed. Its computed `background-color` becomes the liquid colour, and its own background, border and box-shadow are hidden.
+Every `[data-liquid]` element is observed. Its computed `background-color` becomes the liquid colour, its own background and border are hidden, and its box-shadow follows the liquid while it moves.
 
 ## Options
 
@@ -116,8 +116,8 @@ liquid.observe(el, { drag: false }); // never drags (mouse, pen or touch); keeps
 
 ## Known limitations (alpha)
 
-- Colours are snapshotted at `observe()` and re-read automatically when the element's own `class`/`style` changes or a `color`/`background-color` transition on it ends. Call `refresh(el)` after a change elsewhere (a new stylesheet rule, an ancestor class).
-- Only uniform circular `border-radius` is honoured. Borders and box-shadows of observed elements are not drawn.
+- Colours and box-shadows are snapshotted at `observe()` and re-read automatically when the element's own `class`/`style` changes or a `color`, `background-color` or `box-shadow` transition on it ends. Call `refresh(el)` after a change elsewhere (a new stylesheet rule, an ancestor class, a `:hover` rule without a transition).
+- Only uniform circular `border-radius` is honoured. Borders of observed elements are not drawn; box-shadows are (up to four outer layers; inset at rest only; a `:hover` shadow change without a transition needs `refresh(el)`).
 - An observed element inside an ancestor with `transform`, `filter` or `overflow: hidden` can end up under other content.
 - Touch drag is untested on iOS Safari, and a swipe that starts on an observed element waits for the main thread (its `touchmove` listener is non-passive). On Windows and ChromeOS touchscreens the context menu may open when the finger lifts after a touch drag. The callout stays suppressed under reduced motion, and an element observed with `{ drag: false }` gets `-webkit-touch-callout: default`, which overrides a `none` it would inherit from your own styles (a rule on the element itself still wins).
 

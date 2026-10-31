@@ -3,7 +3,8 @@
  * moving particles go through the density grid (blended colour, threshold),
  * resting elements are an exact `roundRect` at their home rect (plan
  * resolution B1), drawn at `restAlpha` over a full-weight density field while `restAlpha < 1` (D70-4). No liquid text: the DOM text is
- * always visible.
+ * always visible. W88 (D88-5): an element's box-shadow is drawn from its liquid while it is away,
+ * before all liquid (shadow-canvas2d.ts).
  *
  * Plan resolution A6: never `new ImageData` / `new OffscreenCanvas`; the
  * density buffer is a `document.createElement("canvas")` and its pixels come
@@ -13,6 +14,7 @@ import { Dyn, El, ELEMENT_STRIDE, FLAG_PARKED, type HomeRect, homeRectInto, St, 
 import { DEFAULT_SCALE_PX, DensityGrid, densityCellPx } from "./density-grid";
 import { kernelRadiusPx } from "./kernel-params";
 import type { ElementPaint, RenderFrame, Renderer } from "./frame";
+import { ShadowCanvas2D } from "./shadow-canvas2d";
 
 const clamp01 = (v: number): number => (v > 0 ? (v < 1 ? v : 1) : 0);
 
@@ -30,6 +32,8 @@ export class FluidCanvas2DRenderer implements Renderer {
   // Per-slot fillStyle cache, keyed on paint object identity.
   private readonly fillPaint: Array<ElementPaint | undefined> = [];
   private readonly fillStyles: string[] = [];
+  /** W88 (D88-5): the shadows, drawn before all liquid (scratch canvases on the first frame with shadows). */
+  private readonly shadows = new ShadowCanvas2D();
 
   /** `scalePx` is the cell until the first frame with particles; `fitCell` sets it from then on (W77, D77-1). */
   constructor(scalePx: number = DEFAULT_SCALE_PX) {
@@ -106,12 +110,20 @@ export class FluidCanvas2DRenderer implements Renderer {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, widthCss, heightCss);
     this.fitCell(frame.paints);
+    // W88 (D88-4): every shadow before all liquid, masked by the casters' own coverage (D88-10).
+    this.shadows.draw(ctx, frame, this.grid.scalePx, this.grid.width, this.grid.height);
     this.splatMoving(frame);
     this.drawDensity(ctx);
     this.drawResting(ctx, frame);
   }
 
+  /** W88 (D88-1): true when the last render() drew slot `id`'s shadow. */
+  shadowsDrawn(id: number): boolean {
+    return this.ctx !== null && this.shadows.drawn(id);
+  }
+
   destroy(): void {
+    this.shadows.destroy();
     this.ctx = null;
     this.off = null;
     this.offCtx = null;

@@ -237,6 +237,19 @@ describe("W72: WebGPURenderer lifecycle (D72-2, D72-3, D72-4)", () => {
       "createRenderPipeline",
       "createRenderPipeline",
       "createRenderPipeline",
+      // W88 red: approved-test change (D88-11, saga dec_0dba6795): the five shadow shaders and six
+      // shadow pipelines, in the same pipeline scope, after the liquid's.
+      "createShaderModule",
+      "createShaderModule",
+      "createShaderModule",
+      "createShaderModule",
+      "createShaderModule",
+      "createRenderPipeline",
+      "createRenderPipeline",
+      "createRenderPipeline",
+      "createRenderPipeline",
+      "createRenderPipeline",
+      "createRenderPipeline",
       "popErrorScope",
     ]);
     expect(g.calls.configure).toHaveLength(1);

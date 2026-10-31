@@ -5,6 +5,7 @@ import type { FluidBridge } from "./fluid-bridge";
 import { ELEMENT_STRIDE, El, Interaction, roundedRectArea } from "./fluid-layout";
 import type { ElementOptions } from "./options";
 import { movedWithScroll } from "./scroll-tracker";
+import { snapshotShadow, type ShadowLayer } from "./shadow";
 import {
   ELEMENT_CLASS,
   acquireHaloRule,
@@ -24,6 +25,8 @@ export interface ElementRecord {
   readonly opts: ElementOptions;
   background: RGBA;
   text: RGBA;
+  /** W88 (D88-3): every layer of the element's own box-shadow (inset included), CSS order; empty without one. */
+  shadows: readonly ShadowLayer[];
 }
 
 export interface RegistryDeps {
@@ -192,6 +195,8 @@ export class ElementRegistry {
     // W66.5 fix round 2: another instance may already have decorated `el`; read the
     // author colours with the liquid class lifted (no-op when it is absent). Snapshot first, then decorate.
     const { background, text } = snapshotColorsWithout(el, ELEMENT_CLASS);
+    // W88 (D88-3): the author's shadow, read with another instance's liquid-shadow-away lifted.
+    const shadows = snapshotShadow(el);
     const cs = getComputedStyle(el);
     const rec: InternalRecord = {
       id,
@@ -199,6 +204,7 @@ export class ElementRegistry {
       opts: { ...opts },
       background,
       text,
+      shadows,
       rawRadius: cs.borderRadius || cs.borderTopLeftRadius || "",
       hovered: false,
       focused: false,
@@ -256,7 +262,19 @@ export class ElementRegistry {
     const colors = snapshotColorsWithout(el, ELEMENT_CLASS);
     rec.background = colors.background;
     rec.text = colors.text;
+    rec.shadows = snapshotShadow(el); // W88 (D88-3): refresh(el) and W75's own class/style triggers
     updateHaloRule(el, colors.background);
+    return true;
+  }
+
+  /**
+   * W88 (D88-3): re-reads only the shadow (a `box-shadow` transitionend: colours and the atlas text
+   * are unchanged). Same rules as refresh(): unobserved or detached → false, nothing read.
+   */
+  refreshShadow(el: HTMLElement): boolean {
+    const rec = this.byEl.get(el);
+    if (!rec || !el.isConnected) return false;
+    rec.shadows = snapshotShadow(el);
     return true;
   }
 

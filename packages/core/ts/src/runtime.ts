@@ -9,7 +9,7 @@ import { parseBorderRadius } from "./border-radius";
 import { rafClock, type FrameClock } from "./clock";
 import { createMicrotaskBatcher, ElementRegistry } from "./element-registry";
 import { FluidBridge } from "./fluid-bridge";
-import { El, ELEMENT_STRIDE, roundedRectArea, St, STATE_STRIDE, Stat } from "./fluid-layout";
+import { El, ELEMENT_STRIDE, Interaction, roundedRectArea, St, STATE_STRIDE, Stat } from "./fluid-layout";
 import { DEFAULT_MATERIAL, type Material } from "./material";
 import { SplashInput, rectCentre, type ClientPoint } from "./input";
 import { DEFAULT_STRENGTH, type ElementOptions, type ResolvedGravity } from "./options";
@@ -19,6 +19,8 @@ import { clearTextClasses, releaseTextClass, syncTextClasses, type TextToggleArg
 import { ElementObserver } from "./element-observer";
 import { clearAwayClasses, releaseAwayClass, syncAwayClasses, type AwaySyncArgs } from "./away-toggle";
 import { clearHaloClasses, releaseHaloClass, syncHaloClasses, type HaloSyncArgs } from "./halo-toggle";
+import { outerShadows, type ShadowLayer } from "./shadow";
+import { clearShadowClasses, releaseShadowClass, syncShadowClasses, type ShadowSyncArgs } from "./shadow-toggle";
 import { LoopController } from "./loop-control";
 import { PointerTracker } from "./pointer-tracker";
 import { DragTracker } from "./drag-tracker";
@@ -45,6 +47,7 @@ export const TEXT_ATLAS_WARNING =
 /** W85 (D85-1): the one console.error when an onError handler throws (the stop itself was reported already). */
 export const ON_ERROR_THREW = "[liquiddom] the onError handler threw; ignored.";
 const NO_ATLAS_RECTS: ReadonlyMap<number, AtlasRect> = new Map();
+const NO_SHADOWS: readonly ShadowLayer[] = Object.freeze([]);
 /** W85 (design resolution 12): relative slack of the over-budget check (f32 `max_area_px2` against the f64 area). */
 const BUDGET_ROUNDING = 1e-6;
 
@@ -123,7 +126,9 @@ export interface FluidRuntime {
    * null under Canvas2D, after a lost device or destroy(). Only the acceptance hook calls it.
    */
   captureTextIds(): Promise<TextIdCapture | null>;
-  /** Re-snapshot colours of an observed element (no-op otherwise). W75: also re-colours the halo rule and re-renders the atlas entry. */
+  /** @internal W88 (D88-3, Review Focus 5): the box-shadow layers the snapshot read for `el` (inset included); empty when unobserved. Scene hooks only. */
+  shadowLayers(el: HTMLElement): readonly ShadowLayer[];
+  /** Re-snapshot colours of an observed element (no-op otherwise). W75: also re-colours the halo rule and re-renders the atlas entry. W88: also re-reads its box-shadow. */
   refresh(el: HTMLElement): void;
   /**
    * W67: splash an observed element. `at` is client px (null → rect centre); it is
@@ -452,12 +457,17 @@ function buildRuntime(
   const haloHeld = new Set<HTMLElement>();
   /** W78 (D78-1): this instance's liquid-away holds (refcounted across instances in stylesheet.ts). */
   const awayHeld = new Set<HTMLElement>();
+  /** W88 (D88-1): this instance's liquid-shadow-away holds (refcounted across instances in stylesheet.ts). */
+  const shadowHeld = new Set<HTMLElement>();
+  /** W88 (D88-3): elements whose box-shadow must be re-read (a `box-shadow` transitionend); waits like colourPending. */
+  const shadowPending = new Set<HTMLElement>();
 
   const onTransitionEnd = (e: Event): void => {
     const el = e.currentTarget as HTMLElement | null;
     if (el === null || e.target !== el) return; // a descendant's transition bubbled up
     const prop = (e as Event & { propertyName?: string }).propertyName;
     if (prop === "background-color" || prop === "color") colourPending.add(el);
+    else if (prop === "box-shadow") shadowPending.add(el); // W88 (D88-3): the shadow only, no atlas re-render
   };
   const watchElement = (el: HTMLElement): void => {
     elementObserver.observe(el);
@@ -467,8 +477,10 @@ function buildRuntime(
     elementObserver.unobserve(el);
     el.removeEventListener("transitionend", onTransitionEnd);
     colourPending.delete(el);
+    shadowPending.delete(el); // W88
     // W75.2 review: the halo CLASS hold goes before the registry releases the halo RULE claim.
     releaseHaloClass(haloHeld, el);
+    releaseShadowClass(shadowHeld, el); // W88 (D88-1): the browser's shadow is back at once
   };
   /** Once per frame, before registry.sync(): colours (D75-2) and atlas entries (D75-1, RF3, RF5). */
   const applyDomChanges = (): void => {
@@ -476,7 +488,7 @@ function buildRuntime(
     const changes = elementObserver.drain();
     const all = invalidateAllText;
     invalidateAllText = false;
-    if (changes.size === 0 && colourPending.size === 0 && !all) return;
+    if (changes.size === 0 && colourPending.size === 0 && shadowPending.size === 0 && !all) return;
     for (const rec of registry.entries()) {
       const c = changes.get(rec.el);
       if (c?.colour === true) colourPending.add(rec.el); // amendment B: own class/style only (element-observer.ts)
@@ -486,8 +498,13 @@ function buildRuntime(
       // isConnected first: a detached element waits without a getAnimations() call per frame (B review M1).
       if (colourPending.has(rec.el) && rec.el.isConnected && !runsCssTransition(rec.el) && registry.refresh(rec.el)) {
         colourPending.delete(rec.el);
+        shadowPending.delete(rec.el); // W88: refresh() read the shadow too
         paintsDirty = true;
         recoloured = true;
+      } else if (shadowPending.has(rec.el) && rec.el.isConnected && !runsCssTransition(rec.el) && registry.refreshShadow(rec.el)) {
+        // W88 (D88-3): a box-shadow transitionend re-reads the shadow only (colours and atlas text are unchanged); it waits like a colour re-read.
+        shadowPending.delete(rec.el);
+        paintsDirty = true;
       }
       // A colour change re-renders the atlas entry too (the text colour is baked into the page).
       if (all || recoloured || c?.text === true) invalidateText(rec.id);
@@ -576,6 +593,10 @@ function buildRuntime(
       clearTextClasses(textHeld);
       clearHaloClasses(haloHeld); // W75 (D75-3): the halo goes at once as well
       clearAwayClasses(awayHeld); // W78: the drag label goes at once as well
+      // W88 (D88-1): the browser's shadow is back at once; the next frame (reduced motion) draws none.
+      // A paused loop has no next frame, so the canvas is repainted without shadows now (PR #10 review).
+      if (loop.isPaused) takeShadowsOffCanvas();
+      clearShadowClasses(shadowHeld);
     }
   };
   mql?.addEventListener("change", onMotionChange);
@@ -718,6 +739,31 @@ function buildRuntime(
     syncTextClasses(textArgs);
   };
 
+  /**
+   * W88 (D88-1, D88-7): last after render(), so the class follows exactly what this frame drew (the
+   * instant handoff). It reads the state view, slot 5 of the element view and the renderer's shadowsDrawn.
+   */
+  let shadowStateView: Float32Array | null = null;
+  let shadowElementView: Float32Array | null = null;
+  const shadowArgs: { -readonly [K in keyof ShadowSyncArgs]: ShadowSyncArgs[K] } = {
+    entries: [],
+    restAlpha: (id) => shadowStateView?.[id * STATE_STRIDE + St.REST_ALPHA] ?? Number.NaN,
+    interaction: (id) => shadowElementView?.[id * ELEMENT_STRIDE + El.INTERACTION] ?? Interaction.IDLE,
+    renderer,
+    reducedMotion: false, // set per call
+    held: shadowHeld,
+  };
+  const syncShadow = (): void => {
+    shadowStateView = bridge.stateView();
+    shadowElementView = bridge.elementView();
+    shadowArgs.entries = registry.entries();
+    shadowArgs.renderer = renderer;
+    shadowArgs.reducedMotion = reducedMotion;
+    syncShadowClasses(shadowArgs);
+    shadowStateView = null; // fresh views every frame (WASM memory can grow)
+    shadowElementView = null;
+  };
+
   /** W74 ward-review (I1): one owner token per element, so the renderer can tell a reused slot apart. */
   const owners = new WeakMap<HTMLElement, number>();
   let nextOwner = 1;
@@ -772,6 +818,7 @@ function buildRuntime(
         spacingPx: Math.sqrt(app),
         atlasRect: atlasOutdated.has(rec.id) ? null : (atlasRects.get(rec.id) ?? null),
         owner: ownerOf(rec.el),
+        shadows: outerShadows(rec.shadows), // W88 (D88-2): outer layers only, at most 4
       };
     }
     paints = next;
@@ -792,6 +839,30 @@ function buildRuntime(
     reducedMotion,
     textAtlas: atlasFrame,
   });
+
+  /**
+   * W88 (Review Focus 1): when an instance stops, its shadow classes go at once and the browser's
+   * shadows come back, while the canvas (no frame follows) would keep the last frame with the
+   * renderer's. One render of the current state with `suppressShadows` removes those. Only when this
+   * instance holds a class (its canvas has shadows); false when the render threw (nothing logged).
+   */
+  const repaintWithoutShadows = (): boolean => {
+    if (renderer === null || shadowHeld.size === 0) return true;
+    try {
+      renderer.render({ ...buildFrame(), suppressShadows: true });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  /** W88: repaints without shadows; when even that throws, the canvas is cleared. */
+  const takeShadowsOffCanvas = (): void => {
+    if (!repaintWithoutShadows()) {
+      const w = canvas.width;
+      canvas.width = w; // resets the bitmap of a 2d or webgpu canvas
+    }
+  };
 
   const frameBody = (nowMs: number): void => {
     const dtS = lastMs === null || !Number.isFinite(nowMs) ? 0 : Math.max(0, (nowMs - lastMs) / 1000);
@@ -847,6 +918,7 @@ function buildRuntime(
       syncText(); // W74 (D74-6)
       syncAway(); // W78 (D78-1)
       syncHalo(); // W75 (D75-3)
+      syncShadow(); // W88 (D88-1, D88-7): reads this frame's shadowsDrawn, so after render()
     } finally {
       inFrame = false;
     }
@@ -882,6 +954,9 @@ function buildRuntime(
     clearHaloClasses(haloHeld); // W75: a stopped instance leaves no halo behind
     clearAwayClasses(awayHeld); // W78: a stopped instance hides no label
     resyncStopped();
+    // W88 (Review Focus 1): the browser's shadows come back; no canvas shadow may double them.
+    takeShadowsOffCanvas();
+    clearShadowClasses(shadowHeld);
     console.error(msg, err);
     if (opts.onError === undefined) return;
     try {
@@ -923,6 +998,7 @@ function buildRuntime(
     clearTextClasses(textHeld);
     clearHaloClasses(haloHeld); // W75: the halo may already apply while the Canvas2D rebuild was in flight
     clearAwayClasses(awayHeld); // W78
+    clearShadowClasses(shadowHeld); // W88: no renderer draws any more
     if (destroyed || failed) return;
     // W85 (D85-1): the one stop path (its cleanup repeats the class clears above, idempotent, and reports onError).
     stopInstance(
@@ -944,6 +1020,8 @@ function buildRuntime(
     // W74 (D74-6, Review Focus 1): the atlas text is gone with the device; show the DOM text now,
     // before the asynchronous Canvas2D init, and drop the atlas (Canvas2D never draws text).
     clearTextClasses(textHeld);
+    // W88 (D88-1): the browser's shadows until the Canvas2D renderer draws them (the old canvas goes with its shadows).
+    clearShadowClasses(shadowHeld);
     atlasRects = NO_ATLAS_RECTS;
     atlasFrame = null;
     atlasDeferred = false;
@@ -1089,6 +1167,11 @@ function buildRuntime(
     captureTextIds() {
       return renderer instanceof WebGPURenderer ? renderer.captureTextIds() : Promise.resolve(null);
     },
+    shadowLayers(el: HTMLElement) {
+      if (destroyed) return NO_SHADOWS;
+      const id = registry.idOf(el);
+      return id === undefined ? NO_SHADOWS : (registry.get(id)?.shadows ?? NO_SHADOWS);
+    },
     refresh(el: HTMLElement) {
       if (destroyed) return;
       const id = registry.idOf(el);
@@ -1114,9 +1197,11 @@ function buildRuntime(
       clearTextClasses(textHeld); // W74
       // W75: release the halo holds and stop watching before the registry releases rules and decorations.
       clearHaloClasses(haloHeld);
+      clearShadowClasses(shadowHeld); // W88: the canvas goes below, so no shadow can double
       for (const rec of registry.entries()) rec.el.removeEventListener("transitionend", onTransitionEnd);
       elementObserver.disconnect();
       colourPending.clear();
+      shadowPending.clear();
       fontSet?.removeEventListener("loadingdone", onFontsDone);
       dprQuery?.removeEventListener("change", onDprChange);
       dprQuery = null;

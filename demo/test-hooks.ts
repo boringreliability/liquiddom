@@ -302,3 +302,39 @@ export interface TiltHook {
   /** The instance's active renderer ("none" before create() resolved). */
   readonly activeRenderer: string;
 }
+/** W88: the observed elements of demo/scenes/shadows.html, by id, in DOM order. */
+export type ShadowsId = "drop" | "glow" | "spread" | "current" | "inset" | "glass" | "plain" | "fade";
+/** W88: one box-shadow layer as the snapshot read it (CSS px; colour RGBA 0–255, alpha 0–1). */
+export interface ShadowsLayer {
+  color: number[];
+  dx: number;
+  dy: number;
+  blur: number;
+  spread: number;
+  inset: boolean;
+}
+/**
+ * W88 (D88-1 … D88-14): `window.__shadows` on demo/scenes/shadows.html. One instance observes the
+ * seven [data-liquid] elements (`ids`, DOM order). `?clock=manual` for advance();
+ * `?renderer=canvas2d|webgpu|auto` (default canvas2d); `?rm=1` forces reduced motion.
+ */
+export interface ShadowsHook {
+  readonly ready: Promise<void>;
+  readonly ids: readonly ShadowsId[];
+  /** Manual-clock frames of 1000/60 ms (throws without ?clock=manual); snapshots the canvas when a frame rendered (W71 pixels() rule). */
+  advance(frames: number): void;
+  /** RGBA8 copy of the liquid canvas from the last advance() that rendered. */
+  pixels(): ImageData;
+  /** restAlpha per element, `ids` order (NaN if unknown). */
+  restAlpha(): number[];
+  /** Whether each element carries `liquid-shadow-away`, `ids` order. */
+  held(): boolean[];
+  /** `instance.splash(#id, { strength })` (default 1). */
+  splash(id: ShadowsId, strength?: number): void;
+  /** The box-shadow layers the runtime's snapshot holds for #id (FluidRuntime.shadowLayers, @internal). */
+  layers(id: ShadowsId): ShadowsLayer[];
+  /** #id's client rect. */
+  rect(id: ShadowsId): { x: number; y: number; width: number; height: number };
+  /** The instance's active renderer ("none" before create() resolved). */
+  readonly activeRenderer: string;
+}

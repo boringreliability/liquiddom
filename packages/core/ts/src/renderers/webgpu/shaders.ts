@@ -4,7 +4,8 @@
  * so both renderers put the 0.5 threshold on the rect edge the same way (D71-5). The structs
  * mirror gpu-buffers.ts (`Element`, 64 bytes, ELEMENT_GPU_FLOATS) and webgpu-renderer.ts
  * (`View`, 32 bytes, VIEW_UNIFORM_FLOATS). W74 adds the text pass (TEXT_WGSL into T1/T1w) and the
- * text composite (TEXT_COMPOSITE_WGSL); the splat reads the 32-byte particle record.
+ * text composite (TEXT_COMPOSITE_WGSL); the splat reads the 32-byte particle record. W88 adds the
+ * shadow shaders (SHADOW_DENSITY/RESOLVE/BLUR/KNOCKOUT/COMPOSITE_WGSL, shadow-passes.ts).
  */
 import { DENSITY_THRESHOLD, EDGE_SOFTNESS, KERNEL_RADIUS_CAP_PX } from "../kernel-params";
 import { FLAG_TORN } from "../../fluid-layout";
@@ -418,5 +419,244 @@ fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let coverage = select(smoothstep(DENSITY_THRESHOLD - soft, DENSITY_THRESHOLD + soft, sum_w), 0.0, mixed);
   let text = clamp(acc / max(sum_w, SUM_W_EPS), vec4f(0.0), vec4f(1.0));
   return text * coverage;
+}
+`;
+
+// ---- W88 (D88-6, D88-10, D88-11, D88-13): shadows -----------------------------------------------
+
+/** W88: the blur loop's cap, in taps per side. */
+export const SHADOW_MAX_TAPS = 64;
+
+/**
+ * W88 (D88-11): one 128-byte record per shadow pass at a 256-byte dynamic offset
+ * (shadow-passes.ts SHADOW_PASS_FLOATS, SP): blur taps, the density source, the knockout's closing
+ * distance and channel masks, the composite's accumulator flags.
+ */
+const SHADOW_PASS_WGSL = /* wgsl */ `
+struct ShadowPass {
+  target_px: vec2f,
+  dir: vec2f,
+  sigma: f32,
+  taps: f32,
+  element: f32,
+  kernel_r: f32,
+  weight: f32,
+  close: f32,
+  layers: f32,
+  flags: f32,
+  mask: vec4f,
+  masks: array<vec4f, 4>,
+}
+`;
+
+const FULL_TRIANGLE_WGSL = /* wgsl */ `
+@vertex
+fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
+  var p = array<vec2f, 3>(vec2f(-1.0, -3.0), vec2f(3.0, 1.0), vec2f(-1.0, 1.0));
+  return vec4f(p[vi % 3u], 0.0, 1.0);
+}
+`;
+
+/**
+ * Shadow pass 1 (W88, D88-11): one density splat per source (element and distinct spread), without
+ * an offset, into its channel of a shadow density layer (rgba16float, half resolution, additive). The
+ * kernel is the liquid's (spread 0) or the widened, mass-scaled one of shadow-plan.ts spreadKernel;
+ * a particle of another element is a degenerate quad. Parked particles were packed off-screen.
+ */
+export const SHADOW_DENSITY_WGSL = /* wgsl */ `
+${VIEW_WGSL}
+${QUAD_WGSL}
+${PARTICLE_WGSL}
+${SHADOW_PASS_WGSL}
+
+@group(0) @binding(0) var<uniform> view: View;
+@group(0) @binding(1) var<uniform> sp: ShadowPass;
+@group(0) @binding(2) var<storage, read> particles: array<Particle>;
+@group(0) @binding(3) var<storage, read> homes: array<i32>;
+
+struct DensityVarying {
+  @builtin(position) pos: vec4f,
+  @location(0) local: vec2f,
+}
+
+@vertex
+fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> DensityVarying {
+  var out: DensityVarying;
+  out.pos = DEGENERATE;
+  out.local = vec2f(0.0, 0.0);
+  if (homes[ii] != i32(sp.element)) {
+    return out;
+  }
+  let corner = quad_corner(vi) * sp.kernel_r;
+  out.pos = css_to_clip(particles[ii].a.xy + corner, view.size_css);
+  out.local = corner;
+  return out;
+}
+
+@fragment
+fn fs(in: DensityVarying) -> @location(0) vec4f {
+  let q = 1.0 - dot(in.local, in.local) / max(sp.kernel_r * sp.kernel_r, 1e-6);
+  if (q <= 0.0) {
+    discard;
+  }
+  return sp.mask * (sp.weight * q * q);
+}
+`;
+
+/**
+ * Shadow pass 2 (W88, D88-11): one scissored pass per radius group. One quad per layer record; the
+ * layer's offset is applied here, by sampling its source's density at (position − offset), and the
+ * 0.5 threshold with the liquid's edge gives the coverage; premultiplied colour, blended over.
+ */
+export const SHADOW_RESOLVE_WGSL = /* wgsl */ `
+${VIEW_WGSL}
+${QUAD_WGSL}
+const DENSITY_THRESHOLD: f32 = ${f32(DENSITY_THRESHOLD)};
+const EDGE_SOFTNESS: f32 = ${f32(EDGE_SOFTNESS)};
+
+struct ShadowRecord {
+  rect: vec4f,
+  offset: vec2f,
+  src: vec2f,
+  color: vec4f,
+}
+
+@group(0) @binding(0) var<uniform> view: View;
+@group(0) @binding(1) var<storage, read> records: array<ShadowRecord>;
+@group(0) @binding(2) var density: texture_2d_array<f32>;
+@group(0) @binding(3) var density_sampler: sampler;
+
+struct ResolveVarying {
+  @builtin(position) pos: vec4f,
+  @location(0) css: vec2f,
+  @location(1) @interpolate(flat) index: u32,
+}
+
+@vertex
+fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> ResolveVarying {
+  var out: ResolveVarying;
+  let r = records[ii];
+  let t = quad_corner(vi) * 0.5 + vec2f(0.5, 0.5);
+  let p = mix(r.rect.xy, r.rect.zw, t);
+  out.pos = css_to_clip(p, view.size_css);
+  out.css = p;
+  out.index = ii;
+  return out;
+}
+
+@fragment
+fn fs(in: ResolveVarying) -> @location(0) vec4f {
+  let r = records[in.index];
+  let uv = (in.css - r.offset) / max(view.size_css, vec2f(1.0, 1.0));
+  let d4 = textureSampleLevel(density, density_sampler, uv, i32(r.src.x), 0.0);
+  let d = d4[min(u32(r.src.y), 3u)];
+  let coverage = smoothstep(DENSITY_THRESHOLD - EDGE_SOFTNESS, DENSITY_THRESHOLD + EDGE_SOFTNESS, d);
+  return r.color * coverage;
+}
+`;
+
+/**
+ * Shadow pass 3 (W88, D88-6): a separable gaussian, σ = blur / 2 CSS px (the CSS definition) in the
+ * group target's px, one direction per pass (dir), at most SHADOW_MAX_TAPS taps per side; the
+ * horizontal pass writes the temporary target, the vertical one blends over into the accumulator.
+ */
+export const SHADOW_BLUR_WGSL = /* wgsl */ `
+${SHADOW_PASS_WGSL}
+const MAX_TAPS: i32 = ${SHADOW_MAX_TAPS};
+
+@group(0) @binding(0) var<uniform> sp: ShadowPass;
+@group(0) @binding(1) var source: texture_2d<f32>;
+${FULL_TRIANGLE_WGSL}
+@fragment
+fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
+  let size = vec2i(textureDimensions(source));
+  let p = vec2i(frag.xy);
+  let n = min(i32(sp.taps), MAX_TAPS);
+  let s2 = max(sp.sigma * sp.sigma, 1e-6);
+  let axis = vec2i(sp.dir);
+  var acc = vec4f(0.0, 0.0, 0.0, 0.0);
+  var wsum = 0.0;
+  for (var i = -n; i <= n; i++) {
+    let f = f32(i);
+    let w = exp(-0.5 * f * f / s2);
+    let q = clamp(p + axis * i, vec2i(0, 0), size - vec2i(1, 1));
+    acc += textureLoad(source, q, 0) * w;
+    wsum += w;
+  }
+  return acc / max(wsum, 1e-6);
+}
+`;
+
+/**
+ * Shadow pass 4 (W88, D88-10): the knockout. Per texel the closed coverage of the spread-0 density
+ * channels (each element's own liquid): its coverage, or the smaller of two coverages at ± the
+ * closing distance (and half of it) along four axes, so a hole narrower than about twice that
+ * distance counts as covered while a straight outer edge stays where it is. r8unorm, half resolution.
+ */
+export const SHADOW_KNOCKOUT_WGSL = /* wgsl */ `
+${SHADOW_PASS_WGSL}
+const DENSITY_THRESHOLD: f32 = ${f32(DENSITY_THRESHOLD)};
+const EDGE_SOFTNESS: f32 = ${f32(EDGE_SOFTNESS)};
+
+@group(0) @binding(0) var<uniform> sp: ShadowPass;
+@group(0) @binding(1) var density: texture_2d_array<f32>;
+${FULL_TRIANGLE_WGSL}
+fn coverage(p: vec2i, size: vec2i, layer: i32) -> vec4f {
+  if (any(p < vec2i(0, 0)) || any(p >= size)) {
+    return vec4f(0.0, 0.0, 0.0, 0.0);
+  }
+  let lo = vec4f(DENSITY_THRESHOLD - EDGE_SOFTNESS);
+  let hi = vec4f(DENSITY_THRESHOLD + EDGE_SOFTNESS);
+  return smoothstep(lo, hi, textureLoad(density, p, layer, 0));
+}
+
+@fragment
+fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
+  let size = vec2i(textureDimensions(density).xy);
+  let p = vec2i(frag.xy);
+  let d_full = max(i32(sp.close), 1);
+  let d_half = max(d_full / 2, 1);
+  var axes = array<vec2i, 4>(vec2i(1, 0), vec2i(0, 1), vec2i(1, 1), vec2i(1, -1));
+  var k = 0.0;
+  let n = min(i32(sp.layers), 4);
+  for (var l = 0; l < n; l++) {
+    var best = coverage(p, size, l);
+    for (var a = 0; a < 4; a++) {
+      let ax = axes[a];
+      best = max(best, min(coverage(p + ax * d_full, size, l), coverage(p - ax * d_full, size, l)));
+      best = max(best, min(coverage(p + ax * d_half, size, l), coverage(p - ax * d_half, size, l)));
+    }
+    let m = best * sp.masks[l];
+    k = max(k, max(max(m.x, m.y), max(m.z, m.w)));
+  }
+  return vec4f(k, 0.0, 0.0, 1.0);
+}
+`;
+
+/**
+ * Shadow pass 5 (W88, D88-4, D88-10): the first draw of the screen pass, under all liquid: the half-
+ * and quarter-resolution accumulators (flags bit 0 and bit 1: written this frame), over each other,
+ * times 1 − knockout; blended over. The liquid composite after it blends over too (D88-13).
+ */
+export const SHADOW_COMPOSITE_WGSL = /* wgsl */ `
+${VIEW_WGSL}
+${SHADOW_PASS_WGSL}
+
+@group(0) @binding(0) var<uniform> view: View;
+@group(0) @binding(1) var<uniform> sp: ShadowPass;
+@group(0) @binding(2) var half_acc: texture_2d<f32>;
+@group(0) @binding(3) var quarter_acc: texture_2d<f32>;
+@group(0) @binding(4) var knockout: texture_2d<f32>;
+@group(0) @binding(5) var shadow_sampler: sampler;
+${FULL_TRIANGLE_WGSL}
+@fragment
+fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
+  let uv = frag.xy / max(view.size_px, vec2f(1.0, 1.0));
+  let flags = u32(sp.flags);
+  let h = textureSample(half_acc, shadow_sampler, uv) * f32(flags & 1u);
+  let q = textureSample(quarter_acc, shadow_sampler, uv) * f32((flags >> 1u) & 1u);
+  let shadow = h + q * (1.0 - h.a);
+  let k = textureSample(knockout, shadow_sampler, uv).r;
+  return shadow * (1.0 - k);
 }
 `;

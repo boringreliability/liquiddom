@@ -57,9 +57,12 @@ export interface FakeTexture {
   readonly height: number;
   readonly format: string;
   readonly usage: number;
+  /** W88: array layers (`size[2]`, default 1). */
+  readonly depth: number;
   destroyed: boolean;
   destroy(): void;
-  createView(): { readonly texture: FakeTexture };
+  /** W88: the view descriptor is kept (`dimension`, `baseArrayLayer`). */
+  createView(descriptor?: GPUTextureViewDescriptor): { readonly texture: FakeTexture; readonly descriptor?: GPUTextureViewDescriptor };
 }
 
 export interface FakeDraw {
@@ -67,18 +70,26 @@ export interface FakeDraw {
   readonly bindGroup: unknown;
   readonly vertexCount: number;
   readonly instanceCount: number;
+  /** W88: the draw's first instance, the bind group's dynamic offsets and the scissor rect in force. */
+  readonly firstInstance: number;
+  readonly offsets: readonly number[];
+  readonly scissor: readonly [number, number, number, number] | null;
 }
 
 export interface FakeAttachment {
-  readonly view: { readonly texture: FakeTexture };
+  readonly view: { readonly texture: FakeTexture; readonly descriptor?: GPUTextureViewDescriptor };
   readonly loadOp: string;
   readonly storeOp: string;
   readonly clearValue?: unknown;
 }
 
 export interface FakePass {
+  /** W88: the pass descriptor's label. */
+  readonly label: string | undefined;
   readonly attachments: readonly FakeAttachment[];
   readonly draws: FakeDraw[];
+  /** W88: every setScissorRect(x, y, w, h), in order. */
+  readonly scissors: Array<readonly [number, number, number, number]>;
   ended: boolean;
 }
 
@@ -212,7 +223,7 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
 
   const adapterTextureLimit = opts.maxTextureDimension2D ?? 8192;
   const makeTexture = (
-    label: string | undefined, width: number, height: number, format: string, usage: number, record: boolean, limit = Infinity,
+    label: string | undefined, width: number, height: number, format: string, usage: number, record: boolean, limit = Infinity, depth = 1,
   ): FakeTexture => {
     if (record && !(Number.isInteger(width) && Number.isInteger(height) && width >= 1 && height >= 1)) {
       calls.errors.push(`createTexture(${label ?? ""}): size ${width}x${height}`);
@@ -221,11 +232,16 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
       calls.errors.push(`createTexture(${label ?? ""}): size ${width}x${height} exceeds maxTextureDimension2D ${limit}`);
     }
     const texture: FakeTexture = {
-      label, width, height, format, usage, destroyed: false,
+      label, width, height, format, usage, depth, destroyed: false,
       destroy: () => {
         texture.destroyed = true;
       },
-      createView: () => ({ texture }),
+      // W88: a view of one array layer of a texture that has fewer layers is a validation error.
+      createView: (descriptor?: GPUTextureViewDescriptor) => {
+        const layer = descriptor?.baseArrayLayer ?? 0;
+        if (record && layer >= depth) calls.errors.push(`createView(${label ?? ""}): layer ${layer} of ${depth}`);
+        return descriptor ? { texture, descriptor } : { texture };
+      },
     };
     if (record) calls.textures.push(texture);
     return texture;
@@ -345,8 +361,10 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
       },
       createTexture: (d: GPUTextureDescriptor) => {
         const size = d.size as number[] | GPUExtent3DDict;
-        const [w, h] = Array.isArray(size) ? [size[0] ?? 0, size[1] ?? 1] : [size.width, size.height ?? 1];
-        return makeTexture(d.label, w, h, d.format, d.usage, true, textureLimit);
+        const [w, h, depth] = Array.isArray(size)
+          ? [size[0] ?? 0, size[1] ?? 1, size[2] ?? 1]
+          : [size.width, size.height ?? 1, size.depthOrArrayLayers ?? 1];
+        return makeTexture(d.label, w, h, d.format, d.usage, true, textureLimit, depth);
       },
       createBindGroup: (d: GPUBindGroupDescriptor) => {
         checkBindGroup("createBindGroup", d);
@@ -374,24 +392,37 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
       },
       createCommandEncoder: () => ({
         beginRenderPass: (d: GPURenderPassDescriptor) => {
-          const pass: FakePass = { attachments: Array.from(d.colorAttachments as Iterable<FakeAttachment>), draws: [], ended: false };
+          const pass: FakePass = { label: d.label, attachments: Array.from(d.colorAttachments as Iterable<FakeAttachment>), draws: [], scissors: [], ended: false };
           for (const a of pass.attachments) {
             if (a.view.texture.destroyed) calls.errors.push(`beginRenderPass: attachment ${a.view.texture.label ?? ""} is a destroyed texture`);
           }
           calls.passes.push(pass);
           let pipeline: unknown = null;
           let bindGroup: unknown = null;
+          let offsets: readonly number[] = [];
+          let scissor: readonly [number, number, number, number] | null = null;
           return {
             setPipeline: (p: unknown) => {
               pipeline = p;
             },
-            setBindGroup: (_index: number, g: unknown) => {
+            setBindGroup: (_index: number, g: unknown, dynamicOffsets?: Iterable<number>) => {
               const desc = (g as { descriptor?: GPUBindGroupDescriptor } | null)?.descriptor;
               if (desc) checkBindGroup("setBindGroup", desc);
               bindGroup = g;
+              offsets = Array.from(dynamicOffsets ?? []);
+              // W88: WebGPU's minUniformBufferOffsetAlignment default is 256 bytes.
+              for (const o of offsets) if (o % 256 !== 0) calls.errors.push(`setBindGroup(${desc?.label ?? ""}): dynamic offset ${o} is not a multiple of 256`);
             },
-            draw: (vertexCount: number, instanceCount = 1) => {
-              pass.draws.push({ pipeline, bindGroup, vertexCount, instanceCount });
+            // W88: a scissor rect must lie inside the pass's attachments (integers, ≥ 0).
+            setScissorRect: (x: number, y: number, w: number, h: number) => {
+              const t = pass.attachments[0]?.view.texture;
+              const ok = [x, y, w, h].every((v) => Number.isInteger(v) && v >= 0) && t !== undefined && x + w <= t.width && y + h <= t.height;
+              if (!ok) calls.errors.push(`setScissorRect(${x}, ${y}, ${w}, ${h}) outside the ${t?.width ?? 0}x${t?.height ?? 0} attachment of ${d.label ?? ""}`);
+              scissor = [x, y, w, h];
+              pass.scissors.push(scissor);
+            },
+            draw: (vertexCount: number, instanceCount = 1, _firstVertex = 0, firstInstance = 0) => {
+              pass.draws.push({ pipeline, bindGroup, vertexCount, instanceCount, firstInstance, offsets, scissor });
             },
             end: () => {
               pass.ended = true;

@@ -447,15 +447,16 @@ describe("W86 (was W66 site freeze): the site is a workspace, versioning, pkg-sp
     for (const name of ["liquiddom", "@liquiddom/react", "@liquiddom/vue"]) expect(iv[name], name).toBe("0.3.0-alpha.0");
   });
 
-  it("given_the_0_3_0_alpha_1_release_commit_when_release_plan_computed_then_nothing_is_pending", async () => {
+  it("given_the_pending_w88_changeset_when_release_plan_computed_then_all_three_packages_are_released", async () => {
     // The 0.3.0-alpha.1 release commit (Dennis 2026-10-24, D87-4) consumed every pending
     // changeset, as this test's W66 comment foresaw; the next changeset makes it non-empty
-    // again. The example's "*" deps make changesets log a cosmetic "must depend on the
+    // again. // W88: approved-test change (Dennis 2026-10-26, saga dec_03309bfb): the W88 changeset makes the plan non-empty, as the W66/W87 comment foresaw.
+    // The example's "*" deps make changesets log a cosmetic "must depend on the
     // current version" line.
     const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const plan = await getReleasePlan(ROOT);
-      expect(plan.releases.map((r) => r.name)).toEqual([]);
+      expect(plan.releases.map((r) => r.name).sort()).toEqual(["@liquiddom/react", "@liquiddom/vue", "liquiddom"]);
       expect(plan.preState?.tag).toBe("alpha");
     } finally {
       quiet.mockRestore();

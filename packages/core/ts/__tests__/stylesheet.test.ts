@@ -16,6 +16,7 @@ import {
   acquireLiquidStyles, mountLiquidCanvas, remountLiquidCanvas, stackingFor,
   CANVAS_Z_FALLBACK, CANVAS_Z_UNDER, holdStacking, releaseStacking,
 } from "../src/stylesheet";
+import { SHADOW_AWAY_CLASS, addShadowAwayClass, removeShadowAwayClass, runsBoxShadowTransition } from "../src/stylesheet";
 import { ElementRegistry } from "../src/element-registry";
 import { FluidBridge } from "../src/fluid-bridge";
 import { DEFAULT_LIQUID_COLOR } from "../src/color";
@@ -102,7 +103,10 @@ describe("W66 T2: injected stylesheet", () => {
     const end = rest.indexOf("\n  }");
     expect(end).toBeGreaterThan(0);
     const screen = rest.slice(0, end);
-    expect(screen).toMatch(/\.liquid-element \{[^}]*background: transparent !important;[^}]*border-color: transparent !important;[^}]*box-shadow: none !important;/);
+    // W88 red: approved-test change (D88-1, saga dec_3e11178b): `box-shadow: none` leaves the
+    // `.liquid-element` rule; the browser draws the author's shadow at rest.
+    expect(screen).toMatch(/\.liquid-element \{[^}]*background: transparent !important;[^}]*border-color: transparent !important;[^}]*\}/);
+    expect(/\.liquid-element \{[^}]*\}/.exec(screen)?.[0], "no box-shadow in the element rule").not.toContain("box-shadow");
     expect(screen).toMatch(/\.liquid-element\[data-liquid-stack="relative"\] \{ position: relative !important; z-index: 1 !important; \}/);
     expect(screen).toMatch(/\.liquid-element\[data-liquid-stack="z"\] \{ z-index: 1 !important; \}/);
     expect(screen).toContain(
@@ -599,5 +603,95 @@ describe("W82: the canvas z-index and the stacking hold (D82-1, D82-3)", () => {
     expect(own.hasAttribute(STACK_ATTR), "an explicit z-index is left alone (D66-3)").toBe(false);
     releaseStacking(own);
     expect(own.getAttribute("style"), "no inline style write").toBe("position: relative; z-index: 4;");
+  });
+});
+
+describe("W88: the shadow toggle class (D88-1)", () => {
+  it("given_css_text_when_read_then_liquid_shadow_away_hides_the_box_shadow_in_the_layer_and_the_screen_block_only", () => {
+    expect(SHADOW_AWAY_CLASS).toBe("liquid-shadow-away");
+    const screenOpen = "@media screen and (forced-colors: none) {";
+    const at = LIQUID_CSS.indexOf(screenOpen);
+    const rest = LIQUID_CSS.slice(at + screenOpen.length);
+    const end = rest.indexOf("\n  }");
+    const screen = rest.slice(0, end);
+    expect(screen).toContain(".liquid-shadow-away { box-shadow: none !important; }");
+    expect(LIQUID_CSS.slice(0, at) + rest.slice(end), "print and forced colours show the element's own shadow").not.toMatch(/liquid-shadow-away|box-shadow/);
+  });
+
+  it("given_two_holders_when_addShadowAwayClass_twice_and_removeShadowAwayClass_once_then_the_class_stays_until_the_last_release_and_an_authors_own_class_is_kept", () => {
+    const el = document.body.appendChild(document.createElement("button"));
+    el.className = "btn";
+    addShadowAwayClass(el);
+    addShadowAwayClass(el); // a second instance
+    expect(el.className).toBe(`btn ${SHADOW_AWAY_CLASS}`);
+    removeShadowAwayClass(el);
+    expect(el.classList.contains(SHADOW_AWAY_CLASS), "one hold left").toBe(true);
+    removeShadowAwayClass(el);
+    expect(el.className).toBe("btn");
+    removeShadowAwayClass(el);
+    expect(el.className, "an unbalanced release is a no-op").toBe("btn");
+    const authored = document.body.appendChild(document.createElement("div"));
+    authored.className = SHADOW_AWAY_CLASS;
+    addShadowAwayClass(authored);
+    removeShadowAwayClass(authored);
+    expect(authored.className, "an author's own class is never removed").toBe(SHADOW_AWAY_CLASS);
+  });
+
+  it("given_computed_transitions_when_asked_then_runsBoxShadowTransition_is_true_only_for_all_or_box_shadow_with_a_duration_resolution_12", () => {
+    const el = document.body.appendChild(document.createElement("div"));
+    const runs = (property: string, duration: string): boolean => {
+      el.style.transitionProperty = property;
+      el.style.transitionDuration = duration;
+      return runsBoxShadowTransition(el);
+    };
+    expect(runs("color, box-shadow", "0.2s, 300ms")).toBe(true);
+    expect(runs("all", "0.1s")).toBe(true);
+    expect(runs("box-shadow, color", "0s, 1s"), "box-shadow's own duration is 0").toBe(false);
+    expect(runs("opacity", "1s")).toBe(false);
+    el.removeAttribute("style");
+    expect(runsBoxShadowTransition(el), "no transition").toBe(false);
+  });
+
+  // PR #10 review (Codex): a delayed zero-duration transition still holds the old shadow until it ends
+  it("given_a_delayed_box_shadow_transition_when_asked_then_runsBoxShadowTransition_uses_the_combined_duration_and_delays_repeat_on_their_own", () => {
+    const el = document.body.appendChild(document.createElement("div"));
+    const runs = (property: string, duration: string, delay: string): boolean => {
+      el.style.transitionProperty = property;
+      el.style.transitionDuration = duration;
+      el.style.transitionDelay = delay;
+      return runsBoxShadowTransition(el);
+    };
+    expect(runs("box-shadow", "0s", "500ms"), "0s 500ms: the old shadow holds for 500 ms").toBe(true);
+    expect(runs("all", "0s", "0.2s")).toBe(true);
+    expect(runs("color, box-shadow", "0s", "0s, 1s"), "the delay list repeats independently of the durations").toBe(true);
+    expect(runs("box-shadow, color", "0s, 0s", "0s, 1s"), "only color is delayed").toBe(false);
+    expect(runs("box-shadow", "1s", "-1s"), "combined duration 0").toBe(false);
+    expect(runs("box-shadow", "0s", "0s")).toBe(false);
+  });
+
+  it("given_an_element_with_a_box_shadow_transition_when_the_shadow_class_is_added_and_removed_then_each_write_holds_inline_transition_none_and_the_style_attribute_is_restored_exactly_resolution_12", () => {
+    const faded = document.body.appendChild(document.createElement("button"));
+    faded.setAttribute("style", "transition-property: box-shadow; transition-duration: 0.3s;");
+    const plain = document.body.appendChild(document.createElement("button"));
+    const seen = new Map<HTMLElement, string[]>();
+    for (const el of [faded, plain]) {
+      const original = el.classList.toggle.bind(el.classList);
+      seen.set(el, []);
+      vi.spyOn(el.classList, "toggle").mockImplementation((token: string, force?: boolean) => {
+        seen.get(el)!.push(`${el.style.getPropertyValue("transition")}|${el.style.getPropertyPriority("transition")}`);
+        return original(token, force);
+      });
+    }
+    for (const el of [faded, plain]) {
+      addShadowAwayClass(el);
+      expect(el.classList.contains(SHADOW_AWAY_CLASS)).toBe(true);
+      removeShadowAwayClass(el);
+      expect(el.classList.contains(SHADOW_AWAY_CLASS)).toBe(false);
+    }
+    expect(seen.get(faded), "the add and the removal start no box-shadow transition").toEqual(["none|important", "none|important"]);
+    expect(faded.getAttribute("style")).toBe("transition-property: box-shadow; transition-duration: 0.3s;");
+    expect(seen.get(plain), "no inline write without a box-shadow transition").toEqual(["|", "|"]);
+    expect(plain.hasAttribute("style")).toBe(false);
+    vi.restoreAllMocks();
   });
 });

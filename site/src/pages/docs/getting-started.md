@@ -41,7 +41,7 @@ Mark the elements that should become liquid:
 ```
 
 - The liquid takes each element's computed `background-color`. Any CSS colour works, including `oklch()` and Tailwind's theme colours.
-- liquiddom hides the element's own background, border and box-shadow while it is observed and draws the liquid in their place. The element's text, focus ring and events are untouched.
+- liquiddom hides the element's own background and border while it is observed and draws the liquid in their place. Its `box-shadow` stays: the browser draws it at rest, and while the liquid moves liquiddom draws its outer layers (up to four) from the liquid's shape; inset shadows show at rest only. The element's text, focus ring and events are untouched.
 - `unobserve(el)` (or `destroy()`) restores the element exactly.
 
 ## Observing by hand

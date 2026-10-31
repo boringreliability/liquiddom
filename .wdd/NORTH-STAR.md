@@ -275,3 +275,17 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D87-2 | The built site landing is the foreign page in the recording (own GIFs); the demo landing scene stays | W87 | dec_e894a8d5 |
 | D87-3 | Epic 15 WebGPU criterion amended: verified locally on Metal at every gold; CI SwiftShader smoke soft for good | W87 | dec_52664d92 |
 | D87-4 | Dennis publishes 0.3.0-alpha.x under alpha, moves latest to it, deprecates 0.2.0-rc.0 (AI never executes) (executed 2026-10-24) | W87 | dec_675c178a |
+| D88-1 | Hybrid: browser shadow at rest, liquid-shadow-away + renderer shadow while the liquid is away, both renderers | W88 | dec_3e11178b |
+| D88-2 | Outer layers only, max 4; inset at rest only; no borders, drop-shadow(), per-corner radii or opt-out | W88 | dec_acefbc25 |
+| D88-3 | snapshotShadow at observe, W75 triggers, transitionend box-shadow, refresh; lifts liquid-shadow-away | W88 | dec_a4fea5a7 |
+| D88-4 | Every shadow before all liquid; none for parked or inactive elements | W88 | dec_c32cd7eb |
+| D88-5 | Canvas2D: per-element mask with canvas shadows, 8-direction dilation for spread, no ceiling | W88 | dec_a36ea6f4 |
+| D88-6 | WebGPU (amended): exact blur radii grouped per distinct value, half res (quarter for blur ≥ 32 px), scissored; buckets only as overflow past about 6 radii | W88 | dec_8c14c096 |
+| D88-7 | Instant handoff when restAlpha reaches 1; no cross-fade | W88 | dec_90ce2674 |
+| D88-8 | Shadows scene, site hero glow, four docs corrections; no baseline moves | W88 | dec_30400751 |
+| D88-9 | The wdd-docs gate also discovers epic liquid-look wards (approved-test change) | W88 | dec_133bcc13 |
+| D88-10 | Knockout: AMENDED 2026-10-25 — each element's shadow masked by its closed own coverage; holes wider than ≈ 3 kernel radii show the shadow on their rim (was own liquid coverage, dec_5af57bbe) | W88 | dec_733f4b98 |
+| D88-11 | One density splat per element, offset in the resolve, one resolve pass per radius group, scissored | W88 | dec_0dba6795 |
+| D88-12 | shadowBlur floor of one density cell for spread layers | W88 | dec_30e72f80 |
+| D88-13 | The liquid composite blends OVER (approved-test change) | W88 | dec_793867f6 |
+| D88-14 | The renderer scales shadowBlur and offsets by the DPR, test-pinned | W88 | dec_668a8f0c |

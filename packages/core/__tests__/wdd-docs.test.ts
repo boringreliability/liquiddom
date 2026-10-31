@@ -36,8 +36,16 @@ const SPEC = resolve(ROOT, "docs/superpowers/specs/2026-10-02-liquiddom-fluid-de
  * broken discovery cannot make the direction gate vacuous. Do not iterate over it.
  */
 const EXPECTED_SLICE_1_2_WARDS = [63, 64, 65, 66, 67, 68, 69] as const;
+/**
+ * W88 red: approved-test change (D88-9, saga dec_133bcc13): the direction gate also covers Epic 16
+ * ("liquid-look"). FLUID_WARDS (Epic 15 only) keeps the epic-15 table check; GATED_WARDS (both
+ * epics) carries the North-star, Decisions, PENDING and plan-log guards.
+ */
+const GATED_EPICS: readonly string[] = ["fluid-engine", "liquid-look"];
 /** Every `epic: "fluid-engine"` ward under .wdd/wards (flat files), so the gate follows new slices. */
-const FLUID_WARDS = discoverFluidWards(resolve(WDD, "wards"));
+const FLUID_WARDS = discoverGatedWards(resolve(WDD, "wards"), ["fluid-engine"]);
+/** Every ward of a gated epic (W88 on). */
+const GATED_WARDS = discoverGatedWards(resolve(WDD, "wards"), GATED_EPICS);
 const DROPPED_EPIC_14_WARDS = [63, 64, 65, 66, 67, 68] as const;
 const WDD_STATUSES = ["planned", "red", "approved", "gold", "complete", "blocked"];
 /** Statuses in which a ward's direction gate may still be open. */
@@ -159,14 +167,15 @@ function isGated(md: string): boolean {
 }
 
 /**
- * Ward numbers of every flat `ward-NNN.md` in `wardsDir` whose frontmatter says
- * `epic: "fluid-engine"`, ascending. Scoped subdirectories are not scanned.
+ * Ward numbers of every flat `ward-NNN.md` in `wardsDir` whose frontmatter `epic` is one of
+ * `epics`, ascending. Scoped subdirectories are not scanned. W88 (D88-9): was
+ * `discoverFluidWards` (fluid-engine only).
  */
-function discoverFluidWards(wardsDir: string): number[] {
+function discoverGatedWards(wardsDir: string, epics: readonly string[]): number[] {
   return readdirSync(wardsDir)
     .map((name) => /^ward-(\d{3})\.md$/.exec(name))
     .filter((m): m is RegExpExecArray => m !== null)
-    .filter((m) => frontmatter(read(resolve(wardsDir, m[0]))).epic === "fluid-engine")
+    .filter((m) => epics.includes(String(frontmatter(read(resolve(wardsDir, m[0]))).epic)))
     .map((m) => Number(m[1]))
     .sort((a, b) => a - b);
 }
@@ -234,7 +243,7 @@ describe("W63 north star (.wdd/NORTH-STAR.md)", () => {
   it("given_gated_fluid_ward_when_checked_then_each_decision_is_in_the_north_star_plan_log_with_its_saga_id", () => {
     const log = tableRows(section(read(NORTH_STAR), "### Plan decisions (direction gates)"));
     expect(log.length).toBeGreaterThanOrEqual(2); // header + separator at least
-    for (const n of FLUID_WARDS) {
+    for (const n of GATED_WARDS) {
       const md = read(wardPath(n));
       if (!isGated(md)) continue;
       for (const block of decisionBlocks(md)) {
@@ -337,13 +346,13 @@ describe("W63 epics", () => {
 
 describe("W63 fluid ward files (.wdd/wards/ward-063…069.md)", () => {
   it("given_fluid_wards_63_to_69_when_read_then_each_is_a_flat_file_with_valid_wdd_frontmatter", () => {
-    for (const n of FLUID_WARDS) {
+    for (const n of GATED_WARDS) {
       const fm = frontmatter(read(wardPath(n)));
       for (const key of REQUIRED_FRONTMATTER_KEYS) {
         expect(fm, `ward ${n} frontmatter key ${key}`).toHaveProperty(key);
       }
       expect(fm.ward).toBe(n);
-      expect(fm.epic).toBe("fluid-engine");
+      expect(GATED_EPICS).toContain(fm.epic);
       expect(WDD_STATUSES).toContain(fm.status);
       expect(typeof fm.layer).toBe("string");
       expect(Array.isArray(fm.dependencies)).toBe(true);
@@ -356,7 +365,7 @@ describe("W63 fluid ward files (.wdd/wards/ward-063…069.md)", () => {
   });
 
   it("given_fluid_ward_files_when_read_then_each_has_the_title_and_mandatory_wdd_sections", () => {
-    for (const n of FLUID_WARDS) {
+    for (const n of GATED_WARDS) {
       const lines = read(wardPath(n)).split("\n").map((l) => l.trimEnd());
       expect(
         lines.some((l) => l.startsWith(`# Ward ${String(n).padStart(3, "0")}: `)),
@@ -369,7 +378,7 @@ describe("W63 fluid ward files (.wdd/wards/ward-063…069.md)", () => {
   });
 
   it("given_fluid_ward_files_when_read_then_each_has_a_north_star_line_naming_scene_steps", () => {
-    for (const n of FLUID_WARDS) {
+    for (const n of GATED_WARDS) {
       const line = read(wardPath(n)).split("\n").find((l) => l.startsWith("North star: "));
       expect(line, `ward ${n} North star line`).toBeDefined();
       expect(line).toMatch(/\b(step|steps|none)\b/i);
@@ -377,7 +386,7 @@ describe("W63 fluid ward files (.wdd/wards/ward-063…069.md)", () => {
   });
 
   it("given_fluid_ward_files_when_read_then_every_decision_item_has_exactly_one_decision_line", () => {
-    for (const n of FLUID_WARDS) {
+    for (const n of GATED_WARDS) {
       const blocks = decisionBlocks(read(wardPath(n)));
       expect(blocks.length, `ward ${n} has decision items`).toBeGreaterThan(0);
       const ids = blocks.map((b) => b.id);
@@ -395,7 +404,7 @@ describe("W63 fluid ward files (.wdd/wards/ward-063…069.md)", () => {
   });
 
   it("given_fluid_ward_past_planned_when_read_then_every_decision_is_approved_with_a_saga_id", () => {
-    for (const n of FLUID_WARDS) {
+    for (const n of GATED_WARDS) {
       expect(gateViolations(read(wardPath(n)), n), `ward ${n} direction gate`).toEqual([]);
     }
   });
@@ -462,11 +471,18 @@ describe("W63 wdd validate prerequisites", () => {
 
 describe("W63 direction gate discovery", () => {
   it("given_wards_dir_when_scanned_then_fluid_engine_wards_include_63_to_69", () => {
-    const found = discoverFluidWards(resolve(WDD, "wards"));
+    const found = discoverGatedWards(resolve(WDD, "wards"), ["fluid-engine"]);
     for (const n of EXPECTED_SLICE_1_2_WARDS) {
       expect(found, `discovery finds ward ${n}`).toContain(n);
     }
     expect(found).toEqual([...found].sort((a, b) => a - b));
+  });
+
+  it("given_wards_dir_when_scanned_then_the_gated_wards_hold_every_fluid_engine_ward_and_the_liquid_look_ward_88_D88_9", () => {
+    expect(GATED_WARDS).toEqual(expect.arrayContaining([...FLUID_WARDS, 88]));
+    expect(FLUID_WARDS, "Epic 15 stays fluid-engine only").not.toContain(88);
+    expect(frontmatter(read(wardPath(88))).epic).toBe("liquid-look");
+    expect(GATED_WARDS).toEqual([...GATED_WARDS].sort((a, b) => a - b));
   });
 
   it("given_hypothetical_ward_070_past_planned_with_pending_decision_when_gated_then_violation_reported", () => {
