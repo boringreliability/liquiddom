@@ -3,7 +3,7 @@ ward: 89
 revision: null
 name: "Text dissolves like ink"
 epic: "liquid-look"
-status: "planned"
+status: "red"
 dependencies: [88]
 layer: "typescript"
 estimated_tests: 0
