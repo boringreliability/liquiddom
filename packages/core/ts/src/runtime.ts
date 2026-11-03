@@ -124,8 +124,9 @@ export interface FluidRuntime {
   /**
    * @internal W79 (D79-1) scene test hook: the text id target of the next rendered frame (WebGPU);
    * null under Canvas2D, after a lost device or destroy(). Only the acceptance hook calls it.
+   * W89 (D89-4, resolution 8): `{ mix: true }` also returns that frame's T1mix and the ranks.
    */
-  captureTextIds(): Promise<TextIdCapture | null>;
+  captureTextIds(opts?: { mix?: boolean }): Promise<TextIdCapture | null>;
   /** @internal W88 (D88-3, Review Focus 5): the box-shadow layers the snapshot read for `el` (inset included); empty when unobserved. Scene hooks only. */
   shadowLayers(el: HTMLElement): readonly ShadowLayer[];
   /** Re-snapshot colours of an observed element (no-op otherwise). W75: also re-colours the halo rule and re-renders the atlas entry. W88: also re-reads its box-shadow. */
@@ -1164,8 +1165,8 @@ function buildRuntime(
     get world() {
       return world;
     },
-    captureTextIds() {
-      return renderer instanceof WebGPURenderer ? renderer.captureTextIds() : Promise.resolve(null);
+    captureTextIds(opts?: { mix?: boolean }) {
+      return renderer instanceof WebGPURenderer ? renderer.captureTextIds(opts) : Promise.resolve(null);
     },
     shadowLayers(el: HTMLElement) {
       if (destroyed) return NO_SHADOWS;
