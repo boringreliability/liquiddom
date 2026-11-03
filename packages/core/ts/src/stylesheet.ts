@@ -53,7 +53,7 @@ export const LIQUID_CSS = [
   // Ward-review M7: a halo held by a Canvas2D instance (`.liquid-halo[data-liquid-id="…"]`, 0,2,0)
   // must never draw around glyphs a WebGPU instance hides; this override (0,3,0) wins over it.
   `    .${TEXT_CLASS}.${HALO_CLASS}[${HALO_ID_ATTR}], .${TEXT_CLASS} .${HALO_CLASS}[${HALO_ID_ATTR}] { text-shadow: none !important; }`,
-  // W78 (D78-1): the Canvas2D drag label, the liquid-text declarations under their own class (Canvas2D never sets liquid-text, D74-6).
+  // W78 (D78-1): the Canvas2D drag label, the liquid-text declarations under their own class; `liquid-text` hides a mixing element's glyphs under either renderer (W89, D89-5).
   `    .${AWAY_CLASS}, .${AWAY_CLASS} * { -webkit-text-fill-color: transparent !important; text-decoration-color: transparent !important; text-shadow: none !important; }`,
   // A halo held by another Canvas2D instance (0,2,0) never draws around glyphs liquid-away hides (M7's pattern).
   `    .${AWAY_CLASS}.${HALO_CLASS}[${HALO_ID_ATTR}], .${AWAY_CLASS} .${HALO_CLASS}[${HALO_ID_ATTR}] { text-shadow: none !important; }`,

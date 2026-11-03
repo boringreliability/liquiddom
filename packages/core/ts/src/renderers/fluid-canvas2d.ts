@@ -2,9 +2,11 @@
  * Canvas2D fluid renderer (spec §3 "Canvas2D fallback", decision D64-11):
  * moving particles go through the density grid (blended colour, threshold),
  * resting elements are an exact `roundRect` at their home rect (plan
- * resolution B1), drawn at `restAlpha` over a full-weight density field while `restAlpha < 1` (D70-4). No liquid text: the DOM text is
- * always visible. W88 (D88-5): an element's box-shadow is drawn from its liquid while it is away,
- * before all liquid (shadow-canvas2d.ts).
+ * resolution B1), drawn at `restAlpha` over a full-weight density field while `restAlpha < 1` (D70-4).
+ * W88 (D88-5): an element's box-shadow is drawn from its liquid while it is away, before all liquid
+ * (shadow-canvas2d.ts). W89 (D89-5, D89-6): where two moving liquids mix, the ink and the mixing
+ * elements' atlas text are drawn after the resting rects (ink-canvas2d.ts); `textMixing(id)` says
+ * what the last render drew, and the runtime hides that element's DOM text exactly then.
  *
  * Plan resolution A6: never `new ImageData` / `new OffscreenCanvas`; the
  * density buffer is a `document.createElement("canvas")` and its pixels come
@@ -14,6 +16,7 @@ import { Dyn, El, ELEMENT_STRIDE, FLAG_PARKED, type HomeRect, homeRectInto, St, 
 import { DEFAULT_SCALE_PX, DensityGrid, densityCellPx } from "./density-grid";
 import { kernelRadiusPx } from "./kernel-params";
 import type { ElementPaint, RenderFrame, Renderer } from "./frame";
+import { InkCanvas2D } from "./ink-canvas2d";
 import { ShadowCanvas2D } from "./shadow-canvas2d";
 
 const clamp01 = (v: number): number => (v > 0 ? (v < 1 ? v : 1) : 0);
@@ -34,6 +37,8 @@ export class FluidCanvas2DRenderer implements Renderer {
   private readonly fillStyles: string[] = [];
   /** W88 (D88-5): the shadows, drawn before all liquid (scratch canvases on the first frame with shadows). */
   private readonly shadows = new ShadowCanvas2D();
+  /** W89 (D89-2, D89-5, D89-6, D89-9): the ink and the mixing elements' atlas text, after the resting rects. */
+  private readonly ink = new InkCanvas2D();
 
   /** `scalePx` is the cell until the first frame with particles; `fitCell` sets it from then on (W77, D77-1). */
   constructor(scalePx: number = DEFAULT_SCALE_PX) {
@@ -115,16 +120,18 @@ export class FluidCanvas2DRenderer implements Renderer {
     this.splatMoving(frame);
     this.drawDensity(ctx);
     this.drawResting(ctx, frame);
+    // W89 (resolution 11): above all liquid, as the DOM text it replaces sits.
+    this.ink.render(ctx, frame, this.grid.scalePx, this.cssW, this.cssH);
   }
 
-  /** W89 (D89-5, D89-6). W89.1 red: inert (W89.4). */
-  textMixing(_id: number): boolean {
-    return false;
+  /** W89 (D89-5, D89-6; resolution 1): true when the last render() drew slot `id`'s atlas text and ink in place of its DOM text. */
+  textMixing(id: number): boolean {
+    return this.ctx !== null && this.ink.drawn(id);
   }
 
-  /** W89 (D89-5). W89.1 red: inert (W89.4). */
+  /** W89 (D89-5): true once a render() saw two elements move (sticky); the runtime then builds the atlas. */
   wantsAtlas(): boolean {
-    return false;
+    return this.ink.wantsAtlas();
   }
 
   /** W88 (D88-1): true when the last render() drew slot `id`'s shadow. */
@@ -134,6 +141,7 @@ export class FluidCanvas2DRenderer implements Renderer {
 
   destroy(): void {
     this.shadows.destroy();
+    this.ink.destroy();
     this.ctx = null;
     this.off = null;
     this.offCtx = null;

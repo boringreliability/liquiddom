@@ -369,6 +369,11 @@ function buildRuntime(
    */
   let atlasDeferred = false;
   /**
+   * W89 (D89-5, resolution 12): Canvas2D builds the atlas once its renderer reports `wantsAtlas()`
+   * (two elements moved; sticky), from the next frame on; a device-lost rebuild keeps a page it had.
+   */
+  let atlasWanted = false;
+  /**
    * W75 amendment B (D75-1): slots whose text changed (or that were newly observed) since the last
    * build. While a build waits, their paints carry no atlas rect, so the in-flight page's record for
    * them is never valid (no stale glyphs once it confirms) and the DOM text shows until the next page.
@@ -376,6 +381,11 @@ function buildRuntime(
   const atlasOutdated = new Set<number>();
   /** This instance's liquid-text holds (refcounted across instances in stylesheet.ts). */
   const textHeld = new Set<HTMLElement>();
+  /**
+   * W89 (resolution 4): a fail-safe path cleared text holds whose text the canvas still shows; the
+   * repaint without shadows then also suppresses the text. Set before the clear, reset after the repaint.
+   */
+  let textOnCanvas = false;
   /** Observed slot ids, refreshed with the paints. */
   let observedIds: number[] = [];
 
@@ -458,6 +468,8 @@ function buildRuntime(
   const haloHeld = new Set<HTMLElement>();
   /** W78 (D78-1): this instance's liquid-away holds (refcounted across instances in stylesheet.ts). */
   const awayHeld = new Set<HTMLElement>();
+  /** W89 (D89-6, resolution 2): per slot 1 while `awayHeld` holds its element, rewritten after each away sync. */
+  const awaySlots = new Uint8Array(bridge.elementCapacity);
   /** W88 (D88-1): this instance's liquid-shadow-away holds (refcounted across instances in stylesheet.ts). */
   const shadowHeld = new Set<HTMLElement>();
   /** W88 (D88-3): elements whose box-shadow must be re-read (a `box-shadow` transitionend); waits like colourPending. */
@@ -591,12 +603,14 @@ function buildRuntime(
     // W74 (Review Focus 1): reduced motion switched on mid-splash shows the DOM text at once, without waiting for a frame.
     if (reducedMotion) {
       dragTracker.cancel(); // W78: reduced motion ignores drag (spec §2)
+      textOnCanvas = textHeld.size > 0; // W89 (D89-10): the paused repaint below draws no text either
       clearTextClasses(textHeld);
       clearHaloClasses(haloHeld); // W75 (D75-3): the halo goes at once as well
       clearAwayClasses(awayHeld); // W78: the drag label goes at once as well
       // W88 (D88-1): the browser's shadow is back at once; the next frame (reduced motion) draws none.
       // A paused loop has no next frame, so the canvas is repainted without shadows now (PR #10 review).
       if (loop.isPaused) takeShadowsOffCanvas();
+      textOnCanvas = false;
       clearShadowClasses(shadowHeld);
     }
   };
@@ -632,6 +646,12 @@ function buildRuntime(
     awayArgs.reducedMotion = reducedMotion;
     syncAwayClasses(awayArgs);
     awayStateView = null; // a fresh view every frame (WASM memory can grow)
+    // W89 (resolution 2): the renderer's mixing report skips a slot this instance holds away.
+    awaySlots.fill(0);
+    for (const el of awayHeld) {
+      const id = registry.idOf(el);
+      if (id !== undefined && id >= 0 && id < awaySlots.length) awaySlots[id] = 1;
+    }
   };
   // W75 (RF5): a web font that finishes after observe re-renders every atlas entry once (next frame).
   const fontSet = (pointerDoc as Document & { fonts?: EventTarget }).fonts ?? null;
@@ -693,13 +713,16 @@ function buildRuntime(
     window.addEventListener("resize", resizeCanvas);
   }
 
-  /** W74 (D74-5): rebuilt with the paints under WebGPU; any failure means no atlas text (one console.warn). */
+  /**
+   * W74 (D74-5): rebuilt with the paints under WebGPU, and under Canvas2D once it wants the atlas
+   * (W89, D89-5); any failure means no atlas text (one console.warn).
+   */
   const rebuildAtlas = (): void => {
     atlasDeferred = false;
     atlasOutdated.clear();
     atlasRects = NO_ATLAS_RECTS;
     atlasFrame = null;
-    if (activeRenderer !== "webgpu") return;
+    if (activeRenderer !== "webgpu" && !atlasWanted) return;
     const entries: Array<{ id: number; el: HTMLElement; dpr: number }> = [];
     for (const rec of registry.entries()) entries.push({ id: rec.id, el: rec.el, dpr: viewport.dpr });
     try {
@@ -839,6 +862,7 @@ function buildRuntime(
     viewport,
     reducedMotion,
     textAtlas: atlasFrame,
+    awaySlots, // W89 (resolution 2)
   });
 
   /**
@@ -846,11 +870,13 @@ function buildRuntime(
    * shadows come back, while the canvas (no frame follows) would keep the last frame with the
    * renderer's. One render of the current state with `suppressShadows` removes those. Only when this
    * instance holds a class (its canvas has shadows); false when the render threw (nothing logged).
+   * W89 (resolution 4, D89-10): also when a text class was held (`textOnCanvas`), and the repaint
+   * draws no ink, no atlas text and no liquid text (`suppressText`), so returned DOM text is never doubled.
    */
   const repaintWithoutShadows = (): boolean => {
-    if (renderer === null || shadowHeld.size === 0) return true;
+    if (renderer === null || (shadowHeld.size === 0 && !textOnCanvas)) return true;
     try {
-      renderer.render({ ...buildFrame(), suppressShadows: true });
+      renderer.render({ ...buildFrame(), suppressShadows: true, suppressText: true });
       return true;
     } catch {
       return false;
@@ -907,7 +933,8 @@ function buildRuntime(
       // scope no page is built; `stale` (or atlasDeferred) stays set and the build runs on the
       // first frame after the confirmation, with the newest text.
       const atlasBusy = activeRenderer === "webgpu" && renderer instanceof WebGPURenderer && renderer.atlasPending;
-      const atlasDue = activeRenderer === "webgpu" && (textAtlas.stale || atlasDeferred) && !atlasBusy;
+      // W89 (D89-5): Canvas2D too, once it wants the atlas.
+      const atlasDue = (activeRenderer === "webgpu" || atlasWanted) && (textAtlas.stale || atlasDeferred) && !atlasBusy;
       if (bridge.syncGeneration() || paintsDirty || atlasDue) {
         paintsDirty = false;
         if (atlasBusy) atlasDeferred = true;
@@ -916,6 +943,11 @@ function buildRuntime(
       }
       // W72 (D72-3): null only while a device-lost rebuild is in flight; the core keeps ticking.
       if (renderer !== null) renderer.render(buildFrame());
+      // W89 (D89-5, resolution 12): two elements moved under Canvas2D: the next frame builds the page.
+      if (!atlasWanted && activeRenderer === "canvas2d" && renderer?.wantsAtlas?.() === true) {
+        atlasWanted = true;
+        atlasDeferred = true;
+      }
       syncText(); // W74 (D74-6)
       syncAway(); // W78 (D78-1)
       syncHalo(); // W75 (D75-3)
@@ -948,6 +980,7 @@ function buildRuntime(
   const stopInstance = (msg: string, err: unknown): void => {
     if (failed || destroyed) return;
     failed = true;
+    textOnCanvas = textHeld.size > 0; // W89 (resolution 4): the stop repaint below draws no text
     clearTextClasses(textHeld); // W74: a stopped instance never leaves text hidden
     dragTracker.destroy(); // W78: a stopped instance takes no more drags
     gravityInput.destroy(); // W83: a stopped instance drops its deviceorientation listener (idempotent)
@@ -957,6 +990,7 @@ function buildRuntime(
     resyncStopped();
     // W88 (Review Focus 1): the browser's shadows come back; no canvas shadow may double them.
     takeShadowsOffCanvas();
+    textOnCanvas = false;
     clearShadowClasses(shadowHeld);
     console.error(msg, err);
     if (opts.onError === undefined) return;
@@ -1019,14 +1053,12 @@ function buildRuntime(
     clearAwayClasses(awayHeld); // W78
     console.warn(`${DEVICE_LOST_WARNING} (${info.reason}: ${info.message}); continuing with the Canvas2D renderer.`);
     // W74 (D74-6, Review Focus 1): the atlas text is gone with the device; show the DOM text now,
-    // before the asynchronous Canvas2D init, and drop the atlas (Canvas2D never draws text).
+    // before the asynchronous Canvas2D init. W89 (D89-5, resolution 12): the atlas is kept, and
+    // Canvas2D wants it when a page existed; its class returns once Canvas2D draws the text.
     clearTextClasses(textHeld);
     // W88 (D88-1): the browser's shadows until the Canvas2D renderer draws them (the old canvas goes with its shadows).
     clearShadowClasses(shadowHeld);
-    atlasRects = NO_ATLAS_RECTS;
-    atlasFrame = null;
-    atlasDeferred = false;
-    atlasOutdated.clear();
+    atlasWanted ||= atlasFrame !== null;
     paintsDirty = true;
     let pending: Promise<FluidCanvas2DRenderer>;
     try {
@@ -1094,7 +1126,18 @@ function buildRuntime(
       if (destroyed) return;
       dragTracker.detach(el); // W78: cancels a press or drag on el (README Review Focus 5)
       releaseAwayClass(awayHeld, el); // W78: before the registry restores the element
+      const textId = textHeld.has(el) ? registry.idOf(el) : undefined;
       releaseTextClass(textHeld, el); // W74: before the registry restores the element
+      // W89 (resolution 14, Review Focus 1): the canvas drew this element's text in place of its DOM
+      // text; one repaint (paused or running) leaves it out, so the returned DOM text is never doubled.
+      if (textId !== undefined && renderer !== null && !failed) {
+        try {
+          renderer.render({ ...buildFrame(), textOff: textId });
+        } catch {
+          const w = canvas.width;
+          canvas.width = w; // resets the bitmap (resolution 4's fallback)
+        }
+      }
       if (registry.idOf(el) !== undefined) unwatchElement(el); // W75: observer, transitionend, halo hold
       registry.unobserve(el);
       splashInput.detach(el);

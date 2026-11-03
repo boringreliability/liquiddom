@@ -58,7 +58,8 @@ export function blendInk(crisp: number, ink: number, fade: number): number {
 /**
  * D89-2: the mean premultiplied texel over a particle's rest cell into out[at … at + 3] (r, g, b, a,
  * 0–1): a `cellPx` square (atlas px) centred on (rect.x + u·rect.w, rect.y + v·rect.h), INK_SAMPLES²
- * cell-centred taps, each the texel under it (floor); a tap off the page counts as transparent.
+ * cell-centred taps, each the texel under it (floor); a tap outside the element's border box
+ * (`rect`, edges included, as the WGSL's 0–1 test) or off the page counts as transparent.
  */
 export function particleInk(page: AtlasPixels, rect: AtlasRect, u: number, v: number, cellPx: number, out: Float32Array, at: number): void {
   const cx = rect.x + u * rect.w;
@@ -66,15 +67,21 @@ export function particleInk(page: AtlasPixels, rect: AtlasRect, u: number, v: nu
   const step = cellPx / INK_SAMPLES;
   const x0 = cx - cellPx / 2 + step / 2;
   const y0 = cy - cellPx / 2 + step / 2;
+  const rx1 = rect.x + rect.w;
+  const ry1 = rect.y + rect.h;
   let r = 0;
   let g = 0;
   let b = 0;
   let a = 0;
   for (let j = 0; j < INK_SAMPLES; j++) {
-    const ty = Math.floor(y0 + j * step);
+    const py = y0 + j * step;
+    if (py < rect.y || py > ry1) continue;
+    const ty = Math.floor(py);
     if (ty < 0 || ty >= page.height) continue;
     for (let i = 0; i < INK_SAMPLES; i++) {
-      const tx = Math.floor(x0 + i * step);
+      const px = x0 + i * step;
+      if (px < rect.x || px > rx1) continue;
+      const tx = Math.floor(px);
       if (tx < 0 || tx >= page.width) continue;
       const o = (ty * page.width + tx) * 4;
       const al = (page.data[o + 3] ?? 0) / 255;
