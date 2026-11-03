@@ -63,11 +63,14 @@ export class InkGrid {
     return this.x1 < this.x0 || this.y1 < this.y0;
   }
 
+  private cellsFor(css: number): number {
+    return Math.max(1, Math.ceil((Number.isFinite(css) && css > 0 ? css : 1) / this.cellPx));
+  }
+
   /** Sizes the grid to a CSS extent (reallocates only on a size change) and clears it. */
   resize(cssW: number, cssH: number): void {
-    const cells = (css: number): number => Math.max(1, Math.ceil((Number.isFinite(css) && css > 0 ? css : 1) / this.cellPx));
-    const gw = cells(cssW);
-    const gh = cells(cssH);
+    const gw = this.cellsFor(cssW);
+    const gh = this.cellsFor(cssH);
     if (gw === this.width && gh === this.height) {
       this.clear();
       return;
@@ -213,8 +216,12 @@ class CellImage {
     let x1 = this.bx1;
     let y1 = this.by1;
     if (this.sx1 >= this.sx0) {
-      if (x1 < x0) [x0, y0, x1, y1] = [this.sx0, this.sy0, this.sx1, this.sy1];
-      else {
+      if (x1 < x0) {
+        x0 = this.sx0;
+        y0 = this.sy0;
+        x1 = this.sx1;
+        y1 = this.sy1;
+      } else {
         x0 = Math.min(x0, this.sx0);
         y0 = Math.min(y0, this.sy0);
         x1 = Math.max(x1, this.sx1);

@@ -256,6 +256,15 @@ Found by the survey (2026-11-03). Each is folded into a decision above and is pr
 - **No OffscreenCanvas:** no atlas, so Canvas2D keeps today's look → D89-5.
 - **The brief's "D74-3"** (atlas gating) is D74-5. D74-3 (torn hysteresis) is not touched.
 
+## W89.5 result (browser verification, Metal, 2026-11-03)
+Stills in `.superpowers/sdd/W89/stills-w89.5/`, every one inspected with vision; scratch run on port 4191 (`scratch/run.mjs`), card text hidden by the Merge drag first.
+- Step 1, reduced motion, paused: `w89-canvas2d-rm-paused.png` and `w89-webgpu-rm-paused.png` pass. DOM text alone, single crisp label, no ink and no canvas text (WebGPU shows the frozen blob shape with a faint green wash from the held body, no second label).
+- Step 2, the card's `liquid-text` class is gone after every path and no label is doubled (resolutions 4, 14):
+  - failed frame (injected `core.tick` throw): canvas2d OK, webgpu OK.
+  - `unobserve(#card)` while paused: canvas2d OK, webgpu OK (the card is plain DOM, a stale ragged halo rim remains around it, no text).
+  - device loss (webgpu only): the Canvas2D rebuild draws the card's text from the former atlas page (class `liquid-text` back on, text visible and blurred inside the Merge blob, no doubling). Row 33's getContext("2d") on the former page works on Metal.
+- Observation, not a defect: a stopped instance keeps its last frame (Merge's blob stays over the card, its DOM label sits at home on the page).
+
 ## Specification
 **Baseline at `8ac786c`:** measured 2026-11-03 after `npm run build:wasm` and `npm run build -w liquiddom` (only docs changed since `699b5d7`).
 - cargo `245 passed; 0 failed; 1 ignored` (the doc-test line is 0 passed).

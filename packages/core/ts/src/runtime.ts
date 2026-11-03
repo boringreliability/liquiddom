@@ -638,6 +638,10 @@ function buildRuntime(
   const scrollTracker = new ScrollTracker(pointerDoc.defaultView ?? window, container);
   // W83 (D83-1 … D83-5): the gravity source; `orientation` listens on the same window.
   const gravityInput = new GravityInput(pointerDoc.defaultView ?? window, opts.gravity ?? { source: "none", vector: [0, 0], strength: 0 });
+  const markAwaySlot = (el: HTMLElement): void => {
+    const id = registry.idOf(el);
+    if (id !== undefined && id >= 0 && id < awaySlots.length) awaySlots[id] = 1;
+  };
   const syncAway = (): void => {
     awayStateView = bridge.stateView();
     awayArgs.entries = registry.entries();
@@ -648,10 +652,7 @@ function buildRuntime(
     awayStateView = null; // a fresh view every frame (WASM memory can grow)
     // W89 (resolution 2): the renderer's mixing report skips a slot this instance holds away.
     awaySlots.fill(0);
-    for (const el of awayHeld) {
-      const id = registry.idOf(el);
-      if (id !== undefined && id >= 0 && id < awaySlots.length) awaySlots[id] = 1;
-    }
+    if (awayHeld.size > 0) awayHeld.forEach(markAwaySlot);
   };
   // W75 (RF5): a web font that finishes after observe re-renders every atlas entry once (next frame).
   const fontSet = (pointerDoc as Document & { fonts?: EventTarget }).fonts ?? null;
