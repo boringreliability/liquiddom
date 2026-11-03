@@ -61,7 +61,7 @@ Proposal: ink appears only where two elements' liquids meet. The per-pixel compu
 
 Where only one element is present, mix = 0 and today's path is untouched. Nothing persists between frames. The spike's thresholds are the starting point (D89-11).
 Consequence: splash, shake without contact, drag without contact, scroll and gravity look exactly as today, including WebGPU text tearing with its own liquid. As the liquids separate, mix → 0 and the text is crisp again. At rest it is pixel-identical to today. p is exact only for two elements; with three or more, fade is still > 0 where they mix, and vision must confirm it stays ink-like. A shake that brings two neighbours' liquids into contact does show ink, because "two liquids meet" (approved halo test A7 is re-checked at red).
-Decision: PENDING
+Decision: APPROVED 2026-11-03 — ink only where two liquids meet; mix = 4p(1−p), fade = smoothstep(0.03, 0.3, mix) (saga dec_65b5e308)
 
 ### D89-2: The ink technique (variant C)
 Proposal: per-particle ink and a splatted ink field.
@@ -74,7 +74,7 @@ Proposal: per-particle ink and a splatted ink field.
 
 Variants A (point dabs: pixel noise, the anti-goal) and B (dabs + blur: glowing lumps) are ruled out. D (blurred advected text) is too faint.
 Consequence: every pixel averages about 15 particles, so the ink is as smooth as the liquid and never speckle. The look is bound to the spike's contact sheets and recordings, judged by vision. In WebGPU the text pass gains vertex-stage atlas access and (under the cache option) one per-particle buffer.
-Decision: PENDING
+Decision: APPROVED 2026-11-03 — variant C: per-particle ink splatted with the density kernel, resolved ink/Σw × gain × edge coverage; A and B ruled out (saga dec_efb79947)
 
 ### D89-3: Every liquid counts, both texts feed the ink
 Proposal: every particle of a moving active element enters Σw, Σw·id and lo/hi, text-less elements included, so mix fires at any interface between two elements. Only particles of elements with atlas text carry non-zero ink, so a text-less blob dilutes the card's ink, as ink in water does.
@@ -83,7 +83,7 @@ Proposal: every particle of a moving active element enters Σw, Σw·id and lo/h
 - Canvas2D: the ids come from every moving element's particles (see D89-9 for the cost).
 
 Consequence: this goes beyond the spike (the spike counted only text-carrying liquids). The WebGPU text pass does more work whenever a text-less element moves with a text element. If text-less particles also enter T1w, the card's crisp text dims slightly at the overlap's outer edge (as torn particles do today, D74-3). The builder may keep T1w text-only and give the resolve its own all-liquid Σw (part of D89-7's byte budget). The text pass still runs only while some element with atlas text moves (`hasMovingText`).
-Decision: PENDING
+Decision: APPROVED 2026-11-03 — every moving liquid counts, text-less too; both texts incl. the dragged one feed ink; a separate all-liquid Σw keeps T1w text-only (saga dec_b2c1c6a2)
 
 ### D89-4: D79-1 becomes a soft guarantee
 Proposal: W79's hard cut (coverage 0 where lo < hi, `shaders.ts:418-419`) becomes the continuous fade of D89-1. Its guarantee "no pixel carries two labels" becomes: no two crisp labels overlap in the zone. At the outer edge of a kernel overlap (fade ≈ 0 but lo < hi), the two crisp texts may overlap faintly with weight p; the spike saw no visible ghosting.
@@ -95,7 +95,7 @@ Proposal: W79's hard cut (coverage 0 where lo < hi, `shaders.ts:418-419`) become
 - NORTH-STAR step 5 keeps its wording ("the labels never overlap"), which still holds for crisp labels, with a note in this ward. Rewording it would change the fluid design's §6 in the same commit (`wdd-docs.test.ts`).
 
 Consequence: an approved-test change. The D79-1 row in NORTH-STAR stays as history, and W89's rows record the amendment. A pixel with a faint double label at fade ≈ 0 is accepted if vision shows no ghosting. The hook's report (`demo/text-id-report.ts`) needs a fade-aware count, or the amended test needs a capture of the ink weight.
-Decision: PENDING
+Decision: APPROVED 2026-11-03 — D79-1 becomes a soft guarantee; A1 amended (no crisp text of both elements where fade ≥ a small bound); NORTH-STAR step 5 wording kept with a note (approved-test change) (saga dec_fac79d1f)
 
 ### D89-5: Canvas2D gets the atlas and `liquid-text`
 Proposal:
@@ -115,7 +115,7 @@ Proposal:
   - A7: `e2e/halo.spec.ts:78` is re-checked at red.
 
 Consequence: Canvas2D now pays for an atlas page (OffscreenCanvas up to 4096², usually far less) and one pixel read per page version, but only once text mixes. The `liquid-text` lifecycle (refcount, every fail-safe) now applies to Canvas2D as well. Approved tests A2–A5 and A7 are listed above.
-Decision: PENDING
+Decision: APPROVED 2026-11-03 — Canvas2D builds the atlas lazily at the first mix with a prewarm (amends D74-5) and sets liquid-text for mixing elements (amends D74-6); A2, A3, A5 changed, A4, A7 re-checked (approved-test change) (saga dec_e1b67b60)
 
 ### D89-6: Canvas2D hide/show hysteresis and what is drawn
 Proposal:
@@ -126,7 +126,7 @@ Proposal:
 - **The dragged element** is skipped for the DOM-hide report only: its label is already hidden by W78's `liquid-away`, and its atlas text still feeds the ink (D89-3). Approved test A6 (`drag-runtime.test.ts:199`, "never liquid-text under Canvas2D" for the dragged element) stays green and pins the skip.
 
 Consequence: a short lag at entry (≤ 2 frames) is acceptable if vision shows no pop. The 10-frame release keeps the canvas text for up to 10 frames after the zone ends; the forced release at rest bounds it. The canvas atlas text is the atlas's `fillText` and not the browser's DOM text, so it may differ by subpixel anti-aliasing while hidden. An e2e checks for no flicker over a long hold.
-Decision: PENDING
+Decision: APPROVED 2026-11-03 — enter ≤ 2 frames, release after 10 frames under a lower exit threshold, forced release at rest; ink only while the DOM text is hidden; dragged element skipped for the hide report only (saga dec_c8668af2)
 
 ### D89-7: WebGPU targets within 32 B per sample
 Proposal: the ink and Σw·id are extra targets of the existing text pass, at 1× the backing size.
@@ -137,7 +137,7 @@ Proposal: the ink and Σw·id are extra targets of the existing text pass, at 1�
 - lo/hi stay W79's T1id gather, unchanged, so W79's capture hook (`captureTextIds`, `demo/text-id-report.ts`) keeps working. If the builder restructures targets anyway (for example to fit D89-8's `r32float`), lo/hi stay exact and approved test A8 (`text-id-report.test.ts`) changes only with Dennis' approval.
 
 Consequence: +10 to +12 B per backing pixel, about +41 to +49 MB of GPU memory at 1280 × 800 × DPR 2 (today's text targets are about 57 MB). They are allocated only once text has moved (as T1 today). It adds one more blended write per text fragment. GPU time is measured under D89-9.
-Decision: PENDING
+Decision: APPROVED 2026-11-03 — ink rgba16float + rg16float (Σw·id, all-liquid Σw) in the text pass, 26 B per sample; lo/hi stay W79's gather (saga dec_a567ca91)
 
 ### D89-8: Σw·id precision
 Proposal: f16 Σw·id is not exact for slot ids up to 255 (`maxElements ≤ 256`). With Σw ≈ 1 and id ≈ 200, the f16 step is 0.125–0.25, and additive blending of about 15 fragments accumulates the rounding. With hi − lo = 1 that is a visible error in p. Two options:
@@ -146,7 +146,7 @@ Proposal: f16 Σw·id is not exact for slot ids up to 255 (`maxElements ≤ 256`
 
 Proposal: (a) everywhere, with one code path and no device feature.
 Consequence: (a) adds a rank field per element and a rank-to-id map in the resolve; a frame with more than about 64 moving elements degrades p gracefully (fade stays > 0 where they mix). (b) costs 4 B instead of 2 and a second code path. A unit test pins p for ids near 255.
-Decision: PENDING
+Decision: APPROVED 2026-11-03 — (a) per-frame dense rank in f16 everywhere, no device feature (saga dec_29db2b54)
 
 ### D89-9: Perf bounds and the Canvas2D splat strategy
 Proposal:
@@ -159,7 +159,7 @@ Proposal:
 - **Six elements:** the acceptance scene has 4, so the gold perf uses a 6-element setup (the stress scene, or a scene parameter added in part 2).
 
 Consequence: if the monomorphic path cannot meet +2 ms on the 2 px grid, the coarser ink grid is the fallback, judged by vision. The Canvas2D ink stays coarser than WebGPU's by design. The baseline was taken on a loaded machine (Specification), so the gold perf must be re-measured quietly.
-Decision: PENDING
+Decision: APPROVED 2026-11-03 — Canvas2D +2 ms at 6 elements via a dedicated ink splat (4 px ink grid as fallback); WebGPU +1 ms GPU, else CPU within 3.76 ms (saga dec_2ba27aef)
 
 ### D89-10: Reduced motion: no ink
 Proposal: under reduced motion nothing moves and nothing mixes, but production gates it explicitly (the spike did not).
@@ -169,12 +169,12 @@ Proposal: under reduced motion nothing moves and nothing mixes, but production g
 - When reduced motion switches on while the loop is paused, the canvas is repainted without ink and atlas text (W88's `repaintWithoutShadows` pattern, `runtime.ts:846-865`), so the DOM text never shows next to stale canvas text.
 
 Consequence: one more flag in both renderers' text paths and in the paused repaint. Print and forced colours are unchanged (the canvas is hidden).
-Decision: PENDING
+Decision: APPROVED 2026-11-03 — no ink under reduced motion; the paused repaint also removes WebGPU's liquid text (saga dec_060cfd55)
 
 ### D89-11: Tuning freedom
 Proposal: gain (spike 1.2), an ink alpha cap (spike suggestion ≈ 0.6) and the fade thresholds (0.03 / 0.3), plus Canvas2D's entry and exit thresholds, may be tuned without a new decision to avoid noise or glow. The cases are light-on-light pairs, two bold white labels meeting and three-way mixing. The limit: the zone is never made wider, and the ink never stronger, than the spike's look. Vision is the judge, and every tuned value is logged in this ward.
 Consequence: values may move between red and gold without a gate. A change that widens or strengthens the zone needs a new decision.
-Decision: PENDING
+Decision: APPROVED 2026-11-03 — gain, alpha cap and thresholds tunable within the spike's look, logged in the ward (saga dec_c28300ce)
 
 ### D89-12: Scene, site, docs and baselines
 Proposal:
@@ -190,7 +190,7 @@ Proposal:
   - WebGPU has no step-5 baseline.
 
 Consequence: a Linux baseline moves in this epic for the first time (W88 moved none), which needs Docker and Dennis' vision approval. The slice-5 design keeps its D79-1 text as history.
-Decision: PENDING
+Decision: APPROVED 2026-11-03 — no new scene; two docs pages corrected; two Canvas2D step-5 mid-hold baselines move after vision approval, the rest one must not (saga dec_a9a90d32)
 
 ## Spike W89.0 result
 
