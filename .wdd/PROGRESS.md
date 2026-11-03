@@ -94,7 +94,7 @@
 | 086 | The site | 0 | ✅ Complete | 2026-10-23 |
 | 087 | Whole picture (slice 6) | 0 | ✅ Complete | 2026-10-24 |
 | 088 | Shadows follow the liquid | 0 | ✅ Complete | 2026-10-30 |
-| 089 | Text dissolves like ink | 0 | 🔴 Red | - |
+| 089 | Text dissolves like ink | 0 | 👀 Approved | - |
 
 ## Test Summary
 - Estimated total: 1427
