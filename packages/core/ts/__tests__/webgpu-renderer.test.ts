@@ -196,18 +196,22 @@ describe("W71: WebGPURenderer", () => {
     expect(composite!.fragment!.targets).toEqual([{ format: "bgra8unorm", blend: OVER }]);
     expect(rest!.fragment!.targets).toEqual([{ format: "bgra8unorm", blend: OVER }]);
     // W79 red: approved-test change (D79-1, see ward-079.md): the text pass gains the rg16float id target with min blending.
+    // W89 red: approved-test change (D89-7, saga dec_a567ca91): and T1ink (rgba16float) and T1mix (rg16float), additive: 26 B per sample.
     expect(text!.fragment!.targets).toEqual([
       { format: "rgba16float", blend: ADDITIVE },
       { format: "r16float", blend: ADDITIVE },
       { format: "rg16float", blend: MIN },
+      { format: "rgba16float", blend: ADDITIVE },
+      { format: "rg16float", blend: ADDITIVE },
     ]);
     expect(textComposite!.fragment!.targets).toEqual([{ format: "bgra8unorm", blend: OVER }]);
     const buffers = f.calls.bindGroupLayouts.flatMap((l) => Array.from(l.entries)).filter((e) => e.buffer !== undefined);
     // W88 red: approved-test change (D88-11): the shadow layouts add 7 uniform (4 with a dynamic offset) and 3 storage bindings.
     expect(buffers.filter((e) => e.buffer!.type === "uniform")).toHaveLength(12);
     expect(buffers.filter((e) => e.buffer!.hasDynamicOffset === true)).toHaveLength(4);
-    expect(buffers.filter((e) => e.buffer!.type === "read-only-storage")).toHaveLength(12);
-    expect(buffers).toHaveLength(24);
+    // W89 red: approved-test change (D89-8, saga dec_29db2b54): the text composite reads the element records (the dense rank).
+    expect(buffers.filter((e) => e.buffer!.type === "read-only-storage")).toHaveLength(13);
+    expect(buffers).toHaveLength(25);
     expect(f.calls.errors).toEqual([]);
   });
 
@@ -549,10 +553,13 @@ describe("W71: WebGPURenderer", () => {
     const [splat, text, screen] = f.calls.passes.slice(2);
     expect(splat!.draws.map((d) => [d.vertexCount, d.instanceCount])).toEqual([[6, CAP]]);
     // W79 red: approved-test change (D79-1, see ward-079.md): the text pass also clears the id target to the empty id 4096.
+    // W89 red: approved-test change (D89-7, saga dec_a567ca91): and T1ink and T1mix at 1×.
     expect(text!.attachments.map((a) => [a.view.texture.label, a.view.texture.format, a.view.texture.width, a.view.texture.height, a.loadOp])).toEqual([
       ["liquiddom T1", "rgba16float", 800, 600, "clear"],
       ["liquiddom T1w", "r16float", 800, 600, "clear"],
       ["liquiddom T1id", "rg16float", 800, 600, "clear"],
+      ["liquiddom T1ink", "rgba16float", 800, 600, "clear"],
+      ["liquiddom T1mix", "rg16float", 800, 600, "clear"],
     ]);
     expect(text!.attachments[2]!.clearValue).toEqual({ r: 4096, g: 4096, b: 0, a: 0 });
     const [, , , textPipe, textCompositePipe] = f.calls.pipelines;

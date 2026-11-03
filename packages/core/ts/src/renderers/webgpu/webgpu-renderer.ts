@@ -100,6 +100,10 @@ export interface TextIdCapture {
   readonly empty: number;
   /** Raw rg16float texels row by row: r, g as IEEE half bits. */
   readonly data: Uint16Array;
+  /** W89 (D89-4): with captureTextIds({ mix: true }), that frame's T1mix laid out like `data` (r = Σw·rank, g = all-liquid Σw). W89.1 red: never set. */
+  readonly mix?: Uint16Array;
+  /** W89 (D89-8): with `mix`, each slot's EG.RANK in that frame, by slot id. */
+  readonly ranks?: readonly number[];
 }
 /** WGSL `struct View`: size_css (2), size_px (2), dpr, t0_scale, 2 × pad. */
 export const VIEW_UNIFORM_FLOATS = 8;

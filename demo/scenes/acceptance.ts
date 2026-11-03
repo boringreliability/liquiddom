@@ -18,7 +18,7 @@ import { El, ELEMENT_STRIDE } from "../../packages/core/ts/src/fluid-layout";
 import { createRenderCountingClock, type RenderCountingClock } from "../render-counting-clock";
 import type { LiquidTestHook, ScenePerfProbe, ScenePerfSnapshot } from "../test-hooks";
 import { parseSceneParams } from "./scene-params";
-import { summarizeTextIds, type TextIdCaptureLike } from "../text-id-report";
+import { INK_LIGHT_MIN, INK_ZONE_FADE, summarizeInk, summarizeTextIds, type InkCaptureLike } from "../text-id-report";
 
 const PARTICLES = 8000;
 /** W79: a canvas text pixel has every channel and alpha ≥ this (webgpu-robust.spec.ts CANVAS_TEXT_MIN). */
@@ -243,23 +243,26 @@ const hook: LiquidTestHook = {
   // W79 (D79-1): arm the capture, run one frame (its pixels are snapshotted in that task), read both.
   textIds: async () => {
     if (!manual) throw new Error("[acceptance] textIds() needs ?clock=manual");
-    const rt = runtime as (FluidRuntime & { captureTextIds?: () => Promise<TextIdCaptureLike | null> }) | null;
+    const rt = runtime as (FluidRuntime & { captureTextIds?: (opts?: { mix?: boolean }) => Promise<InkCaptureLike | null> }) | null;
     if (!rt?.captureTextIds) throw new Error("[acceptance] textIds(): FluidRuntime.captureTextIds is missing (W79.3)");
-    const pending = rt.captureTextIds();
+    const pending = rt.captureTextIds({ mix: true }); // W89 (D89-4): T1mix and the ranks too
     hook.advance(1);
     // W79 red review (M2): a capture that never resolves (device stall, no frame rendered) must fail loudly, not hang the e2e.
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error(`[acceptance] textIds(): the id readback did not resolve within ${TEXT_ID_TIMEOUT_MS} ms`)), TEXT_ID_TIMEOUT_MS);
     });
-    let capture: TextIdCaptureLike | null;
+    let capture: InkCaptureLike | null;
     try {
       capture = await Promise.race([pending, timeout]);
     } finally {
       clearTimeout(timer);
     }
     if (!capture) throw new Error(`[acceptance] textIds(): no capture (renderer ${rt.activeRenderer})`);
-    const report = summarizeTextIds(capture, hook.pixels(), TEXT_ID_TEXT_MIN);
+    const pixels = hook.pixels();
+    const report = summarizeTextIds(capture, pixels, TEXT_ID_TEXT_MIN);
+    // W89 (D89-4): the ink zone of the same frame (0 until the renderer captures T1mix).
+    const ink = summarizeInk(capture, pixels, TEXT_ID_TEXT_MIN, INK_ZONE_FADE, INK_LIGHT_MIN);
     const dom = (id: number): number => slotIds.indexOf(id);
     const textPxByElement: Record<number, number> = {};
     for (const [id, n] of Object.entries(report.textPxById)) {
@@ -270,7 +273,7 @@ const hook: LiquidTestHook = {
       .map(([lo, hi]) => [dom(lo), dom(hi)].sort((a, b) => a - b) as [number, number])
       .filter(([a]) => a >= 0)
       .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-    return { ...report, elements: report.ids.map(dom).filter((i) => i >= 0), pairs, textPxByElement };
+    return { ...report, elements: report.ids.map(dom).filter((i) => i >= 0), pairs, textPxByElement, ...ink };
   },
 };
 

@@ -85,15 +85,19 @@ test.describe("W75 – the Canvas2D halo and colour auto-refresh", () => {
       "#merge": "rgb(26, 131, 97)",
       "#card": "rgb(38, 50, 56)",
     };
+    // W89 red: approved-test change (D89-1, D89-5, saga dec_65b5e308): a shake that brings two neighbours' liquids
+    // together mixes them; a mixing element's DOM text is hidden by liquid-text, which beats the halo (M7), while the
+    // canvas draws its text. The halo class and colour are checked on every element whose text is not hidden.
+    const mixing = (selector: string): Promise<boolean> => page.locator(selector).evaluate((el) => el.classList.contains("liquid-text"));
     for (const [selector, colour] of Object.entries(expected)) {
       const h = await haloOf(page, selector);
       expect(h.cls, `${selector} carries the halo while moving`).toBe(true);
-      expect(h.shadow, `${selector} halo colour`).toContain(colour);
+      if (!(await mixing(selector))) expect(h.shadow, `${selector} halo colour`).toContain(colour);
     }
     // The card has two paragraphs; each inherits the halo (W75.5: strict-mode fix, intent unchanged).
     const paragraphShadows = await page.locator("#card p").evaluateAll((els) => els.map((el) => getComputedStyle(el).textShadow));
     expect(paragraphShadows).toHaveLength(2);
-    for (const shadow of paragraphShadows) expect(shadow).toContain("rgb(38, 50, 56)");
+    if (!(await mixing("#card"))) for (const shadow of paragraphShadows) expect(shadow).toContain("rgb(38, 50, 56)");
     await page.screenshot({ path: testInfo.outputPath("w75-halo-shake-f5.png") });
   });
 

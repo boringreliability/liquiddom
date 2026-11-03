@@ -106,7 +106,8 @@ describe("W71 gpu-buffers", () => {
   it("given_the_element_record_when_read_then_16_floats_64_bytes_with_the_wgsl_struct_offsets", () => {
     expect(ELEMENT_GPU_FLOATS).toBe(16);
     expect((ELEMENT_GPU_FLOATS * 4) % 16).toBe(0);
-    expect(EG).toEqual({ X: 0, Y: 1, W: 2, H: 3, RADIUS: 4, REST_ALPHA: 5, MASS: 6, KERNEL_R: 7, R: 8, G: 9, B: 10, A: 11, FLAGS: 12 });
+    // W89 red: approved-test change (D89-8, saga dec_29db2b54): the first pad float carries the dense rank.
+    expect(EG).toEqual({ X: 0, Y: 1, W: 2, H: 3, RADIUS: 4, REST_ALPHA: 5, MASS: 6, KERNEL_R: 7, R: 8, G: 9, B: 10, A: 11, FLAGS: 12, RANK: 13 });
   });
 
   // W74 red: approved-test change (D74-4: 8 floats per particle; Dennis approves at W74 red)

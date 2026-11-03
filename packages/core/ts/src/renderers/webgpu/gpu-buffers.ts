@@ -19,9 +19,9 @@ import { kernelRadiusPx } from "../kernel-params";
 
 /** Floats per element record: rect (4), radius, restAlpha, mass, kernel radius, rgba (4), flags, 3 × pad = 64 bytes. */
 export const ELEMENT_GPU_FLOATS = 16;
-/** Offsets in one element record; mirrors WGSL `struct Element` (shaders.ts). */
+/** Offsets in one element record; mirrors WGSL `struct Element` (shaders.ts). W89 (D89-8): RANK = the dense rank of a moving slot, else 0. */
 export const EG = {
-  X: 0, Y: 1, W: 2, H: 3, RADIUS: 4, REST_ALPHA: 5, MASS: 6, KERNEL_R: 7, R: 8, G: 9, B: 10, A: 11, FLAGS: 12,
+  X: 0, Y: 1, W: 2, H: 3, RADIUS: 4, REST_ALPHA: 5, MASS: 6, KERNEL_R: 7, R: 8, G: 9, B: 10, A: 11, FLAGS: 12, RANK: 13,
 } as const;
 /** Written for a particle whose x or y is not finite: its quad lands far outside the viewport. */
 export const OFFSCREEN_PX = -1e6;

@@ -117,6 +117,16 @@ export class FluidCanvas2DRenderer implements Renderer {
     this.drawResting(ctx, frame);
   }
 
+  /** W89 (D89-5, D89-6). W89.1 red: inert (W89.4). */
+  textMixing(_id: number): boolean {
+    return false;
+  }
+
+  /** W89 (D89-5). W89.1 red: inert (W89.4). */
+  wantsAtlas(): boolean {
+    return false;
+  }
+
   /** W88 (D88-1): true when the last render() drew slot `id`'s shadow. */
   shadowsDrawn(id: number): boolean {
     return this.ctx !== null && this.shadows.drawn(id);
