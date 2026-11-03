@@ -18,7 +18,7 @@ import { El, ELEMENT_STRIDE } from "../../packages/core/ts/src/fluid-layout";
 import { createRenderCountingClock, type RenderCountingClock } from "../render-counting-clock";
 import type { LiquidTestHook, ScenePerfProbe, ScenePerfSnapshot } from "../test-hooks";
 import { parseSceneParams } from "./scene-params";
-import { INK_LIGHT_MIN, INK_ZONE_FADE, summarizeInk, summarizeTextIds, type InkCaptureLike } from "../text-id-report";
+import { INK_LIGHT_MIN, INK_ZONE_FADE, summarizeInk, summarizeInkBands, summarizeTextIds, type InkCaptureLike } from "../text-id-report";
 
 const PARTICLES = 8000;
 /** W79: a canvas text pixel has every channel and alpha ≥ this (webgpu-robust.spec.ts CANVAS_TEXT_MIN). */
@@ -273,7 +273,7 @@ const hook: LiquidTestHook = {
       .map(([lo, hi]) => [dom(lo), dom(hi)].sort((a, b) => a - b) as [number, number])
       .filter(([a]) => a >= 0)
       .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-    return { ...report, elements: report.ids.map(dom).filter((i) => i >= 0), pairs, textPxByElement, ...ink };
+    return { ...report, elements: report.ids.map(dom).filter((i) => i >= 0), pairs, textPxByElement, ...ink, bandTextPx: summarizeInkBands(capture, pixels, TEXT_ID_TEXT_MIN) };
   },
 };
 

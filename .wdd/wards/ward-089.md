@@ -268,8 +268,135 @@ Found by the survey (2026-11-03). Each is folded into a decision above and is pr
 
 Written after the W89.0 gate (part 2 of the plan): the technique details and the file-level changes.
 
+**Architecture.** One pure module holds the ink maths and the tunable constants (`renderers/ink.ts`); the WGSL interpolates the constants.
+- **WebGPU** keeps one text pass and widens it: T1ink (`rgba16float`, Σw·ink) and T1mix (`rg16float`, r = Σw·rank, g = the all-liquid Σw) join T1/T1w/T1id (26 B per sample). Every moving element enters the pass; a text-less one writes T1id and T1mix only, so T1w stays text-only. The vertex stage samples the atlas over the particle's rest cell (the per-particle ink). The text composite maps W79's gathered lo/hi ids to ranks through the element records (`EG.RANK`), takes fade = smoothstep(0.03, 0.3, 4p(1 − p)) and returns `crisp × (1 − fade) + ink × fade`; D79-1's cut is gone.
+- **Canvas2D** gets the atlas lazily: the renderer reports `wantsAtlas()` once two elements move, and the runtime builds the page on the next frame. A dedicated `InkCanvas2D` (`renderers/ink-canvas2d.ts`) splats every moving particle into its own monomorphic `InkGrid` (Σw, Σw·rank, lo/hi rank, Σw·ink) only when two elements move and one of them has atlas text. It resolves fade and ink per cell, steps the `MixReport` hysteresis per slot, and draws after the resting rects: the ink, and for each slot it reports, the atlas text at the element's DOM box with 1 − fade cut out. `textMixing(id)` says what the last render drew; under Canvas2D the runtime's `liquid-text` follows it.
+- **Runtime:** reduced motion and a stop repaint the canvas once with `suppressText` where a text class was held (W88's repaint, widened); the device-lost rebuild keeps the atlas. Rust, the FFI and the public API are untouched.
+
+**Decisions (approved 2026-11-03; as recorded in `ward-089.md`):**
+
+| Item | What this plan implements |
+|---|---|
+| D89-1 Mixing gate (dec_65b5e308) | `mixOf`, `fadeOf`, `inkFade`, `blendInk`; the WGSL composite and the Canvas2D cell resolve use them; one element → fade 0 → today's path |
+| D89-2 Variant C (dec_efb79947) | `particleInk` (Canvas2D, once per generation/paints/page version); the vertex-stage mirror in `TEXT_WGSL`; `inkScale` (gain 1.2, cap 0.6) × the all-liquid edge coverage |
+| D89-3 Every liquid counts (dec_b2c1c6a2) | text-less moving elements in the text pass (coverage 0, `acc_w = w × has_text`) and in the `InkGrid`; both texts feed ink, the dragged one's too |
+| D89-4 Soft guarantee (dec_fac79d1f) | the composite's fade replaces the cut; A1 amended to "no crisp text where fade ≥ 0.9 (resolution 15), ink present, at rest no mixed texels"; `summarizeInk` in the W79 hook; the step 5 note in the ward only |
+| D89-5 Canvas2D atlas and class (dec_e1b67b60) | `wantsAtlas()` → `atlasWanted` → `rebuildAtlas`/`atlasDue` open for Canvas2D; no text → no page; the toggle reads `textMixing` under Canvas2D; A2, A3, A5 changed; A4 re-checked (green), A7 re-checked and changed (resolution 13) |
+| D89-6 Hysteresis (dec_c8668af2) | `MixReport` (enter 6 cells at fade > 0.3; release after 10 frames under 1 cell at fade > 0.1; off at once when ineligible); drawn from the frame after entry; away slots skipped (resolution 2) |
+| D89-7 Targets (dec_a567ca91) | T1ink `rgba16float` + T1mix `rg16float`, 26 B; atlas and sampler visible to the vertex stage; lo/hi stay W79's gather; `captureTextIds({ mix: true })` (resolution 8) |
+| D89-8 Dense rank (dec_29db2b54) | `denseRanks`; `EG.RANK = 13` (WGSL `Element.rank`, was `_pad0`); the composite reads the element records (binding 7) |
+| D89-9 Perf (dec_2ba27aef) | the `InkGrid` path only with ≥ 2 moving elements and atlas text; `INK_CELL_FACTOR` 1 → 2 is the fallback; W89.6 Step 3 measures 6 elements |
+| D89-10 Reduced motion (dec_060cfd55) | both renderers draw no ink/atlas text/liquid text under `reducedMotion` or `suppressText`; the paused repaint runs when a text class was held |
+| D89-11 Tuning (dec_c28300ce) | gain, alpha cap, fade and report thresholds are constants; row 7 pins the limit (never wider, never stronger); values logged in the ward |
+| D89-12 Docs and baselines (dec_a9a90d32) | W89.6 Steps 4–5 |
+
+**Design resolutions this plan makes.** Resolutions 2, 4, 13 and 14 extend an approved decision or approved tests, and resolution 15 sets A1's bound; W89.1 Step 0 presents them before any red test.
+1. **The class follows what was drawn.** Canvas2D decides the report from frame N's cells and draws a reported slot's atlas text and ink from frame N + 1; `textMixing(id)` is "the last render drew it", and the toggle runs after `render()`. Entry therefore lags one frame (D89-6: ≤ 2), and the class and the canvas text always change in the same frame.
+2. **"Dragged" means W78's away set (extends D89-6).** The report skips a slot while it is DRAGGED **or** while this instance holds `liquid-away` on it (released, crawling home), read from `RenderFrame.awaySlots`. Without it, Merge after the release would report mixing and the canvas would draw its atlas text at its DOM box while its liquid is still away. D89-6's reason ("its label is already hidden by W78's `liquid-away`") covers both.
+3. **Ink only where the DOM text is hidden.** A particle feeds the ink grid's Σw·ink only while its slot is drawn (resolution 1) or away; every moving particle feeds Σw, Σw·rank and lo/hi. A cell counts toward the report for its smallest and its largest rank only: with three liquids in one cell the middle one is not counted there, because p (and so the fade) describes the lo|hi pair; the middle element is counted at its own interfaces with each neighbour, where it is lo or hi, so a three-way mix still enters through those cells.
+4. **A stop repaints without text (extends D89-10 to the stop path, Review Focus 1).** W88's `repaintWithoutShadows` becomes one repaint with `suppressShadows` and `suppressText` whenever a shadow class or a text class was held. It runs on a stop (a failed frame or a failed rebuild) and when reduced motion turns on while paused. Under WebGPU this also removes the liquid text a stopped canvas kept until now.
+5. **Per-particle ink in the vertex stage (D89-2's builder choice).** 16 taps × 6 vertices per particle, no new buffer or pass. W89.6 Step 3 measures the GPU time; over +1 ms, the cached per-particle buffer of D89-2 replaces it (a note, no new decision).
+6. **T1w stays text-only:** `out.acc_w = w * in.has_text;` the all-liquid Σw lives in T1mix.g (D89-3's separate Σw).
+7. **Rank map.** `packElements` writes the dense rank of every drawable slot with restAlpha < 1 and mass > 0 into `EG.RANK` (0 elsewhere; existing records keep their zeros). The composite reads `elements[lo].rank` and `elements[hi].rank`, so T1id, `TEXT_ID_EMPTY` and A8 are untouched.
+8. **`captureTextIds(opts?: { mix?: boolean })`.** Only `{ mix: true }` also copies T1mix and returns `mix` and `ranks`, so W79's capture and its four tests stay as they are; the acceptance hook asks for it.
+9. **`INK_ALPHA_CAP` starts at 0.6** (the spike's suggestion; D89-11 allows weaker). The amended A1 needs it: at fade ≥ 0.9 the crisp text weighs ≤ 0.1, and with ink alpha ≤ 0.6 no zone pixel can reach W79's text threshold (200).
+10. **The ink grid is the density cell** (`INK_CELL_FACTOR = 1`); D89-9's 4 px fallback is factor 2.
+11. **Canvas2D draws ink and atlas text after the resting rects**, above all liquid, as the DOM text it replaces sits.
+12. **The lazy atlas.** `atlasWanted` is set after a render whose renderer reports `wantsAtlas()` (Canvas2D only) and stays set; it also arms `atlasDeferred`, so the next frame builds the page. The device-lost rebuild keeps `atlasRects` and `atlasFrame` and sets `atlasWanted` when a page existed (D89-5).
+13. **Approved tests.** A1, A2, A3, A5 as approved at the gate. **A7 changes too:** the gate left it to a re-check at red, and the validation's prototype run failed it (after a shake, Split's liquid mixes with a neighbour's within 5 frames, so `liquid-text` beats its halo by M7, as D89-1's consequence foresaw); its halo colour is now checked only where no `liquid-text` holds. Seven more are pinned by tests the gate did not name (found by the plan validation):
+    - B1, B2: `webgpu-renderer.test.ts:164` (targets, storage 12 → 13, buffers 24 → 25) and `:535` (attachments);
+    - B3: `gpu-buffers.test.ts:106` (`EG` gains `RANK: 13`);
+    - B4a, B4b: `webgpu-shaders.test.ts:52` (name only) and `:65` (`out.acc_w = w * in.has_text;`);
+    - B5: `webgpu-shaders.test.ts:77` (`let crisp = text * coverage;`);
+    - B6: `webgpu-shaders.test.ts:95` (the D79-1 cut becomes the fade; the unit twin of A1).
+
+    Re-checked and unchanged: A4 (a splash on Splash mixes with nobody in 30 frames), A6 and A8.
+14. **`unobserve(el)` repaints without that element's text (extends D89-10's repaint, Review Focus 1).** When this instance holds `liquid-text` on `el`, `unobserve` releases the class and repaints once, paused or running, with `RenderFrame.textOff = id`: Canvas2D draws no atlas text and no ink for that slot; WebGPU writes a zeroed text record for it for that render (the next pack restores it; `textReady` keeps its answer) and skips the pass when no other text moves. So the canvas never keeps an unobserved element's text next to its returned DOM text, not even on a paused instance.
+15. **A1's "small bound" is `INK_ZONE_FADE = 0.9` (D89-4 left the bound open; Step 0 item 6).** A pixel test cannot tell one element's crisp glyph from two elements'. Below fade ≈ 0.2 a pixel keeps ≥ 0.8 of one element's own crisp text, which reaches W79's text threshold (200) by itself. This is argued, not measured: the validation prototype counted up to 58 text pixels on mixed texels below fade 0.9 but did not split them by fade. The W89.1 red run therefore logs A1's text-pixel count per fade band (0.1–0.2, 0.2–0.5, 0.5–0.9) so the bound is backed by a measurement before gold; if the bands show 0 below 0.9, the bound is lowered to the smallest band that holds 0 (a tuning within D89-4, logged in the ward). At 0.9 the crisp weight is ≤ 0.1, and with `INK_ALPHA_CAP` 0.6 no zone pixel can reach 200: zero there means no crisp label at all. D89-4's soft edge (fade < 0.9) stays logged as `worst`. A1 keeps D89-4's "at rest no mixed texels".
+16. **Accepted:** the canvas atlas text differs from the DOM text by sub-pixel anti-aliasing while hidden (D89-6). With three liquids in a pixel p is approximate (row 4; vision in W89.6). **The WGSL resolve (rank → p → fade → ink) has no automated parity test with `ink.ts`**: the unit rows pin the shader text (40, B4b–B6), and A1 and G2 pin the behaviour on Metal.
+
+**Pre-red gate (Dennis "ja" 2026-11-03, saga dec_d2a8df49):** resolutions 2, 4, 14 and 15, A7 and B1–B6 approved as recommended. A1 additionally logs the text-pixel count on mixed texels per fade band 0.1–0.2, 0.2–0.5, 0.5–0.9 and >= 0.9 (worst frame of the flow; `summarizeInkBands`, log only, no assertion on the bands).
+
 ## Tests
-Written in part 2 of the plan after the D89 gate (W89.1 red).
+
+Red was measured in the repo at W89.1 (commit f8a758c, 2026-11-03) and matches the plan validation row for row. **A** = an assertion fails (no import or type error anywhere). ✅ at red = a guard or a test-only change.
+
+| # | Test (file: name) | Pins | Red |
+|---|---|---|---|
+| 1 | ink.test: given_one_element_lo_equal_hi_or_no_liquid_when_mixed_then_mix_and_fade_are_0_D89_1 | D89-1 | ✅ (the stub returns 0) |
+| 2 | ink.test: given_a_50_50_mix_when_inkFade_then_mix_1_and_fade_1_and_a_25_75_mix_gives_mix_0_75_D89_1 | D89-1 | ❌ A (0 ≠ 1) |
+| 3 | ink.test: given_mix_values_around_the_thresholds_when_fadeOf_then_smoothstep_from_INK_FADE_LO_to_INK_FADE_HI_D89_1 | D89-1 | ❌ A |
+| 4 | ink.test: given_three_ranks_in_one_pixel_when_inkFade_then_the_fade_stays_above_0_where_they_mix_review_focus_4 | D89-1, RF4 | ❌ A |
+| 5 | ink.test: given_crisp_ink_and_fade_when_blendInk_then_crisp_times_1_minus_fade_plus_ink_times_fade_with_fade_clamped_D89_1 | D89-1 | ❌ A |
+| 6 | ink.test: given_sums_when_inkScale_then_gain_over_sum_w_capped_at_INK_ALPHA_CAP_and_0_without_liquid_D89_2 | D89-2, D89-11 | ❌ A |
+| 7 | ink.test: given_the_tunable_values_when_read_then_the_zone_is_never_wider_and_the_ink_never_stronger_than_the_spike_D89_11 | D89-11 | ✅ (guard) |
+| 8 | ink.test: given_an_atlas_page_when_particleInk_then_the_mean_premultiplied_texel_over_the_rest_cell_is_text_colour_times_coverage_D89_2 | D89-2 | ❌ A |
+| 9 | ink.test: given_a_rest_cell_partly_off_the_page_or_a_blank_cell_when_particleInk_then_off_page_taps_count_as_transparent_and_a_blank_cell_is_0_D89_2 | D89-2 | ❌ A |
+| 10 | ink.test: given_moving_slots_with_ids_up_to_255_when_denseRanks_then_ranks_0_to_k_minus_1_in_id_order_and_minus_1_elsewhere_D89_8 | D89-8, RF5 | ❌ A |
+| 11 | ink.test: given_15_fragments_accumulated_in_f16_when_p_is_read_from_ranks_then_it_matches_the_exact_p_for_ids_254_and_255_review_focus_5 | D89-8, RF5 | ❌ A |
+| 12 | mix-report.test: given_the_thresholds_when_read_then_the_exit_is_lower_than_the_entry_and_the_release_takes_10_frames_D89_6 | D89-6, D89-11 | ✅ (guard) |
+| 13 | mix-report.test: given_entry_cells_below_and_at_the_threshold_when_stepped_then_off_then_on_in_that_same_step | D89-6 | ❌ A |
+| 14 | mix-report.test: given_on_when_the_exit_cells_stay_below_the_exit_threshold_then_off_only_in_the_10th_frame_and_a_frame_at_the_exit_threshold_restarts_the_count | D89-6 | ❌ A |
+| 15 | mix-report.test: given_on_when_the_slot_stops_being_eligible_then_off_at_once_and_it_needs_the_entry_threshold_again | D89-6 | ❌ A |
+| 16 | mix-report.test: given_two_slots_when_one_releases_or_reset_runs_then_each_slot_keeps_its_own_state_and_reset_turns_all_off | D89-6 | ❌ A |
+| 17 | fluid-canvas2d-ink.test: given_two_moving_text_elements_whose_liquids_overlap_when_rendered_then_both_report_textMixing_from_the_next_frame_and_their_atlas_text_is_drawn_at_their_dom_boxes_D89_5_D89_6 | D89-5, D89-6, res. 1, RF1 | ❌ A |
+| 18 | fluid-canvas2d-ink.test: given_mixing_elements_when_rendered_then_the_atlas_text_is_masked_by_one_minus_fade_with_destination_out_and_the_ink_lies_only_where_the_liquids_mix_D89_2_D89_6 | D89-2, D89-6 | ❌ A (no scratch canvas) |
+| 19 | fluid-canvas2d-ink.test: given_one_moving_element_beside_one_at_rest_when_rendered_then_no_atlas_read_no_ink_canvas_and_neither_textMixing_nor_wantsAtlas_D89_9 | D89-9 | ✅ (guard: no cost) |
+| 20 | fluid-canvas2d-ink.test: given_two_moving_elements_when_rendered_then_wantsAtlas_turns_true_and_stays_and_the_page_is_read_once_per_version_D89_5 | D89-5 | ❌ A |
+| 21 | fluid-canvas2d-ink.test: given_the_dragged_element_or_one_held_away_when_it_mixes_then_it_never_reports_textMixing_and_its_atlas_text_is_not_drawn_but_its_ink_feeds_the_zone_D89_3_D89_6 | D89-3, D89-6, res. 2, 3 | ❌ A |
+| 22 | fluid-canvas2d-ink.test: given_a_text_less_partner_when_the_liquids_mix_then_the_text_element_reports_mixing_and_its_ink_is_diluted_review_focus_3 | D89-3, RF3 | ❌ A |
+| 23 | fluid-canvas2d-ink.test: given_restAlpha_1_while_the_report_holds_when_rendered_then_textMixing_is_false_in_that_frame_and_its_atlas_text_is_not_drawn_review_focus_2 | D89-6, RF2 | ❌ A (precondition) |
+| 24 | fluid-canvas2d-ink.test: given_reduced_motion_or_suppressText_while_the_report_holds_when_rendered_then_no_ink_no_atlas_text_and_textMixing_false_D89_10 | D89-10, RF6 | ❌ A (precondition) |
+| 25 | fluid-canvas2d-ink.test: given_the_liquids_part_while_both_still_move_when_rendered_then_the_atlas_text_stays_for_10_frames_and_goes_in_the_11th_D89_6 | D89-6 | ❌ A |
+| 25a | fluid-canvas2d-ink.test: given_thin_liquid_in_the_overlap_when_rendered_then_the_fade_is_full_but_the_ink_takes_the_liquids_edge_coverage_smoothstep_0_4_0_6_and_is_0_D89_2 | D89-2 | ❌ A (precondition) |
+| 25b | fluid-canvas2d-ink.test: given_the_same_generation_paints_and_page_when_the_rest_uvs_change_then_the_per_particle_ink_is_cached_and_a_new_generation_recomputes_it_D89_2 | D89-2 | ❌ A (precondition) |
+| 25c | fluid-canvas2d-ink.test: given_textOff_for_a_mixing_slot_when_rendered_then_that_slots_atlas_text_is_left_out_and_the_other_keeps_its_own_review_focus_1 | RF1, res. 14 | ❌ A (precondition) |
+| 26 | ink-runtime.test: given_canvas2d_and_two_overlapping_text_elements_moving_when_frames_run_then_one_atlas_page_is_built_and_read_once_and_each_frame_holds_liquid_text_exactly_on_the_elements_whose_atlas_text_it_drew | D89-5, D89-6, res. 1, 12, RF1 | ❌ A (last frame {0, 0}) |
+| 27 | ink-runtime.test: given_canvas2d_and_two_text_less_elements_moving_together_when_frames_run_then_no_atlas_page_and_no_class | D89-5 | ✅ (guard) |
+| 27a | ink-runtime.test: given_canvas2d_and_no_OffscreenCanvas_when_two_text_elements_mix_then_no_atlas_page_no_class_and_todays_look_D89_5 | D89-5 | ✅ (guard) |
+| 28 | ink-runtime.test: given_canvas2d_liquid_text_held_when_unobserve_runs_paused_or_running_then_the_class_goes_at_once_and_one_repaint_leaves_out_that_elements_atlas_text_and_destroy_clears_the_rest_review_focus_1 | RF1, res. 14 | ❌ A (precondition) |
+| 28a | ink-runtime.test: given_webgpu_liquid_text_held_when_unobserve_runs_then_the_class_goes_and_one_repaint_leaves_out_that_elements_liquid_text_review_focus_1 | RF1, res. 14 | ❌ A (no repaint) |
+| 29 | ink-runtime.test: given_canvas2d_liquid_text_held_when_a_frame_throws_then_the_class_goes_and_the_stop_repaint_draws_no_ink_and_no_atlas_text_review_focus_1 | RF1, res. 4 | ❌ A (precondition) |
+| 30 | ink-runtime.test: given_canvas2d_liquid_text_held_and_the_loop_paused_when_reduced_motion_switches_on_then_the_class_goes_at_once_and_one_repaint_draws_no_atlas_text_D89_10 | D89-10, RF6 | ❌ A (precondition) |
+| 31 | ink-runtime.test: given_webgpu_liquid_text_held_and_the_loop_paused_when_reduced_motion_switches_on_then_one_repaint_runs_no_text_pass_D89_10 | D89-10, RF6 | ❌ A (no repaint) |
+| 32 | ink-runtime.test: given_webgpu_liquid_text_held_when_a_frame_throws_then_the_stop_repaint_runs_no_text_pass_review_focus_1 | RF1, res. 4 | ❌ A (no repaint) |
+| 33 | ink-runtime.test: given_webgpu_and_two_mixing_text_elements_when_the_device_is_lost_then_the_class_goes_at_once_and_returns_under_canvas2d_once_it_draws_their_text_D89_5 | D89-5, RF1 | ❌ A |
+| 34 | webgpu-ink.test: given_init_when_built_then_the_text_pipeline_writes_five_targets_in_26_bytes_per_sample_within_the_32_byte_limit_D89_7 | D89-7 | ❌ A |
+| 35 | webgpu-ink.test: given_init_when_built_then_the_atlas_and_sampler_are_visible_to_the_vertex_stage_and_the_text_composite_binds_T1ink_T1mix_and_the_element_records_D89_2_D89_8 | D89-2, D89-8 | ❌ A |
+| 36 | webgpu-ink.test: given_a_moving_text_element_when_rendering_then_the_text_pass_clears_T1ink_and_T1mix_at_1x_the_composite_reads_them_and_they_follow_resize_and_destroy_D89_7 | D89-7 | ❌ A |
+| 37 | webgpu-ink.test: given_reduced_motion_suppressText_or_textOff_for_the_only_text_slot_when_rendering_a_moving_text_element_then_no_text_pass_and_no_text_composite_D89_10 | D89-10, RF6, res. 14 | ❌ A |
+| 38 | webgpu-ink.test: given_moving_and_resting_slots_with_ids_up_to_255_when_packElements_then_EG_RANK_holds_the_dense_rank_of_the_moving_drawable_slots_in_id_order_D89_8 | D89-8, RF5 | ❌ A |
+| 39 | webgpu-ink.test: given_a_capture_armed_with_mix_when_the_text_pass_runs_then_it_also_carries_the_T1mix_texels_and_each_slots_rank_and_a_plain_capture_stays_W79s_D89_4 | D89-4, res. 8 | ❌ A |
+| 40 | webgpu-ink.test: given_the_shaders_when_read_then_the_text_pass_lets_text_less_liquid_in_and_samples_ink_in_the_vertex_stage_and_the_composite_fades_with_the_shared_constants_instead_of_the_D79_1_cut_D89_1_D89_3_D89_4 | D89-1, D89-3, D89-4 | ❌ A |
+| 41 | ink-report.test: given_a_capture_with_T1mix_and_ranks_when_summarized_then_zone_texels_are_mixed_texels_at_or_above_the_fade_bound_and_text_and_ink_pixels_on_them_are_counted | D89-4 | ❌ A (zone 0) |
+| 42 | ink-report.test: given_a_capture_without_T1mix_or_ranks_or_without_a_text_pass_when_summarized_then_an_empty_ink_report | D89-4 | ✅ (guard) |
+| 43 | text-toggle.test: given_canvas2d_and_a_renderer_with_a_mixing_report_when_synced_then_the_class_follows_textMixing_not_textReady_and_reduced_motion_or_rest_still_win_D89_5 | D89-5 | ❌ A |
+| A1 | webgpu-robust.spec (webgpu-hw): W79 step 5 – … where the two liquids mix no crisp text shows and the ink does … (W89, D89-4); fade bound 0.9, at rest no mixed texels | D89-4, res. 15 | ❌ A (zone in 0/90 hold frames) |
+| A2 | text-runtime.test: given_canvas2d_when_a_single_element_moves_then_liquid_text_is_never_set_and_no_atlas_is_built (renamed) | D89-5 | ✅ (test-only) |
+| A3 | text-toggle.test: given_canvas2d_reduced_motion_no_textReady_or_nan_rest_alpha_… (case relabelled) | D89-5 | ✅ (test-only) |
+| A5 | modes.spec (canvas2d): step 8 – given print media … (message only) | D89-5 | ✅ (test-only) |
+| A7 | halo.spec (canvas2d): D75-3 – given a shake … (the halo colour is checked where no liquid-text holds) | D89-1, D89-5 | ✅ (test-only; red at gold without it) |
+| B1 | webgpu-renderer.test: given_successful_init_when_built_then_eleven_pipelines_… (five text targets; 13 storage, 25 buffers) | D89-7, D89-8 | ❌ A |
+| B2 | webgpu-renderer.test: given_a_text_atlas_and_a_moving_element_with_an_atlas_rect_… (five attachments) | D89-7 | ❌ A |
+| B3 | gpu-buffers.test: given_the_element_record_when_read_then_16_floats_64_bytes_… (EG.RANK) | D89-8 | ✅ (the stub adds RANK) |
+| B4a | webgpu-shaders.test: given_TEXT_WGSL_when_read_then_it_splats_t1_and_t1w_…_skips_resting_or_unpainted_elements (renamed) | D89-3 | ✅ (test-only) |
+| B4b | webgpu-shaders.test: given_TEXT_WGSL_when_read_then_f_inverse_is_norm_clamped_… (`out.acc_w = w * in.has_text;`) | D89-3 | ❌ A |
+| B5 | webgpu-shaders.test: given_TEXT_COMPOSITE_WGSL_when_read_then_t1_over_t1w_is_thresholded_… (`let crisp = text * coverage;`) | D89-1 | ❌ A |
+| B6 | webgpu-shaders.test: given_TEXT_COMPOSITE_WGSL_when_read_then_it_gathers_the_ids_…_and_fades_the_text_into_ink_where_two_elements_meet_D89_4 (was …_coverage_0_…) | D89-4 | ❌ A |
+| E1 | ink.spec (canvas2d): W89 step 5 (canvas2d) – … the card's DOM text hides exactly while the canvas draws it (and the canvas draws none while it shows) …, the rest is pixel-identical … | D89-5, D89-6, RF1, RF2 | ❌ A (hidden 0/90) |
+| E2 | ink.spec (canvas2d): W89 long hold (canvas2d) – … liquid-text never flickers | D89-6 | ❌ A (hidden 0/300) |
+| E3 | ink.spec (canvas2d): W89 text-less blob (canvas2d) – … a text-less liquid counts, D89-3 | D89-3, RF3 | ❌ A (hidden 0/90) |
+| E4 | ink.spec (canvas2d): W89 reduced motion (canvas2d) – … the canvas shows no card text (D89-10) | D89-10, RF6 | ❌ A (precondition) |
+| G1 | webgpu-robust.spec (webgpu-hw): W89 rest (webgpu) – … pixel-identical to before the merge | RF2 | ✅ (guard) |
+| G2 | webgpu-robust.spec (webgpu-hw): W89 text-less blob (webgpu) – … its liquid enters the text pass … | D89-3, RF3 | ❌ A (meets 0/90) |
+| G3 | webgpu-robust.spec (webgpu-hw): W89 reduced motion (webgpu) – … the class goes at once | D89-10, RF6 | ✅ (guard; the repaint is row 31) |
+
+**Counts.**
+- Baseline (`4e741b1`): vitest `946 passed (946)`, 95 files; Playwright `--list` canvas2d 110 / webgpu 51 / webgpu-hw 102 / perf 6 / dist 2 / site 7 / record 4 / record-webgpu 4; cargo `245 passed; 0 failed; 1 ignored`.
+- **Red (W89.1):** `994` tests, **`948 passed`, `46 failed`**, 101 files. Rows 2–6, 8–11, 13–18, 20–25c, 26, 28–41, 43 and B1, B2, B4b, B5, B6 fail, each on an assertion; rows 1, 7, 12, 19, 27, 27a, 42 and A2, A3, B3, B4a pass.
+- **After W89:** vitest **`994 passed (994)`**, **101** files (+48 tests, +6 files); Playwright `--list` canvas2d **114** (+4, `ink.spec.ts`), webgpu-hw **105** (+3, the W89 block), the others unchanged; cargo unchanged at 245.
+
+**Measured at W89.1 red (2026-11-03):** vitest 994 tests, 948 passed, 46 failed, 101 files, every failure an assertion. `npm run e2e:typecheck` clean. `--list`: canvas2d 114, webgpu-hw 105. canvas2d `ink.spec.ts`: E1–E4 fail on assertions (hidden 0/90, 0/300, 0/90, precondition); modes, acceptance, halo: 44 passed, 15 skipped (A4, A5, A7 green). webgpu-hw on Metal (`-g "W79 step 5|W89"`): A1 and G2 fail on assertions, G1 and G3 pass. A1 log at red: 160 frames, max mixed texels 8008, zone 0/90, Merge|card pair 90/90; per fade band worst frame (0.1–0.2, 0.2–0.5, 0.5–0.9, >= 0.9): 0, 0, 0, 0 (the zone is empty at red, so the bands are zeros until W89.3 captures T1mix).
 
 ## Must NOT
 - Change the engine, the FFI or any public API (Rust, `FluidCore`, the strides), or add an option.
@@ -289,7 +416,12 @@ Written in part 2 of the plan after the D89 gate (W89.1 red).
 - Inspect every still and recording with vision before reporting a visual result.
 
 ## Manual Smoke Test
-Written in part 2 of the plan after the D89 gate (W89.1 red).
+Dennis' smoke at gold (W89.6 Step 7), after `wdd ward status 89 gold`:
+1. `npm run dev`, `scenes/acceptance.html?renderer=webgpu`: drag Merge into the card, hold, wiggle and release. The text dissolves into ink and is crisp at rest.
+2. The same with `?renderer=canvas2d`.
+3. Drag a text-less element into the card (devtools: empty Merge's text).
+4. System "Reduce motion" on mid-merge, with the tab paused and resumed.
+5. The site's chapter 4.
 
 ## Verification
 - `npm run verify`, `npm run e2e:canvas2d` and `npm run e2e:webgpu-hw` green.

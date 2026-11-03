@@ -1124,6 +1124,8 @@ type W79TextIds = {
   zone: number;
   zoneTextPx: number;
   zoneLightPx: number;
+  /** W89 (D89-4, log only): canvas text px on mixed texels at fade [0.1, 0.2), [0.2, 0.5), [0.5, 0.9), >= 0.9. */
+  bandTextPx: [number, number, number, number];
 };
 /** W79 red review (I3): at least this many of the 90 hold frames (half) must hold a mixed Merge|card texel. */
 const W79_MIN_MEET_HOLD_FRAMES = W79_HOLD_FRAMES / 2;
@@ -1174,6 +1176,9 @@ test.describe("W79 – labels never overlap (webgpu)", () => {
     const zoneTextWorst = frames.reduce((m, r) => Math.max(m, r.zoneTextPx), 0);
     const zoneFrames = holdFrames.filter((r) => r.zone > 0).length;
     const lightMax = holdFrames.reduce((m, r) => Math.max(m, r.zoneLightPx), 0);
+    // D89-4 (pre-red gate): the soft edge per fade band, worst frame of the flow; logged, never asserted (the last band is the asserted 0).
+    const bandWorst = [0, 1, 2, 3].map((b) => frames.reduce((m, r) => Math.max(m, r.bandTextPx[b] ?? 0), 0));
+    console.log(`W89 A1 text px on mixed texels per fade band, worst frame: 0.1-0.2 ${bandWorst[0]}, 0.2-0.5 ${bandWorst[1]}, 0.5-0.9 ${bandWorst[2]}, >=0.9 ${bandWorst[3]}`);
     console.log(
       `W79 text ids (webgpu): ${frames.length} frames, max mixed texels ${mixedMax}, max text px on mixed texels ${worst} (soft edge, D89-4), max text px in the ink zone ${zoneTextWorst}, hold frames with a zone ${zoneFrames}/${W79_HOLD_FRAMES}, max ink px ${lightMax}, card-only text px at hold f90 ${cardText}, hold frames with the Merge|card pair ${meetFrames}/${W79_HOLD_FRAMES}`,
     );

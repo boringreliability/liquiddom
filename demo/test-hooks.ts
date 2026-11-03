@@ -66,6 +66,8 @@ export interface SceneTextIds {
   zoneTextPx: number;
   /** W89: zone pixels lit by ink (every channel ≥ INK_LIGHT_MIN). */
   zoneLightPx: number;
+  /** W89 (D89-4, log only): canvas text pixels on mixed texels at fade [0.1, 0.2), [0.2, 0.5), [0.5, 0.9), >= 0.9. */
+  bandTextPx: [number, number, number, number];
 }
 
 export interface LiquidTestHook {

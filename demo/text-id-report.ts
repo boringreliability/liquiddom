@@ -131,3 +131,36 @@ export function summarizeInk(c: InkCaptureLike, px: PixelsLike, textMin: number,
   }
   return report;
 }
+
+/** W89 (D89-4): upper edges of the fade bands whose text pixels A1 logs: [0.1, 0.2), [0.2, 0.5), [0.5, 0.9), [0.9, 1]. */
+export const INK_BAND_EDGES = [0.1, 0.2, 0.5, 0.9] as const;
+
+/**
+ * W89 (D89-4, log only): canvas text pixels (every channel and alpha >= textMin) on mixed texels, per fade band
+ * (see INK_BAND_EDGES). The last band is the asserted zone (0); the others are the soft edge A1 only logs.
+ * All 0 without a text pass, T1mix or ranks.
+ */
+export function summarizeInkBands(c: InkCaptureLike, px: PixelsLike, textMin: number): [number, number, number, number] {
+  const bands: [number, number, number, number] = [0, 0, 0, 0];
+  const { mix, ranks } = c;
+  if (!c.textPass || !mix || !ranks) return bands;
+  if (c.width !== px.width || c.height !== px.height) {
+    throw new Error(`text-id-report: capture ${c.width}x${c.height} vs pixels ${px.width}x${px.height}`);
+  }
+  const row = c.bytesPerRow / 2;
+  for (let y = 0; y < c.height; y++) {
+    for (let x = 0; x < c.width; x++) {
+      const t = y * row + 2 * x;
+      const lo = halfToFloat(c.data[t] ?? 0);
+      const hi = -halfToFloat(c.data[t + 1] ?? 0);
+      if (!(lo < c.empty) || !(lo + 0.5 < hi)) continue;
+      const fade = inkFade(halfToFloat(mix[t + 1] ?? 0), halfToFloat(mix[t] ?? 0), ranks[lo] ?? 0, ranks[hi] ?? 0);
+      if (!(fade >= INK_BAND_EDGES[0])) continue;
+      const o = (y * px.width + x) * 4;
+      const d = px.data;
+      if (!(d[o + 3]! >= textMin && d[o]! >= textMin && d[o + 1]! >= textMin && d[o + 2]! >= textMin)) continue;
+      bands[fade < INK_BAND_EDGES[1] ? 0 : fade < INK_BAND_EDGES[2] ? 1 : fade < INK_BAND_EDGES[3] ? 2 : 3]++;
+    }
+  }
+  return bands;
+}
