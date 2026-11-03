@@ -96,6 +96,7 @@ Proposal: W79's hard cut (coverage 0 where lo < hi, `shaders.ts:418-419`) become
 
 Consequence: an approved-test change. The D79-1 row in NORTH-STAR stays as history, and W89's rows record the amendment. A pixel with a faint double label at fade ≈ 0 is accepted if vision shows no ghosting. The hook's report (`demo/text-id-report.ts`) needs a fade-aware count, or the amended test needs a capture of the ink weight.
 Decision: APPROVED 2026-11-03 — D79-1 becomes a soft guarantee; A1 amended (no crisp text of both elements where fade ≥ a small bound); NORTH-STAR step 5 wording kept with a note (approved-test change) (saga dec_fac79d1f)
+Note (pre-red gate, 2026-11-03, saga dec_d2a8df49): A1's bound is fade ≥ 0.9 (argued: a pixel test cannot tell one glyph from two); the red run logs text pixels per fade band and the bound is lowered if the bands allow; "at rest no mixed texels" is asserted. Approved-test changes also: A7 (`e2e/halo.spec.ts:78`, halo colour checked only where no `liquid-text` holds) and B1–B6 (`webgpu-renderer`, `gpu-buffers`, `webgpu-shaders` tests). NORTH-STAR step 5 and the fluid design §6 keep their wording: "the labels never overlap" holds for crisp labels.
 
 ### D89-5: Canvas2D gets the atlas and `liquid-text`
 Proposal:
@@ -127,6 +128,7 @@ Proposal:
 
 Consequence: a short lag at entry (≤ 2 frames) is acceptable if vision shows no pop. The 10-frame release keeps the canvas text for up to 10 frames after the zone ends; the forced release at rest bounds it. The canvas atlas text is the atlas's `fillText` and not the browser's DOM text, so it may differ by subpixel anti-aliasing while hidden. An e2e checks for no flicker over a long hold.
 Decision: APPROVED 2026-11-03 — enter ≤ 2 frames, release after 10 frames under a lower exit threshold, forced release at rest; ink only while the DOM text is hidden; dragged element skipped for the hide report only (saga dec_c8668af2)
+Note (pre-red gate, 2026-11-03, saga dec_d2a8df49): the mixing report skips W78's whole away set (the dragged slot and a released slot crawling home while `liquid-away` holds), not only the dragged slot; its ink still feeds the zone. The class arrives one frame after the report enters.
 
 ### D89-7: WebGPU targets within 32 B per sample
 Proposal: the ink and Σw·id are extra targets of the existing text pass, at 1× the backing size.
@@ -170,6 +172,7 @@ Proposal: under reduced motion nothing moves and nothing mixes, but production g
 
 Consequence: one more flag in both renderers' text paths and in the paused repaint. Print and forced colours are unchanged (the canvas is hidden).
 Decision: APPROVED 2026-11-03 — no ink under reduced motion; the paused repaint also removes WebGPU's liquid text (saga dec_060cfd55)
+Note (pre-red gate, 2026-11-03, saga dec_d2a8df49): a stop repaints once without ink, atlas text or liquid text whenever a text class was held, and `unobserve(el)` of a text-held element repaints once without that element's text (`RenderFrame.textOff`), in both renderers, paused or running.
 
 ### D89-11: Tuning freedom
 Proposal: gain (spike 1.2), an ink alpha cap (spike suggestion ≈ 0.6) and the fade thresholds (0.03 / 0.3), plus Canvas2D's entry and exit thresholds, may be tuned without a new decision to avoid noise or glow. The cases are light-on-light pairs, two bold white labels meeting and three-way mixing. The limit: the zone is never made wider, and the ink never stronger, than the spike's look. Vision is the judge, and every tuned value is logged in this ward.
