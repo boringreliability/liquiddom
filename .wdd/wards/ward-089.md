@@ -265,6 +265,41 @@ Stills in `.superpowers/sdd/W89/stills-w89.5/`, every one inspected with vision;
   - device loss (webgpu only): the Canvas2D rebuild draws the card's text from the former atlas page (class `liquid-text` back on, text visible and blurred inside the Merge blob, no doubling). Row 33's getContext("2d") on the former page works on Metal.
 - Observation, not a defect: a stopped instance keeps its last frame (Merge's blob stays over the card, its DOM label sits at home on the page).
 
+## W89.6 vision (2026-11-03)
+HEAD 370aa35, no tuning applied. Scene on Vite 4191 (`?seed=1&clock=manual&test=1`, Playwright Chromium; WebGPU on the Metal adapter), the site in `astro dev` on 4194 (Canvas2D via the headless shell, WebGPU via new headless on Metal), 1280 × 800. Every still was inspected with vision, zoomed where needed. Moments: drag → hold f30, f90, release +150 ms (9 frames), +500 ms (30 frames), rest; step 5 also has f12, three-way also drag f4 and f10 and hold f8, and the site has hold 500 ms and 1500 ms. Files are in `.superpowers/sdd/W89/vision/out/` (git-ignored), with `sheet-<case>.png` and `sheet-overview.png`. DPR 1 and DPR 2 show the same frames (deterministic seed), so the DPR 1 rows judge sharpness only.
+
+| Case | Renderer | DPR | Verdict |
+|---|---|---|---|
+| Step 5 (Merge into the card) | canvas2d | 1 | Ink: soft pale smears inside the green blob, the card's lines cut cleanly at the blob's edge, no double label, rest crisp; still soft at DPR 1, not grainy. |
+| Step 5 | canvas2d | 2 | Ink, not noise: f30/f90 read as dissolved white ink in the green, and release and rest are crisp. The beige patches at rel +500 ms are holes where the liquids part (page colour 243,239,230), not lumps. |
+| Step 5 | webgpu | 1 | Ink in the zone, equal in look to Canvas2D. The card's own text bends and tears with its liquid outside the zone (W79, unchanged). |
+| Step 5 | webgpu | 2 | Ink, not noise: f90 matches Canvas2D almost pixel for pixel in the zone. The thin bright arcs below the blob at f12/f30 are the card's own text stretched by its liquid (W79, also in the spike's "today"), not ink. No double label, rest crisp. |
+| Step 5 wiggle (1.2 s, recording) | canvas2d | 2 | The ink smears move with the blob over 72 frames with no flicker or speckle. White spots that appear for a few frames are background holes, not glow. |
+| Step 5 wiggle (1.2 s, recording) | webgpu | 2 | The same as Canvas2D, and the card's own text swirls (W79). No glow and no flicker in the zone. |
+| Light-on-light (card #f3efe6 / #1d1d1f) | canvas2d | 1 | No noise, and the mix is a pale mint wash. The dark text's ink shows only as faint grey at the zone's rim. A faint light outline of the card's liquid edge shows against the equal page colour. |
+| Light-on-light | canvas2d | 2 | The same: legible as a wash, but the ink is weak (dark ink faint, Merge's white ink invisible on mint). Not noise. Making it stronger would break D89-11's "never stronger", so it stays as is. |
+| Light-on-light | webgpu | 1 | Pale mint wash with faint grey ink at the rim, and dark text tears outside the zone (W79). No noise. |
+| Light-on-light | webgpu | 2 | The same as Canvas2D in the zone: soft and weak but ink-like. Rest crisp. |
+| Bold-on-bold (Merge onto Split) | canvas2d | 1 | Split's ink is a soft pale crescent in the orange ring, and rest is crisp. Split's crisp label sits over Merge's green at its home (Canvas2D text stays put, as before W89). No double label. |
+| Bold-on-bold | canvas2d | 2 | No glow: the brightest spot is a 2–3 px pale speck (≈ 220,140,110) at rel +150 ms. At the zone edge the label cuts hard ("it" left of the cut), which is the crisp/ink boundary, not noise. |
+| Bold-on-bold | webgpu | 1 | Merge's label rides its green, and Split's text dissolves into soft streaks in the orange. No double label. |
+| Bold-on-bold | webgpu | 2 | Ink-like. Split's text at rel +500 ms re-forms with smeared trails (W79 text flow plus fading ink), readable and not grainy. A pale speck at rel +150 ms, no white lump. |
+| Three-way (Split into the card while Merge drifts home) | canvas2d | 1 | At hold f8 the orange, green and card liquids meet. The overlap blends to a soft olive band with no speckle. |
+| Three-way | canvas2d | 2 | Ink, not noise, and no double label. Finding: where the card's liquid is pushed off its home (f12–f90), the canvas-drawn card text sits white on the beige page (and, on the site, dark on the dark page) with no halo, because `liquid-text` beats the halo (M7). This is the "whiter patch near 'follows it'" at f12: a hole, not glow. |
+| Three-way | webgpu | 1 | Soft olive overlap, and Split's and Merge's labels ride their liquids. No noise. |
+| Three-way | webgpu | 2 | Ink-like at every moment, rest crisp. Stretched card text below the blob (W79). |
+| Site ch. 4 ("Grab it. Merge it.") | canvas2d | 1 | Cyan into the lime card reads as a soft blob with dark ink. At hold 500 ms, "Drop a p…" sits dark on the dark page where the card's liquid has a hole (the same M7 finding). |
+| Site ch. 4 | canvas2d | 2 | Ink, not noise. On release the cyan drifts through "I stay put" and mixes to grey-blue ink, and the coral label is partly dissolved, then crisp at rest. |
+| Site ch. 4 | webgpu | 1 | Ink in the zone. The coral pill's own text tears into dark horizontal streaks while its liquid is pulled (W79, not ink). |
+| Site ch. 4 | webgpu | 2 | Ink in the zone. Hatch-like streaks at the zone's left edge are the card's own text sheared (W79). Rest crisp. |
+
+- **Anti-goal:** no case looks like pixel noise in the mixing zone, in either renderer or DPR. Next to the spike's variant C (`sheet-overview.png`), the ink is softer and less bright: the spike's white glow at the corner is gone.
+- **Double crisp labels:** none seen.
+- **Glow or white lumps:** none. Every bright patch checked by pixel value was page background seen through a hole in the liquid.
+- **Light-on-light:** the ink is faint. Strengthening it would need a new decision (D89-11 only allows weaker).
+- **Finding outside D89-11:** under Canvas2D, the canvas-drawn home text of a `liquid-text` element has no halo, so it can lose contrast where its own liquid has moved off (white on beige in the scene, dark on dark on the site). This follows from M7, and tuning does not fix it.
+- **Known non-W89 effects** (frozen last frame on stop, stale halo rim after WebGPU unobserve): these steps did not trigger them.
+
 ## Specification
 **Baseline at `8ac786c`:** measured 2026-11-03 after `npm run build:wasm` and `npm run build -w liquiddom` (only docs changed since `699b5d7`).
 - cargo `245 passed; 0 failed; 1 ignored` (the doc-test line is 0 passed).
