@@ -307,6 +307,33 @@ No tuning: the values ship as written at red (Dennis approved the look as is, sa
 - `ink.ts`: `INK_GAIN = 1.2`, `INK_ALPHA_CAP = 0.6`, `INK_FADE_LO = 0.03`, `INK_FADE_HI = 0.3`, `INK_SAMPLES = 4`.
 - `mix-report.ts`: `MIX_ENTER_CELLS = 6`, `MIX_ENTER_FADE = 0.3`, `MIX_EXIT_CELLS = 1`, `MIX_EXIT_FADE = 0.1`, `MIX_RELEASE_FRAMES = 10`.
 
+## W89.6 perf (D89-9, 2026-11-08)
+Throwaway `git archive` copies of HEAD (`7b892f8`, code as `a37c720`) and `4e741b1`, each with a scratch `demo/scenes/acceptance6.html`: the acceptance layout plus "Swirl" and "Drift" (140 × 48) in the button row, 6 elements, 8000 particles (the copies' scene guard was widened to accept 6). Vite on 4192 (HEAD) and 4193 (`4e741b1`); one shared `pkg/` built from the unchanged Rust. Playwright Chromium (`--enable-unsafe-webgpu --enable-webgpu-developer-features`, Metal), 1280 × 800, DPR 2, `?seed=1&clock=manual`. Flow: rest, Merge dragged into the card in 10 steps, then a wiggle (±40 × ±15 px around the card's centre), 30 warm-up frames and 150 measured frames; CPU ms per `advance(1)`. 3 repetitions interleaved (order alternating), the first discarded; the tables are the mean of repetitions 2 and 3. The card held `liquid-text` in 150/150 measured HEAD frames (Canvas2D: 0/150 at `4e741b1`). **Load average 6.8–9.6 during the runs (not quiet: the numbers are rough).** Both copies are deleted; the scripts and logs are in `.superpowers/sdd/W89/perf/` (git-ignored).
+
+**Canvas2D (bound: p50 and p95 within +2 ms of `4e741b1`)**
+
+| Run | `4e741b1` p50 / p95 | HEAD (`INK_CELL_FACTOR = 1`) p50 / p95 | Δ p50 / Δ p95 | Factor 2 p50 / p95 | Δ p50 / Δ p95 |
+|---|---|---|---|---|---|
+| 1 (load 9.3 → 7.9) | 8.86 / 9.22 | 10.46 / 11.34 | +1.60 / **+2.12** | — | — |
+| 2 (load 6.8 → 7.2, three-way interleave) | 8.72 / 9.26 | 10.79 / 11.96 | **+2.07** / **+2.70** | 9.34 / 9.97 | +0.62 / +0.71 |
+
+- **Over the bound at factor 1** in both runs (p95 by 0.12 and 0.70 ms, and p50 in run 2).
+- **D89-9's fallback, `INK_CELL_FACTOR = 2`** (4 px ink cells), measured in a third copy on 4194: within the bound, about +0.7 ms.
+- **Vision of the fallback** (Canvas2D, all Step 1 scene cases shot at DPR 1 and 2; inspected side by side with the factor 1 stills: step 5 hold f30 and f90 (also zoomed 2×), release +150 ms, rest, DPR 1 hold f90 and wiggle f48 (DPR 2), light-on-light hold f90, bold-on-bold release +150 ms, three-way hold f30 (also zoomed 2×)): the same soft ink smears, no visible coarsening, no noise, rest crisp. Pairs in `.superpowers/sdd/W89/perf/`.
+- **Blocked:** factor 2 fails 5 approved unit tests in `fluid-canvas2d-ink.test.ts`. Their fixtures read the ink and fade images on a 2 px lattice (`OVERLAP`, `A_ONLY`), so they pin factor 1. Shipping the fallback is an approved-test change. **The code stays at factor 1 until Dennis decides** (STOP).
+
+**WebGPU (bound: text pass GPU time, mean over 150 frames, within +1 ms; `timestamp-query` present on Metal)**
+
+| | `4e741b1` | HEAD | Δ |
+|---|---|---|---|
+| Text pass GPU ms (mean of 150) | 1.719 | 2.657 | **+0.94** (within) |
+| Screen pass GPU ms (context, not the bound) | 1.885 | 2.915 | +1.03 |
+| CPU p50 / p95 per `advance(1)` | 5.03 / 5.25 | 5.08 / 5.25 | +0.05 / 0.00 |
+
+- The text pass is within +1 ms, so the cached per-particle buffer (resolution 5) is not needed.
+- The screen pass (the text composite, which now resolves the ink) grew by another 1.03 ms. The whole-frame GPU cost of W89 is therefore about +2 ms, which Step 3's text-pass bound does not count. Reported for Dennis, no change made.
+- The timestamps came from a copy-only patch (`requiredFeatures: ["timestamp-query"]`, `timestampWrites` on the text and screen passes, a 256-buffer readback pool, no dropped frames).
+
 ## Specification
 **Baseline at `8ac786c`:** measured 2026-11-03 after `npm run build:wasm` and `npm run build -w liquiddom` (only docs changed since `699b5d7`).
 - cargo `245 passed; 0 failed; 1 ignored` (the doc-test line is 0 passed).
