@@ -26,7 +26,7 @@ Printing and Windows' high-contrast mode (`forced-colors: active`) hide the canv
 
 ## Text and contrast
 
-The liquid takes each element's `background-color` and the text stays your DOM text, so the contrast you designed is the contrast at rest. With WebGPU the text flows with the liquid while it moves and is crisp DOM text again once it rests. With Canvas2D the text never moves; while an element moves its text gets a faint halo in the element's own background colour, so it stays readable.
+The liquid takes each element's `background-color` and the text stays your DOM text, so the contrast you designed is the contrast at rest. With WebGPU the text flows with the liquid while it moves and is crisp DOM text again once it rests. With Canvas2D the text stays in place, except where two liquids mix: there the canvas draws it and it dissolves like ink, while the DOM text stays in the accessibility tree. While an element moves on its own, its text gets a faint halo in the element's own background colour, so it stays readable.
 
 ## Touch and long-press
 

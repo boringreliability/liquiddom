@@ -308,7 +308,7 @@ No tuning: the values ship as written at red (Dennis approved the look as is, sa
 - `mix-report.ts`: `MIX_ENTER_CELLS = 6`, `MIX_ENTER_FADE = 0.3`, `MIX_EXIT_CELLS = 1`, `MIX_EXIT_FADE = 0.1`, `MIX_RELEASE_FRAMES = 10`.
 
 ## W89.6 perf (D89-9, 2026-11-08)
-Throwaway `git archive` copies of HEAD (`7b892f8`, code as `a37c720`) and `4e741b1`, each with a scratch `demo/scenes/acceptance6.html`: the acceptance layout plus "Swirl" and "Drift" (140 × 48) in the button row, 6 elements, 8000 particles (the copies' scene guard was widened to accept 6). Vite on 4192 (HEAD) and 4193 (`4e741b1`); one shared `pkg/` built from the unchanged Rust. Playwright Chromium (`--enable-unsafe-webgpu --enable-webgpu-developer-features`, Metal), 1280 × 800, DPR 2, `?seed=1&clock=manual`. Flow: rest, Merge dragged into the card in 10 steps, then a wiggle (±40 × ±15 px around the card's centre), 30 warm-up frames and 150 measured frames; CPU ms per `advance(1)`. 3 repetitions interleaved (order alternating), the first discarded; the tables are the mean of repetitions 2 and 3. The card held `liquid-text` in 150/150 measured HEAD frames (Canvas2D: 0/150 at `4e741b1`). **Load average 6.8–9.6 during the runs (not quiet: the numbers are rough).** Both copies are deleted; the scripts and logs are in `.superpowers/sdd/W89/perf/` (git-ignored).
+Throwaway `git archive` copies of HEAD (`a37c720`) and `4e741b1`, each with a scratch `demo/scenes/acceptance6.html`: the acceptance layout plus "Swirl" and "Drift" (140 × 48) in the button row, 6 elements, 8000 particles (the copies' scene guard was widened to accept 6). Vite on 4192 (HEAD) and 4193 (`4e741b1`); one shared `pkg/` built from the unchanged Rust. Playwright Chromium (`--enable-unsafe-webgpu --enable-webgpu-developer-features`, Metal), 1280 × 800, DPR 2, `?seed=1&clock=manual`. Flow: rest, Merge dragged into the card in 10 steps, then a wiggle (±40 × ±15 px around the card's centre), 30 warm-up frames and 150 measured frames; CPU ms per `advance(1)`. 3 repetitions interleaved (order alternating), the first discarded; the tables are the mean of repetitions 2 and 3. The card held `liquid-text` in 150/150 measured HEAD frames (Canvas2D: 0/150 at `4e741b1`). **Load average 6.8–9.6 during the runs (not quiet: the numbers are rough).** Both copies are deleted; the scripts and logs are in `.superpowers/sdd/W89/perf/` (git-ignored).
 
 **Canvas2D (bound: p50 and p95 within +2 ms of `4e741b1`)**
 
@@ -333,6 +333,10 @@ Throwaway `git archive` copies of HEAD (`7b892f8`, code as `a37c720`) and `4e741
 - The text pass is within +1 ms, so the cached per-particle buffer (resolution 5) is not needed.
 - The screen pass (the text composite, which now resolves the ink) grew by another 1.03 ms. The whole-frame GPU cost of W89 is therefore about +2 ms, which Step 3's text-pass bound does not count. Reported for Dennis, no change made.
 - The timestamps came from a copy-only patch (`requiredFeatures: ["timestamp-query"]`, `timestampWrites` on the text and screen passes, a 256-buffer readback pool, no dropped frames).
+
+## W89.6 docs (D89-12, 2026-11-08)
+- `site/src/pages/docs/limitations.md` and `accessibility.md` now say that where two liquids mix, the text dissolves like ink in both renderers. CLAUDE.md gains the Ink section (with its Known line) and the five-target text pass; CONTEXT.md gains the W89 row and a Known line.
+- NORTH-STAR step 5 and the fluid design's §6 keep their wording (D89-4). **Note:** step 5's "the labels never overlap" holds for crisp labels: no two crisp labels overlap where fade ≥ 0.9 (A1); at the zone's outer edge two texts may overlap faintly with weight p (D89-4). The WGSL resolve has no automated parity test with `ink.ts` beyond the shader-text units and the webgpu-hw e2e (accepted, resolution 16).
 
 ## Specification
 **Baseline at `8ac786c`:** measured 2026-11-03 after `npm run build:wasm` and `npm run build -w liquiddom` (only docs changed since `699b5d7`).
