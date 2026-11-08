@@ -300,6 +300,13 @@ HEAD 370aa35, no tuning applied. Scene on Vite 4191 (`?seed=1&clock=manual&test=
 - **Finding outside D89-11:** under Canvas2D, the canvas-drawn home text of a `liquid-text` element has no halo, so it can lose contrast where its own liquid has moved off (white on beige in the scene, dark on dark on the site). This follows from M7, and tuning does not fix it.
 - **Known non-W89 effects** (frozen last frame on stop, stale halo rim after WebGPU unobserve): these steps did not trigger them.
 
+**Dennis (2026-11-08, saga dec_52f111a2):** the ink look is approved as is. The Canvas2D home text losing its halo under `liquid-text` while mixing (M7 beats the halo) is accepted as a Known line (CLAUDE.md and CONTEXT.md).
+
+## W89.6 tuning (D89-11, 2026-11-08)
+No tuning: the values ship as written at red (Dennis approved the look as is, saga dec_52f111a2).
+- `ink.ts`: `INK_GAIN = 1.2`, `INK_ALPHA_CAP = 0.6`, `INK_FADE_LO = 0.03`, `INK_FADE_HI = 0.3`, `INK_SAMPLES = 4`.
+- `mix-report.ts`: `MIX_ENTER_CELLS = 6`, `MIX_ENTER_FADE = 0.3`, `MIX_EXIT_CELLS = 1`, `MIX_EXIT_FADE = 0.1`, `MIX_RELEASE_FRAMES = 10`.
+
 ## Specification
 **Baseline at `8ac786c`:** measured 2026-11-03 after `npm run build:wasm` and `npm run build -w liquiddom` (only docs changed since `699b5d7`).
 - cargo `245 passed; 0 failed; 1 ignored` (the doc-test line is 0 passed).
