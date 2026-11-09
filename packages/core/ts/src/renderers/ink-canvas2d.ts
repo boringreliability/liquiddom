@@ -21,8 +21,8 @@ import { denseRanks, inkFade, inkScale, particleInk, type AtlasPixels } from "./
 import { DENSITY_THRESHOLD, EDGE_SOFTNESS, KERNEL_RADIUS_CAP_PX, kernelRadiusPx } from "./kernel-params";
 import { MIX_ENTER_FADE, MIX_EXIT_FADE, MixReport } from "./mix-report";
 
-/** D89-9 (resolution 10): ink cell = density cell × this; 2 is the perf fallback (4 px cells). */
-export const INK_CELL_FACTOR = 1;
+/** D89-9 (resolution 10): ink cell = density cell × this; 2 = the perf fallback (4 px cells), taken in W89.6 (saga dec_ffdf9914). */
+export const INK_CELL_FACTOR = 2;
 
 const RANK_EMPTY = 32767;
 const EDGE_LO = DENSITY_THRESHOLD - EDGE_SOFTNESS;

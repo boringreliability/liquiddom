@@ -15,8 +15,9 @@ const PER = 1200; // 60 × 20 particles on a 2 px lattice per element
 const CAP = 2 * PER;
 const A_RECT = { x: 10, y: 10, w: 120, h: 40 };
 const B_RECT = { x: 150, y: 10, w: 120, h: 40 };
-const OVERLAP = [95, 60] as const; // a 2 px cell in the overlap's middle
-const A_ONLY = [60, 60] as const; // a cell in A's own liquid
+// W89.6: approved-test change (D89-9 fallback, saga dec_ffdf9914): the ink grid is 4 px (INK_CELL_FACTOR 2), so the probed cells are (190, 120) and (120, 120) px on that lattice.
+const OVERLAP = [47, 30] as const; // a 4 px ink cell in the overlap's middle
+const A_ONLY = [30, 30] as const; // an ink cell in A's own liquid
 
 let fake: FakeCanvasHandle;
 beforeEach(() => {
@@ -131,6 +132,7 @@ describe("W89 Canvas2D ink (D89-2, D89-5, D89-6)", () => {
   });
 
   it("given_mixing_elements_when_rendered_then_the_atlas_text_is_masked_by_one_minus_fade_with_destination_out_and_the_ink_lies_only_where_the_liquids_mix_D89_2_D89_6", async () => {
+    // W89.6: approved-test change (D89-9 fallback, saga dec_ffdf9914): OVERLAP/A_ONLY on the 4 px ink lattice.
     const s = await setup();
     const { frame: atlas } = atlasPage();
     s.r.render(frame({ atlas }));
@@ -178,6 +180,7 @@ describe("W89 Canvas2D ink (D89-2, D89-5, D89-6)", () => {
   });
 
   it("given_the_dragged_element_or_one_held_away_when_it_mixes_then_it_never_reports_textMixing_and_its_atlas_text_is_not_drawn_but_its_ink_feeds_the_zone_D89_3_D89_6", async () => {
+    // W89.6: approved-test change (D89-9 fallback, saga dec_ffdf9914): OVERLAP/A_ONLY on the 4 px ink lattice.
     for (const o of [
       { interaction: [Interaction.DRAGGED, Interaction.IDLE] as const },
       { awaySlots: Uint8Array.from([1, 0]) },
@@ -192,6 +195,7 @@ describe("W89 Canvas2D ink (D89-2, D89-5, D89-6)", () => {
   });
 
   it("given_a_text_less_partner_when_the_liquids_mix_then_the_text_element_reports_mixing_and_its_ink_is_diluted_review_focus_3", async () => {
+    // W89.6: approved-test change (D89-9 fallback, saga dec_ffdf9914): OVERLAP/A_ONLY on the 4 px ink lattice.
     const both = await setup();
     const { frame: a1 } = atlasPage(1, 64);
     both.r.render(frame({ atlas: a1 }));
@@ -253,6 +257,7 @@ describe("W89 Canvas2D ink (D89-2, D89-5, D89-6)", () => {
   });
 
   it("given_thin_liquid_in_the_overlap_when_rendered_then_the_fade_is_full_but_the_ink_takes_the_liquids_edge_coverage_smoothstep_0_4_0_6_and_is_0_D89_2", async () => {
+    // W89.6: approved-test change (D89-9 fallback, saga dec_ffdf9914): OVERLAP/A_ONLY on the 4 px ink lattice.
     const s = await setup();
     const { frame: atlas } = atlasPage();
     const thin = [paint(0, true, 0.5), paint(1, true, 0.5)]; // Σw ≈ 2 × 0.125 = 0.25 < 0.4 in the overlap
@@ -265,6 +270,7 @@ describe("W89 Canvas2D ink (D89-2, D89-5, D89-6)", () => {
   });
 
   it("given_the_same_generation_paints_and_page_when_the_rest_uvs_change_then_the_per_particle_ink_is_cached_and_a_new_generation_recomputes_it_D89_2", async () => {
+    // W89.6: approved-test change (D89-9 fallback, saga dec_ffdf9914): OVERLAP/A_ONLY on the 4 px ink lattice.
     const s = await setup();
     const { frame: atlas } = atlasPage();
     const paints = [paint(0, true), paint(1, true)];
