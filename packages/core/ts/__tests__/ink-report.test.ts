@@ -64,4 +64,16 @@ describe("W89: demo/text-id-report.ts summarizeInk (D89-4)", () => {
     expect(summarizeInk({ ...capture(ids, mix, [0, 0, 0, 1]), textPass: false }, pixels([]), 200, INK_ZONE_FADE, INK_LIGHT_MIN)).toEqual(none);
     expect([INK_ZONE_FADE, INK_LIGHT_MIN]).toEqual([0.9, 64]);
   });
+  it("given_an_rg32float_capture_whose_mix_holds_f32_values_when_summarized_then_it_reads_them_as_values_like_the_half_bits_W89_final_review_I1", () => {
+    const ids: Array<Array<[number, number] | null>> = [[[2, 2], [2, 3], [2, 3]], [null, [2, 3], [3, 3]]];
+    // Non-integer sums: read as half bits they would turn into other numbers.
+    const mix: Array<Array<[number, number]>> = [[[0, 1.5], [0.75, 1.5], [0.015, 1.5]], [[0, 0], [0.75, 1.5], [1.5, 1.5]]];
+    const halves = capture(ids, mix, [-1, -1, 0, 1]);
+    const f = new Float32Array(128 * 2);
+    mix.forEach((row, y) => row.forEach(([r, g], x) => f.set([r, g], y * 128 + 2 * x)));
+    const px = pixels([[1, 0, [245, 245, 245]], [1, 1, [120, 110, 100]], [2, 0, [245, 245, 245]]]);
+    const expected = summarizeInk(halves, px, 200, INK_ZONE_FADE, INK_LIGHT_MIN);
+    expect(expected).toEqual({ zone: 2, zoneTextPx: 1, zoneLightPx: 2 });
+    expect(summarizeInk({ ...halves, mix: f }, px, 200, INK_ZONE_FADE, INK_LIGHT_MIN)).toEqual(expected);
+  });
 });
