@@ -332,7 +332,7 @@ Throwaway `git archive` copies of HEAD (`a37c720`) and `4e741b1`, each with a sc
 | CPU p50 / p95 per `advance(1)` | 5.03 / 5.25 | 5.08 / 5.25 | +0.05 / 0.00 |
 
 - The text pass is within +1 ms, so the cached per-particle buffer (resolution 5) is not needed.
-- The screen pass (the text composite, which now resolves the ink) grew by another 1.03 ms. The whole-frame GPU cost of W89 is therefore about +2 ms, which Step 3's text-pass bound does not count. Reported for Dennis, no change made.
+- The screen pass (the text composite, which now resolves the ink) grew by another 1.03 ms. The whole-frame GPU cost of W89 is therefore about +2 ms, which Step 3's text-pass bound does not count. **Accepted** (Dennis "ja" 2026-11-09, saga dec_ffdf9914): text pass +0.94 ms (within the bound), composite +1.03 ms, ≈ +2 ms GPU per frame at 6 elements and DPR 2, CPU unchanged.
 - The timestamps came from a copy-only patch (`requiredFeatures: ["timestamp-query"]`, `timestampWrites` on the text and screen passes, a 256-buffer readback pool, no dropped frames).
 
 ## W89.6 docs (D89-12, 2026-11-08)
