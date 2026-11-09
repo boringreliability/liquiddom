@@ -295,6 +295,11 @@ export class InkCanvas2D {
     return this.seenTwo;
   }
 
+  /**
+   * Final review (M3): the canvases shrink to 0 × 0 at once (a full-viewport device-px text layer
+   * and the grid images would otherwise wait for GC, on platforms with strict canvas-memory limits),
+   * and no reference to an atlas page (read or unreadable) survives.
+   */
   destroy(): void {
     this.grid = null;
     this.report.reset();
@@ -302,10 +307,18 @@ export class InkCanvas2D {
     this.page = null;
     this.pageCanvas = null;
     this.pageVersion = -1;
+    this.badCanvas = null;
+    this.badVersion = -1;
     this.pInk = new Float32Array(0);
     this.pInkGeneration = -1;
     this.pInkPage = null;
     this.pInkPaints.length = 0;
+    for (const c of [this.inkImg?.canvas, this.maskImg?.canvas, this.text]) {
+      if (c) {
+        c.width = 0;
+        c.height = 0;
+      }
+    }
     this.inkImg = null;
     this.maskImg = null;
     this.text = null;

@@ -602,8 +602,10 @@ function buildRuntime(
     core.set_reduced_motion(reducedMotion);
     // W74 (Review Focus 1): reduced motion switched on mid-splash shows the DOM text at once, without waiting for a frame.
     if (reducedMotion) {
+      // W89 (D89-10): the paused repaint below draws no text either. Final review (M2): also for the
+      // ink of an away (dragged) element, which holds no liquid-text; before the cancel releases it.
+      textOnCanvas = textHeld.size > 0 || awayHeld.size > 0;
       dragTracker.cancel(); // W78: reduced motion ignores drag (spec §2)
-      textOnCanvas = textHeld.size > 0; // W89 (D89-10): the paused repaint below draws no text either
       clearTextClasses(textHeld);
       clearHaloClasses(haloHeld); // W75 (D75-3): the halo goes at once as well
       clearAwayClasses(awayHeld); // W78: the drag label goes at once as well
@@ -981,7 +983,8 @@ function buildRuntime(
   const stopInstance = (msg: string, err: unknown): void => {
     if (failed || destroyed) return;
     failed = true;
-    textOnCanvas = textHeld.size > 0; // W89 (resolution 4): the stop repaint below draws no text
+    // W89 (resolution 4): the stop repaint below draws no text; final review (M2): nor an away element's ink.
+    textOnCanvas = textHeld.size > 0 || awayHeld.size > 0;
     clearTextClasses(textHeld); // W74: a stopped instance never leaves text hidden
     dragTracker.destroy(); // W78: a stopped instance takes no more drags
     gravityInput.destroy(); // W83: a stopped instance drops its deviceorientation listener (idempotent)
@@ -1131,9 +1134,11 @@ function buildRuntime(
       releaseTextClass(textHeld, el); // W74: before the registry restores the element
       // W89 (resolution 14, Review Focus 1): the canvas drew this element's text in place of its DOM
       // text; one repaint (paused or running) leaves it out, so the returned DOM text is never doubled.
+      let repainted = false;
       if (textId !== undefined && renderer !== null && !failed) {
         try {
           renderer.render({ ...buildFrame(), textOff: textId });
+          repainted = true;
         } catch {
           const w = canvas.width;
           canvas.width = w; // resets the bitmap (resolution 4's fallback)
@@ -1141,6 +1146,10 @@ function buildRuntime(
       }
       if (registry.idOf(el) !== undefined) unwatchElement(el); // W75: observer, transitionend, halo hold
       registry.unobserve(el);
+      // W89 final review (M1): the repaint may draw another element's text differently from the last
+      // frame (its mixing report stepped there), which matters while paused; the other elements'
+      // classes follow what is now drawn. After registry.unobserve, so `el` itself is not re-held.
+      if (repainted) syncText();
       splashInput.detach(el);
     },
     splash: splashAt,
