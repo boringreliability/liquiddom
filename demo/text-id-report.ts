@@ -90,9 +90,12 @@ export const INK_ZONE_FADE = 0.9;
 /** W89: a zone pixel whose every channel is at least this is lit by ink (the card and Merge colours stay below it). */
 export const INK_LIGHT_MIN = 64;
 
-/** W89: a capture that may carry T1mix (laid out like `data`) and the slots' dense ranks. */
+/**
+ * W89: a capture that may carry T1mix (laid out like `data`) and the slots' dense ranks. T1mix is
+ * half bits (rg16float) or, final review I1, the f32 values themselves (rg32float).
+ */
 export interface InkCaptureLike extends TextIdCaptureLike {
-  readonly mix?: Uint16Array;
+  readonly mix?: Uint16Array | Float32Array;
   readonly ranks?: readonly number[];
 }
 
@@ -103,6 +106,11 @@ export interface InkReport {
   zoneTextPx: number;
   /** Zone pixels with every channel ≥ lightMin: the ink. */
   zoneLightPx: number;
+}
+
+/** One T1mix channel value: f32 as is, f16 decoded from its bits. */
+function mixAt(mix: Uint16Array | Float32Array, i: number): number {
+  return mix instanceof Float32Array ? (mix[i] ?? 0) : halfToFloat(mix[i] ?? 0);
 }
 
 /** W89 (D89-4): the ink zone of one frame; all 0 without a text pass, T1mix or ranks. */
@@ -120,7 +128,7 @@ export function summarizeInk(c: InkCaptureLike, px: PixelsLike, textMin: number,
       const lo = halfToFloat(c.data[t] ?? 0);
       const hi = -halfToFloat(c.data[t + 1] ?? 0);
       if (!(lo < c.empty) || !(lo + 0.5 < hi)) continue;
-      const fade = inkFade(halfToFloat(mix[t + 1] ?? 0), halfToFloat(mix[t] ?? 0), ranks[lo] ?? 0, ranks[hi] ?? 0);
+      const fade = inkFade(mixAt(mix, t + 1), mixAt(mix, t), ranks[lo] ?? 0, ranks[hi] ?? 0);
       if (!(fade >= zoneFade)) continue;
       report.zone++;
       const o = (y * px.width + x) * 4;
@@ -154,7 +162,7 @@ export function summarizeInkBands(c: InkCaptureLike, px: PixelsLike, textMin: nu
       const lo = halfToFloat(c.data[t] ?? 0);
       const hi = -halfToFloat(c.data[t + 1] ?? 0);
       if (!(lo < c.empty) || !(lo + 0.5 < hi)) continue;
-      const fade = inkFade(halfToFloat(mix[t + 1] ?? 0), halfToFloat(mix[t] ?? 0), ranks[lo] ?? 0, ranks[hi] ?? 0);
+      const fade = inkFade(mixAt(mix, t + 1), mixAt(mix, t), ranks[lo] ?? 0, ranks[hi] ?? 0);
       if (!(fade >= INK_BAND_EDGES[0])) continue;
       const o = (y * px.width + x) * 4;
       const d = px.data;

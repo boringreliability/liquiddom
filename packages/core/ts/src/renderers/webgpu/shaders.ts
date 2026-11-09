@@ -424,6 +424,8 @@ fn fs(in: TextVarying) -> TextTargets {
  * ranks (the element records) and T1mix's mean rank give p and fade = smoothstep(INK_FADE_LO,
  * INK_FADE_HI, 4p(1 − p)); the output is crisp × (1 − fade) + ink × fade, the ink being T1ink /
  * Σw × INK_GAIN (alpha capped at INK_ALPHA_CAP) × the all-liquid edge coverage (ink.ts).
+ * W89 final review (I1): T1mix is rg32float with `float32-blendable` (else rg16float) and is read
+ * with textureLoad, because a 32-bit float texture is not filterable in core WebGPU.
  */
 export const TEXT_COMPOSITE_WGSL = /* wgsl */ `
 ${VIEW_WGSL}
@@ -465,7 +467,11 @@ fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let hi = -min(min(nhi4.x, nhi4.y), min(nhi4.z, nhi4.w));
   // W89: every sample and derivative before any branch (uniform control flow).
   let ink_acc = textureSample(t1_ink, t1_sampler, uv);
-  let mixv = textureSample(t1_mix, t1_sampler, uv); // r = Σw·rank, g = Σw (all liquid)
+  // r = Σw·rank, g = Σw (all liquid). Final review I1: loaded, not sampled, so an rg32float T1mix
+  // (unfilterable) works; T1mix is at 1× the backing, so at the texel centre this equals the sample.
+  let mix_dim = textureDimensions(t1_mix);
+  let mix_xy = min(vec2u(uv * vec2f(mix_dim)), mix_dim - vec2u(1u, 1u));
+  let mixv = textureLoad(t1_mix, mix_xy, 0);
   let soft_all = clamp(0.75 * fwidth(mixv.g), EDGE_SOFTNESS, EDGE_SOFTNESS_MAX);
   let coverage = smoothstep(DENSITY_THRESHOLD - soft, DENSITY_THRESHOLD + soft, sum_w);
   let text = clamp(acc / max(sum_w, SUM_W_EPS), vec4f(0.0), vec4f(1.0));

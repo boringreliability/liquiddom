@@ -7,7 +7,7 @@
  *    `fwidth` edge, colour Σw·rgb/Σw, premultiplied by coverage × Σw·a/Σw), then one
  *    rounded-rect SDF quad per element is drawn over it at `restAlpha` × colour alpha.
  * An element's particles splat at full weight while its `restAlpha < 1` and are skipped at 1
- * (D71-6, the D70-4 rule). No 32-bit float targets.
+ * (D71-6, the D70-4 rule). No 32-bit float targets, except W89's T1mix where the device can blend it.
  * W74 (D74-4): while an element with atlas text moves, a third pass splats its text into T1
  * (`rgba16float`, Σw·text_rgba_premul) and T1w (`r16float`, Σw) at 1× the backing size — its own
  * pass, because every attachment of a pass shares one size and T0 is at `t0Scale` — and the screen
@@ -22,7 +22,8 @@
  * resolves; the swap then copies the staging page into the drawn texture and switches the records
  * in one step, so a rebuild during motion never blinks the text.
  * W89 (D89-2, D89-3, D89-7, D89-8, D89-10): the text pass gains T1ink (`rgba16float`, Σw·ink) and
- * T1mix (`rg16float`, Σw·rank and the all-liquid Σw), 26 B per sample, and lets every moving
+ * T1mix (Σw·rank and the all-liquid Σw; `rg32float` when the device has `float32-blendable`, else
+ * `rg16float`: final review I1, saga dec_7d9fb007), 30 or 26 B per sample, and lets every moving
  * element in (a text-less one writes T1id and T1mix only). The text composite reads both and the
  * element records (EG.RANK) and fades the crisp text into ink where two liquids mix, instead of
  * D79-1's cut. Reduced motion and `suppressText` skip the pass; `textOff` zeroes one slot's text
@@ -84,8 +85,26 @@ export const ATLAS_FORMAT: GPUTextureFormat = "rgba8unorm";
 export const T1_ID_FORMAT: GPUTextureFormat = "rg16float";
 /** W89 (D89-7): Σw·ink (premultiplied) per texel, additive. */
 export const T1_INK_FORMAT: GPUTextureFormat = "rgba16float";
-/** W89 (D89-7, D89-8): r = Σw·rank, g = Σw of every moving liquid, additive; COPY_SRC for captureTextIds({ mix: true }). */
+/**
+ * W89 (D89-7, D89-8): r = Σw·rank, g = Σw of every moving liquid, additive; COPY_SRC for
+ * captureTextIds({ mix: true }). This is the fallback format: f16 sums lose p precision linearly
+ * with the rank (final review I1), so a device with `float32-blendable` gets T1_MIX_FORMAT_F32.
+ */
 export const T1_MIX_FORMAT: GPUTextureFormat = "rg16float";
+/**
+ * W89 final review (I1; D89-8 amended to its option (b), Dennis 2026-11-09, saga dec_7d9fb007):
+ * T1mix in f32 where the device can blend it. Not filterable in core WebGPU, so the text composite
+ * binds it as `unfilterable-float` and reads it with textureLoad. The text pass is then 30 B per
+ * sample (32 B with rg32float's 4-byte alignment), at the 32 B `maxColorAttachmentBytesPerSample`.
+ */
+export const T1_MIX_FORMAT_F32: GPUTextureFormat = "rg32float";
+/** The optional device feature T1_MIX_FORMAT_F32 needs; requested only when the adapter offers it. */
+export const T1_MIX_F32_FEATURE: GPUFeatureName = "float32-blendable";
+
+/** W89 final review (I1): T1mix's format for a device with these features. */
+export function t1MixFormatFor(features: { has(name: string): boolean } | undefined): GPUTextureFormat {
+  return features?.has(T1_MIX_F32_FEATURE) === true ? T1_MIX_FORMAT_F32 : T1_MIX_FORMAT;
+}
 /** W79 (D79-1): the clear value of both id channels: no text splat. Exact in f16, above every slot id (maxElements ≤ 256). */
 export const TEXT_ID_EMPTY = 4096;
 /** W79 (D79-1): min blending; WebGPU requires both factors to be "one" for min and max. */
@@ -114,8 +133,12 @@ export interface TextIdCapture {
   readonly empty: number;
   /** Raw rg16float texels row by row: r, g as IEEE half bits. */
   readonly data: Uint16Array;
-  /** W89 (D89-4): with captureTextIds({ mix: true }), that frame's T1mix laid out like `data` (r = Σw·rank, g = all-liquid Σw). */
-  readonly mix?: Uint16Array;
+  /**
+   * W89 (D89-4): with captureTextIds({ mix: true }), that frame's T1mix laid out like `data` (r =
+   * Σw·rank, g = all-liquid Σw; index y · bytesPerRow / 2 + 2x): IEEE half bits for rg16float, the
+   * values themselves (Float32Array) for rg32float (final review I1).
+   */
+  readonly mix?: Uint16Array | Float32Array;
   /** W89 (D89-8): with `mix`, each slot's EG.RANK in that frame, by slot id. */
   readonly ranks?: readonly number[];
 }
@@ -176,7 +199,9 @@ export interface LiquidPipelines extends ShadowPipelines {
  * (init, and the e2e check page demo/smoke/webgpu-liquid.ts), so a text shader bug rejects
  * create() like any other pipeline bug (W74, D74-4).
  */
-export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat): LiquidPipelines {
+export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat, mixFormat: GPUTextureFormat = T1_MIX_FORMAT): LiquidPipelines {
+  // W89 final review (I1): an rg32float T1mix is not filterable (the composite loads it).
+  const mixSampleType: GPUTextureSampleType = mixFormat === T1_MIX_FORMAT_F32 ? "unfilterable-float" : "float";
   const V = GPUShaderStage.VERTEX;
   const F = GPUShaderStage.FRAGMENT;
   const splatModule = device.createShaderModule({ label: "liquiddom splat", code: SPLAT_WGSL });
@@ -232,7 +257,7 @@ export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat
       { binding: 3, visibility: F, sampler: { type: "filtering" } },
       { binding: 4, visibility: F, texture: { sampleType: "float" } }, // W79 (D79-1): T1id
       { binding: 5, visibility: F, texture: { sampleType: "float" } }, // W89 (D89-7): T1ink
-      { binding: 6, visibility: F, texture: { sampleType: "float" } }, // W89 (D89-7): T1mix
+      { binding: 6, visibility: F, texture: { sampleType: mixSampleType } }, // W89 (D89-7): T1mix
       { binding: 7, visibility: F, buffer: { type: "read-only-storage" } }, // W89 (D89-8): the element records (rank)
     ],
   });
@@ -278,7 +303,7 @@ export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat
         { format: T1_WEIGHT_FORMAT, blend: ADDITIVE_BLEND },
         { format: T1_ID_FORMAT, blend: MIN_BLEND }, // W79 (D79-1)
         { format: T1_INK_FORMAT, blend: ADDITIVE_BLEND }, // W89 (D89-7)
-        { format: T1_MIX_FORMAT, blend: ADDITIVE_BLEND }, // W89 (D89-7)
+        { format: mixFormat, blend: ADDITIVE_BLEND }, // W89 (D89-7); final review I1: rg32float with float32-blendable
       ],
     },
     primitive: { topology: "triangle-list" },
@@ -506,6 +531,8 @@ export class WebGPURenderer implements Renderer {
   /** W89 (D89-7): T1ink and T1mix, same size as T1. */
   private t1Ink: GPUTexture | null = null;
   private t1Mix: GPUTexture | null = null;
+  /** W89 final review (I1): T1mix's format on this device (t1MixFormatFor). */
+  private mixFormat: GPUTextureFormat = T1_MIX_FORMAT;
   /** Views of the five text targets; the text composite group binds them (rebuilt when null). */
   private t1Views: GPUTextureView[] = [];
   private t1Width = 0;
@@ -598,9 +625,15 @@ export class WebGPURenderer implements Renderer {
     try {
       // W71.4 review (Minor 4): the default limit is 8192 px; a wide backing at dpr 2 exceeds it.
       const adapterLimit = adapter.limits?.maxTextureDimension2D;
+      // W89 final review (I1, saga dec_7d9fb007): an f32 T1mix where the adapter can blend it.
+      const f32Mix = adapter.features?.has(T1_MIX_F32_FEATURE) === true;
+      const withLimit = typeof adapterLimit === "number" && Number.isFinite(adapterLimit) && adapterLimit > 0;
       device =
-        typeof adapterLimit === "number" && Number.isFinite(adapterLimit) && adapterLimit > 0
-          ? await adapter.requestDevice({ requiredLimits: { maxTextureDimension2D: adapterLimit } })
+        withLimit || f32Mix
+          ? await adapter.requestDevice({
+              ...(withLimit ? { requiredLimits: { maxTextureDimension2D: adapterLimit } } : {}),
+              ...(f32Mix ? { requiredFeatures: [T1_MIX_F32_FEATURE] } : {}),
+            })
           : await adapter.requestDevice();
     } catch (cause) {
       throw new WebGPUUnavailableError("requestDevice rejected", { cause });
@@ -624,7 +657,8 @@ export class WebGPURenderer implements Renderer {
         throw new WebGPUUnavailableError(`the canvas presentation surface is unusable (${surface.message})`);
       }
       device.pushErrorScope("validation");
-      const pipelines = buildPipelines(device, format);
+      this.mixFormat = t1MixFormatFor(device.features);
+      const pipelines = buildPipelines(device, format, this.mixFormat);
       const sampler = device.createSampler({
         label: "liquiddom T0",
         magFilter: "linear",
@@ -806,8 +840,9 @@ export class WebGPURenderer implements Renderer {
    * W79: encodes the T1id copy for an armed capture; returns `run` (after the submit) and `abort`
    * (when finish or submit threw: settles the capture with null and releases the buffer).
    * W89 (D89-4, resolution 8): a capture armed with `mix` also copies T1mix into a second buffer
-   * (same bytesPerRow: both are rg16float) and carries each slot's EG.RANK of this frame; both
-   * buffers are released on every path.
+   * (its own bytesPerRow; final review I1: an rg32float T1mix is repacked into a Float32Array laid
+   * out like `data`) and carries each slot's EG.RANK of this frame; both buffers are released on
+   * every path.
    */
   private encodeTextIdCopy(encoder: GPUCommandEncoder, textRan: boolean): { run: () => void; abort: () => void } {
     const resolve = this.textIdWaiter ?? (() => {});
@@ -830,13 +865,15 @@ export class WebGPURenderer implements Renderer {
     encoder.copyTextureToBuffer({ texture: t1Id }, { buffer, bytesPerRow, rowsPerImage: height }, [width, height]);
     let mixBuffer: GPUBuffer | null = null;
     let ranks: number[] | undefined;
+    const mixF32 = this.mixFormat === T1_MIX_FORMAT_F32;
+    const mixBytesPerRow = mixF32 ? Math.ceil((width * 2 * 4) / COPY_ROW_ALIGN) * COPY_ROW_ALIGN : bytesPerRow;
     if (withMix && t1Mix) {
       mixBuffer = device.createBuffer({
         label: "liquiddom text mix readback",
-        size: bytesPerRow * height,
+        size: mixBytesPerRow * height,
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
       });
-      encoder.copyTextureToBuffer({ texture: t1Mix }, { buffer: mixBuffer, bytesPerRow, rowsPerImage: height }, [width, height]);
+      encoder.copyTextureToBuffer({ texture: t1Mix }, { buffer: mixBuffer, bytesPerRow: mixBytesPerRow, rowsPerImage: height }, [width, height]);
       const slots = Math.max(0, this.bufferSlots);
       ranks = new Array<number>(slots);
       for (let id = 0; id < slots; id++) ranks[id] = this.elementScratch[id * ELEMENT_GPU_FLOATS + EG.RANK] ?? 0;
@@ -850,6 +887,17 @@ export class WebGPURenderer implements Renderer {
       b.unmap();
       return out;
     };
+    /** rg32float rows (mixBytesPerRow) → a Float32Array laid out like the id texels (bytesPerRow / 2 per row). */
+    const readMix = (b: GPUBuffer): Uint16Array | Float32Array => {
+      if (!mixF32) return read(b);
+      const src = new Float32Array(b.getMappedRange().slice(0));
+      b.unmap();
+      const out = new Float32Array((bytesPerRow / 2) * height);
+      const srcRow = mixBytesPerRow / 4;
+      const dstRow = bytesPerRow / 2;
+      for (let y = 0; y < height; y++) out.set(src.subarray(y * srcRow, y * srcRow + 2 * width), y * dstRow);
+      return out;
+    };
     return {
       run: () => {
         const maps = mixBuffer ? [buffer.mapAsync(GPUMapMode.READ), mixBuffer.mapAsync(GPUMapMode.READ)] : [buffer.mapAsync(GPUMapMode.READ)];
@@ -858,7 +906,7 @@ export class WebGPURenderer implements Renderer {
             let capture: TextIdCapture | null = null;
             try {
               const data = read(buffer);
-              const mix = mixBuffer ? read(mixBuffer) : undefined;
+              const mix = mixBuffer ? readMix(mixBuffer) : undefined;
               capture = { textPass: true, width, height, bytesPerRow, empty: TEXT_ID_EMPTY, data, ...(mix ? { mix, ranks } : {}) };
             } finally {
               release();
@@ -1322,7 +1370,7 @@ export class WebGPURenderer implements Renderer {
     this.t1Id = device.createTexture({ label: "liquiddom T1id", size: [w, h], format: T1_ID_FORMAT, usage: usage | GPUTextureUsage.COPY_SRC });
     this.t1Ink = device.createTexture({ label: "liquiddom T1ink", size: [w, h], format: T1_INK_FORMAT, usage });
     // W89 (D89-4): COPY_SRC for captureTextIds({ mix: true }).
-    this.t1Mix = device.createTexture({ label: "liquiddom T1mix", size: [w, h], format: T1_MIX_FORMAT, usage: usage | GPUTextureUsage.COPY_SRC });
+    this.t1Mix = device.createTexture({ label: "liquiddom T1mix", size: [w, h], format: this.mixFormat, usage: usage | GPUTextureUsage.COPY_SRC });
     const views = [this.t1, this.t1Weight, this.t1Id, this.t1Ink, this.t1Mix].map((t) => t.createView());
     this.t1Views = views;
     this.t1Attachment.view = views[0]!;

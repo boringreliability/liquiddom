@@ -206,7 +206,11 @@ export function packElements(frame: RenderFrame, out: Float32Array): number {
     out[o + EG.A] = clamp01(bg[3]);
     out[o + EG.FLAGS] = 1;
     // W89 (D89-8): the dense rank, 0 … k − 1 in id order over the slots whose liquid moves (the
-    // text pass draws them); exact in f16 for k ≤ 64. The text composite maps W79's lo/hi ids to it.
+    // text pass draws them). The rank values are exact in f16 up to 2048, but T1mix sums Σw·rank,
+    // and an f16 sum's step grows with it: p for an adjacent pair degrades from rank ≈ 6 on (fade
+    // error ≈ 0.2 at 6/7, ≈ 0.7 at 22/23). Hence T1mix is rg32float wherever the device has
+    // float32-blendable (final review I1, saga dec_7d9fb007): there the error stays < 1e-3 at
+    // rank 63. The text composite maps W79's lo/hi ids to it.
     out[o + EG.RANK] = restAlpha < 1 && m > 0 ? rank++ : 0;
     out[o + 14] = 0;
     out[o + 15] = 0;
