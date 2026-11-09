@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Dyn, DYNAMIC_FIELDS, ELEMENT_STRIDE, St, STATE_STRIDE, STATIC_FIELDS } from "../src/fluid-layout";
 import type { ElementPaint, RenderFrame, TextAtlasFrame } from "../src/renderers/frame";
 import { EG, ELEMENT_GPU_FLOATS, packElements } from "../src/renderers/webgpu/gpu-buffers";
-import { INK_ALPHA_CAP, INK_FADE_HI, INK_FADE_LO, INK_GAIN, INK_SAMPLES } from "../src/renderers/ink";
+import { INK_ALPHA_CAP, INK_FADE_HI, INK_FADE_LO, INK_GAIN, INK_SAMPLES, inkFade } from "../src/renderers/ink";
 import { TEXT_COMPOSITE_WGSL, TEXT_WGSL } from "../src/renderers/webgpu/shaders";
 import { WebGPURenderer } from "../src/renderers/webgpu/webgpu-renderer";
 import { installFakeGpu, type FakeGpu } from "./_fake-gpu";
@@ -193,5 +193,137 @@ describe("W89 WebGPU ink (D89-2, D89-3, D89-7, D89-8)", () => {
     }
     expect(TEXT_COMPOSITE_WGSL).toContain("smoothstep(INK_FADE_LO, INK_FADE_HI,");
     expect(TEXT_COMPOSITE_WGSL, "D79-1's hard cut is gone (D89-4)").not.toContain("0.0, mixed)");
+  });
+});
+
+// ---- W89 final review (I1, amends D89-8 to its option (b); Dennis 2026-11-09, saga dec_7d9fb007) ----
+// T1mix is rg32float when the device has float32-blendable (requested when the adapter offers it),
+// rg16float otherwise. f16 Σw·rank loses p precision linearly with the rank (final-review.md I1).
+
+/** WebGPU "render target pixel byte cost" and "component alignment" of the text pass formats. */
+const TARGET_COST: Readonly<Record<string, readonly [number, number]>> = { rgba16float: [8, 2], r16float: [2, 2], rg16float: [4, 2], rg32float: [8, 4] };
+/** The spec's maxColorAttachmentBytesPerSample check: each attachment starts at its alignment. */
+function alignedBytesPerSample(formats: readonly string[]): number {
+  let n = 0;
+  for (const fmt of formats) {
+    const [cost, align] = TARGET_COST[fmt] ?? [99, 1];
+    n = Math.ceil(n / align) * align + cost;
+  }
+  return n;
+}
+
+/** IEEE half rounding (nearest, ties to even): what one additive blend into an f16 target keeps. */
+function f16(v: number): number {
+  if (v === 0 || !Number.isFinite(v)) return v;
+  const step = 2 ** (Math.max(Math.floor(Math.log2(Math.abs(v))), -14) - 10);
+  const [q, lo] = [v / step, Math.floor(v / step)];
+  return (q - lo > 0.5 || (q - lo === 0.5 && lo % 2 !== 0) ? lo + 1 : lo) * step;
+}
+/** What one additive blend into a channel of `format` keeps. */
+const roundFor = (format: string): ((v: number) => number) => (format === "rg32float" ? Math.fround : format === "rg16float" ? f16 : () => Number.NaN);
+
+/**
+ * A fringe texel: 15 fragments of two adjacent ranks lo and hi = lo + 1, the second liquid 0–10 % of
+ * Σw, blended in order into one T1mix texel rounded by `round`. Returns the worst |fade − exact fade|
+ * over `trials` seeded texels (deterministic LCG).
+ */
+function worstFadeError(round: (v: number) => number, lo: number, trials = 400): number {
+  const hi = lo + 1;
+  let seed = 12345;
+  const rnd = (): number => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed / 2147483648;
+  };
+  let worst = 0;
+  for (let t = 0; t < trials; t++) {
+    const share = 0.1 * rnd();
+    let [sumW, sumWRank, exactW, exactHi] = [0, 0, 0, 0];
+    for (let k = 0; k < 15; k++) {
+      const w = 0.02 + 0.3 * rnd();
+      const rank = rnd() < share ? hi : lo;
+      sumW = round(sumW + w);
+      sumWRank = round(sumWRank + round(w * rank));
+      exactW += w;
+      if (rank === hi) exactHi += w;
+    }
+    const exact = inkFade(exactW, lo * exactW + exactHi, lo, hi);
+    worst = Math.max(worst, Math.abs(inkFade(sumW, sumWRank, lo, hi) - exact));
+  }
+  return worst;
+}
+
+async function textReadyRendererWith(adapterFeatures: readonly string[]): Promise<WebGPURenderer> {
+  f.restore();
+  f = installFakeGpu({ adapterFeatures });
+  return textReadyRenderer();
+}
+
+describe("W89 final review: T1mix precision (I1, D89-8 amended to (b), saga dec_7d9fb007)", () => {
+  it("given_an_adapter_with_float32_blendable_when_init_then_the_feature_is_requested_T1mix_is_rg32float_read_unfilterable_and_the_text_pass_stays_within_32_bytes_per_sample", async () => {
+    const r = await textReadyRendererWith(["float32-blendable", "timestamp-query"]);
+    const desc = f.calls.deviceDescriptors[0];
+    expect(Array.from((desc?.requiredFeatures ?? []) as Iterable<string>), "only the feature T1mix needs").toEqual(["float32-blendable"]);
+    const text = f.calls.pipelines.find((p) => p.descriptor.label === "liquiddom text")!.descriptor;
+    const targets = Array.from(text.fragment!.targets) as GPUColorTargetState[];
+    expect(targets.map((t) => t.format)).toEqual(["rgba16float", "r16float", "rg16float", "rgba16float", "rg32float"]);
+    expect(targets[4]!.blend, "T1mix stays additive").toEqual(ADDITIVE);
+    const formats = targets.map((t) => t.format);
+    expect(formats.reduce((n, fmt) => n + (TARGET_COST[fmt]?.[0] ?? 99), 0), "T1 8 + T1w 2 + T1id 4 + T1ink 8 + T1mix 8").toBe(30);
+    expect(alignedBytesPerSample(formats), "with rg32float's 4-byte alignment").toBeLessThanOrEqual(32);
+    const composite = Array.from(f.calls.bindGroupLayouts.find((l) => l.label === "liquiddom text composite")!.entries);
+    expect(composite.find((e) => e.binding === 6), "rg32float is not filterable in core WebGPU").toEqual({ binding: 6, visibility: 0x2, texture: { sampleType: "unfilterable-float" } });
+    expect(TEXT_COMPOSITE_WGSL, "T1mix is loaded, never sampled with the filtering sampler").toContain("textureLoad(t1_mix,");
+    expect(TEXT_COMPOSITE_WGSL).not.toContain("textureSample(t1_mix,");
+    r.render(textFrame());
+    expect(byLabel("liquiddom T1mix").map((t) => t.format)).toEqual(["rg32float"]);
+    expect(textPasses().at(-1)!.attachments[4]!.view.texture.format).toBe("rg32float");
+    expect(f.calls.errors, "blendable and bound as unfilterable-float").toEqual([]);
+    r.destroy();
+  });
+
+  it("given_an_adapter_without_float32_blendable_when_init_then_no_feature_is_requested_and_T1mix_stays_rg16float_within_26_bytes_per_sample", async () => {
+    for (const features of [[], ["timestamp-query", "float32-filterable"]]) {
+      const r = await textReadyRendererWith(features);
+      const desc = f.calls.deviceDescriptors[0];
+      expect(Array.from((desc?.requiredFeatures ?? []) as Iterable<string>), `adapter features ${features.join(",")}`).toEqual([]);
+      const text = f.calls.pipelines.find((p) => p.descriptor.label === "liquiddom text")!.descriptor;
+      const formats = (Array.from(text.fragment!.targets) as GPUColorTargetState[]).map((t) => t.format);
+      expect(formats[4]).toBe("rg16float");
+      expect(alignedBytesPerSample(formats)).toBe(26);
+      r.render(textFrame());
+      expect(byLabel("liquiddom T1mix").map((t) => t.format)).toEqual(["rg16float"]);
+      expect(f.calls.errors).toEqual([]);
+      r.destroy();
+    }
+  });
+
+  it("given_rg32float_T1mix_and_a_capture_armed_with_mix_when_the_text_pass_runs_then_mix_holds_f32_values_laid_out_like_the_id_texels", async () => {
+    const r = await textReadyRendererWith(["float32-blendable"]);
+    f.calls.bufferCopies.length = 0;
+    const pending = r.captureTextIds({ mix: true });
+    r.render(textFrame());
+    const c = await pending;
+    expect(c?.mix, "f32 values, not half bits").toBeInstanceOf(Float32Array);
+    expect(c?.mix?.length, "index t = y · bytesPerRow / 2 + 2x, as data").toBe(c?.data.length);
+    const mixCopy = f.calls.bufferCopies.find((b) => b.texture.label === "liquiddom T1mix")!;
+    expect(mixCopy.bytesPerRow, "8 B per rg32float texel, 256-aligned").toBe(Math.ceil((800 * 8) / 256) * 256);
+    expect(f.calls.errors).toEqual([]);
+  });
+
+  it("given_15_fragments_of_ranks_22_23_or_62_63_in_a_fringe_texel_when_blended_into_the_T1mix_format_the_device_gets_then_the_fade_error_stays_below_0_05_and_f16_s_error_is_documented", async () => {
+    const r = await textReadyRendererWith(["float32-blendable"]);
+    r.render(textFrame());
+    const format = byLabel("liquiddom T1mix")[0]!.format;
+    expect(format).toBe("rg32float");
+    const round = roundFor(format);
+    for (const lo of [22, 62]) {
+      expect(worstFadeError(round, lo), `ranks ${lo}/${lo + 1} in ${format}`).toBeLessThan(0.05);
+    }
+    // Documented, not a bound: the rg16float fallback (no float32-blendable) at the same texels.
+    // Measured with this generator: ranks 22/23 worst ≈ 0.7, 62/63 ≈ 1 (final-review.md I1's table).
+    expect(worstFadeError(roundFor("rg16float"), 22), "f16 at ranks 22/23").toBeGreaterThan(0.3);
+    expect(worstFadeError(roundFor("rg16float"), 62), "f16 at ranks 62/63").toBeGreaterThan(0.5);
+    expect(worstFadeError(roundFor("rg16float"), 0), "f16 is fine at ranks 0/1 (rows 10, 11)").toBeLessThan(0.05);
+    r.destroy();
   });
 });

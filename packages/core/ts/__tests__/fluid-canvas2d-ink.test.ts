@@ -298,4 +298,32 @@ describe("W89 Canvas2D ink (D89-2, D89-5, D89-6)", () => {
     expect([s.r.textMixing(0), s.r.textMixing(1)]).toEqual([false, true]);
     expect(atlasDraws(atlas).slice(before).map((d) => d[1]), "only B's atlas rect").toEqual([B_RECT.x]);
   });
+  it("given_ink_and_atlas_text_drawn_when_the_renderer_is_destroyed_then_its_text_layer_ink_and_mask_canvases_shrink_to_0_and_no_page_copy_is_kept_W89_final_review_M3", async () => {
+    const s = await setup();
+    const { frame: atlas } = atlasPage();
+    s.r.render(frame({ atlas }));
+    s.r.render(frame({ atlas }));
+    expect([s.r.textMixing(0), s.r.textMixing(1)], "precondition").toEqual([true, true]);
+    const layer = extra(s).find((c) => c.ops("drawImage").some((d) => d.args[0] === atlas.canvas))!.canvas;
+    const inkCanvas = extra(s).find((c) => c.lastImage === inkImage(s))!.canvas;
+    const maskCanvas = layer && (fake.ctxFor(layer)!.ops("drawImage").find((d) => d.composite === "destination-out")!.args[0] as HTMLCanvasElement);
+    const sizes = (): number[][] => [layer, inkCanvas, maskCanvas].map((c) => [c.width, c.height]);
+    expect(sizes().every(([w, h]) => w! > 0 && h! > 0), "precondition: allocated").toBe(true);
+    s.r.destroy();
+    expect(sizes(), "text layer (device px), ink image and fade mask are released at once, not at GC").toEqual([[0, 0], [0, 0], [0, 0]]);
+    const ink = (s.r as unknown as { ink: { page: unknown; badCanvas: unknown; pageCanvas: unknown } }).ink;
+    expect([ink.page, ink.pageCanvas, ink.badCanvas], "no atlas page copy or canvas reference survives destroy").toEqual([null, null, null]);
+  });
+
+  it("given_an_unreadable_atlas_page_when_the_renderer_is_destroyed_then_it_keeps_no_reference_to_that_page_W89_final_review_M3", async () => {
+    const s = await setup();
+    const canvas = { width: 280, height: 60, getContext: () => null } as unknown as OffscreenCanvas;
+    const atlas: TextAtlasFrame = { canvas, width: 280, height: 60, dpr: 1, version: 1 };
+    s.r.render(frame({ atlas }));
+    s.r.render(frame({ atlas }));
+    const ink = (s.r as unknown as { ink: { badCanvas: unknown } }).ink;
+    expect(ink.badCanvas, "precondition: the bad page is remembered").toBe(canvas);
+    s.r.destroy();
+    expect(ink.badCanvas).toBeNull();
+  });
 });

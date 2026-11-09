@@ -9,7 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { createFluidRuntime, type FluidRuntime } from "../src/runtime";
 import { createManualClock, type ManualClock } from "../src/clock";
-import { TEXT_CLASS } from "../src/stylesheet";
+import { AWAY_CLASS, TEXT_CLASS } from "../src/stylesheet";
 import { FluidCanvas2DRenderer } from "../src/renderers/fluid-canvas2d";
 import type { RenderFrame } from "../src/renderers/frame";
 import { WebGPURenderer } from "../src/renderers/webgpu/webgpu-renderer";
@@ -293,5 +293,115 @@ describe("W89 runtime: Canvas2D atlas and liquid-text while two liquids mix (D89
       f += 1;
     }
     expect([held(s.a), held(s.b)], `Canvas2D draws their atlas text and holds the class (${f} frames)`).toEqual([true, true]);
+  });
+});
+
+// ---- W89 final review (M1, M2) ----
+
+/** Records the renderer instance and the frame of every render() from now on. */
+function captureRendersWithThis<T>(proto: { render(frame: RenderFrame): void }): Array<{ r: T; frame: RenderFrame }> {
+  const out: Array<{ r: T; frame: RenderFrame }> = [];
+  const original = proto.render;
+  vi.spyOn(proto, "render").mockImplementation(function (this: T, frame: RenderFrame) {
+    return out.push({ r: this, frame }), original.call(this, frame);
+  });
+  return out;
+}
+
+/** jsdom has no pointer capture: the drag tracker's stand-ins (drag-runtime.test.ts pattern). */
+function capturable(el: HTMLElement): void {
+  let id: number | null = null;
+  Object.assign(el, {
+    setPointerCapture: (p: number) => {
+      id = p;
+    },
+    releasePointerCapture: (p: number) => {
+      if (id === p) id = null;
+    },
+    hasPointerCapture: (p: number) => id === p,
+  });
+}
+
+const PTR = { bubbles: true, cancelable: true, pointerId: 1, pointerType: "mouse", isPrimary: true } as const;
+
+/** A mouse press at (x, y) on `el`, then one move by (dx, dy): a live drag. */
+function press(el: HTMLElement, x: number, y: number, dx: number, dy: number): void {
+  el.dispatchEvent(new PointerEvent("pointerdown", { ...PTR, button: 0, buttons: 1, clientX: x, clientY: y }));
+  el.dispatchEvent(new PointerEvent("pointermove", { ...PTR, button: -1, buttons: 1, clientX: x + dx, clientY: y + dy }));
+}
+
+describe("W89 final review: repaints that leave the canvas consistent (M1, M2)", () => {
+  it("given_canvas2d_paused_right_after_another_pair_started_or_stopped_mixing_when_unobserve_repaints_then_every_remaining_element_holds_liquid_text_exactly_when_that_repaint_drew_its_atlas_text_M1", async () => {
+    for (let k = 1; k <= 4; k++) {
+      const sb = spyBackend();
+      const clock = createManualClock();
+      const atlas = fakeAtlasCanvas();
+      const rt = await createFluidRuntime({ particles: 1024, maxElements: 4, seed: 1, testBackend: sb.backend, clock, renderer: "canvas2d", textAtlasCanvas: atlas.create });
+      live.push(rt);
+      const els = [button("Splash", 100), button("Merge", 160), button("Swirl", 420), button("Drift", 480)];
+      const ids = els.map((el) => rt.observe(el));
+      await microtask();
+      clock.advance(1);
+      await flush();
+      const core = sb.cores[0] as unknown as TestFluidCore;
+      core.forceRestAlpha(ids[0]!, 0.4);
+      core.forceRestAlpha(ids[1]!, 0.4);
+      for (let f = 0; f < 8 && !(held(els[0]!) && held(els[1]!)); f++) clock.advance(1);
+      expect([held(els[0]!), held(els[1]!)], "precondition: A and B mix").toEqual([true, true]);
+      // The second pair starts to mix k frames before the pause: its report turns on in one of them.
+      core.forceRestAlpha(ids[2]!, 0.4);
+      core.forceRestAlpha(ids[3]!, 0.4);
+      clock.advance(k);
+      rt.pause();
+      const renders = captureRendersWithThis<FluidCanvas2DRenderer>(FluidCanvas2DRenderer.prototype);
+      rt.unobserve(els[0]!);
+      expect(renders.map((x) => x.frame.textOff), `k ${k}: one repaint`).toEqual([ids[0]]);
+      const r = renders[0]!.r;
+      for (const i of [1, 2, 3]) {
+        expect(held(els[i]!), `k ${k}, element ${i}: the class follows what the paused canvas shows (no double, no gap)`).toBe(r.textMixing(ids[i]!));
+      }
+      vi.mocked(FluidCanvas2DRenderer.prototype.render).mockRestore();
+      rt.destroy();
+      resetDom();
+    }
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  /** A text pill (A) dragged into a text-less blob (B): ink from A, but no liquid-text hold anywhere. */
+  async function draggedIntoBlob(): Promise<Setup> {
+    const s = await setup("canvas2d", ["Splash", ""]);
+    capturable(s.a);
+    press(s.a, 170, 224, 30, 0);
+    s.core.forceRestAlpha(s.ids[0], 0.4);
+    s.core.forceRestAlpha(s.ids[1], 0.4);
+    s.clock.advance(6);
+    expect([s.a.classList.contains(AWAY_CLASS), held(s.a), held(s.b)], "precondition: A away, no liquid-text").toEqual([true, false, false]);
+    expect(s.atlas.canvases.length, "precondition: the atlas exists, so A's ink is splatted").toBeGreaterThan(0);
+    return s;
+  }
+
+  it("given_canvas2d_ink_from_a_dragged_element_and_no_liquid_text_hold_when_reduced_motion_switches_on_while_paused_then_one_repaint_takes_the_ink_off_M2", async () => {
+    const media = stubReducedMotionMedia();
+    try {
+      const s = await draggedIntoBlob();
+      s.rt.pause();
+      const renders = captureRenders(FluidCanvas2DRenderer.prototype);
+      media.fire(true);
+      expect(s.a.classList.contains(AWAY_CLASS)).toBe(false);
+      expect(renders.map((f) => f.reducedMotion), "one repaint without ink (Review Focus 6)").toEqual([true]);
+    } finally {
+      media.restore();
+    }
+  });
+
+  it("given_canvas2d_ink_from_a_dragged_element_and_no_liquid_text_hold_when_a_frame_throws_then_the_stop_repaint_draws_no_ink_M2", async () => {
+    const s = await draggedIntoBlob();
+    const renders = captureRenders(FluidCanvas2DRenderer.prototype);
+    vi.spyOn(s.core, "tick").mockImplementation(() => {
+      throw new Error("boom");
+    });
+    s.clock.advance(1);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(renders.map((f) => f.suppressText), "one repaint without ink or text").toEqual([true]);
   });
 });
