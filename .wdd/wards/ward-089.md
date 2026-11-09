@@ -150,6 +150,8 @@ Proposal: (a) everywhere, with one code path and no device feature.
 Consequence: (a) adds a rank field per element and a rank-to-id map in the resolve; a frame with more than about 64 moving elements degrades p gracefully (fade stays > 0 where they mix). (b) costs 4 B instead of 2 and a second code path. A unit test pins p for ids near 255.
 Decision: APPROVED 2026-11-03 — (a) per-frame dense rank in f16 everywhere, no device feature (saga dec_29db2b54)
 
+Note (final review, 2026-11-09, saga dec_7d9fb007): the consequence above was wrong. The dense rank keeps the rank *values* exact, but T1mix sums Σw·rank in f16, and the sum's step grows with the rank: at a fringe texel (15 fragments, second liquid 0–10 %) the worst fade error is ≈ 0.25 at ranks 6/7, ≈ 0.5 at 14/15, ≈ 0.7 at 22/23 and ≈ 1 from 46/47 on (final-review.md I1), so the site's "Shake all" (48 elements, ranks 10–20) could speckle the fade where neighbours touch. Dennis amended D89-8 to its option (b): T1mix is `rg32float` when the device has `float32-blendable` (requested in `requiredFeatures` when the adapter offers it), `rg16float` otherwise; the dense rank stays in both. The text pass is 30 B per sample with rg32float (32 B with its 4-byte alignment, at the 32 B limit). An rg32float T1mix is not filterable in core WebGPU, so the text composite binds it as `unfilterable-float` and reads it with `textureLoad` (identical at T1's 1× texel centres). Fade error with f32 sums: < 1e-3 at ranks 62/63. Tests: `webgpu-ink.test.ts` "W89 final review: T1mix precision" (4 tests) and `ink-report.test.ts` (an f32 capture).
+
 ### D89-9: Perf bounds and the Canvas2D splat strategy
 Proposal:
 - **Canvas2D bound:** +2 ms at 6 elements on a quiet machine, measured interleaved against today.
@@ -334,6 +336,20 @@ Throwaway `git archive` copies of HEAD (`a37c720`) and `4e741b1`, each with a sc
 - The text pass is within +1 ms, so the cached per-particle buffer (resolution 5) is not needed.
 - The screen pass (the text composite, which now resolves the ink) grew by another 1.03 ms. The whole-frame GPU cost of W89 is therefore about +2 ms, which Step 3's text-pass bound does not count. **Accepted** (Dennis "ja" 2026-11-09, saga dec_ffdf9914): text pass +0.94 ms (within the bound), composite +1.03 ms, ≈ +2 ms GPU per frame at 6 elements and DPR 2, CPU unchanged.
 - The timestamps came from a copy-only patch (`requiredFeatures: ["timestamp-query"]`, `timestampWrites` on the text and screen passes, a 256-buffer readback pool, no dropped frames).
+
+## Final review perf: the site (M4, 2026-11-09)
+Throwaway `git archive` copies of `a10fd71` (the final-review fixes) and `4e741b1`, each running the site (`astro dev`, 4195 and 4196) on a shared `pkg/` (no Rust change); both deleted afterwards (scripts and raw lines in `.superpowers/sdd/W89/final-fix/`, git-ignored). Playwright Chromium, 1280 × 800, DPR 2, `navigator.gpu` removed (so `'auto'` runs Canvas2D), RAF clock; CPU ms per frame = the sum of every RAF callback of that frame (all instances). Windows: the hero 3.6–6.6 s after load (the body instance, 18000 particles, 48 elements: arrival splash tail and the idle hint shake), chapter 3 "Shake all" (the three pool instances, one card each) for 2.5 s, chapter 4 "Drag me" dragged onto "Merge here" and wiggled for 2.5 s (the card held `liquid-text` at HEAD). Six runs interleaved (base, head, head, base, base, head); the table is the mean of each copy's runs 2 and 3. **Load average 6.1–9.9 (not quiet).**
+
+| Window | `4e741b1` p50 / p95 | HEAD p50 / p95 | Δ p50 / Δ p95 |
+|---|---|---|---|
+| Hero (arrival tail + hint shake, body) | 9.15 / 9.65 | 9.90 / 20.25 | +0.75 / **+10.6** |
+| Ch. 3 "Shake all" (pools) | 2.15 / 4.25 | 2.25 / 4.75 | +0.10 / +0.50 |
+| Ch. 4 merge (body, ink on) | 4.65 / 4.95 | 9.90 / 10.45 | **+5.25 / +5.50** |
+
+- **Badly off for the merge at site scale:** about +5.3 ms per frame in every HEAD run (9.9 ms vs 4.7 ms), against D89-9's +2 ms bound measured at 6 elements / 8000 particles. A CPU profile of the HEAD merge window puts `drawImage` (6.5 % self, the largest JS-visible item; the text layer is a full-viewport device-px canvas composited every frame, plus the atlas draws) far ahead of the ink splat (0.5 %) and `splatAll`. Not fixed here (the brief: report); candidates are clipping the text layer's clear and composite to the drawn elements' boxes, and the ink resolve to the dirty bounds.
+- **Hero hint shake:** p50 +0.75 ms, but 2 of 3 HEAD runs had a phase of ~30 ms frames (run 1 p50 29 ms, run 2 p95 30 ms; no base run did): the first two-element motion of the body instance builds the 48-element atlas synchronously and reads it back (`getImageData`), and the ink grid then runs over the whole viewport while every on-screen element moves.
+- "Shake all" is unaffected: each pool instance has one element, so there is no ink.
+- Headless Chromium rasterises Canvas2D on the CPU here; a GPU-accelerated canvas may composite the text layer cheaper, but the Canvas2D fallback devices are exactly the ones without WebGPU.
 
 ## W89.6 docs (D89-12, 2026-11-08)
 - `site/src/pages/docs/limitations.md` and `accessibility.md` now say that where two liquids mix, the text dissolves like ink in both renderers. CLAUDE.md gains the Ink section (with its Known line) and the five-target text pass; CONTEXT.md gains the W89 row and a Known line.

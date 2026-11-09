@@ -30,7 +30,7 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Fluid decisions: `ward
 | Site back as workspace (landing, playground, docs) on core's dist; blocking Playwright `site` (Canvas2D); deploy dispatch-only | Public API only, tested like the examples | W86 (D86-1…8) |
 | `parseCssColor` hands unparsed syntax (oklch, lab, color(), named) to a cached 1×1 canvas probe | Tailwind colours, not default purple | W86 (D86-9) |
 | Shadows follow the liquid: browser at rest, `liquid-shadow-away` + renderer while away (D88-1 … D88-14) | Exact at rest, follows in motion | W88 |
-| Text dissolves like ink where two liquids mix (fade from the lo/hi rank mix); Canvas2D draws a mixing element's atlas text under `liquid-text` (D89-1 … D89-12) | Merge reads as ink, crisp at rest | W89 |
+| Text dissolves like ink where two liquids mix (fade from the lo/hi rank mix); Canvas2D draws a mixing element's atlas text under `liquid-text`; T1mix `rg32float` with `float32-blendable`, else `rg16float` (D89-1 … D89-12; D89-8 amended to (b) in the final review, saga dec_7d9fb007) | Merge reads as ink, crisp at rest | W89 |
 
 ## Active Constraints
 - Rust er DOM-blind og farve-blind (kun matematik)
@@ -59,14 +59,14 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Fluid decisions: `ward
 - A WebGPU canvas reads only in its render task; e2e uses `__liquidTest.pixels()`.
 - Text while away: WebGPU carries it on its liquid (W74); Canvas2D adds a 1–8 px background-colour halo (W75), no solid backdrop for thin glyphs.
 - Colour re-read (W75 B): own class/style or a `color` transitionend only, after its CSS transitions end; ancestor/stylesheet/`:hover` changes and `@keyframes` colours need `refresh(el)` (runs at once). Text can lag one atlas upload.
-- Rewriting an element's inline style every frame re-reads colours + atlas each frame (W75).
+- Rewriting an element's inline style every frame re-reads colours + atlas each frame (W75; since W89 under Canvas2D too, once the atlas is wanted).
 - Liquid text (W74, W79): CLAUDE.md Renderers/DOM, `ward-074.md`.
 - Hover swell + liquid text (W74): particles swell 2 %, DOM text not (≈ 1 px); a resting pointer can smear moving text.
 - `activeRenderer` can change mid-session (W72): a lost WebGPU device makes it `'canvas2d'`; a frame or two draw nothing.
 - Canvas2D cell `ceil(R)/6` (W82): ≈ 2.8× render time on large kernels; one fine-spaced element holds the page on the 2 px floor (W77).
 - Colour probe (W86): needs a 2d canvas (null in jsdom); 256 cached strings.
 - Shadows (W88): see CLAUDE.md's Shadows "Known" line and `ward-088.md` (holes, 16 WebGPU sources, spread cap 128 px in motion, `unobserve` mid-motion).
-- Ink (W89): CLAUDE.md's Ink "Known" line (three-way p, `INK_CELL_FACTOR`, WGSL parity); Canvas2D home text has no halo under `liquid-text` (M7).
+- Ink (W89): CLAUDE.md's Ink "Known" line (three-way p, `INK_CELL_FACTOR`, WGSL parity, the rg16float T1mix fallback without `float32-blendable`); Canvas2D home text has no halo under `liquid-text` (M7).
 
 ## What Comes Next
 - Epic 16 'Liquid look' (`.wdd/epics/16-liquid-look.md`): W88 shadows follow the liquid complete (2026-10-30); the next look ward per the epic, deferred W88 follow-ups in ward-088.md.
