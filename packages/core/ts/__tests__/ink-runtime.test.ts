@@ -7,7 +7,7 @@
  * their rects, so two overlapping buttons mix wherever they overlap.
  */
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
-import { createFluidRuntime, type FluidRuntime } from "../src/runtime";
+import { ATLAS_BUILD_BUDGET, createFluidRuntime, type FluidRuntime } from "../src/runtime";
 import { createManualClock, type ManualClock } from "../src/clock";
 import { AWAY_CLASS, TEXT_CLASS } from "../src/stylesheet";
 import { FluidCanvas2DRenderer } from "../src/renderers/fluid-canvas2d";
@@ -403,5 +403,66 @@ describe("W89 final review: repaints that leave the canvas consistent (M1, M2)",
     s.clock.advance(1);
     expect(error).toHaveBeenCalledTimes(1);
     expect(renders.map((f) => f.suppressText), "one repaint without ink or text").toEqual([true]);
+  });
+});
+
+describe("W89 M4: Canvas2D builds atlas entries only for elements that can mix, a budget per frame (saga dec_572aeba3)", () => {
+  it("given_48_overlapping_text_elements_that_all_start_moving_when_frames_run_then_each_page_adds_at_most_the_budget_every_page_is_read_once_and_no_element_holds_liquid_text_without_an_entry_on_the_page", async () => {
+    const sb = spyBackend();
+    const clock = createManualClock();
+    const atlas = fakeAtlasCanvas();
+    const rt = await createFluidRuntime({ particles: 4096, maxElements: 48, seed: 1, testBackend: sb.backend, clock, renderer: "canvas2d", textAtlasCanvas: atlas.create });
+    live.push(rt);
+    const els: HTMLElement[] = [];
+    for (let i = 0; i < 48; i++) {
+      const b = document.createElement("button");
+      b.textContent = `E${String(i).padStart(2, "0")}`;
+      Object.assign(b.style, { fontSize: "16px", fontFamily: "Arial", color: "rgb(255, 255, 255)" });
+      mockRect(b, 20 + 50 * (i % 12), 100 + 70 * Math.floor(i / 12), 60, 48); // each overlaps its row neighbours by 10 px
+      document.body.appendChild(b);
+      els.push(b);
+    }
+    const ids = els.map((el) => rt.observe(el));
+    await microtask();
+    clock.advance(1);
+    await flush();
+    expect(atlas.canvases, "at rest: no atlas").toHaveLength(0);
+    const core = sb.cores[0] as unknown as TestFluidCore;
+    for (const id of ids) core.forceRestAlpha(id, 0.4);
+    expect(ATLAS_BUILD_BUDGET).toBeGreaterThan(0);
+    expect(ATLAS_BUILD_BUDGET).toBeLessThan(48);
+    const texts = (i: number): Set<string> => new Set((atlas.canvases[i]?.ctx?.fills ?? []).map((f) => f.text));
+    let maxHeld = 0;
+    for (let f = 0; f < 20; f++) {
+      clock.advance(1);
+      const page = texts(atlas.canvases.length - 1);
+      for (const el of els) {
+        if (held(el)) expect(page.has(el.textContent!), `frame ${f}: ${el.textContent} holds liquid-text only with an entry on the page`).toBe(true);
+      }
+      maxHeld = Math.max(maxHeld, els.filter(held).length);
+    }
+    expect(atlas.canvases.length, "the page grows over several frames").toBeGreaterThan(1);
+    expect(texts(0).size, "the first moving frame builds at most the budget").toBeLessThanOrEqual(ATLAS_BUILD_BUDGET);
+    for (let i = 1; i < atlas.canvases.length; i++) {
+      expect(texts(i).size - texts(i - 1).size, `page ${i} adds at most the budget`).toBeLessThanOrEqual(ATLAS_BUILD_BUDGET);
+    }
+    expect(texts(atlas.canvases.length - 1).size, "every element that can mix gets its entry").toBe(48);
+    for (const c of atlas.canvases) expect(c.ctx!.imageReads.length, "each page version read at most once").toBeLessThanOrEqual(1);
+    expect(maxHeld, "the class does follow the entries").toBeGreaterThan(0);
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("given_two_overlapping_text_elements_and_a_far_one_all_moving_when_frames_run_then_the_far_one_gets_no_atlas_entry", async () => {
+    const s = await setup("canvas2d");
+    const far = button("Away", 700);
+    const farId = s.rt.observe(far);
+    await microtask();
+    s.clock.advance(1);
+    s.core.forceRestAlpha(farId, 0.4);
+    expect(mixUntilHeld(s), "precondition: the pair mixes").toBeGreaterThan(0);
+    s.clock.advance(3);
+    const page = new Set((s.atlas.canvases.at(-1)?.ctx?.fills ?? []).map((f) => f.text));
+    expect([page.has("Splash"), page.has("Merge"), page.has("Away")]).toEqual([true, true, false]);
+    expect(held(far)).toBe(false);
   });
 });

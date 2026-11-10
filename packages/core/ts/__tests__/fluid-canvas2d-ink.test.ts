@@ -326,4 +326,56 @@ describe("W89 Canvas2D ink (D89-2, D89-5, D89-6)", () => {
     s.r.destroy();
     expect(ink.badCanvas).toBeNull();
   });
+  // ---- W89 M4 perf fix (Dennis 2026-11-10, saga dec_572aeba3): the text layer only where text is drawn ----
+
+  /** The text layer: the scratch canvas the atlas text is drawn into (undefined when none was). */
+  const textLayer = (s: Setup, atlas: TextAtlasFrame): HTMLCanvasElement | undefined =>
+    extra(s).find((c) => c.ops("drawImage").some((d) => d.args[0] === atlas.canvas))?.canvas;
+
+  it("given_two_moving_text_elements_whose_liquids_never_mix_when_rendered_then_no_text_layer_is_composited_onto_the_liquid_canvas_W89_M4", async () => {
+    const s = await setup();
+    const { frame: atlas } = atlasPage();
+    for (let f = 0; f < 4; f++) s.r.render(frame({ atlas, bx: 400 })); // B far right: no overlap
+    expect([s.r.textMixing(0), s.r.textMixing(1)]).toEqual([false, false]);
+    expect(textLayer(s, atlas), "no atlas text drawn").toBeUndefined();
+    const sources = new Set(extra(s).map((c) => c.canvas));
+    const layerDraws = s.main.ops("drawImage").filter((d) => sources.has(d.args[0] as HTMLCanvasElement) && (d.args[0] as HTMLCanvasElement).width === 400);
+    expect(layerDraws, "no viewport-sized layer composite").toEqual([]);
+  });
+
+  it("given_two_mixing_text_elements_when_rendered_then_the_text_layer_is_cleared_and_composited_only_over_the_union_of_their_dom_boxes_W89_M4", async () => {
+    const s = await setup();
+    const { frame: atlas } = atlasPage();
+    s.r.render(frame({ atlas }));
+    s.r.render(frame({ atlas }));
+    expect([s.r.textMixing(0), s.r.textMixing(1)], "precondition").toEqual([true, true]);
+    const layer = textLayer(s, atlas)!;
+    // A at (100, 100), B at (160, 100), both 120 × 40, dpr 1: union x 100–280, y 100–140 (± 1 px rounding).
+    const within = (x: number, y: number, w: number, h: number): boolean => x >= 99 && y >= 99 && x + w <= 281 && y + h <= 141 && w > 0 && h > 0;
+    const composites = s.main.ops("drawImage").filter((d) => d.args[0] === layer);
+    expect(composites.length, "composited once per drawing frame").toBeGreaterThan(0);
+    for (const d of composites) {
+      expect(d.args, "9-argument drawImage: source rect = destination rect").toHaveLength(9);
+      const [, sx, sy, sw, sh, dx, dy, dw, dh] = d.args as number[];
+      expect(within(sx!, sy!, sw!, sh!), `source rect ${[sx, sy, sw, sh]}`).toBe(true);
+      expect([dx, dy, dw, dh]).toEqual([sx, sy, sw, sh]);
+    }
+    const clears = fake.ctxFor(layer)!.ops("clearRect");
+    expect(clears.length).toBeGreaterThan(0);
+    for (const c of clears) {
+      const [x, y, w, h] = c.args as number[];
+      expect(within(x!, y!, w!, h!), `clear ${[x, y, w, h]} stays in the union, not the 400 × 300 viewport`).toBe(true);
+    }
+  });
+  it("given_moving_elements_when_rendered_then_atlasCandidates_are_the_moving_slots_whose_liquid_meets_another_moving_liquid_and_none_without_a_neighbour_W89_M4", async () => {
+    const s = await setup();
+    s.r.render(frame({ atlas: null }));
+    expect([...s.r.atlasCandidates()], "overlapping liquids, no atlas yet").toEqual([0, 1]);
+    s.r.render(frame({ atlas: null, bx: 600 })); // B 380 px right of A's edge (A ends at 221)
+    expect([...s.r.atlasCandidates()], "two movers far apart").toEqual([]);
+    s.r.render(frame({ atlas: null, restAlpha: [0.3, 1] }));
+    expect([...s.r.atlasCandidates()], "one mover").toEqual([]);
+    s.r.render(frame({ atlas: null, reducedMotion: true }));
+    expect([...s.r.atlasCandidates()], "reduced motion").toEqual([]);
+  });
 });
