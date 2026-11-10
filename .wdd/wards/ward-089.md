@@ -3,7 +3,7 @@ ward: 89
 revision: null
 name: "Text dissolves like ink"
 epic: "liquid-look"
-status: "approved"
+status: "gold"
 dependencies: [88]
 layer: "typescript"
 estimated_tests: 0
@@ -574,3 +574,8 @@ Dennis' smoke at gold (W89.6 Step 7), after `wdd ward status 89 gold`:
 - Vision of acceptance step 5 and site chapter 4 in both renderers (stills and a recording), judged against the anti-goal.
 - Perf within D89-9's bounds.
 - No acceptance step regresses.
+
+## Re-review notes (2026-11-10)
+- The Canvas2D atlas budget (`ATLAS_BUILD_BUDGET = 8`) caps the entries added per frame, not each build's cost: each step rebuilds the page with every entry so far (plus `getImageData` and the per-particle ink), so a 48-element first motion builds 6 times and the last costs as much as the old single build. Measured worst hero frame 16.9 ms (baseline 12.5 ms); accepted as Known.
+- With the f16 fallback, T1mix is also read with `textureLoad` instead of `textureSample`. The values are identical at texel centres and differ only where T1 is clamped below the backing size by the maximum texture dimension.
+- The hero arrival's p95 is still +3.85 ms over 4e741b1 while many elements move (load 26–50, rough). It is outside D89-9's chapter-4 bound and is noted for a follow-up.
