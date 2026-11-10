@@ -650,7 +650,10 @@ export class InkCanvas2D {
     tctx.clearRect(rx, ry, rw, rh);
     tctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     tctx.imageSmoothingEnabled = true;
-    tctx.imageSmoothingQuality = "high";
+    // W89 M4: "low" (bilinear) on the text layer: the atlas text is drawn at 1:1 (atlas px = device
+    // px), and the fade mask is a soft field; "high" cost ~1.5 ms per frame at site scale (its
+    // cubic/mipmapped upscale of the mask flushes at the composite). Vision: no visible change.
+    tctx.imageSmoothingQuality = "low";
     for (let id = 0; id < this.drawnIds.length; id++) {
       if (this.drawnIds[id] !== 1) continue;
       const rect = paints[id]?.atlasRect;
