@@ -351,6 +351,53 @@ Throwaway `git archive` copies of `a10fd71` (the final-review fixes) and `4e741b
 - "Shake all" is unaffected: each pool instance has one element, so there is no ink.
 - Headless Chromium rasterises Canvas2D on the CPU here; a GPU-accelerated canvas may composite the text layer cheaper, but the Canvas2D fallback devices are exactly the ones without WebGPU.
 
+### M4 perf fix (Dennis 2026-11-10, saga dec_572aeba3)
+**Cause, found by timing the deferred Canvas2D work:**
+- The text layer was cleared and composited over the whole viewport at device px every drawing frame.
+- The fade mask was drawn into the layer over its whole dirty region, upscaled 8× with `imageSmoothingQuality = "high"`.
+- That deferred work flushed at the composite: ~20 ms per hero frame and ~8 ms per merge frame.
+- The atlas build (4.8 ms), its `getImageData` (5.9 ms) and the per-particle ink (3.3 ms) all landed on the first moving frame.
+
+**Fix:**
+- `aa77f32`:
+  - The text layer is cleared and composited only over the union of the drawn elements' DOM boxes. The mask is drawn only there (`CellImage.drawWithin`).
+  - `InkCanvas2D.atlasCandidates()`: moving slots whose unparked particles' bounds, grown by both kernel radii, meet another moving slot's.
+  - Under Canvas2D the runtime builds atlas entries only for those, at most `ATLAS_BUILD_BUDGET = 8` new ones per frame, kept until `unobserve`. A device loss keeps WebGPU's full page.
+  - A slot without an entry has no atlas rect, so it is never drawn and never holds `liquid-text`.
+- `203be70`: bilinear smoothing on the text layer. The atlas text is drawn at 1:1; the mask is a soft field.
+
+**Tests:** `c0f2b42`, red first.
+
+**Re-measure:**
+- Copies of `aa77f32` + `203be70` (the site from the worktree's dist, the scene from a `git archive` copy) and `4e741b1`, all deleted afterwards. Same setup as above.
+- Site: six interleaved runs; each value is the mean of each copy's runs 2 and 3.
+- 6-element scene: `acceptance6.html` as in W89.6, 3 interleaved reps, the first discarded.
+- **Load average 26–50 (another workload on the machine: much busier than the W89.6 runs, so the numbers are rough).** Raw lines and scripts are in `.superpowers/sdd/W89/final-fix/perf/` (git-ignored).
+
+| Window | `4e741b1` p50 / p95 / max | HEAD p50 / p95 / max | Δ p50 / Δ p95 |
+|---|---|---|---|
+| Hero arrival (0–3.6 s, body, 48 el) | 8.90 / 11.00 / 12.5 | 9.70 / 14.85 / 16.9 | +0.80 / +3.85 |
+| Hero hint shake (3.6–6.6 s) | 8.85 / 9.55 / 9.9 | 9.60 / 10.30 / 10.5 | +0.75 / +0.75 |
+| Ch. 3 "Shake all" | 2.10 / 4.70 / 6.2 | 2.15 / 4.80 / 6.2 | +0.05 / +0.10 |
+| **Ch. 4 merge** | 4.55 / 4.85 / 5.2 | 5.90 / 6.60 / 6.9 | **+1.35 / +1.75** (bound +2: met; was +5.25 / +5.50) |
+| **6-element scene** (canvas2d, per `advance(1)`) | 8.98 / 9.34 | 9.58 / 10.34 | **+0.60 / +1.00** (bound met) |
+
+- The ~30 ms first-motion frames are gone. The hero's worst frame is 16.9 ms, against 12.5 ms at the baseline. Earlier probes of the unfixed HEAD showed 40–53 ms frames for ~3 s.
+- Hero arrival p95 is still +3.85 ms. Many elements move together there, but only a few mix (the first page holds 3 words).
+- Steps in between, ch. 4 merge p50 / p95 (same load):
+
+  | Step | p50 / p95 |
+  |---|---|
+  | Unfixed HEAD (previous table) | 9.9 / 10.45 |
+  | Union rect + atlas budget | 7.8 / 9.0 |
+  | + bilinear mask | 6.4 / 7.0 |
+  | + bilinear text layer | 5.9 / 6.6 |
+
+**Vision** (Canvas2D, DPR 2, stills in `.superpowers/sdd/W89/final-fix/perf/`):
+- Step 5 hold f30 and f90, f90 zoomed 3×, compared with W89.6's approved `step5-canvas2d-dpr2-hold-f90.png`.
+- Site ch. 4 merge hold and release +150 ms.
+- Verdict: the same soft fade and ink streaks, crisp text outside the zone, no blockiness from the bilinear mask.
+
 ## W89.6 docs (D89-12, 2026-11-08)
 - `site/src/pages/docs/limitations.md` and `accessibility.md` now say that where two liquids mix, the text dissolves like ink in both renderers. CLAUDE.md gains the Ink section (with its Known line) and the five-target text pass; CONTEXT.md gains the W89 row and a Known line.
 - NORTH-STAR step 5 and the fluid design's §6 keep their wording (D89-4). **Note:** step 5's "the labels never overlap" holds for crisp labels: no two crisp labels overlap where fade ≥ 0.9 (A1); at the zone's outer edge two texts may overlap faintly with weight p (D89-4). The WGSL resolve has no automated parity test with `ink.ts` beyond the shader-text units and the webgpu-hw e2e (accepted, resolution 16).
