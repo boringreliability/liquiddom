@@ -21,6 +21,8 @@ import { ShadowCanvas2D } from "./shadow-canvas2d";
 
 const clamp01 = (v: number): number => (v > 0 ? (v < 1 ? v : 1) : 0);
 
+const NO_CANDIDATES: readonly number[] = [];
+
 export class FluidCanvas2DRenderer implements Renderer {
   private ctx: CanvasRenderingContext2D | null = null;
   private off: HTMLCanvasElement | null = null;
@@ -132,6 +134,11 @@ export class FluidCanvas2DRenderer implements Renderer {
   /** W89 (D89-5): true once a render() saw two elements move (sticky); the runtime then builds the atlas. */
   wantsAtlas(): boolean {
     return this.ink.wantsAtlas();
+  }
+
+  /** W89 M4: the slots of the last render() whose liquid can mix; the runtime builds atlas entries only for them. */
+  atlasCandidates(): readonly number[] {
+    return this.ctx !== null ? this.ink.atlasCandidates() : NO_CANDIDATES;
   }
 
   /** W88 (D88-1): true when the last render() drew slot `id`'s shadow. */

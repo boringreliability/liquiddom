@@ -34,6 +34,9 @@ import { FluidCanvas2DRenderer } from "./renderers/fluid-canvas2d";
 import { WebGPURenderer, type TextIdCapture } from "./renderers/webgpu/webgpu-renderer";
 import { loadFluidWasm, type FluidBackend, type FluidCoreLike } from "./wasm-loader";
 
+/** W89 M4 (saga dec_572aeba3): Canvas2D adds at most this many atlas entries per frame (a 48-element first motion builds in steps). */
+export const ATLAS_BUILD_BUDGET = 8;
+
 export const LIQUID_CANVAS_CLASS = "liquid-canvas";
 export const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 export const STATIC_CONTAINER_WARNING =
@@ -373,6 +376,13 @@ function buildRuntime(
    * (two elements moved; sticky), from the next frame on; a device-lost rebuild keeps a page it had.
    */
   let atlasWanted = false;
+  /**
+   * W89 M4 (saga dec_572aeba3): under Canvas2D the page holds only these slots: the renderer's
+   * atlasCandidates() (moving, near another moving liquid), at most ATLAS_BUILD_BUDGET new ones per
+   * frame, kept until unobserve. A slot without an entry has no atlas rect, so it is never drawn
+   * and never holds liquid-text. WebGPU builds every element (W74).
+   */
+  const atlasSet = new Set<number>();
   /**
    * W75 amendment B (D75-1): slots whose text changed (or that were newly observed) since the last
    * build. While a build waits, their paints carry no atlas rect, so the in-flight page's record for
@@ -727,7 +737,8 @@ function buildRuntime(
     atlasFrame = null;
     if (activeRenderer !== "webgpu" && !atlasWanted) return;
     const entries: Array<{ id: number; el: HTMLElement; dpr: number }> = [];
-    for (const rec of registry.entries()) entries.push({ id: rec.id, el: rec.el, dpr: viewport.dpr });
+    const all = activeRenderer === "webgpu";
+    for (const rec of registry.entries()) if (all || atlasSet.has(rec.id)) entries.push({ id: rec.id, el: rec.el, dpr: viewport.dpr });
     try {
       atlasRects = textAtlas.build(entries);
       const page = textAtlas.canvas;
@@ -947,9 +958,19 @@ function buildRuntime(
       // W72 (D72-3): null only while a device-lost rebuild is in flight; the core keeps ticking.
       if (renderer !== null) renderer.render(buildFrame());
       // W89 (D89-5, resolution 12): two elements moved under Canvas2D: the next frame builds the page.
-      if (!atlasWanted && activeRenderer === "canvas2d" && renderer?.wantsAtlas?.() === true) {
-        atlasWanted = true;
-        atlasDeferred = true;
+      // M4 (saga dec_572aeba3): with the entries of the elements that can mix, ATLAS_BUILD_BUDGET more per frame.
+      if (activeRenderer === "canvas2d" && renderer?.atlasCandidates) {
+        let added = 0;
+        for (const id of renderer.atlasCandidates()) {
+          if (added >= ATLAS_BUILD_BUDGET) break;
+          if (atlasSet.has(id) || registry.get(id) === undefined) continue;
+          atlasSet.add(id);
+          added += 1;
+        }
+        if (added > 0) {
+          atlasWanted = true;
+          atlasDeferred = true;
+        }
       }
       syncText(); // W74 (D74-6)
       syncAway(); // W78 (D78-1)
@@ -1063,6 +1084,8 @@ function buildRuntime(
     // W88 (D88-1): the browser's shadows until the Canvas2D renderer draws them (the old canvas goes with its shadows).
     clearShadowClasses(shadowHeld);
     atlasWanted ||= atlasFrame !== null;
+    // W89 M4: the page WebGPU built holds every element; Canvas2D keeps them all.
+    if (atlasFrame !== null) for (const rec of registry.entries()) atlasSet.add(rec.id);
     paintsDirty = true;
     let pending: Promise<FluidCanvas2DRenderer>;
     try {
@@ -1144,7 +1167,11 @@ function buildRuntime(
           canvas.width = w; // resets the bitmap (resolution 4's fallback)
         }
       }
-      if (registry.idOf(el) !== undefined) unwatchElement(el); // W75: observer, transitionend, halo hold
+      const goneId = registry.idOf(el);
+      if (goneId !== undefined) {
+        unwatchElement(el); // W75: observer, transitionend, halo hold
+        atlasSet.delete(goneId); // W89 M4: a reused slot earns its own entry
+      }
       registry.unobserve(el);
       // W89 final review (M1): the repaint may draw another element's text differently from the last
       // frame (its mixing report stepped there), which matters while paused; the other elements'

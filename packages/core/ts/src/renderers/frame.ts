@@ -106,6 +106,8 @@ export interface Renderer {
   textMixing?(id: number): boolean;
   /** W89 (D89-5): Canvas2D: true once a render() saw two elements move (sticky); the runtime then builds the atlas. */
   wantsAtlas?(): boolean;
+  /** W89 M4: Canvas2D: the slots of the last render() whose liquid can mix (moving, near another moving liquid). */
+  atlasCandidates?(): readonly number[];
   /**
    * W88 (D88-1): true when the last render() drew slot `id`'s outer shadow layers. The runtime holds
    * `liquid-shadow-away` on an element with outer layers only then, so the browser's shadow never

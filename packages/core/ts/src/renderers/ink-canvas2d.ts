@@ -238,10 +238,22 @@ class CellImage {
 
   /** Draws the buffer's region onto `ctx` (CSS px under its DPR transform), `cell` CSS px per cell. */
   drawOnto(ctx: CanvasRenderingContext2D, cell: number): void {
-    if (this.bx1 < this.bx0) return;
-    const w = this.bx1 - this.bx0 + 1;
-    const h = this.by1 - this.by0 + 1;
-    ctx.drawImage(this.canvas, this.bx0, this.by0, w, h, this.bx0 * cell, this.by0 * cell, w * cell, h * cell);
+    this.drawWithin(ctx, cell, -Infinity, -Infinity, Infinity, Infinity);
+  }
+
+  /**
+   * W89 M4: as drawOnto, but only the cells that meet the CSS rect [x0, x1] × [y0, y1] (the scaled
+   * draw is the costly part; the text layer needs the mask only over the drawn boxes).
+   */
+  drawWithin(ctx: CanvasRenderingContext2D, cell: number, x0: number, y0: number, x1: number, y1: number): void {
+    const cx0 = Math.max(this.bx0, Math.floor(x0 / cell));
+    const cy0 = Math.max(this.by0, Math.floor(y0 / cell));
+    const cx1 = Math.min(this.bx1, Math.ceil(x1 / cell) - 1);
+    const cy1 = Math.min(this.by1, Math.ceil(y1 / cell) - 1);
+    if (cx1 < cx0 || cy1 < cy0) return;
+    const w = cx1 - cx0 + 1;
+    const h = cy1 - cy0 + 1;
+    ctx.drawImage(this.canvas, cx0, cy0, w, h, cx0 * cell, cy0 * cell, w * cell, h * cell);
   }
 }
 
@@ -265,6 +277,12 @@ export class InkCanvas2D {
   private enter = new Int32Array(0);
   private exit = new Int32Array(0);
   private radius = new Float32Array(0);
+  // W89 M4: per moving slot, its unparked particles' bounds (CSS px), for atlasCandidates().
+  private bx0 = new Float32Array(0);
+  private by0 = new Float32Array(0);
+  private bx1 = new Float32Array(0);
+  private by1 = new Float32Array(0);
+  private readonly candidates: number[] = [];
   // The atlas page's pixels, read once per version; `badVersion` remembers a page that could not be read.
   private page: AtlasPixels | null = null;
   private pageCanvas: OffscreenCanvas | null = null;
@@ -293,6 +311,15 @@ export class InkCanvas2D {
   /** D89-5: true once a render saw two or more elements move (sticky). */
   wantsAtlas(): boolean {
     return this.seenTwo;
+  }
+
+  /**
+   * W89 M4 (saga dec_572aeba3): the slots of the last render whose liquid can
+   * mix, in id order: moving, and their unparked particles' bounds, grown by their kernel radius,
+   * meet another moving slot's. Only these need an atlas entry. Reused array (valid until the next render).
+   */
+  atlasCandidates(): readonly number[] {
+    return this.candidates;
   }
 
   /**
@@ -331,6 +358,7 @@ export class InkCanvas2D {
    */
   render(ctx: CanvasRenderingContext2D, frame: RenderFrame, cellPx: number, cssW: number, cssH: number): void {
     this.drawnIds.fill(0);
+    this.candidates.length = 0;
     // D89-10: no ink, no atlas text; reduced motion also drops the report, suppressText keeps it.
     if (frame.reducedMotion) {
       this.report.reset();
@@ -376,7 +404,10 @@ export class InkCanvas2D {
       }
       this.inkOn[id] = isAway || drawn ? 1 : 0; // resolution 3
     }
-    if (movingCount >= 2) this.seenTwo = true;
+    if (movingCount >= 2) {
+      this.seenTwo = true;
+      this.findCandidates(frame, n);
+    }
     this.enter.fill(0);
     this.exit.fill(0);
     let ran = false;
@@ -592,13 +623,34 @@ export class InkCanvas2D {
       layer.width = pw;
       layer.height = ph;
     }
+    const { paints, elementView: ev } = frame;
+    // W89 M4 (saga dec_572aeba3): only the union of the drawn elements' DOM boxes (device px) is
+    // cleared and composited; a full-viewport clear and composite per frame cost ~5 ms at site scale.
+    let ux0 = Infinity;
+    let uy0 = Infinity;
+    let ux1 = -Infinity;
+    let uy1 = -Infinity;
+    for (let id = 0; id < this.drawnIds.length; id++) {
+      if (this.drawnIds[id] !== 1 || !paints[id]?.atlasRect) continue;
+      const o = id * ELEMENT_STRIDE;
+      const x = ev[o + El.X] as number;
+      const y = ev[o + El.Y] as number;
+      ux0 = Math.min(ux0, x);
+      uy0 = Math.min(uy0, y);
+      ux1 = Math.max(ux1, x + (ev[o + El.W] as number));
+      uy1 = Math.max(uy1, y + (ev[o + El.H] as number));
+    }
+    const rx = Math.max(0, Math.floor(ux0 * dpr));
+    const ry = Math.max(0, Math.floor(uy0 * dpr));
+    const rw = Math.min(pw, Math.ceil(ux1 * dpr)) - rx;
+    const rh = Math.min(ph, Math.ceil(uy1 * dpr)) - ry;
+    if (!(rw > 0 && rh > 0)) return; // nothing on screen (the drawn ids stand: their DOM text is off screen too)
     tctx.setTransform(1, 0, 0, 1, 0, 0);
     tctx.globalCompositeOperation = "source-over";
-    tctx.clearRect(0, 0, pw, ph);
+    tctx.clearRect(rx, ry, rw, rh);
     tctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     tctx.imageSmoothingEnabled = true;
     tctx.imageSmoothingQuality = "high";
-    const { paints, elementView: ev } = frame;
     for (let id = 0; id < this.drawnIds.length; id++) {
       if (this.drawnIds[id] !== 1) continue;
       const rect = paints[id]?.atlasRect;
@@ -608,12 +660,48 @@ export class InkCanvas2D {
     }
     if (this.maskHasFade && this.maskImg !== null) {
       tctx.globalCompositeOperation = "destination-out";
-      this.maskImg.drawOnto(tctx, cell);
+      this.maskImg.drawWithin(tctx, cell, ux0, uy0, ux1, uy1);
       tctx.globalCompositeOperation = "source-over";
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(layer, 0, 0);
+    ctx.drawImage(layer, rx, ry, rw, rh, rx, ry, rw, rh);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  /** W89 M4: one pass over the particles for the moving slots' bounds, then the pairs that meet. */
+  private findCandidates(frame: RenderFrame, n: number): void {
+    const { bx0, by0, bx1, by1 } = this;
+    bx0.fill(Infinity, 0, n);
+    by0.fill(Infinity, 0, n);
+    bx1.fill(-Infinity, 0, n);
+    by1.fill(-Infinity, 0, n);
+    const cap = frame.particleCapacity;
+    const { dynamicView: dyn, staticView: st } = frame;
+    for (let i = 0; i < cap; i++) {
+      const home = st[Stat.HOME * cap + i] as number;
+      if (!(home >= 0)) continue;
+      const id = home | 0;
+      if (id >= n || this.moving[id] !== 1) continue;
+      if (((dyn[Dyn.FLAGS * cap + i] as number) & FLAG_PARKED) !== 0) continue;
+      const x = dyn[Dyn.X * cap + i] as number;
+      const y = dyn[Dyn.Y * cap + i] as number;
+      if (!(Number.isFinite(x) && Number.isFinite(y))) continue;
+      if (x < bx0[id]!) bx0[id] = x;
+      if (x > bx1[id]!) bx1[id] = x;
+      if (y < by0[id]!) by0[id] = y;
+      if (y > by1[id]!) by1[id] = y;
+    }
+    for (let a = 0; a < n; a++) {
+      if (this.moving[a] !== 1 || !(bx1[a]! >= bx0[a]!)) continue;
+      for (let b = 0; b < n; b++) {
+        if (b === a || this.moving[b] !== 1 || !(bx1[b]! >= bx0[b]!)) continue;
+        const r = this.radius[a]! + this.radius[b]!; // two kernels reach this far towards each other
+        if (bx0[a]! - r <= bx1[b]! && bx0[b]! - r <= bx1[a]! && by0[a]! - r <= by1[b]! && by0[b]! - r <= by1[a]!) {
+          this.candidates.push(a);
+          break;
+        }
+      }
+    }
   }
 
   /** Sizes the per-slot arrays to the paints (only when they grow; the frame zeroes what it uses). */
@@ -628,5 +716,9 @@ export class InkCanvas2D {
     this.enter = new Int32Array(n);
     this.exit = new Int32Array(n);
     this.radius = new Float32Array(n);
+    this.bx0 = new Float32Array(n);
+    this.by0 = new Float32Array(n);
+    this.bx1 = new Float32Array(n);
+    this.by1 = new Float32Array(n);
   }
 }
