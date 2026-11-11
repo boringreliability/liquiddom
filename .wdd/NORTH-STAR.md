@@ -289,3 +289,15 @@ Rows are copied verbatim from the spec; 'this spec' and § references mean the d
 | D88-12 | shadowBlur floor of one density cell for spread layers | W88 | dec_30e72f80 |
 | D88-13 | The liquid composite blends OVER (approved-test change) | W88 | dec_793867f6 |
 | D88-14 | The renderer scales shadowBlur and offsets by the DPR, test-pinned | W88 | dec_668a8f0c |
+| D89-1 | Ink only where two liquids meet | W89 | dec_65b5e308 |
+| D89-2 | Ink technique: variant C | W89 | dec_efb79947 |
+| D89-3 | Every liquid counts, both texts feed ink | W89 | dec_b2c1c6a2 |
+| D89-4 | D79-1 soft guarantee (approved-test change) | W89 | dec_fac79d1f |
+| D89-5 | Canvas2D atlas and liquid-text | W89 | dec_e1b67b60 |
+| D89-6 | Canvas2D hide/show hysteresis | W89 | dec_c8668af2 |
+| D89-7 | WebGPU targets within 32 B | W89 | dec_a567ca91 |
+| D89-8 | Σw·id precision: dense rank | W89 | dec_29db2b54 |
+| D89-9 | Perf bounds and Canvas2D splat | W89 | dec_2ba27aef |
+| D89-10 | Reduced motion: no ink | W89 | dec_060cfd55 |
+| D89-11 | Tuning freedom | W89 | dec_c28300ce |
+| D89-12 | Scene, docs, baselines | W89 | dec_a9a90d32 |

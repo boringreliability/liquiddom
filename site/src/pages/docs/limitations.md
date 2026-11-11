@@ -28,7 +28,7 @@ Colours are read when an element is observed and again when its own `class` or `
 
 ## Rendering
 
-- **Text in the liquid is WebGPU only.** With WebGPU the labels flow with the liquid. With Canvas2D the DOM text stays in place over the moving liquid, with a halo in the element's colour.
+- **Text in the liquid flows with it under WebGPU.** With Canvas2D the DOM text stays in place while one element's liquid moves (the halo keeps it readable). Where two elements' liquids mix, the text dissolves like ink in both renderers and is crisp again at rest. Canvas2D's ink needs `OffscreenCanvas` for the text atlas; without it the DOM text stays in place while liquids mix, as before.
 - If the GPU device is lost, the instance continues in Canvas2D (`activeRenderer` becomes `"canvas2d"`).
 
 ## Gravity and touch

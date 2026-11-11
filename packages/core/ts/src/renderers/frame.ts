@@ -84,6 +84,12 @@ export interface RenderFrame {
    * the class goes) is never doubled by the canvas's.
    */
   readonly suppressShadows?: boolean;
+  /** W89 (D89-10, Review Focus 1): the repaint when an instance stops or reduced motion turns on while paused: no ink, no atlas text, no liquid text. */
+  readonly suppressText?: boolean;
+  /** W89 (D89-6): per slot 1 while this instance holds W78's `liquid-away` on it (as of the last sync); Canvas2D reads it. */
+  readonly awaySlots?: Uint8Array;
+  /** W89 (Review Focus 1): the repaint when `unobserve(el)` releases a held `liquid-text`: no atlas text, ink or liquid text for this slot. */
+  readonly textOff?: number;
 }
 
 export interface Renderer {
@@ -93,9 +99,15 @@ export interface Renderer {
   destroy(): void;
   /**
    * W74 (D74-6): true when render() draws atlas text for slot `id` whenever its restAlpha < 1
-   * (WebGPU only). The runtime sets `liquid-text` only then; a renderer without it never gets one.
+   * (WebGPU). The runtime sets `liquid-text` under WebGPU only then; under Canvas2D it reads textMixing (W89).
    */
   textReady?(id: number): boolean;
+  /** W89 (D89-5, D89-6): Canvas2D: true when the last render() drew slot `id`'s atlas text and ink in place of its DOM text. */
+  textMixing?(id: number): boolean;
+  /** W89 (D89-5): Canvas2D: true once a render() saw two elements move (sticky); the runtime then builds the atlas. */
+  wantsAtlas?(): boolean;
+  /** W89 M4: Canvas2D: the slots of the last render() whose liquid can mix (moving, near another moving liquid). */
+  atlasCandidates?(): readonly number[];
   /**
    * W88 (D88-1): true when the last render() drew slot `id`'s outer shadow layers. The runtime holds
    * `liquid-shadow-away` on an element with outer layers only then, so the browser's shadow never

@@ -4,6 +4,9 @@
  * records every canvas it hands out and every fillText with the font, fill style, letter spacing
  * and transform in force. `installRangeRects(layout)` stubs Range.prototype.getClientRects with
  * the caller's layout of a text node's character range.
+ * W89 (D89-2, D89-5): `getImageData` returns the page as RGBA8 (not premultiplied), every fillText
+ * word box (measureText width × the font's ascent + descent, through the transform in force, inside
+ * its clip) filled with the fill colour, opaque; each call is recorded in `imageReads`.
  */
 import type { AtlasCanvasFactory } from "../src/renderers/webgpu/text-atlas";
 
@@ -33,6 +36,8 @@ export class FakeAtlasContext {
   letterSpacing = "0px";
   readonly fills: FakeFill[] = [];
   clears = 0;
+  /** W89: `[x, y, w, h]` of every getImageData call, in order. */
+  readonly imageReads: Array<readonly number[]> = [];
   /** W74 review: save / beginPath / rect / clip / restore in call order, with their arguments. */
   readonly ops: Array<{ readonly op: string; readonly args: readonly number[] }> = [];
   private transform: number[] = [1, 0, 0, 1, 0, 0];
@@ -86,6 +91,29 @@ export class FakeAtlasContext {
       actualBoundingBoxAscent: size * 0.7,
       actualBoundingBoxDescent: size * 0.1,
     } as TextMetrics;
+  }
+
+  /** W89: the word boxes of every fill so far, rasterised (see the file comment). */
+  getImageData(sx: number, sy: number, sw: number, sh: number): { width: number; height: number; data: Uint8ClampedArray } {
+    this.imageReads.push([sx, sy, sw, sh]);
+    const data = new Uint8ClampedArray(sw * sh * 4);
+    for (const f of this.fills) {
+      const size = fontPx(f.font);
+      const [a, , , d, e, g] = f.transform;
+      const x0 = a * f.x + e;
+      const x1 = a * (f.x + f.text.length * size * 0.5) + e;
+      const y0 = d * (f.y - 0.8 * size) + g;
+      const y1 = d * (f.y + 0.2 * size) + g;
+      const [cx, cy, cw, ch] = f.clip ?? [-Infinity, -Infinity, Infinity, Infinity];
+      const m = /rgba?\(([^)]*)\)/.exec(f.fillStyle);
+      const [r, gg, b] = m ? m[1].split(/[\s,/]+/).filter(Boolean).map(Number) : [0, 0, 0];
+      for (let y = Math.max(sy, Math.floor(Math.max(y0, cy))); y < Math.min(sy + sh, Math.ceil(Math.min(y1, cy + ch))); y++) {
+        for (let x = Math.max(sx, Math.floor(Math.max(x0, cx))); x < Math.min(sx + sw, Math.ceil(Math.min(x1, cx + cw))); x++) {
+          data.set([r ?? 0, gg ?? 0, b ?? 0, 255], ((y - sy) * sw + (x - sx)) * 4);
+        }
+      }
+    }
+    return { width: sw, height: sh, data };
   }
 
   fillText(text: string, x: number, y: number): void {

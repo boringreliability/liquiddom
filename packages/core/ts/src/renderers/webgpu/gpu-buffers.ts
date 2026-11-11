@@ -11,7 +11,8 @@
  *   particle count changes. An inactive slot (w == 0) keeps its id: it is not drawn because its
  *   element record has flags 0 (W71 ward-review I1), so the homes stay right when it reappears;
  * - elements: one 16-float record per slot (WGSL `struct Element`), written every frame.
- *   Colour stays straight (rgb 0–1, a 0–1); the shaders premultiply.
+ *   Colour stays straight (rgb 0–1, a 0–1); the shaders premultiply. W89 (D89-8): EG.RANK holds
+ *   the dense rank of a moving drawable slot.
  */
 import { Dyn, ELEMENT_STRIDE, FLAG_PARKED, FLAG_TORN, homeRectInto, type HomeRect, St, STATE_STRIDE, Stat } from "../../fluid-layout";
 import type { RenderFrame } from "../frame";
@@ -19,9 +20,9 @@ import { kernelRadiusPx } from "../kernel-params";
 
 /** Floats per element record: rect (4), radius, restAlpha, mass, kernel radius, rgba (4), flags, 3 × pad = 64 bytes. */
 export const ELEMENT_GPU_FLOATS = 16;
-/** Offsets in one element record; mirrors WGSL `struct Element` (shaders.ts). */
+/** Offsets in one element record; mirrors WGSL `struct Element` (shaders.ts). W89 (D89-8): RANK = the dense rank of a moving slot, else 0. */
 export const EG = {
-  X: 0, Y: 1, W: 2, H: 3, RADIUS: 4, REST_ALPHA: 5, MASS: 6, KERNEL_R: 7, R: 8, G: 9, B: 10, A: 11, FLAGS: 12,
+  X: 0, Y: 1, W: 2, H: 3, RADIUS: 4, REST_ALPHA: 5, MASS: 6, KERNEL_R: 7, R: 8, G: 9, B: 10, A: 11, FLAGS: 12, RANK: 13,
 } as const;
 /** Written for a particle whose x or y is not finite: its quad lands far outside the viewport. */
 export const OFFSCREEN_PX = -1e6;
@@ -179,6 +180,7 @@ export function packElements(frame: RenderFrame, out: Float32Array): number {
     throw new RangeError(`[liquiddom] packElements: out holds ${out.length} floats, needs ${slots * ELEMENT_GPU_FLOATS}`);
   }
   let count = 0;
+  let rank = 0;
   for (let id = 0; id < slots; id++) {
     const o = id * ELEMENT_GPU_FLOATS;
     const paint = frame.paints[id];
@@ -193,15 +195,23 @@ export function packElements(frame: RenderFrame, out: Float32Array): number {
     out[o + EG.W] = rect.w;
     out[o + EG.H] = rect.h;
     out[o + EG.RADIUS] = rect.r;
-    out[o + EG.REST_ALPHA] = restAlpha01(frame.stateView[id * STATE_STRIDE + St.REST_ALPHA] as number);
-    out[o + EG.MASS] = Number.isFinite(mass) && mass > 0 ? mass : 0;
+    const restAlpha = restAlpha01(frame.stateView[id * STATE_STRIDE + St.REST_ALPHA] as number);
+    const m = Number.isFinite(mass) && mass > 0 ? mass : 0;
+    out[o + EG.REST_ALPHA] = restAlpha;
+    out[o + EG.MASS] = m;
     out[o + EG.KERNEL_R] = kernelRadiusPx(paint.spacingPx);
     out[o + EG.R] = channel01(bg[0]);
     out[o + EG.G] = channel01(bg[1]);
     out[o + EG.B] = channel01(bg[2]);
     out[o + EG.A] = clamp01(bg[3]);
     out[o + EG.FLAGS] = 1;
-    out[o + 13] = 0;
+    // W89 (D89-8): the dense rank, 0 … k − 1 in id order over the slots whose liquid moves (the
+    // text pass draws them). The rank values are exact in f16 up to 2048, but T1mix sums Σw·rank,
+    // and an f16 sum's step grows with it: p for an adjacent pair degrades from rank ≈ 6 on (fade
+    // error ≈ 0.2 at 6/7, ≈ 0.7 at 22/23). Hence T1mix is rg32float wherever the device has
+    // float32-blendable (final review I1, saga dec_7d9fb007): there the error stays < 1e-3 at
+    // rank 63. The text composite maps W79's lo/hi ids to it.
+    out[o + EG.RANK] = restAlpha < 1 && m > 0 ? rank++ : 0;
     out[o + 14] = 0;
     out[o + 15] = 0;
     count = id + 1;

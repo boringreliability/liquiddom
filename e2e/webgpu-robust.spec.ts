@@ -35,6 +35,19 @@ import { MAX_COVERED_INK_PX, MIN_INK_PX, inkCovered } from "./under-page";
 import { TILT_BUDGET_FRAMES, gotoTilt, tiltAndSettle } from "./tilt";
 import { DRAGGED, SLOT, STEPS, STEP_PX, centreOf, gotoTouchScene, longPressMove, probe, touch } from "./touch";
 import { LIQUID_RGB, advanceShadows, canvasBoxes, gotoShadows, handoff, heldOf, maxLiquidAlpha } from "./shadows";
+import {
+  CARD_INDEX as INK_CARD_INDEX,
+  INK_HOLD_FRAMES,
+  MERGE_INDEX as INK_MERGE_INDEX,
+  anyTextHidden,
+  cardTextHidden,
+  inkAdvance,
+  inkBlankMerge,
+  inkCanvasHash,
+  inkDragMergeIntoCard,
+  inkOpen,
+  inkReleaseAndRest,
+} from "./ink";
 
 const FPS = 60;
 const IDLE_FRAMES = 2 * FPS;
@@ -1107,6 +1120,12 @@ type W79TextIds = {
   elements: number[];
   pairs: Array<[number, number]>;
   textPxByElement: Record<number, number>;
+  /** W89 (D89-4): mixed texels at fade ≥ INK_ZONE_FADE, the canvas text and the ink-lit pixels on them. */
+  zone: number;
+  zoneTextPx: number;
+  zoneLightPx: number;
+  /** W89 (D89-4, log only): canvas text px on mixed texels at fade [0.1, 0.2), [0.2, 0.5), [0.5, 0.9), >= 0.9. */
+  bandTextPx: [number, number, number, number];
 };
 /** W79 red review (I3): at least this many of the 90 hold frames (half) must hold a mixed Merge|card texel. */
 const W79_MIN_MEET_HOLD_FRAMES = W79_HOLD_FRAMES / 2;
@@ -1125,7 +1144,10 @@ test.describe("W79 – labels never overlap (webgpu)", () => {
     test.skip(testInfo.project.name !== HW_PROJECT, W79_HW_ONLY);
   });
 
-  test("W79 step 5 – given Merge dragged into the card, held 90 frames and released then no frame has a text pixel where two elements' text splats meet, they do meet, text still shows in the card and every restAlpha is 1 within 180 frames", async ({ page }, testInfo) => {
+  // W89 red: approved-test change (D89-4, saga dec_fac79d1f): D79-1 becomes a soft guarantee. Where the liquids mix
+  // (fade ≥ INK_ZONE_FADE) no crisp text shows and the ink is there; at the zone's outer edge (fade ≈ 0, lo < hi) two
+  // crisp texts may overlap faintly, so `mixedTextPx = 0` gives way to `zoneTextPx = 0`.
+  test("W79 step 5 – given Merge dragged into the card, held 90 frames and released then where the two liquids mix no crisp text shows and the ink does, they do meet, text still shows in the card and every restAlpha is 1 within 180 frames (W89, D89-4)", async ({ page }, testInfo) => {
     test.setTimeout(180_000);
     await openAtRest(page);
     const from = await w78Centre(page, "#merge");
@@ -1151,17 +1173,29 @@ test.describe("W79 – labels never overlap (webgpu)", () => {
     const mixedMax = frames.reduce((m, r) => Math.max(m, r.mixed), 0);
     // I3: the pair (Merge, card) itself must be mixed (Merge x Split alone proves nothing), in >= half of the hold frames.
     const meetFrames = holdFrames.filter((r) => r.pairs.some(([a, b]) => a === W79_MERGE_INDEX && b === W79_CARD_INDEX)).length;
+    const zoneTextWorst = frames.reduce((m, r) => Math.max(m, r.zoneTextPx), 0);
+    const zoneFrames = holdFrames.filter((r) => r.zone > 0).length;
+    const lightMax = holdFrames.reduce((m, r) => Math.max(m, r.zoneLightPx), 0);
+    // D89-4 (pre-red gate): the soft edge per fade band, worst frame of the flow; logged, never asserted (the last band is the asserted 0).
+    const bandWorst = [0, 1, 2, 3].map((b) => frames.reduce((m, r) => Math.max(m, r.bandTextPx[b] ?? 0), 0));
+    console.log(`W89 A1 text px on mixed texels per fade band, worst frame: 0.1-0.2 ${bandWorst[0]}, 0.2-0.5 ${bandWorst[1]}, 0.5-0.9 ${bandWorst[2]}, >=0.9 ${bandWorst[3]}`);
     console.log(
-      `W79 text ids (webgpu): ${frames.length} frames, max mixed texels ${mixedMax}, max text px on mixed texels ${worst}, card-only text px at hold f90 ${cardText}, hold frames with the Merge|card pair ${meetFrames}/${W79_HOLD_FRAMES}`,
+      `W79 text ids (webgpu): ${frames.length} frames, max mixed texels ${mixedMax}, max text px on mixed texels ${worst} (soft edge, D89-4), max text px in the ink zone ${zoneTextWorst}, hold frames with a zone ${zoneFrames}/${W79_HOLD_FRAMES}, max ink px ${lightMax}, card-only text px at hold f90 ${cardText}, hold frames with the Merge|card pair ${meetFrames}/${W79_HOLD_FRAMES}`,
     );
     expect(frames.every((r) => r.textPass), "every frame of the flow draws liquid text").toBe(true);
     expect(meetFrames, `Merge's and the card's text splats meet (the pair ${W79_MERGE_INDEX}|${W79_CARD_INDEX}) in >= ${W79_MIN_MEET_HOLD_FRAMES} of the ${W79_HOLD_FRAMES} hold frames (the check is not vacuous)`).toBeGreaterThanOrEqual(W79_MIN_MEET_HOLD_FRAMES);
-    expect(worst, "no pixel carries text where two elements' text splats meet (D79-1)").toBe(0);
+    expect(zoneFrames, "the liquids mix into an ink zone in at least a quarter of the hold frames (not vacuous)").toBeGreaterThanOrEqual(W79_HOLD_FRAMES / 4);
+    // D89-4's "small bound" is INK_ZONE_FADE (0.9): at a lower bound a pixel carries up to (1 − fade) of one element's own crisp
+    // glyph, which reaches the text threshold alone (W89.1 Step 0, item 6); `worst` (any fade) is logged as the soft edge.
+    expect(zoneTextWorst, "no crisp text where the ink took over (D89-4)").toBe(0);
+    expect(lightMax, "the zone carries ink (D89-2)").toBeGreaterThan(0);
     expect(cardText, "the card's own text still shows where the liquids do not mix").toBeGreaterThan(TEXT_MIN_PX);
     const rest = await framesUntilAllRest(page, REFORM_BUDGET_FRAMES - W79_AFTER_RELEASE_FRAMES);
     const total = rest > 0 ? rest + W79_AFTER_RELEASE_FRAMES : -1;
     console.log(`W79 step 5 (webgpu): every restAlpha 1 after ${total} frames`);
     expect(total, "re-form within 3 s").toBeGreaterThan(0);
+    const atRest = await w79TextIds(page);
+    expect([atRest.mixed, atRest.zone], "at rest no mixed texels and no ink zone (D89-4)").toEqual([0, 0]);
     await page.screenshot({ path: testInfo.outputPath("w79-webgpu-merge-reformed.png") });
   });
 });
@@ -1470,5 +1504,56 @@ test.describe("W88 – shadows follow the liquid (webgpu)", () => {
     console.log(`W88 E8 (webgpu) glass: max liquid alpha ${alpha}`);
     expect(alpha).toBeLessThanOrEqual(158);
     expect(alpha).toBeGreaterThan(80);
+  });
+});
+
+// =============================================================================
+// W89 (Epic 16) – text dissolves like ink in WebGPU (D89-3, D89-4, D89-10), webgpu-hw only. Step 5's
+// ink zone itself is the amended W79 test above; the Canvas2D specs are e2e/ink.spec.ts.
+// =============================================================================
+const W89_HW_ONLY = "W89: liquid text and ink need WebGPU on the hardware adapter; local webgpu-hw project only";
+
+test.describe("W89 – text dissolves like ink (webgpu)", () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== HW_PROJECT, W89_HW_ONLY);
+  });
+
+  test("W89 rest (webgpu) – given Merge merged into the card and released when both re-form then the canvas at rest is pixel-identical to before the merge (Review Focus 2)", async ({ page }) => {
+    await inkOpen(page, "webgpu");
+    const rest = await inkCanvasHash(page);
+    await inkDragMergeIntoCard(page);
+    await inkAdvance(page, INK_HOLD_FRAMES);
+    expect(await inkReleaseAndRest(page), "re-form within 3 s").toBeGreaterThan(0);
+    await inkAdvance(page, 2);
+    expect(await anyTextHidden(page), "no liquid-text at rest").toBe(false);
+    expect(await inkCanvasHash(page)).toBe(rest);
+  });
+
+  test("W89 text-less blob (webgpu) – given Merge without text dragged into the card then its liquid enters the text pass, meets the card's and the zone fades into ink without crisp text (D89-3)", async ({ page }) => {
+    await inkOpen(page, "webgpu");
+    await inkBlankMerge(page);
+    await inkDragMergeIntoCard(page);
+    const hold: W79TextIds[] = [];
+    for (let f = 0; f < INK_HOLD_FRAMES; f++) hold.push(await w79TextIds(page));
+    const meet = hold.filter((r) => r.pairs.some(([a, b]) => a === INK_MERGE_INDEX && b === INK_CARD_INDEX)).length;
+    const zoneFrames = hold.filter((r) => r.zone > 0).length;
+    const zoneTextWorst = hold.reduce((m, r) => Math.max(m, r.zoneTextPx), 0);
+    console.log(`W89 text-less blob (webgpu): Merge|card meets in ${meet}/${INK_HOLD_FRAMES} hold frames, a zone in ${zoneFrames}, max text px in the zone ${zoneTextWorst}`);
+    expect(meet, "a text-less liquid counts: it meets the card's in the id target").toBeGreaterThanOrEqual(INK_HOLD_FRAMES / 2);
+    expect(zoneFrames).toBeGreaterThanOrEqual(INK_HOLD_FRAMES / 4);
+    expect(zoneTextWorst, "the card's text fades, never a hard cut and never crisp in the zone").toBe(0);
+    expect(await inkReleaseAndRest(page), "re-form within 3 s").toBeGreaterThan(0);
+  });
+
+  test("W89 reduced motion (webgpu) – given the card's liquid text and the instance paused when reduced motion switches on then the class goes at once (the repaint without liquid text: ink-runtime.test.ts, D89-10)", async ({ page }, testInfo) => {
+    await inkOpen(page, "webgpu");
+    await inkDragMergeIntoCard(page);
+    await inkAdvance(page, 30);
+    expect(await cardTextHidden(page), "precondition: WebGPU draws the card's liquid text").toBe(true);
+    await page.evaluate(() => (window.__liquidTest!.instance as { pause(): void }).pause());
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect.poll(() => anyTextHidden(page), { message: "the class goes at once" }).toBe(false);
+    await page.screenshot({ path: testInfo.outputPath("w89-webgpu-rm-paused.png") });
+    await page.mouse.up();
   });
 });

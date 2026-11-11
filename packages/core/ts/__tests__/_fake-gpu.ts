@@ -36,6 +36,14 @@ export interface FakeGpuOptions {
   copyExternalError?: Error;
   /** W74 review: raised by `queue.copyExternalImageToTexture()` into the innermost open error scope (a device-timeline validation error: the call itself does not throw). */
   copyExternalValidationError?: string;
+  /**
+   * W89 final review (I1, saga dec_7d9fb007): the adapter's optional features (default none).
+   * `requestDevice` rejects a `requiredFeatures` entry the adapter lacks; the device's `features`
+   * are exactly the requested ones; a pipeline that blends into a 32-bit float target without
+   * `float32-blendable` on the device, or a texture binding of such a target declared `float`
+   * (filterable) without `float32-filterable`, is recorded in `calls.errors`.
+   */
+  adapterFeatures?: readonly string[];
 }
 
 export interface FakeBuffer {
@@ -202,7 +210,9 @@ const GPU_GLOBALS: Readonly<Record<string, Readonly<Record<string, number>>>> = 
 };
 
 /** W79: bytes per texel of the formats the fake copies into buffers. */
-const TEXEL_BYTES: Readonly<Record<string, number>> = { rg16float: 4, r16float: 2, rgba16float: 8, rgba8unorm: 4 };
+const TEXEL_BYTES: Readonly<Record<string, number>> = { rg16float: 4, r16float: 2, rgba16float: 8, rgba8unorm: 4, rg32float: 8, r32float: 4 };
+/** W89 final review (I1): formats that blend only with `float32-blendable` and filter only with `float32-filterable`. */
+const FLOAT32_FORMATS: ReadonlySet<string> = new Set(["r32float", "rg32float", "rgba32float"]);
 
 const PREFERRED_FORMAT = "bgra8unorm";
 
@@ -262,6 +272,7 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
   };
 
   const makeDevice = (desc?: GPUDeviceDescriptor) => {
+    const deviceFeatures = new Set<string>(Array.from((desc?.requiredFeatures ?? []) as Iterable<string>));
     const requested = (desc?.requiredLimits as { maxTextureDimension2D?: number } | undefined)?.maxTextureDimension2D;
     const textureLimit = requested ?? 8192;
     let lose: (info: GPUDeviceLostInfo) => void = () => {};
@@ -283,6 +294,7 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
     };
     const device = {
       lost,
+      features: deviceFeatures,
       limits: { maxTextureDimension2D: textureLimit },
       queue: {
         submit: () => {
@@ -336,6 +348,11 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
       createRenderPipeline: (d: GPURenderPipelineDescriptor) => {
         calls.log.push("createRenderPipeline");
         if (opts.validationError) raise(opts.validationError);
+        for (const t of (d.fragment?.targets ?? []) as Iterable<GPUColorTargetState | null>) {
+          if (t?.blend && FLOAT32_FORMATS.has(t.format) && !deviceFeatures.has("float32-blendable")) {
+            calls.errors.push(`createRenderPipeline(${d.label ?? ""}): ${t.format} blends without float32-blendable`);
+          }
+        }
         const pipeline: FakePipeline = { descriptor: d };
         calls.pipelines.push(pipeline);
         return pipeline;
@@ -368,6 +385,16 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
       },
       createBindGroup: (d: GPUBindGroupDescriptor) => {
         checkBindGroup("createBindGroup", d);
+        // W89 final review (I1): a 32-bit float texture in a filterable ("float") texture binding needs float32-filterable.
+        const layoutEntries = ((d.layout as unknown as { descriptor?: GPUBindGroupLayoutDescriptor }).descriptor?.entries ?? []) as Iterable<GPUBindGroupLayoutEntry>;
+        for (const entry of d.entries as Iterable<GPUBindGroupEntry>) {
+          const texture = (entry.resource as { texture?: FakeTexture } | null)?.texture;
+          if (!texture || !FLOAT32_FORMATS.has(texture.format) || deviceFeatures.has("float32-filterable")) continue;
+          const declared = Array.from(layoutEntries).find((e) => e.binding === entry.binding)?.texture;
+          if (declared && (declared.sampleType ?? "float") === "float") {
+            calls.errors.push(`createBindGroup(${d.label ?? ""}): binding ${entry.binding} binds ${texture.format} as filterable float`);
+          }
+        }
         calls.bindGroups.push(d);
         return { descriptor: d };
       },
@@ -481,12 +508,15 @@ export function installFakeGpu(opts: FakeGpuOptions = {}): FakeGpu {
 
   const adapter = {
     info: { vendor: "fake", architecture: "", device: "", description: "", isFallbackAdapter: opts.isFallbackAdapter === true },
-    features: new Set<string>(),
+    features: new Set<string>(opts.adapterFeatures ?? []),
     limits: { maxTextureDimension2D: adapterTextureLimit },
     requestDevice: async (desc?: GPUDeviceDescriptor) => {
       calls.requestDevice += 1;
       calls.deviceDescriptors.push(desc);
       if (opts.device === "rejects") throw deviceError;
+      for (const feature of (desc?.requiredFeatures ?? []) as Iterable<string>) {
+        if (!(opts.adapterFeatures ?? []).includes(feature)) throw new TypeError(`requiredFeatures: the adapter lacks ${feature}`);
+      }
       const requested = (desc?.requiredLimits as { maxTextureDimension2D?: number } | undefined)?.maxTextureDimension2D;
       if (requested !== undefined && requested > adapterTextureLimit) throw new Error("requiredLimits exceed the adapter");
       return makeDevice(desc);

@@ -154,7 +154,8 @@ describe("W74 runtime: atlas and liquid-text (D74-5, D74-6)", () => {
     expect(textPasses(), "the frame that removes the class draws no atlas text").toBe(drawn);
   });
 
-  it("given_canvas2d_when_elements_move_then_liquid_text_is_never_set_and_no_atlas_is_built", async () => {
+  // W89 red: approved-test change (D89-5, saga dec_e1b67b60): Canvas2D builds the atlas once two elements move and sets liquid-text while they mix; a single moving element still sets no class and builds no atlas.
+  it("given_canvas2d_when_a_single_element_moves_then_liquid_text_is_never_set_and_no_atlas_is_built", async () => {
     const s = await setup({ renderer: "canvas2d" });
     const el = button();
     const id = await observed(s, el);

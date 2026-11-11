@@ -7,7 +7,7 @@
  *    `fwidth` edge, colour Σw·rgb/Σw, premultiplied by coverage × Σw·a/Σw), then one
  *    rounded-rect SDF quad per element is drawn over it at `restAlpha` × colour alpha.
  * An element's particles splat at full weight while its `restAlpha < 1` and are skipped at 1
- * (D71-6, the D70-4 rule). No 32-bit float targets.
+ * (D71-6, the D70-4 rule). No 32-bit float targets, except W89's T1mix where the device can blend it.
  * W74 (D74-4): while an element with atlas text moves, a third pass splats its text into T1
  * (`rgba16float`, Σw·text_rgba_premul) and T1w (`r16float`, Σw) at 1× the backing size — its own
  * pass, because every attachment of a pass shares one size and T0 is at `t0Scale` — and the screen
@@ -21,6 +21,13 @@
  * the confirmed page keeps drawing with its own text records until the new upload's error scope
  * resolves; the swap then copies the staging page into the drawn texture and switches the records
  * in one step, so a rebuild during motion never blinks the text.
+ * W89 (D89-2, D89-3, D89-7, D89-8, D89-10): the text pass gains T1ink (`rgba16float`, Σw·ink) and
+ * T1mix (Σw·rank and the all-liquid Σw; `rg32float` when the device has `float32-blendable`, else
+ * `rg16float`: final review I1, saga dec_7d9fb007), 30 or 26 B per sample, and lets every moving
+ * element in (a text-less one writes T1id and T1mix only). The text composite reads both and the
+ * element records (EG.RANK) and fades the crisp text into ink where two liquids mix, instead of
+ * D79-1's cut. Reduced motion and `suppressText` skip the pass; `textOff` zeroes one slot's text
+ * record for that render only.
  * W88 (D88-6, D88-10, D88-11, D88-13): while a shadowed element's liquid is away, the shadow passes
  * (shadow-passes.ts) run between the splat and the screen pass, and the screen pass draws their
  * composite first, under all liquid; the liquid composite blends over it.
@@ -30,6 +37,7 @@ import { ELEMENT_STRIDE } from "../../fluid-layout";
 import type { RenderFrame, Renderer, TextAtlasFrame } from "../frame";
 import { WebGPUUnavailableError } from "./errors";
 import {
+  EG,
   ELEMENT_GPU_FLOATS,
   PARTICLE_GPU_FLOATS,
   TEXT_INFO_FLOATS,
@@ -75,6 +83,28 @@ export const ATLAS_FORMAT: GPUTextureFormat = "rgba8unorm";
  * and blendable in core WebGPU (r32float would need the float32-blendable feature).
  */
 export const T1_ID_FORMAT: GPUTextureFormat = "rg16float";
+/** W89 (D89-7): Σw·ink (premultiplied) per texel, additive. */
+export const T1_INK_FORMAT: GPUTextureFormat = "rgba16float";
+/**
+ * W89 (D89-7, D89-8): r = Σw·rank, g = Σw of every moving liquid, additive; COPY_SRC for
+ * captureTextIds({ mix: true }). This is the fallback format: f16 sums lose p precision linearly
+ * with the rank (final review I1), so a device with `float32-blendable` gets T1_MIX_FORMAT_F32.
+ */
+export const T1_MIX_FORMAT: GPUTextureFormat = "rg16float";
+/**
+ * W89 final review (I1; D89-8 amended to its option (b), Dennis 2026-11-09, saga dec_7d9fb007):
+ * T1mix in f32 where the device can blend it. Not filterable in core WebGPU, so the text composite
+ * binds it as `unfilterable-float` and reads it with textureLoad. The text pass is then 30 B per
+ * sample (32 B with rg32float's 4-byte alignment), at the 32 B `maxColorAttachmentBytesPerSample`.
+ */
+export const T1_MIX_FORMAT_F32: GPUTextureFormat = "rg32float";
+/** The optional device feature T1_MIX_FORMAT_F32 needs; requested only when the adapter offers it. */
+export const T1_MIX_F32_FEATURE: GPUFeatureName = "float32-blendable";
+
+/** W89 final review (I1): T1mix's format for a device with these features. */
+export function t1MixFormatFor(features: { has(name: string): boolean } | undefined): GPUTextureFormat {
+  return features?.has(T1_MIX_F32_FEATURE) === true ? T1_MIX_FORMAT_F32 : T1_MIX_FORMAT;
+}
 /** W79 (D79-1): the clear value of both id channels: no text splat. Exact in f16, above every slot id (maxElements ≤ 256). */
 export const TEXT_ID_EMPTY = 4096;
 /** W79 (D79-1): min blending; WebGPU requires both factors to be "one" for min and max. */
@@ -85,6 +115,9 @@ export const MIN_BLEND: GPUBlendState = {
 const TEXT_ID_CLEAR: GPUColorDict = { r: TEXT_ID_EMPTY, g: TEXT_ID_EMPTY, b: 0, a: 0 };
 /** Bytes per T1id texel (two f16). */
 const TEXT_ID_TEXEL_BYTES = 4;
+/** W89 (resolution 14): bytes of one text record, and the zero record a `textOff` render writes. */
+const TEXT_INFO_BYTES = TEXT_INFO_FLOATS * 4;
+const ZERO_TEXT_INFO = new Float32Array(TEXT_INFO_FLOATS);
 /** WebGPU: bytesPerRow of a texture-to-buffer copy is a multiple of this. */
 const COPY_ROW_ALIGN = 256;
 
@@ -100,6 +133,14 @@ export interface TextIdCapture {
   readonly empty: number;
   /** Raw rg16float texels row by row: r, g as IEEE half bits. */
   readonly data: Uint16Array;
+  /**
+   * W89 (D89-4): with captureTextIds({ mix: true }), that frame's T1mix laid out like `data` (r =
+   * Σw·rank, g = all-liquid Σw; index y · bytesPerRow / 2 + 2x): IEEE half bits for rg16float, the
+   * values themselves (Float32Array) for rg32float (final review I1).
+   */
+  readonly mix?: Uint16Array | Float32Array;
+  /** W89 (D89-8): with `mix`, each slot's EG.RANK in that frame, by slot id. */
+  readonly ranks?: readonly number[];
 }
 /** WGSL `struct View`: size_css (2), size_px (2), dpr, t0_scale, 2 × pad. */
 export const VIEW_UNIFORM_FLOATS = 8;
@@ -158,7 +199,9 @@ export interface LiquidPipelines extends ShadowPipelines {
  * (init, and the e2e check page demo/smoke/webgpu-liquid.ts), so a text shader bug rejects
  * create() like any other pipeline bug (W74, D74-4).
  */
-export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat): LiquidPipelines {
+export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat, mixFormat: GPUTextureFormat = T1_MIX_FORMAT): LiquidPipelines {
+  // W89 final review (I1): an rg32float T1mix is not filterable (the composite loads it).
+  const mixSampleType: GPUTextureSampleType = mixFormat === T1_MIX_FORMAT_F32 ? "unfilterable-float" : "float";
   const V = GPUShaderStage.VERTEX;
   const F = GPUShaderStage.FRAGMENT;
   const splatModule = device.createShaderModule({ label: "liquiddom splat", code: SPLAT_WGSL });
@@ -200,8 +243,9 @@ export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat
       { binding: 3, visibility: V, buffer: { type: "read-only-storage" } },
       { binding: 4, visibility: V, buffer: { type: "read-only-storage" } },
       { binding: 5, visibility: V, buffer: { type: "read-only-storage" } },
-      { binding: 6, visibility: F, texture: { sampleType: "float" } },
-      { binding: 7, visibility: F, sampler: { type: "filtering" } },
+      // W89 (D89-2): the vertex stage samples the particle's ink from the atlas too.
+      { binding: 6, visibility: V | F, texture: { sampleType: "float" } },
+      { binding: 7, visibility: V | F, sampler: { type: "filtering" } },
     ],
   });
   const textCompositeLayout = device.createBindGroupLayout({
@@ -212,6 +256,9 @@ export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat
       { binding: 2, visibility: F, texture: { sampleType: "float" } },
       { binding: 3, visibility: F, sampler: { type: "filtering" } },
       { binding: 4, visibility: F, texture: { sampleType: "float" } }, // W79 (D79-1): T1id
+      { binding: 5, visibility: F, texture: { sampleType: "float" } }, // W89 (D89-7): T1ink
+      { binding: 6, visibility: F, texture: { sampleType: mixSampleType } }, // W89 (D89-7): T1mix
+      { binding: 7, visibility: F, buffer: { type: "read-only-storage" } }, // W89 (D89-8): the element records (rank)
     ],
   });
   const splat = device.createRenderPipeline({
@@ -255,6 +302,8 @@ export function buildPipelines(device: GPUDevice, canvasFormat: GPUTextureFormat
         { format: T1_FORMAT, blend: ADDITIVE_BLEND },
         { format: T1_WEIGHT_FORMAT, blend: ADDITIVE_BLEND },
         { format: T1_ID_FORMAT, blend: MIN_BLEND }, // W79 (D79-1)
+        { format: T1_INK_FORMAT, blend: ADDITIVE_BLEND }, // W89 (D89-7)
+        { format: mixFormat, blend: ADDITIVE_BLEND }, // W89 (D89-7); final review I1: rg32float with float32-blendable
       ],
     },
     primitive: { topology: "triangle-list" },
@@ -479,6 +528,13 @@ export class WebGPURenderer implements Renderer {
   private t1Weight: GPUTexture | null = null;
   /** W79 (D79-1): the id target, same size as T1. */
   private t1Id: GPUTexture | null = null;
+  /** W89 (D89-7): T1ink and T1mix, same size as T1. */
+  private t1Ink: GPUTexture | null = null;
+  private t1Mix: GPUTexture | null = null;
+  /** W89 final review (I1): T1mix's format on this device (t1MixFormatFor). */
+  private mixFormat: GPUTextureFormat = T1_MIX_FORMAT;
+  /** Views of the five text targets; the text composite group binds them (rebuilt when null). */
+  private t1Views: GPUTextureView[] = [];
   private t1Width = 0;
   private t1Height = 0;
   private textGroup: GPUBindGroup | null = null;
@@ -486,12 +542,18 @@ export class WebGPURenderer implements Renderer {
   private readonly t1Attachment: GPURenderPassColorAttachment = { view: PLACEHOLDER_VIEW, clearValue: CLEAR, loadOp: "clear", storeOp: "store" };
   private readonly t1WeightAttachment: GPURenderPassColorAttachment = { view: PLACEHOLDER_VIEW, clearValue: CLEAR, loadOp: "clear", storeOp: "store" };
   private readonly t1IdAttachment: GPURenderPassColorAttachment = { view: PLACEHOLDER_VIEW, clearValue: TEXT_ID_CLEAR, loadOp: "clear", storeOp: "store" };
+  private readonly t1InkAttachment: GPURenderPassColorAttachment = { view: PLACEHOLDER_VIEW, clearValue: CLEAR, loadOp: "clear", storeOp: "store" };
+  private readonly t1MixAttachment: GPURenderPassColorAttachment = { view: PLACEHOLDER_VIEW, clearValue: CLEAR, loadOp: "clear", storeOp: "store" };
   private readonly textPass: GPURenderPassDescriptor = {
     label: "liquiddom text",
-    colorAttachments: [this.t1Attachment, this.t1WeightAttachment, this.t1IdAttachment],
+    colorAttachments: [this.t1Attachment, this.t1WeightAttachment, this.t1IdAttachment, this.t1InkAttachment, this.t1MixAttachment],
   };
   /** @internal W79: the armed captureTextIds() resolver; settled by the next render(), a loss or destroy(). */
   private textIdWaiter: ((capture: TextIdCapture | null) => void) | null = null;
+  /** @internal W89 (D89-4): the armed capture also copies T1mix and the ranks. */
+  private textIdMix = false;
+  /** W89 (resolution 14): the slot whose text record a `textOff` render zeroed; the next prepareText() restores it (−1: none). */
+  private textOffSlot = -1;
   /** W88 (D88-6, D88-10, D88-11): the shadow passes; GPU objects only from the first frame with shadows. */
   private shadowPasses: ShadowPasses | null = null;
 
@@ -563,9 +625,15 @@ export class WebGPURenderer implements Renderer {
     try {
       // W71.4 review (Minor 4): the default limit is 8192 px; a wide backing at dpr 2 exceeds it.
       const adapterLimit = adapter.limits?.maxTextureDimension2D;
+      // W89 final review (I1, saga dec_7d9fb007): an f32 T1mix where the adapter can blend it.
+      const f32Mix = adapter.features?.has(T1_MIX_F32_FEATURE) === true;
+      const withLimit = typeof adapterLimit === "number" && Number.isFinite(adapterLimit) && adapterLimit > 0;
       device =
-        typeof adapterLimit === "number" && Number.isFinite(adapterLimit) && adapterLimit > 0
-          ? await adapter.requestDevice({ requiredLimits: { maxTextureDimension2D: adapterLimit } })
+        withLimit || f32Mix
+          ? await adapter.requestDevice({
+              ...(withLimit ? { requiredLimits: { maxTextureDimension2D: adapterLimit } } : {}),
+              ...(f32Mix ? { requiredFeatures: [T1_MIX_F32_FEATURE] } : {}),
+            })
           : await adapter.requestDevice();
     } catch (cause) {
       throw new WebGPUUnavailableError("requestDevice rejected", { cause });
@@ -589,7 +657,8 @@ export class WebGPURenderer implements Renderer {
         throw new WebGPUUnavailableError(`the canvas presentation surface is unusable (${surface.message})`);
       }
       device.pushErrorScope("validation");
-      const pipelines = buildPipelines(device, format);
+      this.mixFormat = t1MixFormatFor(device.features);
+      const pipelines = buildPipelines(device, format, this.mixFormat);
       const sampler = device.createSampler({
         label: "liquiddom T0",
         magFilter: "linear",
@@ -750,13 +819,14 @@ export class WebGPURenderer implements Renderer {
    * Reached only through FluidRuntime.captureTextIds() (the acceptance hook); the readback buffer
    * exists only for an armed capture, never in a normal frame.
    */
-  captureTextIds(): Promise<TextIdCapture | null> {
+  captureTextIds(opts?: { mix?: boolean }): Promise<TextIdCapture | null> {
     if (!this.device || this.lost) return Promise.resolve(null);
     if (this.textIdWaiter !== null) {
       return Promise.reject(new Error("[liquiddom] captureTextIds(): a capture is already armed for the next frame"));
     }
     return new Promise<TextIdCapture | null>((resolve) => {
       this.textIdWaiter = resolve;
+      this.textIdMix = opts?.mix === true; // W89 (D89-4, resolution 8)
     });
   }
 
@@ -769,12 +839,18 @@ export class WebGPURenderer implements Renderer {
   /**
    * W79: encodes the T1id copy for an armed capture; returns `run` (after the submit) and `abort`
    * (when finish or submit threw: settles the capture with null and releases the buffer).
+   * W89 (D89-4, resolution 8): a capture armed with `mix` also copies T1mix into a second buffer
+   * (its own bytesPerRow; final review I1: an rg32float T1mix is repacked into a Float32Array laid
+   * out like `data`) and carries each slot's EG.RANK of this frame; both buffers are released on
+   * every path.
    */
   private encodeTextIdCopy(encoder: GPUCommandEncoder, textRan: boolean): { run: () => void; abort: () => void } {
     const resolve = this.textIdWaiter ?? (() => {});
+    const withMix = this.textIdMix;
     this.textIdWaiter = null;
-    const { device, t1Id } = this;
-    if (!textRan || !device || !t1Id) {
+    this.textIdMix = false;
+    const { device, t1Id, t1Mix } = this;
+    if (!textRan || !device || !t1Id || (withMix && !t1Mix)) {
       const none: TextIdCapture = { textPass: false, width: 0, height: 0, bytesPerRow: 0, empty: TEXT_ID_EMPTY, data: new Uint16Array(0) };
       return { run: () => resolve(none), abort: () => resolve(null) };
     }
@@ -787,23 +863,64 @@ export class WebGPURenderer implements Renderer {
       usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
     encoder.copyTextureToBuffer({ texture: t1Id }, { buffer, bytesPerRow, rowsPerImage: height }, [width, height]);
+    let mixBuffer: GPUBuffer | null = null;
+    let ranks: number[] | undefined;
+    const mixF32 = this.mixFormat === T1_MIX_FORMAT_F32;
+    const mixBytesPerRow = mixF32 ? Math.ceil((width * 2 * 4) / COPY_ROW_ALIGN) * COPY_ROW_ALIGN : bytesPerRow;
+    if (withMix && t1Mix) {
+      mixBuffer = device.createBuffer({
+        label: "liquiddom text mix readback",
+        size: mixBytesPerRow * height,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      });
+      encoder.copyTextureToBuffer({ texture: t1Mix }, { buffer: mixBuffer, bytesPerRow: mixBytesPerRow, rowsPerImage: height }, [width, height]);
+      const slots = Math.max(0, this.bufferSlots);
+      ranks = new Array<number>(slots);
+      for (let id = 0; id < slots; id++) ranks[id] = this.elementScratch[id * ELEMENT_GPU_FLOATS + EG.RANK] ?? 0;
+    }
+    const release = (): void => {
+      buffer.destroy();
+      mixBuffer?.destroy();
+    };
+    const read = (b: GPUBuffer): Uint16Array => {
+      const out = new Uint16Array(b.getMappedRange().slice(0));
+      b.unmap();
+      return out;
+    };
+    /** rg32float rows (mixBytesPerRow) → a Float32Array laid out like the id texels (bytesPerRow / 2 per row). */
+    const readMix = (b: GPUBuffer): Uint16Array | Float32Array => {
+      if (!mixF32) return read(b);
+      const src = new Float32Array(b.getMappedRange().slice(0));
+      b.unmap();
+      const out = new Float32Array((bytesPerRow / 2) * height);
+      const srcRow = mixBytesPerRow / 4;
+      const dstRow = bytesPerRow / 2;
+      for (let y = 0; y < height; y++) out.set(src.subarray(y * srcRow, y * srcRow + 2 * width), y * dstRow);
+      return out;
+    };
     return {
       run: () => {
-        buffer.mapAsync(GPUMapMode.READ).then(
+        const maps = mixBuffer ? [buffer.mapAsync(GPUMapMode.READ), mixBuffer.mapAsync(GPUMapMode.READ)] : [buffer.mapAsync(GPUMapMode.READ)];
+        Promise.all(maps).then(
           () => {
-            const data = new Uint16Array(buffer.getMappedRange().slice(0));
-            buffer.unmap();
-            buffer.destroy();
-            resolve({ textPass: true, width, height, bytesPerRow, empty: TEXT_ID_EMPTY, data });
+            let capture: TextIdCapture | null = null;
+            try {
+              const data = read(buffer);
+              const mix = mixBuffer ? readMix(mixBuffer) : undefined;
+              capture = { textPass: true, width, height, bytesPerRow, empty: TEXT_ID_EMPTY, data, ...(mix ? { mix, ranks } : {}) };
+            } finally {
+              release();
+              resolve(capture);
+            }
           },
           () => {
-            buffer.destroy(); // a loss or destroy() during the map: no capture
+            release(); // a loss or destroy() during the map: no capture
             resolve(null);
           },
         );
       },
       abort: () => {
-        buffer.destroy();
+        release();
         resolve(null);
       },
     };
@@ -927,6 +1044,8 @@ export class WebGPURenderer implements Renderer {
     this.textInfoDirty = true;
     this.textInfoPaints = null;
     this.textGroup = null;
+    this.textCompositeGroup = null; // W89 (D89-8): it binds the element records
+    this.textOffSlot = -1; // the new text info buffer is repacked in full
     this.splatGroup = device.createBindGroup({
       label: "liquiddom splat",
       layout: pipelines.splatLayout,
@@ -951,11 +1070,21 @@ export class WebGPURenderer implements Renderer {
    * W74 (D74-4, D74-5, Review Focus 4): uploads the atlas page once per version, packs the text
    * records when the page or the paints change, and allocates T1/T1w. True when at least one
    * element with a valid text record has restAlpha < 1 this frame (the text pass then runs).
+   * W89 (D89-10): under reduced motion or `suppressText` it returns false after the atlas
+   * bookkeeping (no pass, no composite; textReady keeps its answer). W89 (resolution 14): with
+   * `textOff`, that slot's text record is zeroed for this render only (the next call restores it)
+   * and the pass runs only when another text slot moves.
    */
   private prepareText(frame: RenderFrame): boolean {
     const { device, pipelines, sampler, viewBuffer, particleBuffer, homeBuffer, elementBuffer, restUvBuffer, textInfoBuffer } = this;
     if (!device || !pipelines || !sampler || !viewBuffer || !particleBuffer || !homeBuffer || !elementBuffer || !restUvBuffer || !textInfoBuffer) {
       return false;
+    }
+    if (this.textOffSlot >= 0) {
+      // W89 (resolution 14): last render's textOff zeroed this record on the GPU; the scratch still holds it.
+      const id = this.textOffSlot;
+      this.textOffSlot = -1;
+      if (id < this.textOk.length) device.queue.writeBuffer(textInfoBuffer, id * TEXT_INFO_BYTES, this.textInfoScratch, id * TEXT_INFO_FLOATS, TEXT_INFO_FLOATS);
     }
     const atlas = frame.textAtlas ?? null;
     if (atlas === null) {
@@ -999,9 +1128,19 @@ export class WebGPURenderer implements Renderer {
       this.textInfoPaints = frame.paints;
       this.textInfoDirty = false;
     }
+    if (frame.reducedMotion || frame.suppressText === true) return false; // W89 (D89-10)
     const atlasView = this.atlasView;
     if (!this.atlasOk || !atlasView) return false;
-    if (!hasMovingText(frame, this.textOk)) return false;
+    const off = frame.textOff;
+    const offId = off !== undefined && Number.isInteger(off) && off >= 0 && off < this.textOk.length && this.textOk[off] === 1 ? off : -1;
+    if (offId >= 0) this.textOk[offId] = 0; // only to ask whether another text slot moves
+    const moves = hasMovingText(frame, this.textOk);
+    if (offId >= 0) this.textOk[offId] = 1;
+    if (!moves) return false;
+    if (offId >= 0) {
+      device.queue.writeBuffer(textInfoBuffer, offId * TEXT_INFO_BYTES, ZERO_TEXT_INFO);
+      this.textOffSlot = offId;
+    }
     this.allocateTextTargets();
     if (!this.textGroup) {
       this.textGroup = device.createBindGroup({
@@ -1016,6 +1155,23 @@ export class WebGPURenderer implements Renderer {
           { binding: 5, resource: { buffer: textInfoBuffer } },
           { binding: 6, resource: atlasView },
           { binding: 7, resource: sampler },
+        ],
+      });
+    }
+    const views = this.t1Views;
+    if (!this.textCompositeGroup && views.length === 5) {
+      this.textCompositeGroup = device.createBindGroup({
+        label: "liquiddom text composite",
+        layout: pipelines.textCompositeLayout,
+        entries: [
+          { binding: 0, resource: { buffer: viewBuffer } },
+          { binding: 1, resource: views[0]! },
+          { binding: 2, resource: views[1]! },
+          { binding: 3, resource: sampler },
+          { binding: 4, resource: views[2]! },
+          { binding: 5, resource: views[3]! }, // W89 (D89-7): T1ink
+          { binding: 6, resource: views[4]! }, // W89 (D89-7): T1mix
+          { binding: 7, resource: { buffer: elementBuffer } }, // W89 (D89-8): the ranks
         ],
       });
     }
@@ -1194,41 +1350,57 @@ export class WebGPURenderer implements Renderer {
     this.pendingInfoPaints = null;
   }
 
-  /** W74 (D74-4): T1 and T1w at 1× the backing size, clamped to maxTextureDimension2D; the text composite group follows them. */
+  /**
+   * W74 (D74-4): T1 and T1w at 1× the backing size, clamped to maxTextureDimension2D. W79 adds
+   * T1id, W89 (D89-7) T1ink and T1mix. A reallocation drops the text composite group; prepareText()
+   * rebuilds it (it also binds the element records, W89 D89-8).
+   */
   private allocateTextTargets(): void {
-    const { device, pipelines, sampler, viewBuffer } = this;
-    if (!device || !pipelines || !sampler || !viewBuffer) return;
+    const { device } = this;
+    if (!device) return;
     const max = this.maxTextureDim;
     const w = Math.min(max, this.widthPx);
     const h = Math.min(max, this.heightPx);
     if (this.t1 && w === this.t1Width && h === this.t1Height) return;
-    this.t1?.destroy();
-    this.t1Weight?.destroy();
-    this.t1Id?.destroy();
+    this.destroyTextTargets();
     const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
     this.t1 = device.createTexture({ label: "liquiddom T1", size: [w, h], format: T1_FORMAT, usage });
     this.t1Weight = device.createTexture({ label: "liquiddom T1w", size: [w, h], format: T1_WEIGHT_FORMAT, usage });
     // W79 (D79-1): COPY_SRC for captureTextIds() (the acceptance hook's readback).
     this.t1Id = device.createTexture({ label: "liquiddom T1id", size: [w, h], format: T1_ID_FORMAT, usage: usage | GPUTextureUsage.COPY_SRC });
-    const t1View = this.t1.createView();
-    const t1WeightView = this.t1Weight.createView();
-    const t1IdView = this.t1Id.createView();
-    this.t1Attachment.view = t1View;
-    this.t1WeightAttachment.view = t1WeightView;
-    this.t1IdAttachment.view = t1IdView;
+    this.t1Ink = device.createTexture({ label: "liquiddom T1ink", size: [w, h], format: T1_INK_FORMAT, usage });
+    // W89 (D89-4): COPY_SRC for captureTextIds({ mix: true }).
+    this.t1Mix = device.createTexture({ label: "liquiddom T1mix", size: [w, h], format: this.mixFormat, usage: usage | GPUTextureUsage.COPY_SRC });
+    const views = [this.t1, this.t1Weight, this.t1Id, this.t1Ink, this.t1Mix].map((t) => t.createView());
+    this.t1Views = views;
+    this.t1Attachment.view = views[0]!;
+    this.t1WeightAttachment.view = views[1]!;
+    this.t1IdAttachment.view = views[2]!;
+    this.t1InkAttachment.view = views[3]!;
+    this.t1MixAttachment.view = views[4]!;
     this.t1Width = w;
     this.t1Height = h;
-    this.textCompositeGroup = device.createBindGroup({
-      label: "liquiddom text composite",
-      layout: pipelines.textCompositeLayout,
-      entries: [
-        { binding: 0, resource: { buffer: viewBuffer } },
-        { binding: 1, resource: t1View },
-        { binding: 2, resource: t1WeightView },
-        { binding: 3, resource: sampler },
-        { binding: 4, resource: t1IdView },
-      ],
-    });
+  }
+
+  /** The five text targets and their views go; the text composite group with them. */
+  private destroyTextTargets(): void {
+    this.t1?.destroy();
+    this.t1Weight?.destroy();
+    this.t1Id?.destroy();
+    this.t1Ink?.destroy();
+    this.t1Mix?.destroy();
+    this.t1 = null;
+    this.t1Weight = null;
+    this.t1Id = null;
+    this.t1Ink = null;
+    this.t1Mix = null;
+    this.t1Views = [];
+    this.textCompositeGroup = null;
+    this.t1Attachment.view = PLACEHOLDER_VIEW;
+    this.t1WeightAttachment.view = PLACEHOLDER_VIEW;
+    this.t1IdAttachment.view = PLACEHOLDER_VIEW;
+    this.t1InkAttachment.view = PLACEHOLDER_VIEW;
+    this.t1MixAttachment.view = PLACEHOLDER_VIEW;
   }
 
   private releaseGpuObjects(): void {
@@ -1244,9 +1416,7 @@ export class WebGPURenderer implements Renderer {
     this.textInfoBackBuffer?.destroy();
     this.atlasTexture?.destroy();
     this.stagingTexture?.destroy();
-    this.t1?.destroy();
-    this.t1Weight?.destroy();
-    this.t1Id?.destroy();
+    this.destroyTextTargets(); // W74, W79, W89: the five text targets
     this.viewBuffer?.destroy();
     this.settleTextIds(null); // W79: a pending capture never hangs
     this.device = null;
@@ -1290,16 +1460,11 @@ export class WebGPURenderer implements Renderer {
     this.textOwners = [];
     this.pendingOwners = [];
     this.swapSubmitList.length = 0;
-    this.t1 = null;
-    this.t1Weight = null;
-    this.t1Id = null;
     this.t1Width = 0;
     this.t1Height = 0;
     this.textGroup = null;
-    this.textCompositeGroup = null;
-    this.t1Attachment.view = PLACEHOLDER_VIEW;
-    this.t1WeightAttachment.view = PLACEHOLDER_VIEW;
-    this.t1IdAttachment.view = PLACEHOLDER_VIEW;
+    this.textIdMix = false;
+    this.textOffSlot = -1;
     this.bufferCapacity = -1;
     this.bufferSlots = -1;
     this.t0Width = 0;

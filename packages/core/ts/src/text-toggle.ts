@@ -1,9 +1,9 @@
 /**
  * W74 (D74-6): the `liquid-text` toggle (spec §3 "Crisp at rest", §4). The runtime calls
  * `syncTextClasses` once per frame AFTER `renderer.render()`, so the class and the atlas text
- * appear and disappear in the same frame. An element carries the class exactly while the active
- * renderer is WebGPU, motion is not reduced, the renderer draws its atlas text (`textReady`) and
- * its restAlpha < 1. Every other path takes it off (README Review Focus 1): `clearTextClasses`
+ * appear and disappear in the same frame. An element carries the class exactly while motion is not
+ * reduced, its restAlpha < 1 and the active renderer draws its atlas text: under WebGPU whenever it
+ * can (`textReady`), under Canvas2D while the last render drew it for a mix (`textMixing`, W89 D89-5). Every other path takes it off (README Review Focus 1): `clearTextClasses`
  * for a lost device, reduced motion, a failed frame, a failed rebuild and destroy;
  * `releaseTextClass` for unobserve. Holds are refcounted across instances in stylesheet.ts;
  * `held` is this instance's own set (one hold per element per instance).
@@ -30,12 +30,14 @@ const seen = new Set<HTMLElement>();
 export function syncTextClasses(a: TextToggleArgs): void {
   seen.clear();
   const r = a.renderer;
-  const gate = a.activeRenderer === "webgpu" && !a.reducedMotion && r !== null;
+  const gate = !a.reducedMotion && r !== null;
+  const webgpu = a.activeRenderer === "webgpu";
   for (const id of a.ids) {
     const el = a.elementOf(id);
     if (!el) continue;
     seen.add(el);
-    const want = gate && r !== null && r.textReady?.(id) === true && a.restAlpha(id) < 1;
+    const want =
+      gate && r !== null && a.restAlpha(id) < 1 && (webgpu ? r.textReady?.(id) === true : r.textMixing?.(id) === true);
     if (want && !a.held.has(el)) {
       a.held.add(el);
       addTextClass(el);

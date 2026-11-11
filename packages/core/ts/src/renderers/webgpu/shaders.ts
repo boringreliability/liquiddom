@@ -9,6 +9,7 @@
  */
 import { DENSITY_THRESHOLD, EDGE_SOFTNESS, KERNEL_RADIUS_CAP_PX } from "../kernel-params";
 import { FLAG_TORN } from "../../fluid-layout";
+import { INK_ALPHA_CAP, INK_FADE_HI, INK_FADE_LO, INK_GAIN, INK_SAMPLES } from "../ink";
 
 /**
  * Upper bound of the composite's fwidth-widened edge half-width (density units). It stays below
@@ -42,7 +43,7 @@ struct Element {
   kernel_r: f32,
   color: vec4f,
   flags: f32,
-  _pad0: f32,
+  rank: f32, // W89 (D89-8): the dense rank of a moving slot (gpu-buffers.ts EG.RANK)
   _pad1: f32,
   _pad2: f32,
 }
@@ -250,6 +251,11 @@ export const TEXT_DET_EPS = 1e-4;
  * W79 (D79-1): every covered fragment also writes (id, −id) of its element into the id target
  * (rg16float, min blending), so per texel r is the smallest and −g the largest element id whose
  * liquid carries text there.
+ * W89 (D89-2, D89-3, D89-7): every moving element enters the pass. A text-less one (no valid text
+ * record) gets coverage 0 and adds nothing to T1w (`acc_w = w × has_text`), but writes T1id and
+ * T1mix, so its liquid counts where it meets a card. The vertex stage samples the particle's ink:
+ * the mean premultiplied atlas texel over its rest cell (√mass CSS px square, INK_SAMPLES² taps,
+ * a tap outside the border box is 0; ink.ts particleInk). T1ink gets Σw·ink, T1mix (Σw·rank, Σw).
  */
 export const TEXT_WGSL = /* wgsl */ `
 ${VIEW_WGSL}
@@ -261,6 +267,7 @@ const PI: f32 = 3.14159265358979;
 const FINV_NORM_CLAMP: f32 = ${f32(FINV_NORM_CLAMP)};
 const TEXT_DET_EPS: f32 = ${f32(TEXT_DET_EPS)};
 const FLAG_TORN: u32 = ${FLAG_TORN}u;
+const INK_SAMPLES: u32 = ${INK_SAMPLES}u;
 
 struct TextInfo {
   atlas: vec4f, // u0, v0, us, vs of the border box in the atlas (0–1)
@@ -286,6 +293,9 @@ struct TextVarying {
   @location(5) @interpolate(flat) arect: vec4f,
   @location(6) @interpolate(flat) valid: f32,
   @location(7) @interpolate(flat) id: f32,
+  @location(8) @interpolate(flat) ink: vec4f,
+  @location(9) @interpolate(flat) rank: f32,
+  @location(10) @interpolate(flat) has_text: f32,
 }
 
 // Smallest singular value of F = (f00, f01, f10, f11) by the closed form (fmath.rs).
@@ -309,6 +319,9 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> TextV
   out.arect = vec4f(0.0, 0.0, 0.0, 0.0);
   out.valid = 0.0;
   out.id = 0.0;
+  out.ink = vec4f(0.0, 0.0, 0.0, 0.0);
+  out.rank = 0.0;
+  out.has_text = 0.0;
   let home = homes[ii];
   if (home < 0 || u32(home) >= arrayLength(&elements) || u32(home) >= arrayLength(&text_info)) {
     return out;
@@ -318,14 +331,13 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> TextV
     return out;
   }
   let info = text_info[u32(home)];
-  if (info.size.z < 0.5) {
-    return out;
-  }
+  // W89 (D89-3): a text-less element is not skipped; it splats coverage 0 (valid 0) and no T1w.
+  let has_text = !(info.size.z < 0.5);
   let p = particles[ii];
   let f = vec4f(p.a.z, p.a.w, p.b.x, p.b.y);
   let det = f.x * f.w - f.y * f.z;
   let torn = (u32(p.b.z) & FLAG_TORN) != 0u;
-  var valid = 1.0;
+  var valid = select(0.0, 1.0, has_text);
   if (torn || abs(det) < TEXT_DET_EPS) {
     valid = 0.0;
   } else {
@@ -348,6 +360,26 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> TextV
   out.arect = info.atlas;
   out.valid = valid;
   out.id = f32(home);
+  out.rank = e.rank;
+  out.has_text = select(0.0, 1.0, has_text);
+  if (has_text) {
+    // W89 (D89-2): the particle's ink, the mean premultiplied atlas texel over its rest cell (a
+    // √mass CSS px square around rest_uv), INK_SAMPLES² cell-centred taps; a tap outside the
+    // border box counts as 0 (ink.ts particleInk).
+    let cell = vec2f(sqrt(e.mass)) / out.size;
+    let tap = cell / f32(INK_SAMPLES);
+    let first = out.uv0 - 0.5 * cell + 0.5 * tap;
+    var sum = vec4f(0.0, 0.0, 0.0, 0.0);
+    for (var j = 0u; j < INK_SAMPLES; j++) {
+      for (var i = 0u; i < INK_SAMPLES; i++) {
+        let t = first + tap * vec2f(f32(i), f32(j));
+        if (all(t >= vec2f(0.0, 0.0)) && all(t <= vec2f(1.0, 1.0))) {
+          sum += textureSampleLevel(atlas, atlas_sampler, info.atlas.xy + t * info.atlas.zw, 0.0);
+        }
+      }
+    }
+    out.ink = sum / f32(INK_SAMPLES * INK_SAMPLES);
+  }
   return out;
 }
 
@@ -355,6 +387,8 @@ struct TextTargets {
   @location(0) acc: vec4f,
   @location(1) acc_w: f32,
   @location(2) id: vec2f,
+  @location(3) ink: vec4f,
+  @location(4) mix: vec2f,
 }
 
 @fragment
@@ -371,8 +405,10 @@ fn fs(in: TextVarying) -> TextTargets {
   let texel = textureSampleLevel(atlas, atlas_sampler, in.arect.xy + clamp(uv, vec2f(0.0), vec2f(1.0)) * in.arect.zw, 0.0);
   var out: TextTargets;
   out.acc = texel * (w * coverage);
-  out.acc_w = w;
+  out.acc_w = w * in.has_text;
   out.id = vec2f(in.id, -in.id);
+  out.ink = in.ink * w;
+  out.mix = vec2f(w * in.rank, w);
   return out;
 }
 `;
@@ -384,19 +420,33 @@ fn fs(in: TextVarying) -> TextTargets {
  * W79 (D79-1): coverage 0 wherever the id target's bilinear footprint holds two element ids
  * (smallest < largest): where two elements' liquids meet, neither shows text, so no pixel ever
  * carries the text of both. textureGather reads the 2×2 neighbourhood around the sample.
+ * W89 (D89-1, D89-2, D89-4, D89-8): the cut becomes a fade. Where the gather holds two ids, their
+ * ranks (the element records) and T1mix's mean rank give p and fade = smoothstep(INK_FADE_LO,
+ * INK_FADE_HI, 4p(1 − p)); the output is crisp × (1 − fade) + ink × fade, the ink being T1ink /
+ * Σw × INK_GAIN (alpha capped at INK_ALPHA_CAP) × the all-liquid edge coverage (ink.ts).
+ * W89 final review (I1): T1mix is rg32float with `float32-blendable` (else rg16float) and is read
+ * with textureLoad, because a 32-bit float texture is not filterable in core WebGPU.
  */
 export const TEXT_COMPOSITE_WGSL = /* wgsl */ `
 ${VIEW_WGSL}
+${ELEMENT_WGSL}
 const DENSITY_THRESHOLD: f32 = ${f32(DENSITY_THRESHOLD)};
 const EDGE_SOFTNESS: f32 = ${f32(EDGE_SOFTNESS)};
 const EDGE_SOFTNESS_MAX: f32 = ${f32(EDGE_SOFTNESS_MAX)};
 const SUM_W_EPS: f32 = 1e-4;
+const INK_FADE_LO: f32 = ${f32(INK_FADE_LO)};
+const INK_FADE_HI: f32 = ${f32(INK_FADE_HI)};
+const INK_GAIN: f32 = ${f32(INK_GAIN)};
+const INK_ALPHA_CAP: f32 = ${f32(INK_ALPHA_CAP)};
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var t1: texture_2d<f32>;
 @group(0) @binding(2) var t1_weight: texture_2d<f32>;
 @group(0) @binding(3) var t1_sampler: sampler;
 @group(0) @binding(4) var t1_id: texture_2d<f32>;
+@group(0) @binding(5) var t1_ink: texture_2d<f32>;
+@group(0) @binding(6) var t1_mix: texture_2d<f32>;
+@group(0) @binding(7) var<storage, read> elements: array<Element>;
 
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
@@ -415,10 +465,32 @@ fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let nhi4 = textureGather(1, t1_id, t1_sampler, uv);
   let lo = min(min(lo4.x, lo4.y), min(lo4.z, lo4.w));
   let hi = -min(min(nhi4.x, nhi4.y), min(nhi4.z, nhi4.w));
-  let mixed = lo + 0.5 < hi;
-  let coverage = select(smoothstep(DENSITY_THRESHOLD - soft, DENSITY_THRESHOLD + soft, sum_w), 0.0, mixed);
+  // W89: every sample and derivative before any branch (uniform control flow).
+  let ink_acc = textureSample(t1_ink, t1_sampler, uv);
+  // r = Σw·rank, g = Σw (all liquid). Final review I1: loaded, not sampled, so an rg32float T1mix
+  // (unfilterable) works; T1mix is at 1× the backing, so at the texel centre this equals the sample.
+  let mix_dim = textureDimensions(t1_mix);
+  let mix_xy = min(vec2u(uv * vec2f(mix_dim)), mix_dim - vec2u(1u, 1u));
+  let mixv = textureLoad(t1_mix, mix_xy, 0);
+  let soft_all = clamp(0.75 * fwidth(mixv.g), EDGE_SOFTNESS, EDGE_SOFTNESS_MAX);
+  let coverage = smoothstep(DENSITY_THRESHOLD - soft, DENSITY_THRESHOLD + soft, sum_w);
   let text = clamp(acc / max(sum_w, SUM_W_EPS), vec4f(0.0), vec4f(1.0));
-  return text * coverage;
+  let crisp = text * coverage;
+  // W89 (D89-1, D89-8): p from the mean rank between the gathered lo and hi elements' ranks.
+  var fade = 0.0;
+  if (lo + 0.5 < hi && u32(hi) < arrayLength(&elements) && mixv.g > SUM_W_EPS) {
+    let rlo = elements[u32(lo)].rank;
+    let rhi = elements[u32(hi)].rank;
+    if (rhi > rlo) {
+      let p = clamp((mixv.r / mixv.g - rlo) / (rhi - rlo), 0.0, 1.0);
+      fade = smoothstep(INK_FADE_LO, INK_FADE_HI, 4.0 * p * (1.0 - p));
+    }
+  }
+  // W89 (D89-2, D89-11): ink / Σw × INK_GAIN, its alpha capped at INK_ALPHA_CAP, × the liquid's edge.
+  let mean_a = ink_acc.a / max(mixv.g, SUM_W_EPS);
+  let k = select(INK_GAIN, INK_ALPHA_CAP / max(mean_a, SUM_W_EPS), mean_a * INK_GAIN > INK_ALPHA_CAP) / max(mixv.g, SUM_W_EPS);
+  let ink = ink_acc * k * smoothstep(DENSITY_THRESHOLD - soft_all, DENSITY_THRESHOLD + soft_all, mixv.g);
+  return crisp * (1.0 - fade) + ink * fade;
 }
 `;
 

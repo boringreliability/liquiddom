@@ -49,7 +49,8 @@ describe("W71 WGSL sources", () => {
     expect(COMPOSITE_WGSL).toContain("clamp(0.75 * fwidth(sum_w), EDGE_SOFTNESS, EDGE_SOFTNESS_MAX)");
   });
 
-  it("given_TEXT_WGSL_when_read_then_it_splats_t1_and_t1w_with_the_liquids_kernel_and_skips_resting_unpainted_or_textless_elements", () => {
+  // W89 red: approved-test change (D89-3, saga dec_b2c1c6a2) — name only: a text-less moving element is no longer skipped; it adds to T1id and T1mix but not to T1 or T1w.
+  it("given_TEXT_WGSL_when_read_then_it_splats_t1_and_t1w_with_the_liquids_kernel_and_skips_resting_or_unpainted_elements", () => {
     // W77 red: approved-test change (D77-1, approved 2026-10-10, saga dec_279c7763): the shared cap 8 → 16 px.
     expect(TEXT_WGSL).toContain("const KERNEL_RADIUS_CAP_PX: f32 = 16.0;");
     expect(TEXT_WGSL).toContain("e.mass / (PI * r2 / 3.0)");
@@ -71,14 +72,16 @@ describe("W71 WGSL sources", () => {
     expect(TEXT_WGSL).toContain("(u32(p.b.z) & FLAG_TORN) != 0u");
     expect(TEXT_WGSL).toContain("abs(det) < TEXT_DET_EPS");
     expect(TEXT_WGSL).toContain("all(uv >= vec2f(0.0, 0.0)) && all(uv <= vec2f(1.0, 1.0))");
-    expect(TEXT_WGSL).toContain("out.acc_w = w;"); // torn and outside particles still add Σw
+    // W89 red: approved-test change (D89-3, saga dec_b2c1c6a2): T1w stays text-only, so a text-less element adds no Σw there (its Σw goes to T1mix).
+    expect(TEXT_WGSL).toContain("out.acc_w = w * in.has_text;"); // torn and outside particles of a text element still add Σw
   });
 
   it("given_TEXT_COMPOSITE_WGSL_when_read_then_t1_over_t1w_is_thresholded_like_the_liquid_and_premultiplied", () => {
     expect(TEXT_COMPOSITE_WGSL).toContain("const DENSITY_THRESHOLD: f32 = 0.5;");
     expect(TEXT_COMPOSITE_WGSL).toContain("clamp(0.75 * fwidth(sum_w), EDGE_SOFTNESS, EDGE_SOFTNESS_MAX)");
     expect(TEXT_COMPOSITE_WGSL).toContain("acc / max(sum_w, SUM_W_EPS)");
-    expect(TEXT_COMPOSITE_WGSL).toContain("return text * coverage;");
+    // W89 red: approved-test change (D89-1, saga dec_65b5e308): the thresholded text is the crisp half of the ink blend.
+    expect(TEXT_COMPOSITE_WGSL).toContain("let crisp = text * coverage;");
   });
 });
 
@@ -92,16 +95,15 @@ describe("W79 WGSL: labels never overlap (D79-1)", () => {
     expect(TEXT_WGSL.indexOf("out.id = vec2f(in.id, -in.id);")).toBeGreaterThan(TEXT_WGSL.lastIndexOf("discard;"));
   });
 
-  it("given_TEXT_COMPOSITE_WGSL_when_read_then_it_gathers_the_ids_over_the_bilinear_footprint_and_gives_the_text_coverage_0_where_two_elements_meet", () => {
+  // W89 red: approved-test change (D89-4, saga dec_fac79d1f): D79-1's hard cut becomes the fade into ink (the unit twin of A1).
+  it("given_TEXT_COMPOSITE_WGSL_when_read_then_it_gathers_the_ids_over_the_bilinear_footprint_and_fades_the_text_into_ink_where_two_elements_meet_D89_4", () => {
     expect(TEXT_COMPOSITE_WGSL).toContain("@group(0) @binding(4) var t1_id: texture_2d<f32>;");
     expect(TEXT_COMPOSITE_WGSL).toContain("let lo4 = textureGather(0, t1_id, t1_sampler, uv);");
     expect(TEXT_COMPOSITE_WGSL).toContain("let nhi4 = textureGather(1, t1_id, t1_sampler, uv);");
     expect(TEXT_COMPOSITE_WGSL).toContain("let lo = min(min(lo4.x, lo4.y), min(lo4.z, lo4.w));");
     expect(TEXT_COMPOSITE_WGSL).toContain("let hi = -min(min(nhi4.x, nhi4.y), min(nhi4.z, nhi4.w));");
-    expect(TEXT_COMPOSITE_WGSL).toContain("let mixed = lo + 0.5 < hi;");
-    expect(TEXT_COMPOSITE_WGSL).toContain(
-      "let coverage = select(smoothstep(DENSITY_THRESHOLD - soft, DENSITY_THRESHOLD + soft, sum_w), 0.0, mixed);",
-    );
-    expect(TEXT_COMPOSITE_WGSL).toContain("return text * coverage;");
+    expect(TEXT_COMPOSITE_WGSL).toContain("smoothstep(INK_FADE_LO, INK_FADE_HI,");
+    expect(TEXT_COMPOSITE_WGSL).not.toContain("0.0, mixed)");
+    expect(TEXT_COMPOSITE_WGSL).toContain("return crisp * (1.0 - fade) + ink * fade;");
   });
 });

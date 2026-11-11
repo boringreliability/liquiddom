@@ -53,7 +53,8 @@ describe("W74 liquid-text toggle (D74-6)", () => {
   it("given_canvas2d_reduced_motion_no_textReady_or_nan_rest_alpha_when_synced_then_no_class_and_a_held_class_is_released_review_focus_1", () => {
     const bare: Renderer = { init: async () => {}, render: () => {}, resize: () => {}, destroy: () => {} };
     const cases: Array<[string, Partial<TextToggleArgs>, number]> = [
-      ["canvas2d", { activeRenderer: "canvas2d" }, 0.4],
+      // W89 red: approved-test change (D89-5, saga dec_e1b67b60): under Canvas2D the class follows the mixing report (textMixing), so this case is Canvas2D without one.
+      ["canvas2d without a mixing report (textReady only)", { activeRenderer: "canvas2d" }, 0.4],
       ["reduced motion", { reducedMotion: true }, 0.4],
       ["atlas text not ready", { renderer: renderer(() => false) }, 0.4],
       ["a renderer without textReady (Canvas2D)", { renderer: bare }, 0.4],
@@ -72,6 +73,26 @@ describe("W74 liquid-text toggle (D74-6)", () => {
       syncTextClasses(args({ ...o, els: [fresh], alphas: [alpha] }));
       expect(fresh.className, `${name}: never set`).toBe("btn");
     }
+  });
+
+  it("given_canvas2d_and_a_renderer_with_a_mixing_report_when_synced_then_the_class_follows_textMixing_not_textReady_and_reduced_motion_or_rest_still_win_D89_5", () => {
+    const [a, b] = [el(), el()];
+    const mixing = new Set<number>([0]);
+    const r: Renderer = { ...renderer(() => true), textMixing: (id) => mixing.has(id) };
+    const held = new Set<HTMLElement>();
+    syncTextClasses(args({ els: [a, b], alphas: [0.4, 0.4], activeRenderer: "canvas2d", renderer: r, held }));
+    expect([a.classList.contains(TEXT_CLASS), b.classList.contains(TEXT_CLASS)], "only the mixing element").toEqual([true, false]);
+    mixing.delete(0);
+    syncTextClasses(args({ els: [a, b], alphas: [0.4, 0.4], activeRenderer: "canvas2d", renderer: r, held }));
+    expect(a.classList.contains(TEXT_CLASS), "the report released it").toBe(false);
+    mixing.add(1);
+    syncTextClasses(args({ els: [a, b], alphas: [0.4, 1], activeRenderer: "canvas2d", renderer: r, held }));
+    expect(b.classList.contains(TEXT_CLASS), "at rest the DOM text shows").toBe(false);
+    syncTextClasses(args({ els: [a, b], alphas: [0.4, 0.4], activeRenderer: "canvas2d", renderer: r, held, reducedMotion: true }));
+    expect(b.classList.contains(TEXT_CLASS), "reduced motion").toBe(false);
+    const gpuHeld = new Set<HTMLElement>();
+    syncTextClasses(args({ els: [a, b], alphas: [0.4, 0.4], activeRenderer: "webgpu", renderer: r, held: gpuHeld }));
+    expect(gpuHeld.size, "WebGPU still follows textReady").toBe(2);
   });
 
   it("given_two_instances_holding_one_element_when_one_releases_then_the_class_stays_until_both_release", () => {

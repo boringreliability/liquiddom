@@ -34,6 +34,9 @@ import { FluidCanvas2DRenderer } from "./renderers/fluid-canvas2d";
 import { WebGPURenderer, type TextIdCapture } from "./renderers/webgpu/webgpu-renderer";
 import { loadFluidWasm, type FluidBackend, type FluidCoreLike } from "./wasm-loader";
 
+/** W89 M4 (saga dec_572aeba3): Canvas2D adds at most this many atlas entries per frame (a 48-element first motion builds in steps). */
+export const ATLAS_BUILD_BUDGET = 8;
+
 export const LIQUID_CANVAS_CLASS = "liquid-canvas";
 export const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 export const STATIC_CONTAINER_WARNING =
@@ -124,8 +127,9 @@ export interface FluidRuntime {
   /**
    * @internal W79 (D79-1) scene test hook: the text id target of the next rendered frame (WebGPU);
    * null under Canvas2D, after a lost device or destroy(). Only the acceptance hook calls it.
+   * W89 (D89-4, resolution 8): `{ mix: true }` also returns that frame's T1mix and the ranks.
    */
-  captureTextIds(): Promise<TextIdCapture | null>;
+  captureTextIds(opts?: { mix?: boolean }): Promise<TextIdCapture | null>;
   /** @internal W88 (D88-3, Review Focus 5): the box-shadow layers the snapshot read for `el` (inset included); empty when unobserved. Scene hooks only. */
   shadowLayers(el: HTMLElement): readonly ShadowLayer[];
   /** Re-snapshot colours of an observed element (no-op otherwise). W75: also re-colours the halo rule and re-renders the atlas entry. W88: also re-reads its box-shadow. */
@@ -368,6 +372,18 @@ function buildRuntime(
    */
   let atlasDeferred = false;
   /**
+   * W89 (D89-5, resolution 12): Canvas2D builds the atlas once its renderer reports `wantsAtlas()`
+   * (two elements moved; sticky), from the next frame on; a device-lost rebuild keeps a page it had.
+   */
+  let atlasWanted = false;
+  /**
+   * W89 M4 (saga dec_572aeba3): under Canvas2D the page holds only these slots: the renderer's
+   * atlasCandidates() (moving, near another moving liquid), at most ATLAS_BUILD_BUDGET new ones per
+   * frame, kept until unobserve. A slot without an entry has no atlas rect, so it is never drawn
+   * and never holds liquid-text. WebGPU builds every element (W74).
+   */
+  const atlasSet = new Set<number>();
+  /**
    * W75 amendment B (D75-1): slots whose text changed (or that were newly observed) since the last
    * build. While a build waits, their paints carry no atlas rect, so the in-flight page's record for
    * them is never valid (no stale glyphs once it confirms) and the DOM text shows until the next page.
@@ -375,6 +391,11 @@ function buildRuntime(
   const atlasOutdated = new Set<number>();
   /** This instance's liquid-text holds (refcounted across instances in stylesheet.ts). */
   const textHeld = new Set<HTMLElement>();
+  /**
+   * W89 (resolution 4): a fail-safe path cleared text holds whose text the canvas still shows; the
+   * repaint without shadows then also suppresses the text. Set before the clear, reset after the repaint.
+   */
+  let textOnCanvas = false;
   /** Observed slot ids, refreshed with the paints. */
   let observedIds: number[] = [];
 
@@ -457,6 +478,8 @@ function buildRuntime(
   const haloHeld = new Set<HTMLElement>();
   /** W78 (D78-1): this instance's liquid-away holds (refcounted across instances in stylesheet.ts). */
   const awayHeld = new Set<HTMLElement>();
+  /** W89 (D89-6, resolution 2): per slot 1 while `awayHeld` holds its element, rewritten after each away sync. */
+  const awaySlots = new Uint8Array(bridge.elementCapacity);
   /** W88 (D88-1): this instance's liquid-shadow-away holds (refcounted across instances in stylesheet.ts). */
   const shadowHeld = new Set<HTMLElement>();
   /** W88 (D88-3): elements whose box-shadow must be re-read (a `box-shadow` transitionend); waits like colourPending. */
@@ -589,6 +612,9 @@ function buildRuntime(
     core.set_reduced_motion(reducedMotion);
     // W74 (Review Focus 1): reduced motion switched on mid-splash shows the DOM text at once, without waiting for a frame.
     if (reducedMotion) {
+      // W89 (D89-10): the paused repaint below draws no text either. Final review (M2): also for the
+      // ink of an away (dragged) element, which holds no liquid-text; before the cancel releases it.
+      textOnCanvas = textHeld.size > 0 || awayHeld.size > 0;
       dragTracker.cancel(); // W78: reduced motion ignores drag (spec §2)
       clearTextClasses(textHeld);
       clearHaloClasses(haloHeld); // W75 (D75-3): the halo goes at once as well
@@ -596,6 +622,7 @@ function buildRuntime(
       // W88 (D88-1): the browser's shadow is back at once; the next frame (reduced motion) draws none.
       // A paused loop has no next frame, so the canvas is repainted without shadows now (PR #10 review).
       if (loop.isPaused) takeShadowsOffCanvas();
+      textOnCanvas = false;
       clearShadowClasses(shadowHeld);
     }
   };
@@ -623,6 +650,10 @@ function buildRuntime(
   const scrollTracker = new ScrollTracker(pointerDoc.defaultView ?? window, container);
   // W83 (D83-1 … D83-5): the gravity source; `orientation` listens on the same window.
   const gravityInput = new GravityInput(pointerDoc.defaultView ?? window, opts.gravity ?? { source: "none", vector: [0, 0], strength: 0 });
+  const markAwaySlot = (el: HTMLElement): void => {
+    const id = registry.idOf(el);
+    if (id !== undefined && id >= 0 && id < awaySlots.length) awaySlots[id] = 1;
+  };
   const syncAway = (): void => {
     awayStateView = bridge.stateView();
     awayArgs.entries = registry.entries();
@@ -631,6 +662,9 @@ function buildRuntime(
     awayArgs.reducedMotion = reducedMotion;
     syncAwayClasses(awayArgs);
     awayStateView = null; // a fresh view every frame (WASM memory can grow)
+    // W89 (resolution 2): the renderer's mixing report skips a slot this instance holds away.
+    awaySlots.fill(0);
+    if (awayHeld.size > 0) awayHeld.forEach(markAwaySlot);
   };
   // W75 (RF5): a web font that finishes after observe re-renders every atlas entry once (next frame).
   const fontSet = (pointerDoc as Document & { fonts?: EventTarget }).fonts ?? null;
@@ -692,15 +726,19 @@ function buildRuntime(
     window.addEventListener("resize", resizeCanvas);
   }
 
-  /** W74 (D74-5): rebuilt with the paints under WebGPU; any failure means no atlas text (one console.warn). */
+  /**
+   * W74 (D74-5): rebuilt with the paints under WebGPU, and under Canvas2D once it wants the atlas
+   * (W89, D89-5); any failure means no atlas text (one console.warn).
+   */
   const rebuildAtlas = (): void => {
     atlasDeferred = false;
     atlasOutdated.clear();
     atlasRects = NO_ATLAS_RECTS;
     atlasFrame = null;
-    if (activeRenderer !== "webgpu") return;
+    if (activeRenderer !== "webgpu" && !atlasWanted) return;
     const entries: Array<{ id: number; el: HTMLElement; dpr: number }> = [];
-    for (const rec of registry.entries()) entries.push({ id: rec.id, el: rec.el, dpr: viewport.dpr });
+    const all = activeRenderer === "webgpu";
+    for (const rec of registry.entries()) if (all || atlasSet.has(rec.id)) entries.push({ id: rec.id, el: rec.el, dpr: viewport.dpr });
     try {
       atlasRects = textAtlas.build(entries);
       const page = textAtlas.canvas;
@@ -838,6 +876,7 @@ function buildRuntime(
     viewport,
     reducedMotion,
     textAtlas: atlasFrame,
+    awaySlots, // W89 (resolution 2)
   });
 
   /**
@@ -845,11 +884,13 @@ function buildRuntime(
    * shadows come back, while the canvas (no frame follows) would keep the last frame with the
    * renderer's. One render of the current state with `suppressShadows` removes those. Only when this
    * instance holds a class (its canvas has shadows); false when the render threw (nothing logged).
+   * W89 (resolution 4, D89-10): also when a text class was held (`textOnCanvas`), and the repaint
+   * draws no ink, no atlas text and no liquid text (`suppressText`), so returned DOM text is never doubled.
    */
   const repaintWithoutShadows = (): boolean => {
-    if (renderer === null || shadowHeld.size === 0) return true;
+    if (renderer === null || (shadowHeld.size === 0 && !textOnCanvas)) return true;
     try {
-      renderer.render({ ...buildFrame(), suppressShadows: true });
+      renderer.render({ ...buildFrame(), suppressShadows: true, suppressText: true });
       return true;
     } catch {
       return false;
@@ -906,7 +947,8 @@ function buildRuntime(
       // scope no page is built; `stale` (or atlasDeferred) stays set and the build runs on the
       // first frame after the confirmation, with the newest text.
       const atlasBusy = activeRenderer === "webgpu" && renderer instanceof WebGPURenderer && renderer.atlasPending;
-      const atlasDue = activeRenderer === "webgpu" && (textAtlas.stale || atlasDeferred) && !atlasBusy;
+      // W89 (D89-5): Canvas2D too, once it wants the atlas.
+      const atlasDue = (activeRenderer === "webgpu" || atlasWanted) && (textAtlas.stale || atlasDeferred) && !atlasBusy;
       if (bridge.syncGeneration() || paintsDirty || atlasDue) {
         paintsDirty = false;
         if (atlasBusy) atlasDeferred = true;
@@ -915,6 +957,21 @@ function buildRuntime(
       }
       // W72 (D72-3): null only while a device-lost rebuild is in flight; the core keeps ticking.
       if (renderer !== null) renderer.render(buildFrame());
+      // W89 (D89-5, resolution 12): two elements moved under Canvas2D: the next frame builds the page.
+      // M4 (saga dec_572aeba3): with the entries of the elements that can mix, ATLAS_BUILD_BUDGET more per frame.
+      if (activeRenderer === "canvas2d" && renderer?.atlasCandidates) {
+        let added = 0;
+        for (const id of renderer.atlasCandidates()) {
+          if (added >= ATLAS_BUILD_BUDGET) break;
+          if (atlasSet.has(id) || registry.get(id) === undefined) continue;
+          atlasSet.add(id);
+          added += 1;
+        }
+        if (added > 0) {
+          atlasWanted = true;
+          atlasDeferred = true;
+        }
+      }
       syncText(); // W74 (D74-6)
       syncAway(); // W78 (D78-1)
       syncHalo(); // W75 (D75-3)
@@ -947,6 +1004,8 @@ function buildRuntime(
   const stopInstance = (msg: string, err: unknown): void => {
     if (failed || destroyed) return;
     failed = true;
+    // W89 (resolution 4): the stop repaint below draws no text; final review (M2): nor an away element's ink.
+    textOnCanvas = textHeld.size > 0 || awayHeld.size > 0;
     clearTextClasses(textHeld); // W74: a stopped instance never leaves text hidden
     dragTracker.destroy(); // W78: a stopped instance takes no more drags
     gravityInput.destroy(); // W83: a stopped instance drops its deviceorientation listener (idempotent)
@@ -956,6 +1015,7 @@ function buildRuntime(
     resyncStopped();
     // W88 (Review Focus 1): the browser's shadows come back; no canvas shadow may double them.
     takeShadowsOffCanvas();
+    textOnCanvas = false;
     clearShadowClasses(shadowHeld);
     console.error(msg, err);
     if (opts.onError === undefined) return;
@@ -1018,14 +1078,14 @@ function buildRuntime(
     clearAwayClasses(awayHeld); // W78
     console.warn(`${DEVICE_LOST_WARNING} (${info.reason}: ${info.message}); continuing with the Canvas2D renderer.`);
     // W74 (D74-6, Review Focus 1): the atlas text is gone with the device; show the DOM text now,
-    // before the asynchronous Canvas2D init, and drop the atlas (Canvas2D never draws text).
+    // before the asynchronous Canvas2D init. W89 (D89-5, resolution 12): the atlas is kept, and
+    // Canvas2D wants it when a page existed; its class returns once Canvas2D draws the text.
     clearTextClasses(textHeld);
     // W88 (D88-1): the browser's shadows until the Canvas2D renderer draws them (the old canvas goes with its shadows).
     clearShadowClasses(shadowHeld);
-    atlasRects = NO_ATLAS_RECTS;
-    atlasFrame = null;
-    atlasDeferred = false;
-    atlasOutdated.clear();
+    atlasWanted ||= atlasFrame !== null;
+    // W89 M4: the page WebGPU built holds every element; Canvas2D keeps them all.
+    if (atlasFrame !== null) for (const rec of registry.entries()) atlasSet.add(rec.id);
     paintsDirty = true;
     let pending: Promise<FluidCanvas2DRenderer>;
     try {
@@ -1093,9 +1153,30 @@ function buildRuntime(
       if (destroyed) return;
       dragTracker.detach(el); // W78: cancels a press or drag on el (README Review Focus 5)
       releaseAwayClass(awayHeld, el); // W78: before the registry restores the element
+      const textId = textHeld.has(el) ? registry.idOf(el) : undefined;
       releaseTextClass(textHeld, el); // W74: before the registry restores the element
-      if (registry.idOf(el) !== undefined) unwatchElement(el); // W75: observer, transitionend, halo hold
+      // W89 (resolution 14, Review Focus 1): the canvas drew this element's text in place of its DOM
+      // text; one repaint (paused or running) leaves it out, so the returned DOM text is never doubled.
+      let repainted = false;
+      if (textId !== undefined && renderer !== null && !failed) {
+        try {
+          renderer.render({ ...buildFrame(), textOff: textId });
+          repainted = true;
+        } catch {
+          const w = canvas.width;
+          canvas.width = w; // resets the bitmap (resolution 4's fallback)
+        }
+      }
+      const goneId = registry.idOf(el);
+      if (goneId !== undefined) {
+        unwatchElement(el); // W75: observer, transitionend, halo hold
+        atlasSet.delete(goneId); // W89 M4: a reused slot earns its own entry
+      }
       registry.unobserve(el);
+      // W89 final review (M1): the repaint may draw another element's text differently from the last
+      // frame (its mixing report stepped there), which matters while paused; the other elements'
+      // classes follow what is now drawn. After registry.unobserve, so `el` itself is not re-held.
+      if (repainted) syncText();
       splashInput.detach(el);
     },
     splash: splashAt,
@@ -1164,8 +1245,8 @@ function buildRuntime(
     get world() {
       return world;
     },
-    captureTextIds() {
-      return renderer instanceof WebGPURenderer ? renderer.captureTextIds() : Promise.resolve(null);
+    captureTextIds(opts?: { mix?: boolean }) {
+      return renderer instanceof WebGPURenderer ? renderer.captureTextIds(opts) : Promise.resolve(null);
     },
     shadowLayers(el: HTMLElement) {
       if (destroyed) return NO_SHADOWS;

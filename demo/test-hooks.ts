@@ -60,6 +60,14 @@ export interface SceneTextIds {
   pairs: Array<[number, number]>;
   /** W79 red review (M1): canvas text pixels where one element's text is alone (smallest == largest), by DOM index. */
   textPxByElement: Record<number, number>;
+  /** W89 (D89-4): mixed texels whose fade is ≥ INK_ZONE_FADE (0 without T1mix). */
+  zone: number;
+  /** W89: canvas text pixels on zone texels (0: no crisp text where the ink took over). */
+  zoneTextPx: number;
+  /** W89: zone pixels lit by ink (every channel ≥ INK_LIGHT_MIN). */
+  zoneLightPx: number;
+  /** W89 (D89-4, log only): canvas text pixels on mixed texels at fade [0.1, 0.2), [0.2, 0.5), [0.5, 0.9), >= 0.9. */
+  bandTextPx: [number, number, number, number];
 }
 
 export interface LiquidTestHook {
