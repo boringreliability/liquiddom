@@ -1,10 +1,10 @@
 # Context — liquiddom
 
 ## Last Updated
-Ward 87 complete — 2026-10-24 (whole picture after slice 6, gold approved by Dennis). 0.3.0-alpha.1 published 2026-10-24; epic 15 complete. Next: Epic 16 (W88 shadows).
+Ward 89 complete — 2026-11-11 (ink, gold approved by Dennis). 0.3.0-alpha.1 published 2026-10-24.
 
 ## Current State
-Epic 15 (Fluid Engine) complete; Epic 16 (Liquid look) active, W88 shadows complete. `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. Soft-body: tag `softbody-final`. Packages `0.3.0-alpha.1` (pre mode `alpha`), published on npm (`latest` + `alpha`, trusted publishing; 0.2.0-rc.0 deprecated); `site/` is the private workspace `@liquiddom/site` (Astro 7, core's dist; W86). Test totals: `.wdd/PROGRESS.md`, ward gold notes.
+Epic 15 (Fluid Engine) complete; Epic 16 (Liquid look) active, W88 shadows and W89 ink complete. `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. Soft-body: tag `softbody-final`. Packages `0.3.0-alpha.1` (pre mode `alpha`), published on npm (`latest` + `alpha`, trusted publishing; 0.2.0-rc.0 deprecated); `site/` is the private workspace `@liquiddom/site` (Astro 7, core's dist; W86). Test totals: `.wdd/PROGRESS.md`, ward gold notes.
 
 Canonical vision, acceptance scene (8 steps), slice matrix: `.wdd/NORTH-STAR.md`. Binding design: `docs/superpowers/specs/2026-10-02-liquiddom-fluid-design.md`. Execution ledger, rulings: `.superpowers/sdd/README/progress.md` (git-ignored).
 
@@ -30,7 +30,7 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Fluid decisions: `ward
 | Site back as workspace (landing, playground, docs) on core's dist; blocking Playwright `site` (Canvas2D); deploy dispatch-only | Public API only, tested like the examples | W86 (D86-1…8) |
 | `parseCssColor` hands unparsed syntax (oklch, lab, color(), named) to a cached 1×1 canvas probe | Tailwind colours, not default purple | W86 (D86-9) |
 | Shadows follow the liquid: browser at rest, `liquid-shadow-away` + renderer while away (D88-1 … D88-14) | Exact at rest, follows in motion | W88 |
-| Text dissolves like ink where two liquids mix (fade from the lo/hi rank mix); Canvas2D draws a mixing element's atlas text under `liquid-text`; T1mix `rg32float` with `float32-blendable`, else `rg16float` (D89-1 … D89-12; D89-8 amended to (b) in the final review, saga dec_7d9fb007) | Merge reads as ink, crisp at rest | W89 |
+| Text dissolves like ink where two liquids mix (fade from the lo/hi rank mix); Canvas2D draws a mixing element's atlas text under `liquid-text`; T1mix `rg32float`/`rg16float` (D89-1 … D89-12, D89-8 amended, saga dec_7d9fb007) | Merge reads as ink, crisp at rest | W89 |
 
 ## Active Constraints
 - Rust er DOM-blind og farve-blind (kun matematik)
@@ -66,7 +66,7 @@ Soft-body decisions (W1–W62): `.wdd/memory/snapshots/`. Fluid decisions: `ward
 - Canvas2D cell `ceil(R)/6` (W82): ≈ 2.8× render time on large kernels; one fine-spaced element holds the page on the 2 px floor (W77).
 - Colour probe (W86): needs a 2d canvas (null in jsdom); 256 cached strings.
 - Shadows (W88): see CLAUDE.md's Shadows "Known" line and `ward-088.md` (holes, 16 WebGPU sources, spread cap 128 px in motion, `unobserve` mid-motion).
-- Ink (W89): CLAUDE.md's Ink "Known" line (three-way p, `INK_CELL_FACTOR`, WGSL parity, the rg16float T1mix fallback without `float32-blendable`); Canvas2D home text has no halo under `liquid-text` (M7).
+- Ink (W89): CLAUDE.md's Ink "Known" line; Canvas2D home text has no halo under `liquid-text` (M7).
 
 ## What Comes Next
-- Epic 16 'Liquid look' (`.wdd/epics/16-liquid-look.md`): W88 shadows follow the liquid complete (2026-10-30); the next look ward per the epic, deferred W88 follow-ups in ward-088.md.
+- Epic 16 (`.wdd/epics/16-liquid-look.md`): next look ward. Follow-ups: ward-088.md, ward-089.md (hero arrival p95).
