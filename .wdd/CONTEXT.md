@@ -1,10 +1,10 @@
 # Context — liquiddom
 
 ## Last Updated
-Ward 89 complete — 2026-11-11 (ink, gold approved by Dennis). 0.3.0-alpha.1 published 2026-10-24.
+Ward 89 complete — 2026-11-11 (ink, gold approved by Dennis). 0.3.0-alpha.2 published 2026-11-12.
 
 ## Current State
-Epic 15 (Fluid Engine) complete; Epic 16 (Liquid look) active, W88 shadows and W89 ink complete. `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. Soft-body: tag `softbody-final`. Packages `0.3.0-alpha.1` (pre mode `alpha`), published on npm (`latest` + `alpha`, trusted publishing; 0.2.0-rc.0 deprecated); `site/` is the private workspace `@liquiddom/site` (Astro 7, core's dist; W86). Test totals: `.wdd/PROGRESS.md`, ward gold notes.
+Epic 15 (Fluid Engine) complete; Epic 16 (Liquid look) active, W88 shadows and W89 ink complete. `LiquidDOM.create()` runs a 2D MLS-MPM fluid in Rust/WASM (`FluidCore`), drawn by Canvas2D or WebGPU. Soft-body: tag `softbody-final`. Packages `0.3.0-alpha.2` (pre mode `alpha`), published on npm (`latest` + `alpha`, trusted publishing; 0.2.0-rc.0 deprecated); `site/` is the private workspace `@liquiddom/site` (Astro 7, core's dist; W86). Test totals: `.wdd/PROGRESS.md`, ward gold notes.
 
 Canonical vision, acceptance scene (8 steps), slice matrix: `.wdd/NORTH-STAR.md`. Binding design: `docs/superpowers/specs/2026-10-02-liquiddom-fluid-design.md`. Execution ledger, rulings: `.superpowers/sdd/README/progress.md` (git-ignored).
 
