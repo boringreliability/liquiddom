@@ -28,6 +28,8 @@
     "fluid-under-the-page",
     "fluid-webgpu-default",
     "fluid-webgpu-liquid",
-    "w86-colour-probe"
+    "w86-colour-probe",
+    "w88-shadows",
+    "w89-ink"
   ]
 }

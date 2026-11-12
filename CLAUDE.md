@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `liquiddom` puts WASM-driven **fluid dynamics** (2D MLS-MPM) on real DOM elements via a hidden `<canvas>`, preserving a11y. Rust computes the fluid on the CPU; TypeScript observes the DOM, runs the frame loop and renders. They share pre-allocated `Float32Array` views in WASM memory; there is no JSON over FFI.
 
-npm workspaces: `packages/*` (`liquiddom`, `@liquiddom/react`, `@liquiddom/vue`, all `0.3.0-alpha.x`, fixed changeset group, pre mode `alpha`) and `examples/*` and `site` (W86: the private `@liquiddom/site`, Astro 7, consuming core's built `dist` like the examples; landing, `/playground/`, `/docs/`; changeset-ignored, `deploy-site.yml` is `workflow_dispatch` only; see `SITE.md`; the site is live at https://liquiddom.vsplat.io and `deploy-site.yml` deploys only from master, the `github-pages` environment allows nothing else). 0.3.0-alpha.1 is published on npm (2026-10-24; dist-tags `latest` and `alpha`, SLSA provenance); 0.2.0-rc.0 is deprecated. Epic 16 'Liquid look' (`.wdd/epics/16-liquid-look.md`) follows; W88 makes the author's box-shadow follow the liquid. One Rust crate at the repo root produces `pkg/`.
+npm workspaces: `packages/*` (`liquiddom`, `@liquiddom/react`, `@liquiddom/vue`, all `0.3.0-alpha.x`, fixed changeset group, pre mode `alpha`) and `examples/*` and `site` (W86: the private `@liquiddom/site`, Astro 7, consuming core's built `dist` like the examples; landing, `/playground/`, `/docs/`; changeset-ignored, `deploy-site.yml` is `workflow_dispatch` only; see `SITE.md`; the site is live at https://liquiddom.vsplat.io and `deploy-site.yml` deploys only from master, the `github-pages` environment allows nothing else). 0.3.0-alpha.2 is published on npm (2026-11-12, with W88 shadows and W89 ink; dist-tags `latest` and `alpha`, SLSA provenance); 0.2.0-rc.0 is deprecated. Epic 16 'Liquid look' (`.wdd/epics/16-liquid-look.md`) follows; W88 makes the author's box-shadow follow the liquid and W89 dissolves text like ink where two liquids meet. One Rust crate at the repo root produces `pkg/`.
 
 ## Commands
 
@@ -39,7 +39,7 @@ npm workspaces: `packages/*` (`liquiddom`, `@liquiddom/react`, `@liquiddom/vue`,
 ## Architecture (high-level)
 
 ### Fluid engine (complete, Epic 15)
-Epic 15 is complete: slices 1–6 (W63–W87) are done and 0.3.0-alpha.1 is published. Epic 16 'Liquid look' (`.wdd/epics/16-liquid-look.md`) follows; W88 makes the author's box-shadow follow the liquid (see Shadows).
+Epic 15 is complete: slices 1–6 (W63–W87) are done and 0.3.0-alpha.1 was published. Epic 16 'Liquid look' (`.wdd/epics/16-liquid-look.md`) follows; W88 makes the author's box-shadow follow the liquid (see Shadows), W89 the ink (see Ink); 0.3.0-alpha.2 ships both.
 The soft-body engine (W6–W62) is retired as of W66; its last state is the git tag `softbody-final`. The binding design is `docs/superpowers/specs/2026-10-02-liquiddom-fluid-design.md`. The canonical acceptance scene and slice matrix are in `.wdd/NORTH-STAR.md`. Slice 1 (W63–W66) shipped the liquid at rest through the public API; slices 2–6 (W67–W87) followed the matrix and are complete.
 - `FluidCore` (`src/fluid/api.rs`, wasm-bindgen) is the only exported Rust class. `FluidBridge` (`ts/src/fluid-bridge.ts`) is the sole owner of its pointers and views.
 - Strides (`src/fluid/layout.rs` ↔ `ts/src/fluid-layout.ts`, asserted equal by a test): `ELEMENT_STRIDE = 10`, `STATE_STRIDE = 4`, `DYNAMIC_FIELDS = 7`, `STATIC_FIELDS = 3`.
